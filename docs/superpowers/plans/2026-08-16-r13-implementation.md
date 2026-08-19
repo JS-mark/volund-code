@@ -34,7 +34,7 @@
 | 3 | REM-62 | G2 | 后台 Bash（runInBackground + ShellOutput/KillShell + 2 事件 + /shells） | tools + core 事件表 + ui | 批 3 |
 | 3 | REM-63 | G5 | B7 截断续写（UI 标记 + sticky 复用） | core + ui | 批 3 |
 | 3 | REM-64 | G4 | /undo 选点规则 + 无 backup 提示 | storage/tools | 批 3 |
-| 3 | REM-65 | G6 | doctor gh CLI 检测（⚠️ 不 fail）+ auto-allow gh 规则 | apps/cli + permission 规则 | 批 3 |
+| 3 | REM-65 | G6 | doctor gh CLI 检测（⚠️ 不 fail）；原 `auto-allow gh` 合同已被 SD0-01 supersede，**不得实现或重新引入**，所有 raw Bash（含 `gh`）仍须显式 grant | apps/cli（检测 only；不得修改 permission 为 gh 放行） | 批 3 |
 | 4 | REM-66 | G1 | §17 review L2（ReviewReport/ReviewFinding + local pipeline + `apollo review` + exit 4） | shared + 新 review 包 + apps/cli | 批 4 |
 | 4 | REM-67 | D1 长尾-a | probe 键名契约 / ExecRequest exec+limits / streamResume 显式拒绝码对齐附录 B / 合成 id 注记落测 | native-bridge + provider 适配器 | 批 4 |
 | 4 | REM-68 | D1 长尾-b | 非交互 ui.* 降级 / --json 错误两行协议 / DCO bot 豁免清单 / docs verify:cli 脚本 / 估算缓存生命周期 / Task 并发上限 4 / budget 范围 / **Read 默认 2000 行 + ignore_dirs（§4.3.3，补排）** | 分散小项 | 批 4 |

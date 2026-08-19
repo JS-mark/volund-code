@@ -54,7 +54,7 @@ import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
-import { sanitize, type JsonValue } from '@apollo-code/shared'
+import { sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
@@ -88,7 +88,9 @@ import {
   TelemetryStore,
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
+import type { ToolContext } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
+import type { ToolHookDispatcher } from '@apollo-code/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
@@ -663,7 +665,11 @@ async function promptSecret(question: string): Promise<string> {
     stdin.on('data', onData)
   })
 }
-async function permissionPrompt(request: PermissionRequest): Promise<PermissionDecision> {
+async function permissionPrompt(
+  request: PermissionRequest,
+  terminalIsInteractive: () => boolean = isInteractiveTerminal,
+): Promise<PermissionDecision> {
+  if (!terminalIsInteractive()) return { kind: 'deny' }
   const answer = (
     await promptLine(
       `Permission required: ${request.toolName} ${JSON.stringify(request.spec)}\n[a]llow once, allow [s]ession, [d]eny: `,
@@ -680,6 +686,8 @@ export async function requestPermission(input: {
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
   request: PermissionRequest
+  /** Deterministic test seam; production always uses the real terminal predicate. */
+  terminalIsInteractive?: () => boolean
   version: number
 }): Promise<PermissionDecision> {
   const id = uuidv7()
@@ -702,9 +710,68 @@ export async function requestPermission(input: {
     spec: sanitize(input.request.spec as JsonValue),
     toolName: input.request.toolName,
   }
-  if (!input.interactivePermissionPrompt) return permissionPrompt(input.request)
+  if (!input.interactivePermissionPrompt)
+    return input.terminalIsInteractive
+      ? permissionPrompt(input.request, input.terminalIsInteractive)
+      : permissionPrompt(input.request)
   const decision = await input.interactivePermissionPrompt(uiRequest)
   return { kind: decision.kind }
+}
+
+export interface ProductionPermissionConfiguration {
+  /** Mutated only by the explicit --yolo/--dangerously-skip-permissions CLI path. */
+  dangerouslySkip: boolean
+  logger?: Logger
+}
+
+export interface ProductionToolPermissionChainOptions {
+  state: Pick<SessionState, 'id' | 'cwd' | 'version' | 'lineage'>
+  events: EventBus
+  permissionConfiguration: ProductionPermissionConfiguration
+  interactivePermissionPrompt: () =>
+    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | undefined
+  /** Deterministic test seam; omitted by createProductionPorts. */
+  terminalIsInteractive?: () => boolean
+}
+
+export interface ProductionToolPermissionChain {
+  permissions: PermissionManager
+  createExecutor(
+    context: (signal: AbortSignal) => ToolContext,
+    dispatchHook?: ToolHookDispatcher,
+  ): ToolExecutor
+}
+
+/**
+ * Single production composition point for tool permission enforcement.
+ *
+ * The manager is exposed because PromptLoader shares the Runner-local permission cache; callers
+ * must create ToolExecutor through this object so requestPermission and the executor cannot drift.
+ */
+export function createProductionToolPermissionChain(
+  options: ProductionToolPermissionChainOptions,
+): ProductionToolPermissionChain {
+  const permissions = new PermissionManager({}, options.permissionConfiguration)
+  permissions.setPromptHandler(async (request) => {
+    const decision = await requestPermission({
+      events: options.events,
+      interactivePermissionPrompt: options.interactivePermissionPrompt(),
+      request,
+      ...(options.terminalIsInteractive
+        ? { terminalIsInteractive: options.terminalIsInteractive }
+        : {}),
+      version: options.state.version,
+    })
+    if (options.state.lineage.depth === 0) return decision
+    return ['allow-once', 'allow-session', 'deny'].includes(decision.kind)
+      ? decision
+      : { kind: 'deny' }
+  })
+  return {
+    permissions,
+    createExecutor: (context, dispatchHook) => new ToolExecutor(permissions, context, dispatchHook),
+  }
 }
 
 export interface ProductionOptions {
@@ -1184,7 +1251,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   )
   const auth = new AuthManager({ encrypted, env: process.env, telemetry })
   const http = new NodeHttpPort()
-  const permissionOptions: { dangerouslySkip: boolean; logger: TelemetryLogger } = {
+  const permissionConfiguration: ProductionPermissionConfiguration = {
     dangerouslySkip: false,
     logger,
   }
@@ -1195,19 +1262,13 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   let dispatcher: SubagentDispatcher
   const createRunner: RunnerFactory = async (state, events) => {
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
-    const permissions = new PermissionManager({}, permissionOptions)
-    permissions.setPromptHandler(async (request) => {
-      const decision = await requestPermission({
-        events,
-        interactivePermissionPrompt,
-        request,
-        version: state.version,
-      })
-      if (state.lineage.depth === 0) return decision
-      return ['allow-once', 'allow-session', 'deny'].includes(decision.kind)
-        ? decision
-        : { kind: 'deny' }
+    const permissionChain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionConfiguration,
+      interactivePermissionPrompt: () => interactivePermissionPrompt,
     })
+    const { permissions } = permissionChain
     let evolutionEnabled = true
     let userConfig: Record<string, JsonValue> = {}
     try {
@@ -1407,8 +1468,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         })
         .catch(() => undefined)
     }
-    const executor = new ToolExecutor(
-      permissions,
+    const executor = permissionChain.createExecutor(
       (signal) => ({
         abortSignal: signal,
         session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
@@ -1592,7 +1652,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     join(home, 'sessions'),
     createRunner,
     (input) => {
-      permissionOptions.dangerouslySkip = input.skipPermissions
+      permissionConfiguration.dangerouslySkip = input.skipPermissions
     },
     async () => {
       await Promise.all([...pluginRuntimes].map((runtime) => runtime.dispose()))
@@ -1607,7 +1667,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
     createStatusSnapshotAdapter({
       version: options.identity.version,
-      dangerousPermissions: () => permissionOptions.dangerouslySkip,
+      dangerousPermissions: () => permissionConfiguration.dangerouslySkip,
       configAvailable: () =>
         access(join(home, 'config.toml')).then(
           () => true,

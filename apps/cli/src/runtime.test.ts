@@ -5,9 +5,9 @@ import { Duplex, PassThrough } from 'node:stream'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
 import type { Runner, SessionState } from '@apollo-code/core'
 import type { PluginHost } from '@apollo-code/native-bridge'
-import { PermissionManager } from '@apollo-code/permission'
 import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
 import type { ToolContext } from '@apollo-code/tool-kit'
+import { BashTool } from '@apollo-code/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -18,10 +18,10 @@ import {
   buildStatusViewModel,
   createPluginMemoryHost,
   createProductionPorts,
+  createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   registerRuntimeMemoryPrompts,
-  requestPermission,
   RuntimeSessionPort,
 } from './runtime'
 
@@ -284,45 +284,193 @@ describe('RuntimeSessionPort', () => {
     expect(await readFile(join(root, `${current.id}.jsonl`), 'utf8')).toContain('still current')
     expect(await readFile(join(root, `${target.id}.jsonl`), 'utf8')).not.toContain('still current')
   })
+})
 
-  it('routes git status through PermissionManager and emits tool.permission_asked before prompting', async () => {
+describe('production tool permission composition', () => {
+  it('uses the non-TTY fallback to deny a real BashTool before native execution', async () => {
     const events = new EventBus()
-    const seen: Array<{ type: string; payload: unknown }> = []
-    events.subscribe((event) => {
-      seen.push({ type: event.type, payload: event.payload })
+    const state = createSession({
+      id: 'session-1',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
     })
-    const request = {
-      toolName: 'Bash',
-      spec: { bash: { command: 'git status' } },
-      input: { command: 'git status' },
-      session: { id: 'session-1', cwd: '/repo' },
-      attempt: 1,
-      toolUseId: 'toolu_1',
+    const nativeExecute = vi.fn(async () => 'must not run')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
     }
-    const manager = new PermissionManager()
-    manager.setPromptHandler((pending) =>
-      requestPermission({
-        events,
-        interactivePermissionPrompt: async () => ({ kind: 'allow-once' }),
-        version: 1,
-        request: pending,
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionConfiguration: { dangerouslySkip: false, logger },
+      interactivePermissionPrompt: () => undefined,
+      terminalIsInteractive: () => false,
+    })
+    const executor = chain.createExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
       }),
     )
 
-    const decision = await manager.request(request)
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_no_prompt',
+    )
 
-    expect(decision).toEqual({ kind: 'allow-once' })
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Permission denied for Bash' }])
+    expect(nativeExecute).not.toHaveBeenCalled()
+  })
+
+  it('uses the production permission chain for a real BashTool before one native invocation', async () => {
+    const events = new EventBus()
+    const state = createSession({
+      id: 'session-1',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const timeline: string[] = []
+    const seen: Array<{ type: string; payload: unknown }> = []
+    events.subscribe((event) => {
+      if (event.type === 'tool.permission_asked') timeline.push('permission-event')
+      seen.push({ type: event.type, payload: event.payload })
+    })
+    const prompt = vi.fn(async () => {
+      timeline.push('permission-prompt')
+      return { kind: 'allow-once' as const }
+    })
+    const nativeExecute = vi.fn(async () => {
+      timeline.push('native-execute')
+      return 'clean'
+    })
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionConfiguration: { dangerouslySkip: false, logger },
+      interactivePermissionPrompt: () => prompt,
+    })
+    const executor = chain.createExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_real_bash',
+    )
+
+    expect(result.isError).not.toBe(true)
+    expect(timeline).toEqual(['permission-event', 'permission-prompt', 'native-execute'])
+    expect(prompt).toHaveBeenCalledOnce()
+    expect(prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attempt: 1,
+        input: { command: 'git status' },
+        spec: {
+          bash: { command: 'git status' },
+          fs: { read: ['.'], write: ['.'] },
+        },
+        toolName: 'Bash',
+      }),
+    )
+    expect(nativeExecute).toHaveBeenCalledOnce()
     expect(seen).toEqual([
       {
         type: 'tool.permission_asked',
-        // 附录 D.2：★toolUseId（真实 tool_use id 透传）★tool ★spec（摘要）。
         payload: {
-          toolUseId: 'toolu_1',
+          toolUseId: 'toolu_real_bash',
           tool: 'Bash',
-          spec: { bash: { command: 'git status' } },
+          spec: {
+            bash: { command: 'git status' },
+            fs: { read: ['.'], write: ['.'] },
+          },
         },
       },
     ])
+  })
+
+  it('opens the Bash bypass only when production security configuration is explicitly enabled', async () => {
+    const events = new EventBus()
+    const permissionEvents: unknown[] = []
+    events.subscribe((event) => {
+      if (event.type === 'tool.permission_asked') permissionEvents.push(event.payload)
+    })
+    const state = createSession({
+      id: 'session-1',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const nativeExecute = vi.fn(async () => 'bypassed')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const permissionConfiguration = { dangerouslySkip: false, logger }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionConfiguration,
+      interactivePermissionPrompt: () => undefined,
+      terminalIsInteractive: () => false,
+    })
+    const executor = chain.createExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const bash = new BashTool({ platform: 'darwin' })
+
+    const denied = await executor.execute(
+      bash,
+      { command: 'pwd' },
+      new AbortController().signal,
+      'toolu_before_bypass',
+    )
+    expect(denied.isError).toBe(true)
+    expect(nativeExecute).not.toHaveBeenCalled()
+    expect(permissionEvents).toHaveLength(1)
+
+    permissionConfiguration.dangerouslySkip = true
+    const allowed = await executor.execute(
+      bash,
+      { command: 'pwd' },
+      new AbortController().signal,
+      'toolu_after_bypass',
+    )
+    expect(allowed.isError).not.toBe(true)
+    expect(nativeExecute).toHaveBeenCalledOnce()
+    expect(permissionEvents).toHaveLength(1)
+    expect(logger.warn).toHaveBeenCalledWith('permissions bypassed', { toolName: 'Bash' })
   })
 })
 

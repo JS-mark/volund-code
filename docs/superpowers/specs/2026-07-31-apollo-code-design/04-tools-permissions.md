@@ -128,7 +128,7 @@ KillShell { shellId: string }
 - **沙箱**：与前台 Bash 同 profile（cwd 读写白名单）；`timeoutMs` 对后台模式**不生效**（abort 语义只在 `KillShell` / session 结束时生效）。
 - **事件**：`shell.background_started` / `shell.background_exited`（§2.3 事件表，17 → 19）。
 - **UI**：TopBar 后台任务计数徽标；`/shells` slash 命令列出全部后台 shell（§11.4）。
-- **权限**：`runInBackground: true` 的 Bash 弹窗文案加"（后台运行）"标注；后台 Bash **不进** auto-allow 静默白名单（长时副作用风险更高）。
+- **权限**：`runInBackground: true` 的 Bash 弹窗文案加"（后台运行）"标注；前台与后台 raw Bash **均不存在** auto-allow 静默白名单，未命中显式 grant 时一律进入权限请求（后台模式另加长时副作用提示）。
 
 #### 4.3.2 Edit 完整契约（r13-J3）
 

@@ -58,13 +58,15 @@ pnpm turbo run typecheck test build --force
 | seven tools and destructive sandbox declarations | `@apollo-code/tools` | `src/index.test.ts` — `registers seven tools and destructive tools require sandbox` |
 | schema validation before permission | `@apollo-code/tools` | `src/index.test.ts` — `validates before permission` |
 | long tool-result truncation | `@apollo-code/tools` | `src/index.test.ts` — `middle-truncates long output` |
-| eight-step permission order | `@apollo-code/permission` | `src/index.test.ts` — `uses strict decision order` |
+| eight-step permission order and conflicts | `@apollo-code/permission` | `src/index.test.ts` — `puts project and global deny rules above session cache and explicit allows`; `covers the cache, project, global, dangerous, and prompt conflict matrix`; `conservatively auto-allows cwd reads` |
 | serialized permission prompts and session cache | `@apollo-code/permission` | `src/index.test.ts` — `serializes prompts and caches session grants` |
 | conservative cwd read auto-allow | `@apollo-code/permission` | `src/index.test.ts` — `conservatively auto-allows cwd reads` |
 | every raw Bash command prompts, including shell-control edge cases | `@apollo-code/permission` | `src/index.test.ts` — `prompts for every raw Bash command, including shell-control edge cases` |
 | raw Bash denies when no prompt exists | `@apollo-code/permission` | `src/index.test.ts` — `denies every ungranted raw Bash command when no prompt is available` |
-| explicit Bash grants, persistence, session cache, and dangerous bypass order | `@apollo-code/permission` | `src/index.test.ts` — the three named Bash grant / cache / bypass tests |
-| raw Bash permission event integration | `apollo-code` | `src/runtime.test.ts` — `routes git status through PermissionManager and emits tool.permission_asked before prompting` |
+| explicit Bash grants, persistence/reload isolation, exact session cache, and dangerous bypass order | `@apollo-code/permission` | `src/index.test.ts` — `honors explicit project and global Bash grants without prompting`; `records prompted Bash grants and caches only an explicit session decision`; `keys Bash session grants by the exact command and prompts again for variants`; both `reloads an exact ... Bash grant without widening to variants` cases; `keeps the explicit dangerous bypass after deny rules and logs its use` |
+| production raw Bash permission chain denies before native execution | `apollo-code` | `src/runtime.test.ts` — `uses the non-TTY fallback to deny a real BashTool before native execution` |
+| production shared-composition raw Bash event/spec/order integration | `apollo-code` | `src/runtime.test.ts` — `uses the production permission chain for a real BashTool before one native invocation` (the helper shared by `createProductionPorts`, real `BashTool` + `ToolExecutor`, exact `toolUseId`, full Bash/fs `PermissionSpec`, event → prompt → one native invocation; this is not claimed as a complete Runner E2E) |
+| production dangerous Bash bypass opt-in | `apollo-code` | `src/runtime.test.ts` — `opens the Bash bypass only when production security configuration is explicitly enabled` |
 | sandbox tier frozen per process | `@apollo-code/native-bridge` | `src/sandbox.test.ts` — `is frozen for the lifetime of the process` |
 | worker handshake/restart/idle lifecycle | `@apollo-code/native-bridge` | `src/worker-pool.test.ts` — all three named tests |
 | malformed worker protocol handling | `@apollo-code/native-bridge` | `src/ipc.test.ts` — `rejects malformed protocol frames without losing later frames` |
