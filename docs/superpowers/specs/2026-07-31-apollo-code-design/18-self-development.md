@@ -44,7 +44,7 @@ v1 明确不做：
 | **Promotion Worker** | 已批准的精确 digest 集合、base、新本地 ref 名 | 幂等创建本地 branch/commit ref、记录结果 | push、merge、tag、publish、改当前 worktree、重跑开发 |
 | **Journal Anchor Service** | 已验证的下一个链头、store generation、前一 anchor | 用独立 issuer key 推进 append-only monotonic anchor | 使用 human key、签审批、读取候选内容、接受分叉/回退 |
 
-**Reviewer isolation** 是硬要求，不是“换一个 prompt”即可满足：只有 `ReviewerActorRef` 的 model/service reviewer profile 可产出 attestation/advisory；Human Approver、run owner、Developer 或任意非-reviewer role 在类型层即拒绝。Reviewer 使用新会话、reviewer-only principal 和新 context-source instance，不能读取 Developer transcript、隐藏思维、临时文件、自动激活 Skill、个人/项目 Memory 或可变 Plugin 状态。Reviewer 输入必须由 sealed artifacts 和可信控制面重新构造；候选内容一律作为 untrusted data 包裹。
+**Reviewer isolation** 是硬要求，不是“换一个 prompt”即可满足：只有 `ReviewerActorRef` 的 model/service reviewer profile 可产出 attestation/advisory；Human Approver、run owner、Developer 或任意 non-reviewer role 在类型层即拒绝。每个 actor 都必须携带受信 identity issuer 签发的 `principalBindingDigest + credentialBindingDigest`，新 `actorId` 或新 session 不能掩盖同一 principal/key/credential。Reviewer 使用新会话、reviewer-only principal 和新 context-source instance，不能读取 Developer transcript、隐藏思维、临时文件、自动激活 Skill、个人/项目 Memory 或可变 Plugin 状态。Reviewer 输入必须由 sealed artifacts 和可信控制面重新构造；候选内容一律作为 untrusted data 包裹。
 
 #### 18.2.1 Human approval trust root
 
@@ -52,7 +52,19 @@ Human Approver 必须是 discriminated `HumanApproverRef { kind:'human', role:'h
 
 Key registry 不得自引用：canonical `SelfDevKeyRegistryPayload` **不含**自身 digest、ArtifactRef 或 binding；其 bytes 以 `selfdev.key-registry-payload.v1` domain digest。外部 `SelfDevKeyRegistryBinding` 才保存 `payloadArtifact + payloadDigest + registryEpoch + previousBindingDigest`，并以 `selfdev.key-registry-binding.v1` domain 计算 terminal `bindingDigest`。Run、actor、auth context、challenge、receipt 与 journal anchor 都绑定该 binding digest；消费时重读 payload bytes、复算 artifact/payload/binding 三层，并与受保护 latest epoch/lineage 对账。
 
-Registry record 以 discriminator 分离 human approval actor key、challenge issuer、receipt issuer 和 journal-anchor issuer；每条记录绑定 actor/service build、usage、唯一允许的 signature domain、trust root purpose、有效期和 revocation epoch。Verifier 必须同时匹配 `keyId + algorithm + usage + domain + actor/service + role + build + root purpose`，并在签发与消费时重查 expiry/revocation；cross-domain、cross-role、未知 usage、过期、撤销或 registry/anchor rollback 一律拒绝。Human key 只能签 `HumanProof`，绝不能充当 challenge/receipt/journal issuer；模型和 service actor 也不能借用 OS/session 字段伪装 Human Approver。
+Registry record 以 discriminator 分离 principal-binding issuer、credential-binding issuer、builtin-classifier-registry issuer、task-class-attestation issuer、human approval actor key、challenge issuer、receipt issuer 和 journal-anchor issuer；每条记录绑定 issuer/actor/service build、usage、唯一允许的 signature domain、trust root purpose、有效期和 revocation epoch。Verifier 必须同时匹配 `keyId + algorithm + usage + domain + issuer/actor/service + role + build/channel + root purpose`，并在签发与消费时重查 expiry/revocation；cross-domain、cross-role、未知 usage、过期、撤销或 registry/anchor rollback 一律拒绝。Human key 只能签 `HumanProof`，绝不能充当 identity/classifier/challenge/receipt/journal issuer；模型和 service actor 也不能借用 OS/session 字段伪装 Human Approver。
+
+#### 18.2.2 Participant identity trust root
+
+所有参与者——Human Run Owner/Approver、Service Orchestrator/Verifier/Promotion/Anchor worker、Model Developer/Reviewer 及 service reviewer——共享同一 identity contract。受保护的 trust root、launcher 或 auth subsystem 先签发不含秘密的 `CredentialBinding`，再签发引用它的 `PrincipalBinding`；两者分别使用独立 signature domain/key usage，绑定 `actorId + kind + role + purpose domain + issuer + subject/key/opaque credential digest + validity + revocation epoch`。原始 token、private key、cookie、OS credential 或 provider secret 永不进入 run/evidence；只有受信 registry artifact、公开验证材料和 digest 可持久化。
+
+`ActorRef` 只保存两个 binding digest；消费 actor 的每个 transition、lease、effect、review 和 approval 都必须重读 artifacts，复算 payload/binding/signature，并确认 actor 字段、用途、有效期、latest registry epoch 和 revocation 一致。Issuer 由 registry 中的 identity-issuer key 标识，不能用一个完整 ActorRef 自签自身 binding，也不能让 candidate/model提供 issuer、subject 或 credential digest。
+
+Builtin role-purpose matrix 固定如下，identity issuer record 只能在其中进一步收窄 `allowedActorKinds/allowedRoles/allowedPurposeDomains`，不能新增组合：human=`run-owner|human-approver`；model=`developer|reviewer`；service=`orchestrator|verifier|reviewer|promotion-worker|journal-anchor`，且每个 role 只能使用同名 `selfdev.participant.<role>.v1` purpose。任一 kind/role/purpose 交叉、issuer scope 越界或 user/base policy 试图扩张 matrix 均拒绝。
+
+`authenticationContextDigest` 不得形成 actor↔context 自引用。Human Approver 的 `ApprovalAuthenticationContext` payload 只嵌入去掉该字段的 `HumanApproverIdentityRef`；最终 `HumanApproverRef.authenticationContextDigest` 再指向已完成的 context digest。其他 actor 的该字段指向 launcher/auth subsystem 先完成的外部 authentication-context artifact，不能指回包含完整 ActorRef 的对象。
+
+控制面在 `ACCEPTING` 前冻结完整 `ParticipantIdentitySet`：包括已经执行动作的 actor，以及当前 generation 被指定用于后续审批、promotion 和 anchor 的 actor。集合按规范键排序去重，forbidden 集只能由 reducer 从完整 role/participation 记录派生，调用方不能提交排除名单。Reviewer 必须与 Developer、run owner、所有 Human Approver、Orchestrator、Verifier、Promotion Worker、Journal Anchor 和其他 forbidden participant 在 `actorId`、principal/credential binding digest、payload 内稳定 `principalSubjectDigest`/`opaqueCredentialHandleDigest` 和 key 全部不同；高风险 reviewer 彼此也在这些维度以及 session/context-source 上全部不同。若审批或 promotion 临时换成未列入集合的新 participant，必须作废 Acceptance/Approval context，重建集合并重新独立验收，不能事后追加绕过排除检查。
 
 ### 18.3 状态机
 
@@ -69,13 +81,13 @@ PROPOSED → BASELINING → DEVELOPING → SEALING → VERIFYING
 
 | From | To | 唯一授权角色 | 必须满足的 guard |
 |---|---|---|---|
-| `PROPOSED` | `BASELINING` | Orchestrator | 目标/task classes 已规范化；`baseRef` 匹配 effective allow 且不命中 deny，当前 head 等于 `baseSha`；`promotionRef` 匹配 prefix/deny policy、不存在且所需 store reservation 已固定；policy/预算均固定 |
-| `BASELINING` | `DEVELOPING` | Orchestrator | BaselineBundle 完整且非 inconclusive；现有失败按 policy 允许由目标修复；新 generation/worktree 已分配 |
+| `PROPOSED` | `BASELINING` | Orchestrator | caller `taskClassHints` 仅按 untrusted hint 保存；protected builtin registry/release expected digest、base-policy constraint digest 与 typed slots 已校验；可信控制面已从冻结的 goal/base/static inputs 生成 deterministic result 和 signed `TaskClassAttestation`，其 registry/definition/request/result/effective-policy digest 均固定且 issuer 当前有效；run owner、Orchestrator 和已 designated actor 的 Principal/Credential bindings 均通过 latest registry/validity/revocation 校验；`baseRef` 匹配 effective allow 且不命中 deny，当前 head 等于 `baseSha`；`promotionRef` 匹配 prefix/deny policy、不存在且所需 store reservation 已固定；policy/预算均固定 |
+| `BASELINING` | `DEVELOPING` | Orchestrator | BaselineBundle 完整且非 inconclusive；每个可修复现有失败的 repair rule 必须匹配 `baselineExceptionAuthorizedTaskClassIds` 中同一个 authoritative class，mixed/ineligible/fallback 不得串权；新 generation/worktree 已分配 |
 | `DEVELOPING` | `SEALING` | Developer 申请、Orchestrator 执行 | lease 有效；变更全在允许路径；预算未超；无 cancel intent |
 | `SEALING` | `VERIFYING` | Orchestrator | 写 lease 已撤销；manifest/tree/patch/policy/artifact digest 复算一致；PromotionPlan 已固定 |
-| `VERIFYING` | `ACCEPTING` | Deterministic Verifier | required、holdout、safety 全部明确 pass；VerificationBundle 完整 |
+| `VERIFYING` | `ACCEPTING` | Deterministic Verifier | required、holdout、safety 全部明确 pass；VerificationBundle 完整；本 generation 的 performed + designated `ParticipantIdentitySet` 已完整验证并以该 transition 的 exact state version 冻结，后续 review 只能绑定该 digest |
 | `VERIFYING` | `REPAIRING` | Orchestrator | verdict 为可修复 `fail`；安全不变量未失败；repair budget 尚有余额；finding 已去敏 |
-| `ACCEPTING` | `AWAITING_HUMAN` | ReviewerActorRef 申请、Orchestrator 执行 | deterministic verification/safety 硬门仍为 pass；typed channel 无解析异常；全部 policy-required advisory reviews 建议 `accept`；reviewer actor/principal/session/context-source 两两唯一且不复用 Developer/run-owner/HumanApprover；risk classifier 与 reviewer count 满足；AcceptanceReport 完整绑定 verification/PromotionPlan |
+| `ACCEPTING` | `AWAITING_HUMAN` | ReviewerActorRef 申请、Orchestrator 执行 | deterministic verification/safety 硬门仍为 pass；typed channel 无解析异常；全部 policy-required advisory reviews 建议 `accept`；`TaskClassificationResult` 与 signed `TaskClassAttestation` 仍有效且每个 isolation attestation 均绑定其 digest；`ParticipantIdentitySet` 与进入 ACCEPTING 时冻结的 exact digest/version 相同，reviewer actor/principal/credential/key/session/context-source 两两唯一且不复用任何 forbidden participant；classification/risk reviewer count 满足；AcceptanceReport 完整绑定 classification、participant set、verification 与 PromotionPlan |
 | `ACCEPTING` | `REPAIRING` | Orchestrator | advisory finding 建议 repair；finding 可修复且 repair budget 尚有余额；deterministic safety 未失败 |
 | `ACCEPTING` | `REJECTED` | Independent Reviewer 申请、Orchestrator 执行 | advisory recommendation=`reject`；report digest 已持久化；Orchestrator 按固定 policy 接受该终止建议 |
 | `REPAIRING` | `DEVELOPING` | Orchestrator | 上一 sealed generation 未变；attempt 原子加一且未超过 limit；新 generation/worktree/lease 已分配 |
@@ -106,6 +118,8 @@ PROPOSED → BASELINING → DEVELOPING → SEALING → VERIFYING
 8. **不可原子 fence 的文件系统写入必须物理隔离**：每个 lease holder 使用独立 worktree；lease 被接管后，旧 Runner 必须确认停止，其 worktree 永不复用。`SEALING` 只能选取当前 fencing token 对应的 tree，且必须证明所有旧 Runner 已停止或其 mount 已变只读。
 9. **审批不可转移**：Developer、Reviewer、Orchestrator 和 Promotion Worker 不能成为该 run 的 Human Approver；同一模型的不同 prompt 不构成人类审批。
 10. **审计不可删除且有独立锚点**：取消、失败、拒绝和清理不能删除 journal、manifest、evidence digest 或 receipt 使用记录。hash chain 单独只能证明内部损坏；production 必须把链头提交到候选与 Runner 均不可写的受保护单调签名锚点。
+11. **当前任务分类不受候选影响**：authoritative task classes 只由可信控制面在 `PROPOSED` 读取 canonical goal、`baseSha` 路径/可选可信 base diff 和 policy 允许的静态输入后产生并固定。Caller hints、Developer/Reviewer/模型输出、候选 diff、候选 policy 或候选新增文件都不能改变当前 generation 的 classification；改变目标或 classifier inputs 必须创建新 run。
+12. **参与者身份不能靠改名漂移**：每个 actor 的 principal/credential binding 必须由受信 identity issuer 签发并在使用时验证；`actorId`、session 或 instance 改变但 principal/credential/key 相同，仍视为同一参与者并拒绝 reviewer 独立性。Acceptance 后 participant set 改变会使 report、challenge 与 receipt 全部失效。
 
 ### 18.5 策略优先级、受保护面与 Runner profiles
 
@@ -115,7 +129,7 @@ PROPOSED → BASELINING → DEVELOPING → SEALING → VERIFYING
 effectivePolicy = meet_v1(builtinPolicy, userPolicy, policyLoadedFrom(baseSha))
 ```
 
-`SelfDevPolicy` 与 `EffectivePolicy` 必须使用注册的 `schemaVersion=1`、`latticeVersion=selfdev-policy-lattice-v1` 和 `canonicalizer=selfdev-cjson-v1`；原始 bytes、canonical payload 和 digest 均保存为 `ArtifactRef`。`PROPOSED` 固定 builtin/user/base 三个 source artifact 及 effective artifact，`basePolicyArtifact` 必须从 `baseSha` 读取；后续配置或候选改动不影响本 run。未配置用户策略时，控制面生成并固定一个显式、完整的 builtin-derived 用户 artifact，不能用“字段缺失”表示默认。
+`SelfDevPolicy` 与 `EffectivePolicy` 必须使用注册的 `schemaVersion=1`、`latticeVersion=selfdev-policy-lattice-v1` 和 `canonicalizer=selfdev-cjson-v1`；原始 bytes、canonical payload 和 digest 均保存为 `ArtifactRef`。`PROPOSED` 固定 builtin/user/base 三个 source artifact 及 effective artifact，`basePolicyArtifact` 必须从 `baseSha` 读取并显式声明 base TaskClassifier constraint artifact/digest，二者一起进入 `PolicyBinding`；后续配置或候选改动不影响本 run。未配置用户策略时，控制面生成并固定一个显式、完整的 builtin-derived 用户 artifact，不能用“字段缺失”表示默认。
 
 逐字段 meet 规则是规范的一部分，禁止实现者自行选择优先级：
 
@@ -136,9 +150,23 @@ effectivePolicy = meet_v1(builtinPolicy, userPolicy, policyLoadedFrom(baseSha))
 | `risk.highRisk*` path/task/capability triggers | 取**并集**；命中任一即 high-risk | 更容易升级风险 |
 | `risk.diff*AtLeast` / `deterministicFindingSeverityAtLeast` | 数值阈值取 **min**；severity 按 `low < medium < high < blocker` 取更低触发级别 | 更早升级风险 |
 | `risk.requiredReviewerCount.normal/high` | 分别取 **max**，且 high 不得小于 normal | reviewer 要求更多 |
+| `taskClassification.classifierEngineVersion/ruleDialectVersion` | 三源必须精确等于 builtin 注册版本；base classifier constraints 还必须绑定 `baseSha` | 不允许替换分类器语义 |
+| `BaseSelfDevPolicy.taskClassifierConstraintRuleSet` | source-discriminated 强制字段：base 必须提供 exact artifact/digest 并原样写入 PolicyBinding；builtin/user 对应字段为 `never`；missing/extra/mismatch 或 typed-slot swap 失败 | 初始规则来源更可信 |
+| `taskClassification.allowedAuthoritativeTaskClassIds` / `allowedStaticInputKinds` / `baselineExceptionEligibleTaskClassIds` | 三源 canonical set 取**交集**；base constraint 只能删除 builtin 结果，不能新增 class | 可用类别、输入与 exception 更少 |
+| `taskClassification.forcedHighRiskTaskClassIds` | 取**并集**；builtin high-risk 结果不可被 user/base 移除 | 更容易升级风险 |
+| `taskClassification.maxStaticInputBytes` | 取 **min** | 可参与分类的静态输入更少 |
+| `taskClassification.fallbackRequiredReviewerCount` | 取 **max**，并至少等于最终 high-risk reviewer count | fallback reviewer 要求更多 |
 | 所有 `allow*` 布尔能力 | 逻辑 **AND**；字段命名必须保持“true=授予能力” | false 更严格 |
 
-集合元素先按版本化 path/capability/suite/ref/risk 方言 canonicalize，再比较；禁止字符串近似交集。数值必须是 canonical 非负安全整数（费用用十进制整数串）并做溢出检查。Risk classifier 是纯函数：任一 effective trigger 命中即 high-risk；证据缺失、规则不支持或无法分类时也按 high-risk 处理，模型/Developer/Reviewer 无权降级。最终 reviewer 数为 `max(minimums.independentReviewerCount, risk.requiredReviewerCount[classification])`。Baseline 只有 rule 同时匹配 suite、trusted failure class 和 goal task class 才能声明“修复既有失败”；candidate 永远不得新增 failure class、增加 occurrence、提高 severity 或增加 failure output bytes。任一 source 缺字段、未知字段、未知 enum/schema/lattice/canonicalizer、重复 canonical key、不可满足 required-vs-allowed/ref/reviewer 约束或 digest 不一致，均 `policy_invalid` fail closed。EffectivePolicy 必须重新 canonicalize、digest、写入独立 ArtifactRef，并绑定四个 artifact digest；运行时只读取该固定 effective artifact。
+集合元素先按版本化 path/capability/suite/ref/risk/task-class 方言 canonicalize，再比较；禁止字符串近似交集。数值必须是 canonical 非负安全整数（费用用十进制整数串）并做溢出检查。Risk classifier 是纯函数：任一 effective trigger 命中即 high-risk；证据缺失、规则不支持或无法分类时也按 high-risk 处理，模型/Developer/Reviewer 无权降级。最终 reviewer 数为 `max(minimums.independentReviewerCount, risk.requiredReviewerCount[classification], taskClassificationResult.requiredReviewerCount)`。Baseline 只有 rule 同时匹配 suite、trusted failure class 和 `TaskClassificationResult.baselineExceptionAuthorizedTaskClassIds` 中的**同一个** authoritative task class 时，才能声明“修复既有失败”；candidate 永远不得新增 failure class、增加 occurrence、提高 severity 或增加 failure output bytes。任一 source 缺字段、未知字段、未知 enum/schema/lattice/canonicalizer、重复 canonical key、不可满足 required-vs-allowed/ref/reviewer 约束或 digest 不一致，均 `policy_invalid` fail closed。EffectivePolicy 必须重新 canonicalize、digest、写入独立 ArtifactRef，并绑定四个 artifact digest；运行时只读取该固定 effective artifact。
+
+#### 18.5.1 Trusted task classification
+
+`taskClassHints` 是 caller 提供的**不可信标签**，只能用于检测 mismatch 和审计；它不能直接进入 baseline exception、risk 降级、suite 选择或 reviewer count。可信控制面使用固定 `TaskClassifierDefinition` 执行版本化、非图灵完备、确定性的 classifier。受保护 `BuiltinTaskClassifierRegistryBinding` 中的 release manifest 必须由 usage=`builtin-task-classifier-registry-issuer`、domain=`selfdev.builtin-task-classifier-release-manifest.v1` 且 build/channel/validity/revocation 匹配的 key 签名；manifest payload 的 registry payload digest、epoch/version、expected builtin rules/groups digest 必须分别与 binding 和 registry payload **逐字段相等**。合法 manifest A + 不同 payload B、旧 epoch、或只有无密钥 `bindingDigest` 都不能建立信任。Builtin rule set 再精确匹配该 expected digest；base constraint slot 只能接受 `source:'base'` 且 digest 由 `BaseSelfDevPolicy@baseSha` 的强制字段声明的 rule set，builtin/base typed slot 不可互换。Builtin rules 先从 canonical goal bytes、`baseSha` 的可信 path index、policy 明确允许的静态 base diff/metadata 得到初始 class；base-SHA constraint rules 和 user/base policy只能删除 class、拒绝输入或把 risk floor 提高到 high，不能新增 builtin 未产生的 class、放宽 predicate、降低风险或减少 reviewer。Candidate worktree、模型/Developer/Reviewer 生成的标签、diff、文件或 policy 永不进入当前 run 的 classifier input。
+
+Digest 分层不能混用：`TaskClassifierTrustedInputPayload` 只含可信 goal/base/static inputs；`TaskClassifierRequestBinding` 另绑定该 payload 与 caller hints；纯函数输出 `TaskClassificationResult`，其 `classificationResultDigest` 对相同 definition/request/effective policy 必须确定一致；最后带 `runId/issuedAt/issuedBy` 的 `TaskClassAttestation` wrapper 才绑定该 result。Wrapper 必须用最新 key registry 中 usage=`task-class-attestation-issuer`、domain=`selfdev.task-class-attestation.v1`、role=`orchestrator` 且 build/validity/revocation 均匹配的独立 service key 签名；rogue initial artifact、cross-domain/revoked issuer 或 registry rollback 均拒绝。只有 result digest 可用于跨 run determinism 比较，attestation digest 因 run/time/signature 不要求相同。
+
+非空 hint set 与 authoritative class set 不完全相同、零规则匹配/未知 class、policy 交集后 class set 为空、classifier/decoder 失败、unsupported static input、或 builtin/base rules 在任一 registered mutually-exclusive group/constraint 上冲突，都会得到 `fallback-high-risk`：有效 class set 与 `baselineExceptionAuthorizedTaskClassIds` 都为空，required reviewer count 取 EffectivePolicy 中所有 reviewer minimum 的最大值（至少 high-risk count）。正常 result 的 authorized exception set 也只能是 `authoritativeTaskClassIds ∩ taskClassification.baselineExceptionEligibleTaskClassIds`；每条 baseline repair rule 必须匹配该集合中的**同一个** class，不能用一个 eligible class 为同一 run 的另一个 ineligible class 串权。这些结果不能被 caller 通过换标签修复；只有更正可信 goal/base/static input 后创建新 run。
 
 三层都只能**收窄**权限。候选内的 policy、测试脚本、AGENT/CLAUDE 指令、Skill、Plugin、Hook、package script 或 CI 变更，不影响当前 run。
 
@@ -237,6 +265,8 @@ interface ActorBase {
   actorId: string
   role: SelfDevRole
   authenticationContextDigest: Digest
+  principalBindingDigest: Digest
+  credentialBindingDigest: Digest
 }
 
 interface HumanActorRef extends ActorBase {
@@ -279,8 +309,6 @@ interface ModelReviewerActorRef extends ActorBase {
   role: 'reviewer'
   providerModelDigest: Digest
   reviewerProfileDigest: Digest
-  principalBindingDigest: Digest
-  credentialBindingDigest: Digest
   isolatedSessionId: string
 }
 
@@ -289,19 +317,18 @@ interface ServiceReviewerActorRef extends ActorBase {
   role: 'reviewer'
   serviceBuildDigest: Digest
   reviewerProfileDigest: Digest
-  principalBindingDigest: Digest
-  credentialBindingDigest: Digest
   instanceId: string
   isolatedSessionId: string
 }
 
 type ReviewerActorRef = ModelReviewerActorRef | ServiceReviewerActorRef
 type ActorRef = HumanApproverRef | HumanRunOwnerRef | ServiceActorRef | ModelActorRef | ReviewerActorRef
+type HumanApproverIdentityRef = Omit<HumanApproverRef, 'authenticationContextDigest'>
 
 interface ApprovalAuthenticationContext {
   schemaVersion: 1
   method: 'local-tty-os-reauth' | 'independent-approval-ui'
-  actor: HumanApproverRef
+  actorIdentity: HumanApproverIdentityRef // avoids actor↔context digest cycle
   trustRootId: string
   keyRegistryBindingDigest: Digest
   osPrincipalDigest?: Digest
@@ -313,12 +340,20 @@ interface ApprovalAuthenticationContext {
 }
 
 type SignatureDomain =
+  | 'selfdev.principal-binding.v1'
+  | 'selfdev.credential-binding.v1'
+  | 'selfdev.builtin-task-classifier-release-manifest.v1'
+  | 'selfdev.task-class-attestation.v1'
   | 'selfdev.approval-challenge.v1'
   | 'selfdev.human-proof.v1'
   | 'selfdev.approval-receipt.v1'
   | 'selfdev.journal-anchor.v1'
 
 type KeyUsage =
+  | 'principal-binding-issuer'
+  | 'credential-binding-issuer'
+  | 'builtin-task-classifier-registry-issuer'
+  | 'task-class-attestation-issuer'
   | 'human-approval-actor'
   | 'approval-challenge-issuer'
   | 'approval-receipt-issuer'
@@ -344,7 +379,24 @@ interface HumanApprovalKeyRecord extends KeyRecordBase {
   allowedSignatureDomains: readonly ['selfdev.human-proof.v1']
 }
 
+interface BuiltinTaskClassifierRegistryIssuerKeyRecord extends KeyRecordBase {
+  kind: 'builtin-task-classifier-registry-issuer-key'
+  usage: 'builtin-task-classifier-registry-issuer'
+  issuerId: string
+  issuerBuildDigest: Digest
+  allowedReleaseChannels: readonly ('stable' | 'beta' | 'development')[]
+  allowedSignatureDomains: readonly ['selfdev.builtin-task-classifier-release-manifest.v1']
+}
+
 type ServiceIssuerKeyRecord =
+  | (KeyRecordBase & {
+      kind: 'service-issuer-key'
+      usage: 'task-class-attestation-issuer'
+      serviceActorId: string
+      serviceRole: 'orchestrator'
+      serviceBuildDigest: Digest
+      allowedSignatureDomains: readonly ['selfdev.task-class-attestation.v1']
+    })
   | (KeyRecordBase & {
       kind: 'service-issuer-key'
       usage: 'approval-challenge-issuer'
@@ -371,6 +423,30 @@ type ServiceIssuerKeyRecord =
       allowedSignatureDomains: readonly ['selfdev.journal-anchor.v1']
     })
 
+type IdentityBindingIssuerKeyRecord =
+  | (KeyRecordBase & {
+      kind: 'identity-binding-issuer-key'
+      usage: 'principal-binding-issuer'
+      issuerKind: 'trust-root' | 'launcher' | 'auth-subsystem'
+      issuerId: string
+      issuerBuildDigest: Digest
+      allowedActorKinds: readonly ('human' | 'service' | 'model')[]
+      allowedRoles: readonly SelfDevRole[]
+      allowedPurposeDomains: readonly ParticipantPurposeDomain[]
+      allowedSignatureDomains: readonly ['selfdev.principal-binding.v1']
+    })
+  | (KeyRecordBase & {
+      kind: 'identity-binding-issuer-key'
+      usage: 'credential-binding-issuer'
+      issuerKind: 'trust-root' | 'launcher' | 'auth-subsystem'
+      issuerId: string
+      issuerBuildDigest: Digest
+      allowedActorKinds: readonly ('human' | 'service' | 'model')[]
+      allowedRoles: readonly SelfDevRole[]
+      allowedPurposeDomains: readonly ParticipantPurposeDomain[]
+      allowedSignatureDomains: readonly ['selfdev.credential-binding.v1']
+    })
+
 interface SelfDevKeyRegistryPayload {
   schemaVersion: 1
   registryVersion: number
@@ -380,7 +456,12 @@ interface SelfDevKeyRegistryPayload {
     rootKeyIds: readonly string[]
     purposes: readonly KeyUsage[]
   }[]
-  keys: readonly (HumanApprovalKeyRecord | ServiceIssuerKeyRecord)[]
+  keys: readonly (
+    | HumanApprovalKeyRecord
+    | BuiltinTaskClassifierRegistryIssuerKeyRecord
+    | ServiceIssuerKeyRecord
+    | IdentityBindingIssuerKeyRecord
+  )[]
 }
 
 interface SelfDevKeyRegistryBinding {
@@ -397,6 +478,82 @@ interface Signature {
   keyId: string
   domain: SignatureDomain
   valueBase64: string
+}
+
+type ParticipantPurposeDomain =
+  | 'selfdev.participant.run-owner.v1' | 'selfdev.participant.human-approver.v1'
+  | 'selfdev.participant.orchestrator.v1' | 'selfdev.participant.developer.v1'
+  | 'selfdev.participant.verifier.v1' | 'selfdev.participant.reviewer.v1'
+  | 'selfdev.participant.promotion-worker.v1' | 'selfdev.participant.journal-anchor.v1'
+
+interface CredentialBindingPayload {
+  schemaVersion: 1
+  actorId: string
+  actorKind: 'human' | 'service' | 'model'
+  role: SelfDevRole
+  purposeDomain: ParticipantPurposeDomain
+  issuerKind: 'trust-root' | 'launcher' | 'auth-subsystem'
+  issuerId: string
+  issuerBuildDigest: Digest
+  trustRootId: string
+  subjectIdDigest: Digest
+  keyId?: string
+  opaqueCredentialHandleDigest: Digest       // stable identifier only; never credential/token bytes
+  validFrom: Timestamp
+  validUntil: Timestamp
+  revocationEpoch: number
+}
+
+interface CredentialBinding {
+  schemaVersion: 1
+  payloadArtifact: ArtifactRef
+  payloadDigest: Digest
+  keyRegistryBindingDigest: Digest
+  issuerSignature: Signature & { domain: 'selfdev.credential-binding.v1' }
+  bindingDigest: Digest
+}
+
+interface PrincipalBindingPayload {
+  schemaVersion: 1
+  actorId: string
+  actorKind: 'human' | 'service' | 'model'
+  role: SelfDevRole
+  purposeDomain: ParticipantPurposeDomain
+  issuerKind: 'trust-root' | 'launcher' | 'auth-subsystem'
+  issuerId: string
+  issuerBuildDigest: Digest
+  trustRootId: string
+  principalSubjectDigest: Digest
+  credentialBindingDigest: Digest
+  validFrom: Timestamp
+  validUntil: Timestamp
+  revocationEpoch: number
+}
+
+interface PrincipalBinding {
+  schemaVersion: 1
+  payloadArtifact: ArtifactRef
+  payloadDigest: Digest
+  keyRegistryBindingDigest: Digest
+  issuerSignature: Signature & { domain: 'selfdev.principal-binding.v1' }
+  bindingDigest: Digest
+}
+
+interface ParticipantIdentity {
+  actor: ActorRef
+  participation: 'performed' | 'designated'
+  principalBinding: PrincipalBinding
+  credentialBinding: CredentialBinding
+  identityDigest: Digest
+}
+
+interface ParticipantIdentitySet {
+  schemaVersion: 1
+  runId: string
+  frozenStateVersion: number
+  participants: readonly ParticipantIdentity[]
+  forbiddenForReviewerIdentityDigests: readonly Digest[] // reducer-derived; never caller supplied
+  identitySetDigest: Digest
 }
 
 type ReasonCode =
@@ -427,6 +584,21 @@ interface ExistingFailureRepairRule {
   maxBaselineOccurrences: number
 }
 
+type TaskClassifierStaticInputKind =
+  | 'goal-canonical-bytes' | 'base-path-index'
+  | 'base-tree-diff' | 'base-owned-metadata'
+
+interface TaskClassifierPolicy {
+  classifierEngineVersion: 'selfdev-task-classifier-v1'
+  ruleDialectVersion: 'selfdev-task-classifier-rules-v1'
+  allowedAuthoritativeTaskClassIds: readonly string[]
+  allowedStaticInputKinds: readonly TaskClassifierStaticInputKind[]
+  forcedHighRiskTaskClassIds: readonly string[]
+  baselineExceptionEligibleTaskClassIds: readonly string[]
+  maxStaticInputBytes: number
+  fallbackRequiredReviewerCount: number
+}
+
 interface RiskClassificationPolicy {
   rulesVersion: 'selfdev-risk-rules-v1'
   highRiskPathPatterns: readonly string[]
@@ -439,11 +611,10 @@ interface RiskClassificationPolicy {
   requiredReviewerCount: { normal: number; high: number }
 }
 
-interface SelfDevPolicy {
+interface SelfDevPolicyCore {
   schemaVersion: 1
   latticeVersion: 'selfdev-policy-lattice-v1'
   canonicalizer: 'selfdev-cjson-v1'
-  source: 'builtin' | 'user' | 'base'
   policyId: string
   capabilityRegistryVersion: string
   pathDialectVersion: string
@@ -472,6 +643,7 @@ interface SelfDevPolicy {
     forbidIncreasedOutputBytes: boolean
     maxRepairableExistingFailures: number
   }
+  taskClassification: TaskClassifierPolicy
   risk: RiskClassificationPolicy
   maxima: {
     budget: BudgetVector
@@ -493,11 +665,28 @@ interface SelfDevPolicy {
     allowDocumentationChanges: boolean
     allowModelReviewer: boolean
   }
+}
+
+interface BuiltinOrUserSelfDevPolicy extends SelfDevPolicyCore {
+  source: 'builtin' | 'user'
+  taskClassifierConstraintRuleSet?: never
   policyDigest: Digest
 }
 
-interface EffectivePolicy extends Omit<SelfDevPolicy, 'source' | 'policyId' | 'policyDigest'> {
+interface BaseSelfDevPolicy extends SelfDevPolicyCore {
+  source: 'base'
+  taskClassifierConstraintRuleSet: {
+    artifact: ArtifactRef
+    digest: Digest
+  }
+  policyDigest: Digest
+}
+
+type SelfDevPolicy = BuiltinOrUserSelfDevPolicy | BaseSelfDevPolicy
+
+interface EffectivePolicy extends Omit<SelfDevPolicyCore, 'policyId'> {
   source: 'effective'
+  // Source-only taskClassifierConstraintRuleSet is intentionally absent; PolicyBinding carries the base declaration.
   sourcePolicyDigests: readonly [Digest, Digest, Digest] // builtin, user, base
   effectivePolicyDigest: Digest
 }
@@ -511,7 +700,194 @@ interface PolicyBinding {
   userPolicyDigest: Digest
   basePolicyDigest: Digest
   effectivePolicyDigest: Digest
+  baseTaskClassifierRuleSetArtifact: ArtifactRef // declaration extracted from basePolicyArtifact at baseSha
+  baseTaskClassifierRuleSetDigest: Digest
   bindingDigest: Digest
+}
+
+interface TaskClassifierPredicate {
+  dialect: 'selfdev-task-classifier-rules-v1'
+  expressionArtifact: ArtifactRef          // canonical, non-Turing-complete registered rule bytecode
+  expressionDigest: Digest
+}
+
+interface BuiltinTaskClassifierRule {
+  source: 'builtin'
+  ruleId: string
+  predicate: TaskClassifierPredicate
+  emitTaskClassId: string
+  riskFloor: 'normal' | 'high'
+}
+
+interface BaseTaskClassifierConstraintRule {
+  source: 'base'
+  ruleId: string
+  predicate: TaskClassifierPredicate
+  constrainedTaskClassIds: readonly string[]
+  effect: 'retain-only-if-match' | 'force-high-risk-if-match' | 'reject-static-input-if-match'
+  // No emit/lower-risk/reviewer-decrement effect exists for base rules.
+}
+
+type TaskClassifierRuleSet =
+  | {
+      schemaVersion: 1
+      classifierEngineVersion: 'selfdev-task-classifier-v1'
+      ruleDialectVersion: 'selfdev-task-classifier-rules-v1'
+      source: 'builtin'
+      sourceBaseSha?: never
+      rules: readonly BuiltinTaskClassifierRule[]
+      mutuallyExclusiveClassGroups: readonly (readonly string[])[]
+      ruleSetDigest: Digest
+    }
+  | {
+      schemaVersion: 1
+      classifierEngineVersion: 'selfdev-task-classifier-v1'
+      ruleDialectVersion: 'selfdev-task-classifier-rules-v1'
+      source: 'base'
+      sourceBaseSha: GitObjectId
+      rules: readonly BaseTaskClassifierConstraintRule[]
+      mutuallyExclusiveClassGroups: readonly (readonly string[])[] // must copy builtin groups exactly
+      ruleSetDigest: Digest
+    }
+
+interface BuiltinTaskClassifierRegistryPayload {
+  schemaVersion: 1
+  registryVersion: number
+  classifierEngineVersion: 'selfdev-task-classifier-v1'
+  ruleDialectVersion: 'selfdev-task-classifier-rules-v1'
+  expectedBuiltinRuleSetDigest: Digest
+  expectedMutuallyExclusiveClassGroupsDigest: Digest
+  registeredTaskClassIds: readonly string[]
+}
+
+interface BuiltinTaskClassifierReleaseManifestPayload {
+  schemaVersion: 1
+  buildDigest: Digest
+  releaseChannel: 'stable' | 'beta' | 'development'
+  classifierRegistryEpoch: number
+  classifierRegistryVersion: number
+  classifierRegistryPayloadDigest: Digest
+  expectedBuiltinRuleSetDigest: Digest
+  expectedMutuallyExclusiveClassGroupsDigest: Digest
+  signedAt: Timestamp
+}
+
+interface BuiltinTaskClassifierReleaseManifest {
+  schemaVersion: 1
+  payloadArtifact: ArtifactRef
+  payloadDigest: Digest
+  keyRegistryBindingDigest: Digest
+  issuerId: string
+  issuerSignature: Signature & { domain: 'selfdev.builtin-task-classifier-release-manifest.v1' }
+  manifestDigest: Digest
+}
+
+interface BuiltinTaskClassifierRegistryBinding {
+  schemaVersion: 1
+  registryEpoch: number
+  previousBindingDigest?: Digest
+  trustRootId: string
+  releaseManifest: BuiltinTaskClassifierReleaseManifest
+  payloadArtifact: ArtifactRef
+  payloadDigest: Digest
+  bindingDigest: Digest
+}
+
+interface BuiltinTaskClassifierRuleSetRef {
+  artifact: ArtifactRef
+  rulesDigest: Digest
+  source: 'builtin'
+  builtinRegistryBindingDigest: Digest
+}
+
+interface BaseTaskClassifierRuleSetRef {
+  artifact: ArtifactRef
+  rulesDigest: Digest
+  source: 'base'
+  sourceBaseSha: GitObjectId               // must equal run baseSha
+  basePolicyDigest: Digest                 // must equal PolicyBinding.basePolicyDigest
+  // rulesDigest/artifact must equal PolicyBinding.baseTaskClassifierRuleSet{Digest,Artifact}
+}
+
+interface TaskClassifierDefinition {
+  schemaVersion: 1
+  classifierEngineVersion: 'selfdev-task-classifier-v1'
+  ruleDialectVersion: 'selfdev-task-classifier-rules-v1'
+  builtinRegistryBinding: BuiltinTaskClassifierRegistryBinding
+  builtinRules: BuiltinTaskClassifierRuleSetRef
+  baseConstraintRules: BaseTaskClassifierRuleSetRef
+  mutuallyExclusiveClassGroupsDigest: Digest
+  policyBindingDigest: Digest
+  effectivePolicyDigest: Digest
+  definitionDigest: Digest
+}
+
+interface TaskClassifierTrustedInput {
+  kind: TaskClassifierStaticInputKind
+  provenance: 'trusted-control-plane' | 'base-sha'
+  artifact: ArtifactRef
+  sourceDigest: Digest
+}
+
+interface TaskClassifierTrustedInputPayload {
+  schemaVersion: 1
+  goalCanonicalArtifact: ArtifactRef       // canonical text + acceptance criteria; excludes caller hints
+  goalCanonicalBytesDigest: Digest
+  baseSha: GitObjectId
+  basePathIndexArtifact: ArtifactRef
+  basePathIndexDigest: Digest
+  trustedStaticInputs: readonly TaskClassifierTrustedInput[]
+  trustedStaticInputBytes: number
+  trustedStaticInputSetDigest: Digest
+  trustedInputDigest: Digest                // terminal digest; candidate/model input is impossible by schema
+}
+
+interface TaskClassifierRequestBinding {
+  schemaVersion: 1
+  trustedInputArtifact: ArtifactRef
+  trustedInputDigest: Digest
+  callerTaskClassHints: readonly string[]
+  callerTaskClassHintsDigest: Digest
+  requestBindingDigest: Digest
+}
+
+type TaskClassificationFallbackReason =
+  | 'unknown-class' | 'classifier-failure' | 'hint-mismatch'
+  | 'conflicting-rules' | 'unsupported-static-input' | 'policy-empty-class-set'
+
+interface TaskClassificationResult {
+  schemaVersion: 1
+  classifierDefinitionDigest: Digest
+  trustedInputDigest: Digest
+  classifierRequestBindingDigest: Digest
+  callerTaskClassHintsDigest: Digest
+  policyBindingDigest: Digest
+  effectivePolicyDigest: Digest
+  classificationStatus: 'authoritative' | 'fallback-high-risk'
+  authoritativeTaskClassIds: readonly string[] // empty for fallback-high-risk
+  matchedBuiltinRuleIds: readonly string[]
+  matchedBaseConstraintRuleIds: readonly string[]
+  riskFloor: 'normal' | 'high'
+  requiredReviewerCount: number
+  baselineExceptionAuthorizedTaskClassIds: readonly string[] // authoritative ∩ effective eligible; empty on fallback
+  fallbackReasons: readonly TaskClassificationFallbackReason[]
+  classificationResultDigest: Digest       // deterministic for identical definition/request/policy
+}
+
+interface TaskClassAttestation {
+  schemaVersion: 1
+  runId: string
+  classifierDefinitionDigest: Digest
+  trustedInputDigest: Digest
+  classifierRequestBindingDigest: Digest
+  policyBindingDigest: Digest
+  effectivePolicyDigest: Digest
+  classificationResultDigest: Digest
+  keyRegistryBindingDigest: Digest
+  issuedBy: ServiceActorRef & { role: 'orchestrator' }
+  issuedAt: Timestamp
+  issuerSignature: Signature & { domain: 'selfdev.task-class-attestation.v1' }
+  attestationDigest: Digest
 }
 
 interface BudgetVector {
@@ -568,6 +944,8 @@ interface BaselineBundle {
   baseRef: string
   baseSha: GitObjectId
   policyDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
   environmentDigest: Digest
   suites: readonly SuiteResult[]
   verdict: 'pass' | 'fail' | 'inconclusive'
@@ -609,7 +987,7 @@ interface SelfDevRun {
   state: SelfDevState
   goal: {
     text: ArtifactRef
-    taskClassIds: readonly string[]
+    taskClassHints: readonly string[]       // caller-provided, untrusted, never authoritative
     acceptanceCriteria: readonly string[]
     goalDigest: Digest
   }
@@ -620,6 +998,18 @@ interface SelfDevRun {
   promotionRef: string                // new local refs/heads/...; must not exist
   promotionRefReservation?: PromotionRefReservation
   policy: PolicyBinding
+  taskClassifierDefinitionArtifact: ArtifactRef
+  taskClassifierDefinitionDigest: Digest
+  taskClassifierTrustedInputArtifact: ArtifactRef
+  taskClassifierTrustedInputDigest: Digest
+  taskClassifierRequestBindingArtifact: ArtifactRef
+  taskClassifierRequestBindingDigest: Digest
+  taskClassificationResultArtifact: ArtifactRef
+  taskClassificationResultDigest: Digest
+  taskClassAttestationArtifact: ArtifactRef
+  taskClassAttestationDigest: Digest
+  participantIdentitySetArtifact?: ArtifactRef
+  participantIdentitySetDigest?: Digest
   environmentDigest?: Digest
   lease?: MutationAuthority
   lastIssuedFencingToken: string       // durable high-water mark; never decreases or reuses a value
@@ -718,6 +1108,8 @@ interface VerificationBundle {
   baseSha: GitObjectId
   candidateDigest: Digest
   policyDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
   promotionPlanDigest: Digest
   environmentDigest: Digest
   baselineBundleDigest: Digest
@@ -737,6 +1129,9 @@ interface ReviewerIsolationAttestation {
   reviewerId: string                    // must equal reviewer.actorId
   principalBindingDigest: Digest        // reviewer-only service/model principal; never approval key
   credentialBindingDigest: Digest       // opaque key/account binding; no secret bytes
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
+  participantIdentitySetDigest: Digest  // complete performed + designated set, not actor-id-only exclusions
   isolatedSessionId: string
   reviewerRuntimeDigest: Digest
   runnerProfileDigest: Digest
@@ -765,12 +1160,14 @@ interface AcceptanceReport {
   baseSha: GitObjectId
   candidateDigest: Digest
   policyDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
+  participantIdentitySetDigest: Digest
   promotionPlanDigest: Digest
   verificationBundleDigest: Digest
   deterministicGateDigest: Digest
   risk: 'normal' | 'high'
   requiredIndependentReviewers: number
-  excludedParticipantActorIdsDigest: Digest // Developer, run owner and Human Approver set
   reviewerIndependenceDigest: Digest
   isolationAttestations: readonly ReviewerIsolationAttestation[]
   advisoryReviews: readonly AdvisoryReview[]
@@ -785,6 +1182,13 @@ interface ApprovalContext {
   runState: 'AWAITING_HUMAN'
   awaitingHumanStateVersion: number
   goalDigest: Digest
+  taskClassifierRegistryBindingDigest: Digest
+  taskClassifierDefinitionDigest: Digest
+  taskClassifierTrustedInputDigest: Digest
+  taskClassifierRequestBindingDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
+  participantIdentitySetDigest: Digest
   keyRegistryBindingDigest: Digest
   generation: number
   budgetLimitsDigest: Digest
@@ -811,6 +1215,9 @@ interface ApprovalReceipt {
   promotionRef: string
   candidateDigest: Digest
   policyDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
+  participantIdentitySetDigest: Digest
   promotionPlanDigest: Digest
   verificationBundleDigest: Digest
   acceptanceReportDigest: Digest
@@ -939,7 +1346,7 @@ interface JournalAnchor {
 interface ProposeRunInput {
   goal: {
     text: ArtifactRef
-    taskClassIds: readonly string[]
+    taskClassHints: readonly string[]   // optional empty set means “no assertion”; never authoritative
     acceptanceCriteria: readonly string[]
   }
   baseRef: string
@@ -962,6 +1369,9 @@ interface ApprovalChallenge {
   runId: string
   expectedStateVersion: number
   approvalContextDigest: Digest
+  taskClassificationResultDigest: Digest
+  taskClassAttestationDigest: Digest
+  participantIdentitySetDigest: Digest
   keyRegistryBindingDigest: Digest
   baseRef: string
   baseSha: GitObjectId
@@ -999,7 +1409,7 @@ interface HumanConfirmationInput {
 
 `ArtifactRef` 自身使用 `selfdev.artifact-ref.v1 || selfdev-cjson-v1(record-without-artifactRefDigest)` canonicalize/digest；`sha256` 只表示重新读取后的原始 content bytes。`storageKey` 只是定位提示，消费前必须按 content digest 重读校验。Journal 以 `previousEntryDigest` 形成 hash chain；周期 checkpoint 必须绑定链头、run version 和 store generation。hash chain 本身只能称 **corruption-evident**：能发现无意损坏，却不能阻止有本地写权限的攻击者重写整条链或回滚旧快照。
 
-production 的 **tamper-evident** 声明必须额外依赖独立 `JournalAnchorStore`：它位于仓库、候选 worktree、普通 storage adapter 和全部 Runner 的写权限之外，只使用最新 registry binding 中 usage=`journal-anchor-issuer`、domain=`selfdev.journal-anchor.v1`、service role=`journal-anchor` 且 build/validity/revocation 均匹配的受保护不可导出 Ed25519 key。它维护 append-only 记录与单调 `anchorVersion`；human approval key、challenge/receipt issuer key 均不得跨域签 anchor。Anchor service 只接受 `previousAnchorDigest` 和当前受权 CAS transition/effect receipt 均匹配的下一个链头；本地状态只有在 anchor CAS 成功后才可对外确认 committed。恢复必须从独立 store 取得最新 counter/registry epoch，验证 signature、完整 journal 链、checkpoint、store generation 和链头；整链重写、旧有效签名 rollback 或 registry rollback 均会被检测。Anchor 不可用或校验不明时 §18 必须停止，不能降级为本地 hash chain 后仍宣称 production/tamper-evident。
+production 的 **tamper-evident** 声明必须额外依赖独立 `JournalAnchorStore`：它位于仓库、候选 worktree、普通 storage adapter 和全部 Runner 的写权限之外，只使用最新 registry binding 中 usage=`journal-anchor-issuer`、domain=`selfdev.journal-anchor.v1`、service role=`journal-anchor` 且 build/validity/revocation 均匹配的受保护不可导出 Ed25519 key。它维护 append-only 记录与单调 `anchorVersion`；identity-binding/classifier issuer、human approval key、challenge/receipt issuer key 均不得跨域签 anchor。Anchor service 只接受 `previousAnchorDigest` 和当前受权 CAS transition/effect receipt 均匹配的下一个链头；本地状态只有在 anchor CAS 成功后才可对外确认 committed。恢复必须从独立 store 取得最新 counter/registry epoch，验证 signature、完整 journal 链、checkpoint、store generation 和链头；整链重写、旧有效签名 rollback 或 registry rollback 均会被检测。Anchor 不可用或校验不明时 §18 必须停止，不能降级为本地 hash chain 后仍宣称 production/tamper-evident。
 
 该保证的信任边界是防候选、模型 Runner 和被篡改的本地 run store；已攻陷的 host administrator、anchor service 或其 signing key 不在保证内，必须由平台 incident/revocation 流程处理。截断、重排、重复 sequence、未知 schema、完整链重写、anchor rollback、key revocation 或 counter 回退都导致 fail closed。
 
@@ -1026,7 +1436,7 @@ interface SelfDevelopmentService {
 建议 CLI namespace 为 `apollo selfdev`，与现有 `apollo evolution show|rollback`（§15 参数调优）严格分离：
 
 ```text
-apollo selfdev propose --goal-file <path> --base-ref <full-ref> --base-sha <sha> [--promotion-ref <new-local-ref>]
+apollo selfdev propose --goal-file <path> --base-ref <full-ref> --base-sha <sha> [--task-class-hint <id>] [--promotion-ref <new-local-ref>]
 apollo selfdev start <runId>
 apollo selfdev status <runId> [--json]
 apollo selfdev evidence <runId>
@@ -1038,7 +1448,9 @@ apollo selfdev approve <runId>
 
 `baseRef` 和 `promotionRef` 必须是 canonical full refs，并通过 EffectivePolicy 的 allow matcher/prefix 与 deny matcher。v1 的 `baseRef` 只允许匹配的本地基线 branch；`promotionRef` 只允许受控 `refs/heads/` 前缀，禁止 `HEAD`、symbolic ref、tag、remote-tracking ref 和任意 refspec。调用方省略 promotion ref 时，由 runId 确定性派生；一旦 `PROPOSED` 持久化就不可改变。Policy 要求的 `selfdev-store-cas-v1` reservation 必须由 runId 独占并续期到 Git transaction；它只阻止其他 SelfDev run 竞争，不锁住外部 Git actor，因此绝不能替代 transaction 内的 ref verify/create。
 
-审批字段按阶段冻结，不能在同一个 run 上 patch-in-place：`PROPOSED` 固定 goal、`baseRef@baseSha`、`promotionRef`、policy source/effective artifacts 和 budget limits；`BASELINING` 完成固定 baseline/environment；`SEALING` 固定 generation、CandidateManifest 与完整 CommitObjectPlan；`VERIFYING`/`ACCEPTING` 分别固定 VerificationBundle/AcceptanceReport。进入 `AWAITING_HUMAN` 前必须停止全部 worker，并固定 active-execution budget usage；等待时间只由 approval TTL 计量。Orchestrator 随后持久化：
+`--task-class-hint`/`ProposeRunInput.goal.taskClassHints` 只记录 caller 的不可信猜测；省略表示“不作声明”，不会成为 unknown。非空 hints 与可信 classifier 结果不完全一致则触发 `hint-mismatch` fallback，绝不能用它选择 baseline exception 或减少 reviewer。API 不接受 caller-supplied authoritative class、classifier rule、participant binding issuer 或候选生成的 classification artifact。
+
+审批字段按阶段冻结，不能在同一个 run 上 patch-in-place：`PROPOSED` 固定 goal/hints、`baseRef@baseSha`、`promotionRef`、policy source/effective artifacts、TaskClassifier registry/definition/trusted-input/request/result/signed-attestation 和 budget limits；`BASELINING` 完成固定 baseline/environment；`SEALING` 固定 generation、CandidateManifest 与完整 CommitObjectPlan；`VERIFYING → ACCEPTING` transition 原子冻结完整 ParticipantIdentitySet，`VERIFYING`/`ACCEPTING` 分别固定 VerificationBundle/AcceptanceReport。进入 `AWAITING_HUMAN` 前必须停止全部 worker，并固定 active-execution budget usage；等待时间只由 approval TTL 计量。Orchestrator 随后持久化：
 
 ```text
 approvalContextDigest = sha256(
@@ -1046,12 +1458,12 @@ approvalContextDigest = sha256(
 )
 ```
 
-该 context 必须覆盖 goal、runId、`AWAITING_HUMAN` state version、generation、budget limits 与 usage、baseline/environment、candidate、policy binding/effective policy、promotion-ref reservation、key-registry binding、CommitObjectPlan/GitRefTransactionPlan/PromotionPlan、verification 和 acceptance。Challenge、HumanProof、ApprovalReceipt 逐层绑定该 context、registry binding 与 `challengeDigest`；任何覆盖字段、registry epoch/bytes、reservation、usage、version、generation 或 artifact bytes 变化，必须先吊销 challenge/未消费 receipt，再走新的 repair/stale/failure transition 并重新生成 context，绝不能沿用旧签名。
+该 context 必须覆盖 goal/hints、TaskClassifier registry/definition/request、TaskClassificationResult、signed TaskClassAttestation、完整 ParticipantIdentitySet、runId、`AWAITING_HUMAN` state version、generation、budget limits 与 usage、baseline/environment、candidate、policy binding/effective policy、promotion-ref reservation、key-registry binding、CommitObjectPlan/GitRefTransactionPlan/PromotionPlan、verification 和 acceptance。Challenge、HumanProof、ApprovalReceipt 逐层绑定该 context、registry binding 与 `challengeDigest`；任何覆盖字段、identity/classifier binding、registry epoch/bytes、reservation、usage、version、generation 或 artifact bytes 变化，必须先吊销 challenge/未消费 receipt，再走新的 repair/stale/failure transition 并重新生成 context，绝不能沿用旧签名。
 
 `approve` 的精确交互契约：
 
 1. 必须提供 `HumanApproverRef`，并通过最新 `SelfDevKeyRegistryBinding` 中未撤销、usage/domain/角色绑定正确的 human key 与未过期 `ApprovalAuthenticationContext` 认证；交互只能是本地 TTY + recent OS re-auth，或独立受信审批界面。先以 CAS 重读 `AWAITING_HUMAN` 最新版本、registry epoch 和独立 journal anchor。
-2. UI 完整显示 `approvalContextDigest`、registry/reservation digest、`runId`/state version/generation、`baseRef@baseSha`、新建的 `promotionRef`、全部 candidate/policy/plan/verification/acceptance digest、预计算 `expectedCommitObjectId`、commit raw-byte plan、原子 base-verify/promotion-create transaction plan、diff、deterministic 硬门、advisory findings、预算 limits/usage、repair 次数和 TTL。
+2. UI 完整显示 `approvalContextDigest`、registry/reservation、TaskClassificationResult/TaskClassAttestation/ParticipantIdentitySet digest、authoritative/fallback classification、`runId`/state version/generation、`baseRef@baseSha`、新建的 `promotionRef`、全部 candidate/policy/plan/verification/acceptance digest、预计算 `expectedCommitObjectId`、commit raw-byte plan、原子 base-verify/promotion-create transaction plan、diff、deterministic 硬门、advisory findings、预算 limits/usage、repair 次数和 TTL。
 3. 控制面生成至少 128-bit 随机一次性 nonce，并只用 registry 中 `approval-challenge-issuer` service key/domain 签名完整 challenge；用户必须准确输入 UI 给出的 `approve <candidate-short-digest> <nonce-challenge>`。`HumanProof.actorSignature` 只能用 `human-approval-actor` key/domain，覆盖 `actor + registryBindingDigest + challengeDigest + approvalContextDigest + exactResponseDigest + signedAt`。
 4. 服务端重新计算全部 digest，查询最新 registry binding/epoch，按 usage/domain/actor/service/build/root/expiry/revocation 校验 challenge issuer、HumanProof actor 和 receipt issuer 三种不同 key；再校验 auth context、TTL、nonce、exact response、base/ref preflight。随后在同一 store CAS 中消费 challenge nonce 并签发绑定 `challengeDigest + humanProofDigest + approvalContextDigest + keyRegistryBindingDigest` 的 Receipt。默认 TTL 由 builtin policy 限定，user/base policy 只能缩短。
 5. 不提供 `--yes`、`--force`、环境变量确认、pipe/stdin 自动确认或模型 tool-call 确认。非 TTY 只能导入由独立受信审批界面/硬件身份签发的同结构签名 receipt，不能降级成布尔值。
@@ -1090,7 +1502,7 @@ Human approval 只授权**该 ApprovalReceipt 绑定的 PromotionPlan**：精确
 
 ### 18.9 Baseline、测试、eval 与独立验收
 
-**同环境原则**：Baseline 和 Candidate 必须使用同一可信 suite、环境镜像、工具链/依赖 digest、资源配额、时钟/随机种子策略和 sandbox。Baseline 以 trusted suite registry 的 versioned failure class/severity/count/output bytes+digest 记录现有失败；只有 EffectivePolicy rule 同时匹配 suite、failure class 和 goal task class 才允许目标修复它。Candidate 相对 baseline 新增 class、增加 occurrence、提高 severity 或增加 failure output bytes 均为硬失败，不能被总分或“已有失败”豁免。环境无法复现或 baseline 超时不能被解释成 candidate pass。
+**同环境原则**：Baseline 和 Candidate 必须使用同一可信 suite、环境镜像、工具链/依赖 digest、资源配额、时钟/随机种子策略和 sandbox。Baseline 以 trusted suite registry 的 versioned failure class/severity/count/output bytes+digest 记录现有失败；只有 EffectivePolicy rule 同时匹配 suite、failure class 和 `TaskClassificationResult.baselineExceptionAuthorizedTaskClassIds` 中的同一个 authoritative class，才允许目标修复它。Fallback、unknown、hint mismatch、conflicting rules 或 classifier failure 的 authorized set 为空；mixed eligible/ineligible 多 class 也不能串权。Candidate 相对 baseline 新增 class、增加 occurrence、提高 severity 或增加 failure output bytes 均为硬失败，不能被总分或“已有失败”豁免。环境无法复现或 baseline 超时不能被解释成 candidate pass。
 
 验证分四层：
 
@@ -1099,9 +1511,9 @@ Human approval 只授权**该 ApprovalReceipt 绑定的 PromotionPlan**：精确
 3. **Deterministic graders**：以机器可重复规则评估 acceptance criteria、diff scope、行为输出和预算，输出结构化 evidence。
 4. **Isolated model reviewer（advisory only）**：只在前三层明确完成后评估语义正确性、设计一致性、风险和可维护性；模型报告不是安全事实，不能把 deterministic fail 改成 pass，也不能替人批准。
 
-候选 diff/文本必须通过 versioned、length-bounded、strict-schema typed data channel 送入 Reviewer，候选 bytes 只出现在明确的 untrusted field；禁止把 delimiter 拼接当隔离。decoder、长度、字段、delimiter 或协议异常一律产生 `inconclusive`，不尝试“让模型忽略注入”。Isolation attestation 必须绑定 ReviewerActorRef、reviewer-only principal、runtime/profile、prompt、typed envelope/decoder、fresh session、fresh context-source instance/manifest 和相同 sealed evidence source digests。
+候选 diff/文本必须通过 versioned、length-bounded、strict-schema typed data channel 送入 Reviewer，候选 bytes 只出现在明确的 untrusted field；禁止把 delimiter 拼接当隔离。decoder、长度、字段、delimiter 或协议异常一律产生 `inconclusive`，不尝试“让模型忽略注入”。Isolation attestation 必须绑定 TaskClassificationResult、signed TaskClassAttestation、ReviewerActorRef、完整 ParticipantIdentitySet、reviewer-only principal/credential、runtime/profile、prompt、typed envelope/decoder、fresh session、fresh context-source instance/manifest 和相同 sealed evidence source digests。
 
-独立性 verifier 必须先排除本 run 的 Developer、run owner、Human Approver 及其 actor/principal/key，再对所有计数 reviewer 强制 `actorId`、`principalBindingDigest`、`credentialBindingDigest`、`isolatedSessionId`、`contextSourceInstanceId`、`contextSourceManifestDigest` 两两唯一；任一复用、缺失或无法证明均 `reviewer_isolation_failed`。EffectivePolicy 判为 high-risk 时，必须达到 policy 的 high reviewer count（v1 builtin 至少 2）且每位都给出 advisory accept；不能用同一 key、session 或 context 的多次采样凑数。无论风险级别，Human Approver 都必须逐项查看 deterministic gates、模型 findings 和语义 acceptance criteria，承担最终语义判断。
+独立性 verifier 必须重读 `ParticipantIdentitySet` 中每个 binding artifact 并校验 issuer/用途/subject/key/credential/validity/revocation，然后排除 Developer、run owner、所有 Human Approver、Orchestrator、Verifier、Promotion Worker、Journal Anchor 和其他 non-reviewer participant 的 actor/principal/credential/key。所有计数 reviewer 必须在 `actorId`、`principalBindingDigest`、`credentialBindingDigest`、payload 的 `principalSubjectDigest`/`opaqueCredentialHandleDigest`、credential key、`isolatedSessionId`、`contextSourceInstanceId`、`contextSourceManifestDigest` 上两两唯一；新 actor/session 或重新签发的新 binding 但底层 principal/credential 相同，同样拒绝。任一复用、缺失或无法证明均 `reviewer_isolation_failed`。Task classification fallback 或 EffectivePolicy 判为 high-risk 时，必须达到最大 reviewer count（v1 builtin 至少 2）且每位都给出 advisory accept；不能用同一 principal/key/session/context 的多次采样凑数。无论风险级别，Human Approver 都必须逐项查看 deterministic gates、模型 findings 和语义 acceptance criteria，承担最终语义判断。
 
 必须记录以下指标，并同时保存 baseline/candidate 原值而非只存汇总分：
 
@@ -1130,11 +1542,12 @@ SD4/v1 的 promotion 只完成三件事：验证 ApprovalReceipt/PromotionPlan �
 | 命令/参数注入 | `Check.run(suiteId)` typed argv、`shell:false`、base-owned registry；无通用 Bash |
 | symlink/path traversal/大小写绕过 | canonicalize + realpath + cwd boundary + protected policy；seal 前后复算 |
 | 候选修改测试/CI 让自己通过 | required suite/holdout/command graph 来自 builtin ∩ user ∩ base-SHA policy |
+| caller/模型伪造低风险任务标签 | caller 只传 hints；protected builtin registry + base-SHA typed constraints + signed classifier attestation；unknown/mismatch/conflict/failure 均 high-risk、最大 reviewer 且 authorized exception set 为空 |
 | TOCTOU / seal 后写入 | 单调 fencing token、独立 holder worktree、commit 前复核 generation/stateVersion、旧 Runner 停止证明、manifest/tree 复算 |
-| 自批、自审或共享记忆污染 | ReviewerActorRef 限 model/service reviewer；participant 排除；actor/principal/session/context-source 两两唯一；HumanProof 独立 |
+| 自批、自审、改 actorId 或共享记忆污染 | ReviewerActorRef 限 model/service reviewer；全量 ParticipantIdentitySet；受信 principal/credential binding；actor/principal/credential/key/session/context-source 两两唯一；HumanProof 独立 |
 | crash 重放双重副作用 | recovery class、预算预留、CAS/fencing、intent/receipt、opaque 不盲重放、故障注入 |
 | journal 整链重写/快照回滚 | 独立 append-only 签名 anchor、单调 counter、完整链与 store-generation 校验；anchor 不可用即停机 |
-| key cross-domain / registry 自引用或回退 | payload/binding 分离；usage/domain/actor-service-build/root-purpose 校验；latest epoch/revocation；human key 永不签 issuer/anchor |
+| key cross-domain / registry 自引用或回退 | payload/binding 分离；usage/domain/actor-service-build/root-purpose 与 kind-role-purpose scope 校验；latest epoch/revocation；human/classifier/identity key 不跨域 |
 | base 已过时仍 promotion | preflight 只提示；Git ref transaction 原子 verify base OID + create promotion ref，base 移动则全 transaction abort |
 | approval replay/替换候选 | domain-separated ApprovalContext、challenge/HumanProof 双签、key revocation、nonce/receipt 各自 single-use、anchor consumption |
 | Git config/commit OID 漂移 | 完整 raw-byte CommitObjectPlan、隔离 config、预计算 OID、获批 verify+create GitRefTransactionPlan |
@@ -1169,9 +1582,9 @@ type BuiltinHookScanEvidence =
 | 阶段 | 能力边界 | 可量化退出标准 |
 |---|---|---|
 | **SD0 — Contract & security prerequisites** | 冻结本节、threat model、路径分类和 release scope；先关闭会影响专用 Runner 的已知权限/Hook P0 | 文档/链接/配置/事件检查全绿；v1 raw Bash 零 silent auto-allow；builtin Hook 超限 direct-veto 必为 `rawBytes/rawDigest + scanStatus:not_started + scannedBytes:0 + scannedDigest:null`，只有 full scan 成功才要求 raw/scanned length+digest 一致；安全评审签字。无产品入口 |
-| **SD1 — State, store & sealing** | reducer、CAS/fencing、payload/binding key registry、独立签名 anchor、ArtifactRef、holder-isolated worktree、manifest/seal；使用 fake worker | 显式边/STALEABLE 全测；pause-before-commit、opaque effect、registry/整链/anchor rollback 均 fail-closed；effect 达成 exactly-once committed state；无模型开发入口 |
-| **SD2 — Restricted Developer** | `selfdev.developer`、typed tools、完整 policy lattice、ref reservation、baseline/risk policy、受保护面、预算/repair | 每个 lattice field/property test；ref matcher/reservation race、baseline new/count/severity regression、risk threshold 全 fail-closed；Bash/net/secret/Plugin/Skill/Memory/bypass 全拒绝；仍不可 promotion |
-| **SD3 — Verification & acceptance shadow** | `Check.run`、同环境 baseline/candidate、holdout、deterministic graders、ReviewerActorRef advisory、完整 evidence | SuiteResult subject/source/failure 绑定；typed-channel 异常 inconclusive；participant 角色拒绝且 reviewer actor/principal/session/context-source 两两唯一；risk reviewer count 达标；promotion API 不存在 |
+| **SD1 — State, store & sealing** | reducer、CAS/fencing、payload/binding key registry、统一 Principal/Credential binding、独立签名 anchor、ArtifactRef、holder-isolated worktree、manifest/seal；使用 fake worker | 显式边/STALEABLE 全测；identity issuer purpose/subject/expiry/revocation/cross-domain 全测；pause-before-commit、opaque effect、registry/整链/anchor rollback 均 fail-closed；effect 达成 exactly-once committed state；无模型开发入口 |
+| **SD2 — Restricted Developer** | `selfdev.developer`、typed tools、完整 policy lattice、可信 TaskClassifier/attestation、ref reservation、baseline/risk policy、受保护面、预算/repair | 每个 lattice field/property test；rogue builtin/typed-slot swap/revoked signer 全拒绝；deceptive hint、unknown/mismatch/conflicting rule/classifier failure 均 high-risk + 最大 reviewer + authorized exception set 为空；mixed class 不串权；candidate/model 无法影响 classification；仍不可 promotion |
+| **SD3 — Verification & acceptance shadow** | `Check.run`、同环境 baseline/candidate、holdout、deterministic graders、ReviewerActorRef advisory、完整 evidence | SuiteResult subject/source/failure 绑定；typed-channel 异常 inconclusive；Acceptance/attestation 绑定完整 ParticipantIdentitySet；forbidden participant 复用以及新 actor/session 复用相同 principal/credential/key 全拒绝；high-risk reviewers 全维唯一且 count 达标；promotion API 不存在 |
 | **SD4 — Human-approved branch-only** | registry-bound approval 三签、freshness、确定性 commit object + Git ref transaction、本地 branch E2E | cross-domain/revoked key、自动确认/context replay 全拒绝；pause-after-freshness 后 base 移动使 verify+create transaction 全 abort 且不建 ref；无 current-worktree/远端副作用；product/security/UX sign-off。**最早 production-capable**；release custodian 仅 REL-02 |
 | **SD5 — Bounded autonomous proposals** | 可选的 shadow 信号触发、更多可信任务类别和有界 repair；仍保留 SD4 人批和 branch-only 边界 | 默认仍 off/shadow；长期 crash/retry/预算 eval 无越界；质量/成本相对固定人工基线达到预先登记阈值；安全 suite 零失败；每个新任务类别单独通过产品/安全/人工 gate |
 
@@ -1187,6 +1600,8 @@ SD0 安全 P0 不受品牌选择阻塞，可以先修并保留原始审计；但
 | Orchestrator / deterministic reducer | **Proposed / not shipped** | 普通 Agent Runner 不是 §18 Orchestrator |
 | `SelfDevRun` store、CAS、lease、journal | **Proposed / not shipped** | 现有 Session/Event 存储未实现本节一致性契约 |
 | Policy intersection / protected surfaces | **Proposed / not shipped** | 普通 Permission/Trust 是可复用原语，不是 base-SHA policy |
+| Trusted TaskClassifier / TaskClassAttestation | **Proposed / not shipped** | caller task labels、模型分类或候选 diff 当前都不是可信分类证据 |
+| Principal/Credential binding / ParticipantIdentitySet | **Proposed / not shipped** | 当前 actor/session 标识不满足跨角色 principal/key 独立性证明 |
 | 专用 Developer/Verifier/Reviewer/Promotion profiles | **Proposed / not shipped** | 当前通用 Runner、tools、subagent 不满足角色隔离 |
 | Isolated worktree / CandidateManifest / sealing | **Proposed / not shipped** | 普通 Edit backup 或 `/undo` 不等于 run-level immutable candidate |
 | `Check.run(suiteId)` trusted runner | **Proposed / not shipped** | 当前 Bash/package scripts 不能作为替代 |
@@ -1206,6 +1621,7 @@ SD0 安全 P0 不受品牌选择阻塞，可以先修并保留原始审计；但
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-08-19 | §18 v1.3 | 将 caller task class 降为不可信 hints；新增 protected classifier registry、typed rules、deterministic result + signed attestation、per-class baseline authorization；为所有 actor 增加无环 Principal/Credential binding、role-purpose issuer scope、完整 ParticipantIdentitySet 和全维 reviewer 独立性。 |
 | 2026-08-19 | §18 v1.2 | 原子化 base-verify/ref-create promotion；补齐 Hook scan union、ref/baseline/risk policy lattice、registry payload/binding 与 issuer key usage、ReviewerActorRef 独立性和 BRAND-VERIFY gate。 |
 | 2026-08-19 | §18 v1.1 | 收紧 stale/fencing、policy lattice、suite subject、human trust root/approval context、advisory reviewer、确定性 commit object、effect recovery、独立 journal anchor 与 beta channel 契约。 |
 | 2026-08-19 | §18 v1 | 新增受控 Self-Development/Change Pipeline：术语分离、状态机、角色隔离、不可变候选、base-SHA policy、专用 Runner、可信检查、证据/审批 digest 绑定、branch-only promotion、SD0–SD5 与真实实现状态。 |
