@@ -230,8 +230,8 @@ permission.request(req):
 
 1. `PermissionRequest`、原始 tool input、`ToolExecutor` / native 调用以及 session / project / global grant key 始终使用原值；显示层不得 normalize、改写或回写这些值。
 2. CLI line fallback 与 TUI 共用 UI 包的 injective formatter。Cc / Cf / Cs / Zl / Zp、非 ASCII Zs、bidi/default-ignorable/zero-width、noncharacter 必须显示成唯一可见的 `\u{XXXX}`；字面反斜杠必须双写。普通 ASCII 空格、中文和不含 default-ignorable 的 emoji 保持可读。
-3. Host 同时对 raw spec 与 secret-sanitized spec 做完整、安全格式化。任一格式化失败/超出深度、节点或输出预算，或两者显示结果不同（说明脱敏会隐藏真实副作用）时，只能显示 deny-only 标记；不得展示 raw secret，也不得接受 allow-once / allow-session。
-4. `tool.permission_asked` / telemetry 继续使用结构化、secret-sanitized spec；这不改变执行与 grant key 的原始值。
+3. Host 先对 spec / input / tool label / tool-use id 做 descriptor-safe、bounded 的独立结构快照，再同时应用通用 `sanitize` 与凭证 `detectSecret`（含 Cf 归一化绕过）。任一命中都必须结构化脱敏并锁定 deny-only；无法安全克隆、超出深度/节点/字节预算或无法完整格式化时使用固定 marker，绝不回退 raw。
+4. 传给 line / TUI handler 的审批 request 必须是 deep-frozen 独立快照，Host 在 `await` handler 前捕获不可变 approval gate；handler 后续修改 request/display/spec 不得把 deny-only 翻转为 allow。`tool.permission_asked` / telemetry 与审批 UI 共用同一 secret-safe spec/tool 值；这不改变执行与 grant key 的原始值。
 
 非目标：L1 不实现完整 UTS #39 confusable 检测，也不把直接 `cat` / 打印 JSON 当作人工审批界面；只有上述受控 CLI/TUI permission surface 承担可批准显示契约。
 

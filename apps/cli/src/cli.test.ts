@@ -691,6 +691,8 @@ describe('runCli', () => {
   it('forces JSON-on-TTY to none and drives the real Bash permission chain without readline', async () => {
     let interactionMode: PermissionInteractionMode = 'line'
     let writeJson: ((value: string) => void) | undefined
+    const rawSecret = `ghp_${'J'.repeat(24)}`
+    const rawCommand = `printf '${rawSecret}'`
     const linePrompt = vi.fn(async (_question: string) => 'a')
     const nativeExecute = vi.fn(async () => 'must not execute')
     const configurePermissionInteraction = vi.fn((input: { mode: PermissionInteractionMode }) => {
@@ -736,7 +738,7 @@ describe('runCli', () => {
         )
         const result = await executor.execute(
           new BashTool({ platform: 'darwin' }),
-          { command: 'git status' },
+          { command: rawCommand },
           new AbortController().signal,
           'toolu_json_tty',
         )
@@ -764,6 +766,7 @@ describe('runCli', () => {
     expect(linePrompt).not.toHaveBeenCalled()
     expect(nativeExecute).not.toHaveBeenCalled()
     expect(result.exitCode).toBe(1)
+    expect(result.stdout).not.toContain(rawSecret)
     const lines = result.stdout.trim().split('\n')
     expect(lines.length).toBeGreaterThanOrEqual(1)
     for (const line of lines) expect(() => JSON.parse(line)).not.toThrow()
