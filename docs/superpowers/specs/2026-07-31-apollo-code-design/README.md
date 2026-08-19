@@ -1,7 +1,7 @@
 # Apollo Code — 设计文档 (Design Spec)
 
-> **状态**：🚧 In Progress（brainstorming 阶段，随分节推进滚动补全）
-> **日期**：2026-07-31
+> **状态**：🚧 In Progress（规范包含 shipped、partial 与 proposed 内容；章节状态必须逐项读取，不能把设计存在等同于产品已实现）
+> **日期**：2026-08-19
 > **作者**：Mark + Claude
 > **相关**：[AGENT.md](../../../../AGENT.md) · [CLAUDE.md](../../../../CLAUDE.md)
 
@@ -24,13 +24,14 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 构建          | rolldown + Vite 8 + Cargo                                                                                                                          |
 | 遥测          | **默认本地文件**，OTel 网络上报显式 opt-in                                                                                                         |
 | 开发范式      | **AI 完全开发 + 人定方向**（spec 即可执行契约；详见 [§12.6b](./12-open-governance.md)）                                                            |
-| 自我进化      | 贯穿性反馈闭环（[§15](./15-self-evolution.md)）：双层记忆 + 各能力节点自调优 + 安全边界冻结 + 人可审计/回滚                                        |
+| 自适应调优    | [§15](./15-self-evolution.md)：规则驱动运行时参数 tuning；当前仅 partial/unwired，目标默认 off、先 shadow、apply 需 evidence gate                              |
+| 受控自我开发  | [§18](./18-self-development.md)：候选开发 → 确定性验证 → 独立验收 → 人工批准 → 本地分支；**全节 proposed / not shipped**                                  |
 
 ---
 
 ## 目录（AI / 编辑器可跟进的相对路径）
 
-原始整文档已按顶级章节 §1–§14 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
+原始整文档已按顶级章节 §1–§18 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
 在 GitHub、VS Code、绝大多数 IDE 与 AI 阅读器中均可点击/跳转。
 
 | §   | 章节                                                   | 文件                                                               | 行数 |
@@ -53,9 +54,10 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 12  | 开源治理                                               | [`12-open-governance.md`](./12-open-governance.md)                 | 141  |
 | 13  | 文档站 IA + 官网首页                                   | [`13-docs-site.md`](./13-docs-site.md)                             | 220  |
 | 14  | 首次运行 UX / Onboarding                               | [`14-onboarding.md`](./14-onboarding.md)                           | 210  |
-| 15  | 自我进化框架（r10 新增）                               | [`15-self-evolution.md`](./15-self-evolution.md)                   | ~230 |
+| 15  | 自适应运行时调优（experimental / partial）              | [`15-self-evolution.md`](./15-self-evolution.md)                   | 动态 |
 | 16  | 能力追踪与验收基线                                     | [`16-capability-traceability.md`](./16-capability-traceability.md) | 动态 |
 | 17  | Code Review 功能（r13 新增）                           | [`17-code-review.md`](./17-code-review.md)                         | ~130 |
+| 18  | 受控自我开发 / 变更流水线（proposed / not shipped）     | [`18-self-development.md`](./18-self-development.md)               | 动态 |
 
 ### 附属专题文档
 
@@ -76,6 +78,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 附录 C · config 全量 schema (r13 新增)         | [`APPENDIX-C-config-schema.md`](./APPENDIX-C-config-schema.md) | config.toml 全 key 表（含 projectOverride 标注）+ 未知 key 策略 + 全量示例；zod schema 与文档的唯一真相源（I4）                                                                                                                               |
 | 附录 D · 事件 payload 字段表 (r13 新增)        | [`APPENDIX-D-event-payloads.md`](./APPENDIX-D-event-payloads.md) | 19 种事件 per-event payload 契约 + per-event zod schema + CI 强制（I8）                                                                                                                                                                       |
 | 附录 E · 契约空白登记表 (r13 新增)             | [`APPENDIX-E-contract-gap-registry.md`](./APPENDIX-E-contract-gap-registry.md) | r11/r12 审计暴露的 20 条"实现被迫自定"契约空白的收编登记（D1）                                                                                                                                                                                |
+| Self-Development 实施计划                       | [`2026-08-19-self-development-implementation.md`](../../plans/2026-08-19-self-development-implementation.md) | SD0–SD5 依赖顺序、证据/人工门禁、brand 占位与 `0.1.0-beta.1` 目标；计划不代表功能已交付                                                                                                                    |
 
 > 各文件内保留原章节编号（如 `## §1`、`### 1.1`），可与 git 历史里的旧单文件版本一一对应。
 
@@ -88,6 +91,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 - **想理解扩展生态** → §6a → §6b → §6c → §11 (CLI)。
 - **想理解落地/交付** → §7 → §8 → §9 → §14。
 - **想参与共建** → §12（治理）→ §10（里程碑）。
+- **想区分“参数调优”和“程序改自己”** → §15（Adaptive Runtime Tuning）→ §18（Self-Development；当前未交付）。
 
 ---
 
@@ -100,6 +104,8 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 - **§5 Rust 沙箱** ↔ **[SANDBOX-COMPAT-r1](./SANDBOX-COMPAT-r1.md)** ↔ **§9.4 CI matrix** ↔ **§10 L1 闸门** ↔ **§14.3b Tier 披露** 形成沙箱一等公民闭环
 - **§6 Plugins** 与 **§4 Tool 注册**、**§8 Config**、**§11 CLI** 均有交叉
 - **§10 里程碑** 与各章节末尾的"里程碑"小节形成 vertical/horizontal 交叉视图
+- **§15 Adaptive Runtime Tuning** 只调白名单数值参数；**§18 Self-Development** 才涉及候选代码/制品，且 SD4 前不得宣称可开启
+- **§18** 复用 §4/§5 的安全原语、§17 的 review 概念和 §9/§10 的 evidence gate，但要求独立状态机、证据绑定与人工 approval
 
 ---
 
