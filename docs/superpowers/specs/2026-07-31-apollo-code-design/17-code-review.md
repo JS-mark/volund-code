@@ -12,7 +12,7 @@
 |---|---|
 | **一等公民工作流** | review 与"写/改"并列的第三核心场景；CLI + slash + CI gate 三入口 |
 | **结构化输出** | findings 是机器可读数据（zod 校验），不是自由文本——支撑 CI gate 与工具集成 |
-| **只读安全** | 全程只读（diff / 文件 / PR 元数据），auto-allow，无副作用工具参与 |
+| **只读安全** | 全程只读（diff / 文件 / PR 元数据）；目标态仅使用 typed 只读 collector（固定 operation + argv，`shell: false`）。raw Bash 即使执行 `git status` / `git diff` 也须显式 grant 或弹窗，不以命令字符串 auto-allow；无副作用工具参与 |
 | **注入免疫** | PR 描述 / diff / 被审代码全部 §6.5.0a untrusted 包裹——被审内容是最高危注入源 |
 | **模型可换** | 默认走 RoleRouter `reviewer` 角色（§3.8.3 已预留）；`--model` 可覆盖 |
 
@@ -61,7 +61,8 @@ export interface ReviewFinding {
 ### 17.4 流程（ReviewPipeline）
 
 ```
-1. 收集 diff（git diff / gh pr diff，经 Bash 工具只读执行）
+1. 收集 diff（目标态经 typed Git / PR collector 执行固定只读 operation，argv 直传且 `shell: false`）
+   - typed collector 交付前若回退 raw Bash，`git diff` / `git status` / `gh pr view` 仍走 §4.4 permission 弹窗，不得按字符串前缀静默放行
    - PR 元数据（title/description/comments）单独收集，标 untrusted
 2. 预处理：
    - 分片：files > 10 或 diff > 8000 行 → 按 file 分组；L3 起子 agent 并行

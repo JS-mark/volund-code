@@ -201,16 +201,16 @@ permission.request(req):
   3. SessionState.permissionCache 命中？→ allow
   4. 项目 permissions.toml 命中？→ allow
   5. 全局 permissions.toml 命中？→ allow
-  6. 内置 auto-allow 规则（如 Read 到 cwd 内、Bash 白名单命令）？→ allow
+  6. 内置 auto-allow 规则（仅 Read / Grep / Glob 在 cwd 内的显式文件读取）？→ allow
   7. --dangerously-skip-permissions 标志？→ allow（写日志）
-  8. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储
+  8. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储；无交互 prompt 时 deny
 ```
 
 **auto-allow 内置规则**（保守，用户可关）：
 - `Read` 目标在 `cwd` 内 → allow-session
 - `Grep` / `Glob` 在 `cwd` 内 → allow-session
-- `Bash` 命令匹配 `^(ls|pwd|git status|git diff|git log|node --version|...)` 只读子集 → allow-once
-- ★ r13-G6：`gh pr create` / `gh pr view` / `gh pr checks` 有**外发语义**（创建/变更远端资源）→ **不进静默白名单**，始终弹窗且文案明示"将执行 gh pr …（外发操作）"；`gh pr view` / `gh pr checks` 只读类可 allow-session
+- `Bash` **没有基于命令字符串的静默白名单**：包括 `pwd`、`git status`、`git diff`、`git log`、`node --version`、`pnpm test` 在内，未命中显式 project / global / session grant 时一律进入弹窗；无交互 prompt 时 deny。不得用前缀 regex 或自制 shell parser 推断命令“只读”。
+- ★ r13-G6：`gh pr create` / `gh pr view` / `gh pr checks` 同样始终经过上述 Bash 决策；用户明确授予后才可按 session / project / global scope 记忆。`gh pr create` 弹窗文案须明示“将执行 gh pr …（外发操作）”。未来只读 Git / PR 收集器必须使用 typed operation + argv（`shell: false`）并拥有独立权限类型，不能重新借用 raw Bash 字符串白名单。
 - 其它一律弹窗
 
 **★ 路径模式语义（r13-I2，权限 glob 方言钉死）**——`fs.read/write` 的模式匹配不能有歧义，全仓一套语义（permission 与 Glob 工具同源）：
@@ -340,4 +340,3 @@ export type ToolSource =
 - **L2**：`MultiEdit`；`Skill.activate`（随 skills-runtime）；`Memory.write` / `Memory.read` / `Memory.list` / `Memory.update` / `Memory.delete`（随 memory-runtime，§6.12.2a）；danger patterns 黑名单；permission `allow-project` / `allow-forever` 存储
 - **L3**：`Task` + subagent；`Memory.recall`（走 apollo-search 索引）；MCP 工具注入；插件工具注入
 - **L4**：`WebFetch` / `WebSearch`；网络 permission 按 domain；跨 cwd 强制弹窗
-

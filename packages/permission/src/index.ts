@@ -53,8 +53,6 @@ function keyOf(request: PermissionRequest): string {
   }
   return JSON.stringify([request.toolName, request.spec])
 }
-const SAFE_BASH =
-  /^(?:pwd|ls(?:\s|$)|git (?:status|diff|log)(?:\s|$)|node --version$|pnpm (?:test|typecheck)(?:\s|$))/
 
 export class PermissionManager {
   readonly #cache = new Set<string>()
@@ -110,12 +108,6 @@ export class PermissionManager {
       reads.every((path) => inCwd(path, request.session.cwd))
     )
       return { kind: 'allow-session' }
-    if (
-      request.toolName === 'Bash' &&
-      request.spec.bash &&
-      SAFE_BASH.test(request.spec.bash.command.trim())
-    )
-      return { kind: 'allow-once' }
   }
   private async record(
     request: PermissionRequest,
