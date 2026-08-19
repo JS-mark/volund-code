@@ -180,6 +180,11 @@ describe('renderInteractiveApp', () => {
   it('shows permission status transiently without replacing stable welcome state', async () => {
     const permissions = new PermissionPromptController()
     const pending = permissions.request({
+      display: {
+        approvable: true,
+        spec: '{"fs":{"write":["/repo/output.txt"]}}',
+        toolName: 'write',
+      },
       id: 'permission-1',
       attempt: 1,
       input: { path: '/repo/output.txt' },
@@ -845,14 +850,26 @@ describe('renderInteractiveApp', () => {
       },
     )
 
-    void permissions.request({
+    const rawCommand = 'touch x\u202E'
+    const rawRequest = {
+      display: {
+        approvable: true,
+        spec: '{"bash":{"command":"touch x\\u{202E}"}}',
+        toolName: 'Bash',
+      },
       attempt: 1,
       id: 'permission-1',
-      input: { command: 'touch x' },
-      spec: { bash: { command: 'touch x' } },
+      input: { command: rawCommand },
+      spec: { bash: { command: rawCommand } },
       toolName: 'Bash',
-    })
+    } as const
+    void permissions.request(rawRequest)
     void permissions.request({
+      display: {
+        approvable: true,
+        spec: '{"fs":{"write":["x"]}}',
+        toolName: 'Write',
+      },
       attempt: 1,
       id: 'permission-2',
       input: {},
@@ -864,7 +881,53 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
 
     expect(stdout.output).toContain('Permission required: Bash')
+    expect(stdout.output).toContain('touch x\\u{202E}')
+    expect(stdout.output).not.toContain(rawCommand)
+    expect(permissions.requests()[0]).toEqual(rawRequest)
     expect(stdout.output).toContain('1 queued')
+  })
+
+  it('renders sensitive permission details as deny-only and ignores approval keys', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const pending = permissions.request({
+      display: {
+        approvable: false,
+        spec: '[sensitive permission details hidden - deny only]',
+        toolName: 'Bash',
+      },
+      attempt: 1,
+      id: 'permission-sensitive',
+      input: { command: 'echo token=[REDACTED]' },
+      spec: { bash: { command: 'echo token=[REDACTED]' } },
+      toolName: 'Bash',
+    })
+    let settled = false
+    void pending.then(() => {
+      settled = true
+    })
+    const app = renderInteractiveApp(
+      { cwd: '/repo', permissions },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('[sensitive permission details hidden - deny only]')
+    expect(stdout.output).not.toContain('allow once')
+    stdin.write('a')
+    await app.waitUntilRenderFlush()
+    expect(settled).toBe(false)
+    stdin.write('d')
+    await expect(pending).resolves.toEqual({ kind: 'deny' })
+    await app.unmount()
+    await app.waitUntilExit()
   })
 
   it('renders focused list and tab affordances', async () => {

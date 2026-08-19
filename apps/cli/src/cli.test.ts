@@ -1,13 +1,16 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { EventBus } from '@apollo-code/core'
+import { createSession, EventBus, MachineEventFormatter } from '@apollo-code/core'
+import type { ToolContext } from '@apollo-code/tool-kit'
+import { BashTool } from '@apollo-code/tools'
 import type { SandboxDisclosure } from '@apollo-code/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
 import { command } from './command'
-import type { ApolloPorts } from './ports'
+import type { ApolloPorts, PermissionInteractionMode } from './ports'
+import { createProductionToolPermissionChain } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -68,6 +71,7 @@ function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
       resume: vi.fn(async (id) => ({ id })),
       interrupt: vi.fn(async () => {}),
       end: vi.fn(async () => {}),
+      configurePermissionInteraction: vi.fn(),
     },
     ...overrides,
   }
@@ -452,6 +456,7 @@ describe('runCli', () => {
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
         end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
         configureTerminalOutput: vi.fn(),
       },
       ui: {
@@ -500,6 +505,7 @@ describe('runCli', () => {
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
         end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
         configureTerminalOutput: vi.fn(),
       },
       ui: {
@@ -523,6 +529,7 @@ describe('runCli', () => {
     expect(testPorts.session.configureTerminalOutput).toHaveBeenCalledWith({
       streamToStdout: false,
     })
+    expect(testPorts.session.configurePermissionInteraction).toHaveBeenCalledWith({ mode: 'tui' })
     expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: process.cwd(),
@@ -589,6 +596,7 @@ describe('runCli', () => {
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
         end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
         configureTerminalOutput: vi.fn(),
       },
       ui: {
@@ -634,6 +642,7 @@ describe('runCli', () => {
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
         end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
         configureTerminalOutput: vi.fn(),
       },
       ui: {
@@ -661,6 +670,7 @@ describe('runCli', () => {
     expect(testPorts.session.configureTerminalOutput).toHaveBeenCalledWith({
       streamToStdout: true,
     })
+    expect(testPorts.session.configurePermissionInteraction).toHaveBeenCalledWith({ mode: 'line' })
   })
 
   it('uses NDJSON only for a JSON chat and disables human/TUI output', async () => {
@@ -675,6 +685,88 @@ describe('runCli', () => {
       write: expect.any(Function),
     })
     expect(testPorts.ui?.renderInteractiveApp).toBeUndefined()
+    expect(testPorts.session.configurePermissionInteraction).toHaveBeenCalledWith({ mode: 'none' })
+  })
+
+  it('forces JSON-on-TTY to none and drives the real Bash permission chain without readline', async () => {
+    let interactionMode: PermissionInteractionMode = 'line'
+    let writeJson: ((value: string) => void) | undefined
+    const linePrompt = vi.fn(async (_question: string) => 'a')
+    const nativeExecute = vi.fn(async () => 'must not execute')
+    const configurePermissionInteraction = vi.fn((input: { mode: PermissionInteractionMode }) => {
+      interactionMode = input.mode
+    })
+    const session = {
+      start: vi.fn(async ({ cwd }: { cwd: string; prompt?: string }) => {
+        const state = createSession({
+          id: 'session-json-tty',
+          cwd,
+          maxTokens: 200_000,
+          toolRegistrySnapshot: 'json-tty-test',
+        })
+        const events = new EventBus()
+        const formatter = new MachineEventFormatter()
+        events.subscribe((event) => {
+          const line = formatter.encode(event)
+          if (line) writeJson?.(line)
+        })
+        const logger = {
+          debug: vi.fn(),
+          error: vi.fn(),
+          info: vi.fn(),
+          warn: vi.fn(),
+        }
+        const chain = createProductionToolPermissionChain({
+          state,
+          events,
+          permissionSnapshot: { dangerouslySkip: false, interactionMode },
+          logger,
+          interactivePermissionPrompt: () => undefined,
+          linePermissionPrompt: linePrompt,
+          terminalIsInteractive: () => true,
+        })
+        const executor = chain.bindExecutor(
+          (signal): ToolContext => ({
+            abortSignal: signal,
+            session: { id: state.id, cwd: state.cwd, turnId: 'turn-json' },
+            native: { execute: nativeExecute },
+            logger,
+            ui: { requestInput: async () => '' },
+          }),
+        )
+        const result = await executor.execute(
+          new BashTool({ platform: 'darwin' }),
+          { command: 'git status' },
+          new AbortController().signal,
+          'toolu_json_tty',
+        )
+        writeJson?.(
+          `${JSON.stringify({ type: 'final', data: { denied: result.isError === true } })}\n`,
+        )
+        return { id: state.id, exitCode: result.isError ? 1 : 0 }
+      }),
+      resume: vi.fn(async (id: string) => ({ id })),
+      interrupt: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      configureSecurity: vi.fn(),
+      configurePermissionInteraction,
+      configureOutput: vi.fn((input: { json: boolean; write(value: string): void }) => {
+        writeJson = input.write
+      }),
+      configureTerminalOutput: vi.fn(),
+    }
+    const result = await runCli(['chat', 'hello', '--json'], ports({ session }), {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(configurePermissionInteraction).toHaveBeenCalledWith({ mode: 'none' })
+    expect(linePrompt).not.toHaveBeenCalled()
+    expect(nativeExecute).not.toHaveBeenCalled()
+    expect(result.exitCode).toBe(1)
+    const lines = result.stdout.trim().split('\n')
+    expect(lines.length).toBeGreaterThanOrEqual(1)
+    for (const line of lines) expect(() => JSON.parse(line)).not.toThrow()
   })
 
   it('keeps management --json output as one JSON document', async () => {

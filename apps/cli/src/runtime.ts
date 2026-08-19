@@ -96,6 +96,8 @@ import {
   renderInteractiveApp,
   renderSessionPicker,
   MutableSlashCommandRegistry,
+  formatPermissionTextForDisplay,
+  formatPermissionValueForDisplay,
   validateStatusConfigValue,
 } from '@apollo-code/ui'
 import type {
@@ -115,7 +117,12 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
-import type { ApolloPorts, InteractiveSession, SessionPort } from './ports'
+import type {
+  ApolloPorts,
+  InteractiveSession,
+  PermissionInteractionMode,
+  SessionPort,
+} from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { DirectoryTrustStore } from './trust'
 
@@ -283,7 +290,7 @@ export interface StatusSnapshotAdapterOptions {
   version: string
   sandbox(): Promise<SandboxDisclosure | undefined>
   configAvailable(): Promise<boolean>
-  dangerousPermissions(): boolean
+  dangerousPermissions(state: SessionState): boolean
 }
 
 export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
@@ -296,9 +303,69 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       state,
       version: options.version,
       ...(sandbox ? { sandbox } : {}),
-      dangerousPermissions: options.dangerousPermissions(),
+      dangerousPermissions: options.dangerousPermissions(state),
       configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
     })
+  }
+}
+
+export interface ProductionPermissionSessionSnapshot {
+  readonly dangerouslySkip: boolean
+  readonly interactionMode: PermissionInteractionMode
+}
+
+export class PermissionSessionInvariantError extends Error {
+  readonly code = 'permission_parent_snapshot_missing'
+
+  constructor(parentSessionId: string) {
+    super(
+      `Permission policy invariant failed: parent session snapshot not found (${parentSessionId})`,
+    )
+    this.name = 'PermissionSessionInvariantError'
+  }
+}
+
+/** Freezes security and interaction policy once, at the Runner/session creation boundary. */
+export class ProductionPermissionSessionPolicy {
+  #nextDangerouslySkip = false
+  #nextInteractionMode: PermissionInteractionMode = 'none'
+  readonly #snapshots = new Map<string, ProductionPermissionSessionSnapshot>()
+
+  configureSecurity(input: { skipPermissions: boolean }): void {
+    this.#nextDangerouslySkip = input.skipPermissions
+  }
+
+  configureInteraction(input: { mode: PermissionInteractionMode }): void {
+    this.#nextInteractionMode = input.mode
+  }
+
+  snapshotFor(state: Pick<SessionState, 'id' | 'lineage'>): ProductionPermissionSessionSnapshot {
+    const existing = this.#snapshots.get(state.id)
+    if (existing) return existing
+    if (state.lineage.depth === 0) {
+      const snapshot = Object.freeze({
+        dangerouslySkip: this.#nextDangerouslySkip,
+        interactionMode: this.#nextInteractionMode,
+      })
+      this.#snapshots.set(state.id, snapshot)
+      return snapshot
+    }
+    const parentSessionId = state.lineage.parentSessionId
+    const snapshot = parentSessionId ? this.#snapshots.get(parentSessionId) : undefined
+    if (!snapshot) throw new PermissionSessionInvariantError(parentSessionId ?? '<missing>')
+    this.#snapshots.set(state.id, snapshot)
+    return snapshot
+  }
+
+  snapshotForSession(sessionId: string): ProductionPermissionSessionSnapshot | undefined {
+    return this.#snapshots.get(sessionId)
+  }
+
+  releaseLineage(sessionId: string): void {
+    const snapshot = this.#snapshots.get(sessionId)
+    if (!snapshot) return
+    for (const [candidate, value] of this.#snapshots)
+      if (value === snapshot) this.#snapshots.delete(candidate)
   }
 }
 
@@ -311,6 +378,7 @@ export class RuntimeSessionPort implements SessionPort {
     readonly sessionsDir: string,
     readonly createRunner: RunnerFactory,
     readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
+    readonly onPermissionInteraction?: (input: { mode: PermissionInteractionMode }) => void,
     readonly onEnd?: (sessionId: string) => void | Promise<void>,
     readonly onTerminalOutput?: (input: { streamToStdout: boolean }) => void,
     readonly onPermissionPromptHandler?: (
@@ -322,6 +390,9 @@ export class RuntimeSessionPort implements SessionPort {
   ) {}
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
+  }
+  configurePermissionInteraction(input: { mode: PermissionInteractionMode }): void {
+    this.onPermissionInteraction?.(input)
   }
   configureOutput(input: { json: boolean; write: (value: string) => void }): void {
     this.#output = input
@@ -666,31 +737,82 @@ async function promptSecret(question: string): Promise<string> {
   })
 }
 async function permissionPrompt(
-  request: PermissionRequest,
+  request: InteractivePermissionRequest,
   terminalIsInteractive: () => boolean = isInteractiveTerminal,
+  linePrompt: (question: string) => Promise<string | undefined> = promptLineMaybe,
 ): Promise<PermissionDecision> {
   if (!terminalIsInteractive()) return { kind: 'deny' }
   const answer = (
-    await promptLine(
-      `Permission required: ${request.toolName} ${JSON.stringify(request.spec)}\n[a]llow once, allow [s]ession, [d]eny: `,
-    )
+    (await linePrompt(
+      request.display.approvable
+        ? `Permission required: ${request.display.toolName} ${request.display.spec}\n[a]llow once, allow [s]ession, [d]eny: `
+        : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
+    )) ?? ''
   )
     .trim()
     .toLowerCase()
+  if (!request.display.approvable) return { kind: 'deny' }
   return { kind: answer === 's' ? 'allow-session' : answer === 'a' ? 'allow-once' : 'deny' }
+}
+
+function buildPermissionDisplay(
+  raw: Pick<PermissionRequest, 'spec' | 'toolName'>,
+  sanitized: Pick<InteractivePermissionRequest, 'spec' | 'toolName'>,
+): InteractivePermissionRequest['display'] {
+  const rawSpec = formatPermissionValueForDisplay(raw.spec)
+  const sanitizedSpec = formatPermissionValueForDisplay(sanitized.spec)
+  const rawToolName = formatPermissionTextForDisplay(raw.toolName)
+  const sanitizedToolName = formatPermissionTextForDisplay(sanitized.toolName)
+  if (
+    !rawSpec.approvable ||
+    !sanitizedSpec.approvable ||
+    !rawToolName.approvable ||
+    !sanitizedToolName.approvable
+  )
+    return {
+      approvable: false,
+      spec: '[permission details unavailable - deny only]',
+      toolName: sanitizedToolName.text,
+    }
+  if (rawSpec.text !== sanitizedSpec.text || rawToolName.text !== sanitizedToolName.text)
+    return {
+      approvable: false,
+      spec: '[sensitive permission details hidden - deny only]',
+      toolName:
+        rawToolName.text === sanitizedToolName.text
+          ? sanitizedToolName.text
+          : '[sensitive tool name hidden]',
+    }
+  return { approvable: true, spec: sanitizedSpec.text, toolName: sanitizedToolName.text }
 }
 
 export async function requestPermission(input: {
   events: EventBus
+  interactionMode: PermissionInteractionMode
   interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
   request: PermissionRequest
   /** Deterministic test seam; production always uses the real terminal predicate. */
   terminalIsInteractive?: () => boolean
+  /** Deterministic line-input seam; production uses promptLineMaybe. */
+  linePermissionPrompt?: (question: string) => Promise<string | undefined>
   version: number
 }): Promise<PermissionDecision> {
   const id = uuidv7()
+  const sanitizedSpec = sanitize(input.request.spec as JsonValue)
+  const sanitizedToolName = sanitize(input.request.toolName)
+  const uiRequest: InteractivePermissionRequest = {
+    display: buildPermissionDisplay(input.request, {
+      spec: sanitizedSpec,
+      toolName: sanitizedToolName,
+    }),
+    id,
+    attempt: input.request.attempt,
+    input: sanitize(input.request.input as JsonValue),
+    spec: sanitizedSpec,
+    toolName: sanitizedToolName,
+  }
   // 附录 D.2 tool.permission_asked：{toolUseId, tool, spec}——toolUseId 优先用真实
   // tool_use id（ToolExecutor 透传），非模型路径回退本次弹窗请求 id。
   await input.events.emit({
@@ -700,66 +822,75 @@ export async function requestPermission(input: {
     payload: {
       toolUseId: input.request.toolUseId ?? id,
       tool: input.request.toolName,
-      spec: sanitize(input.request.spec as JsonValue),
+      spec: sanitizedSpec,
     },
   })
-  const uiRequest: InteractivePermissionRequest = {
-    id,
-    attempt: input.request.attempt,
-    input: sanitize(input.request.input as JsonValue),
-    spec: sanitize(input.request.spec as JsonValue),
-    toolName: input.request.toolName,
-  }
-  if (!input.interactivePermissionPrompt)
-    return input.terminalIsInteractive
-      ? permissionPrompt(input.request, input.terminalIsInteractive)
-      : permissionPrompt(input.request)
+  if (input.interactionMode === 'none') return { kind: 'deny' }
+  if (input.interactionMode === 'line')
+    return permissionPrompt(
+      uiRequest,
+      input.terminalIsInteractive ?? isInteractiveTerminal,
+      input.linePermissionPrompt ?? promptLineMaybe,
+    )
+  if (!input.interactivePermissionPrompt) return { kind: 'deny' }
   const decision = await input.interactivePermissionPrompt(uiRequest)
+  if (!uiRequest.display.approvable) return { kind: 'deny' }
   return { kind: decision.kind }
 }
 
 export interface ProductionPermissionConfiguration {
-  /** Mutated only by the explicit --yolo/--dangerously-skip-permissions CLI path. */
-  dangerouslySkip: boolean
+  readonly dangerouslySkip: boolean
   logger?: Logger
 }
 
 export interface ProductionToolPermissionChainOptions {
   state: Pick<SessionState, 'id' | 'cwd' | 'version' | 'lineage'>
   events: EventBus
-  permissionConfiguration: ProductionPermissionConfiguration
+  permissionSnapshot: ProductionPermissionSessionSnapshot
+  logger?: Logger
   interactivePermissionPrompt: () =>
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
   /** Deterministic test seam; omitted by createProductionPorts. */
   terminalIsInteractive?: () => boolean
+  /** Deterministic test seam; omitted by createProductionPorts. */
+  linePermissionPrompt?: (question: string) => Promise<string | undefined>
 }
 
 export interface ProductionToolPermissionChain {
-  permissions: PermissionManager
-  createExecutor(
+  permissionRequests: Pick<PermissionManager, 'request'>
+  bindExecutor(
     context: (signal: AbortSignal) => ToolContext,
     dispatchHook?: ToolHookDispatcher,
-  ): ToolExecutor
+  ): Pick<ToolExecutor, 'execute'>
 }
 
 /**
  * Single production composition point for tool permission enforcement.
  *
- * The manager is exposed because PromptLoader shares the Runner-local permission cache; callers
- * must create ToolExecutor through this object so requestPermission and the executor cannot drift.
+ * PromptLoader receives only the request view, while ToolExecutor can be bound exactly once so
+ * requestPermission and native execution cannot drift or expose cache/prompt mutation controls.
  */
 export function createProductionToolPermissionChain(
   options: ProductionToolPermissionChainOptions,
 ): ProductionToolPermissionChain {
-  const permissions = new PermissionManager({}, options.permissionConfiguration)
+  const configuration: ProductionPermissionConfiguration = Object.freeze({
+    dangerouslySkip: options.permissionSnapshot.dangerouslySkip,
+    ...(options.logger ? { logger: options.logger } : {}),
+  })
+  const interactionMode = options.permissionSnapshot.interactionMode
+  const permissions = new PermissionManager({}, configuration)
   permissions.setPromptHandler(async (request) => {
     const decision = await requestPermission({
       events: options.events,
+      interactionMode,
       interactivePermissionPrompt: options.interactivePermissionPrompt(),
       request,
       ...(options.terminalIsInteractive
         ? { terminalIsInteractive: options.terminalIsInteractive }
+        : {}),
+      ...(options.linePermissionPrompt
+        ? { linePermissionPrompt: options.linePermissionPrompt }
         : {}),
       version: options.state.version,
     })
@@ -768,9 +899,15 @@ export function createProductionToolPermissionChain(
       ? decision
       : { kind: 'deny' }
   })
+  let bound = false
   return {
-    permissions,
-    createExecutor: (context, dispatchHook) => new ToolExecutor(permissions, context, dispatchHook),
+    permissionRequests: Object.freeze({ request: permissions.request.bind(permissions) }),
+    bindExecutor(context, dispatchHook) {
+      if (bound) throw new Error('Production permission executor is already bound')
+      bound = true
+      const executor = new ToolExecutor(permissions, context, dispatchHook)
+      return Object.freeze({ execute: executor.execute.bind(executor) })
+    },
   }
 }
 
@@ -1251,24 +1388,23 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   )
   const auth = new AuthManager({ encrypted, env: process.env, telemetry })
   const http = new NodeHttpPort()
-  const permissionConfiguration: ProductionPermissionConfiguration = {
-    dangerouslySkip: false,
-    logger,
-  }
+  const permissionPolicy = new ProductionPermissionSessionPolicy()
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
   const createRunner: RunnerFactory = async (state, events) => {
+    const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
     const permissionChain = createProductionToolPermissionChain({
       state,
       events,
-      permissionConfiguration,
+      permissionSnapshot,
+      logger,
       interactivePermissionPrompt: () => interactivePermissionPrompt,
     })
-    const { permissions } = permissionChain
+    const { permissionRequests } = permissionChain
     let evolutionEnabled = true
     let userConfig: Record<string, JsonValue> = {}
     try {
@@ -1296,7 +1432,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     registerRuntimeMemoryPrompts(composer, memory, state)
-    const promptLoader = new PromptLoader({ cwd: state.cwd, apolloHome: home, permissions })
+    const promptLoader = new PromptLoader({
+      cwd: state.cwd,
+      apolloHome: home,
+      permissions: permissionRequests,
+    })
     await promptLoader.registerProject(composer)
     const skills = new SkillsRuntime({
       skillsDir: join(home, 'skills'),
@@ -1468,7 +1608,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         })
         .catch(() => undefined)
     }
-    const executor = permissionChain.createExecutor(
+    const executor = permissionChain.bindExecutor(
       (signal) => ({
         abortSignal: signal,
         session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
@@ -1651,10 +1791,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const session = new RuntimeSessionPort(
     join(home, 'sessions'),
     createRunner,
-    (input) => {
-      permissionConfiguration.dangerouslySkip = input.skipPermissions
-    },
-    async () => {
+    (input) => permissionPolicy.configureSecurity(input),
+    (input) => permissionPolicy.configureInteraction(input),
+    async (sessionId) => {
+      permissionPolicy.releaseLineage(sessionId)
       await Promise.all([...pluginRuntimes].map((runtime) => runtime.dispose()))
       pluginRuntimes.clear()
       await memory.flush()
@@ -1667,7 +1807,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
     createStatusSnapshotAdapter({
       version: options.identity.version,
-      dangerousPermissions: () => permissionConfiguration.dangerouslySkip,
+      dangerousPermissions: (state) =>
+        permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
       configAvailable: () =>
         access(join(home, 'config.toml')).then(
           () => true,

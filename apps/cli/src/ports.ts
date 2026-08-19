@@ -39,6 +39,7 @@ export interface NativeAvailabilityView {
   search: boolean | 'probing'
   fs: boolean | 'probing'
 }
+export type PermissionInteractionMode = 'none' | 'line' | 'tui'
 export interface SessionPort {
   start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
@@ -48,6 +49,7 @@ export interface SessionPort {
   interrupt(): Promise<void>
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void
+  configurePermissionInteraction?(input: { mode: PermissionInteractionMode }): void
   configureOutput?(input: { json: boolean; write: (value: string) => void }): void
   configureTerminalOutput?(input: { streamToStdout: boolean }): void
 }

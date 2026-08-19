@@ -567,9 +567,17 @@ export async function runCli(
   }
   const banner = renderSecurityBanner(dangerousModes, !noColor)
   if (banner && !shouldUseTui) stdout += `${banner}\n`
+  const permissionInteractionMode = jsonMode
+    ? 'none'
+    : shouldUseTui
+      ? 'tui'
+      : io.isInteractiveTerminal?.()
+        ? 'line'
+        : 'none'
   ports.session.configureSecurity?.({
     skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
   })
+  ports.session.configurePermissionInteraction?.({ mode: permissionInteractionMode })
   ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
   ports.session.configureTerminalOutput?.({ streamToStdout: !jsonMode && !shouldUseTui })
   try {

@@ -260,6 +260,22 @@ describe('PermissionManager', () => {
     expect(prompt).toHaveBeenCalledTimes(3)
   })
 
+  it('keeps a raw bidi command grant isolated from its literal visible escape text', async () => {
+    const prompt = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'allow-session' as const })
+      .mockResolvedValue({ kind: 'deny' as const })
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    const rawBidi = 'printf "\u202E"'
+    const literalEscape = 'printf "\\u{202E}"'
+
+    expect(await manager.request(bashReq(rawBidi))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq(rawBidi))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq(literalEscape))).toEqual({ kind: 'deny' })
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     { decision: 'allow-project' as const, scope: 'project' as const },
     { decision: 'allow-forever' as const, scope: 'global' as const },

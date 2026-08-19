@@ -226,6 +226,19 @@ permission.request(req):
 
 **弹窗触发**：`permission` 内部持有 `PromptHandler`（由 `apps/cli` 注入 ui 实现，见 §1.5）。permission 内部**串行队列**弹窗，一次只显示一个（防刷屏，见 §2.5）。
 
+**★ 人工审批显示不变量（display-safe）**：
+
+1. `PermissionRequest`、原始 tool input、`ToolExecutor` / native 调用以及 session / project / global grant key 始终使用原值；显示层不得 normalize、改写或回写这些值。
+2. CLI line fallback 与 TUI 共用 UI 包的 injective formatter。Cc / Cf / Cs / Zl / Zp、非 ASCII Zs、bidi/default-ignorable/zero-width、noncharacter 必须显示成唯一可见的 `\u{XXXX}`；字面反斜杠必须双写。普通 ASCII 空格、中文和不含 default-ignorable 的 emoji 保持可读。
+3. Host 同时对 raw spec 与 secret-sanitized spec 做完整、安全格式化。任一格式化失败/超出深度、节点或输出预算，或两者显示结果不同（说明脱敏会隐藏真实副作用）时，只能显示 deny-only 标记；不得展示 raw secret，也不得接受 allow-once / allow-session。
+4. `tool.permission_asked` / telemetry 继续使用结构化、secret-sanitized spec；这不改变执行与 grant key 的原始值。
+
+非目标：L1 不实现完整 UTS #39 confusable 检测，也不把直接 `cat` / 打印 JSON 当作人工审批界面；只有上述受控 CLI/TUI permission surface 承担可批准显示契约。
+
+**★ 显式交互策略**：每个顶层 session 在创建 Runner 前冻结 `none | line | tui`。secure default 为 `none`；`--json` 即使运行在物理 TTY 上也必须为 `none`，不得调用 readline/TUI handler；`line` 仅允许非 JSON line 模式且 stdin/stdout 都是物理 TTY；`tui` 只允许已注入的 TUI handler，handler 缺失时 deny，绝不回退 readline。
+
+**★ 冻结安全快照**：`--dangerously-skip-permissions` 与交互策略在顶层 session / Runner 构造边界复制为不可变快照。后续 CLI 配置只影响下一个新顶层 session，不能 live-flip 已存在 executor；所有 child session 按 `parentSessionId` 继承同一快照但使用独立 `PermissionManager` / session cache。找不到 parent snapshot 属于 invariant failure，必须拒绝构造；顶层 session 结束时清理整条 lineage 的快照。
+
 ### 4.5 PermissionSpec ↔ 沙箱执行
 
 **核心决策**：**permission 是策略层，sandbox 是执行层**。permission 允许了不代表就直接执行，仍要过 sandbox（如果工具声明了 sandbox 需求）。
@@ -328,6 +341,8 @@ export type ToolSource =
 | 破坏性 tool（Write / Edit / Bash）**必须**声明 sandbox 需求                        | tool 单元测试                                   |
 | Permission 决策链**必须**按 §4.4 顺序，禁止跳过                                     | permission 单元测试                             |
 | `permissionCache` 只在 session 内有效，进程重启失效                                 | SessionState 不持久化 permissionCache            |
+| 人工审批显示必须 injective、bounded、fail-closed；raw 与脱敏显示不一致时仅 deny       | UI formatter + CLI/TUI integration tests        |
+| 顶层 session 的 bypass / interaction policy 必须冻结；child 继承策略但不继承 cache   | apps/cli production composition tests           |
 | `permissions.toml` 修改**必须**通过 permission API，不允许工具直接写                | ESLint 白名单                                   |
 | `--dangerously-skip-permissions` **必须**打警告日志 + UI 顶栏红条                  | apps/cli 强制                                   |
 | MCP / 插件工具**必须**加前缀（`mcp:` / `plugin:`）                                 | Registry.register 校验                          |
