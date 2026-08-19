@@ -24,7 +24,7 @@
 
 ```text
 SD0-01 → SD0-02 → SD0-03
-→ BRAND-01
+→ BRAND-01 → BRAND-VERIFY
 → SD1-01 → SD1-02 → SD1-03
 → SD2-01 → SD2-02 → SD2-03
 → SD3-01 → SD3-02 → SD3-03
@@ -56,7 +56,8 @@ SD0-01 → SD0-02 → SD0-03
 | `SD0-02` | SD0 | 修复 builtin Hook >1MB 截断绕过 | SD0-01 | Security reviewer required |
 | `SD0-03` | SD0 | 冻结 threat model、路径分类、off-by-default 和测试骨架 | SD0-02 | BDFL/product + security required |
 | `BRAND-01` | Brand | canonical identity 决策与原子迁移 | SD0-03 | **User decision required; currently pending** |
-| `SD1-01` | SD1 | 数据模型、状态 reducer、transition contract | BRAND-01 | Architecture reviewer required |
+| `BRAND-VERIFY` | Brand | branded SHA 上重跑并重签 SD0 evidence | BRAND-01 | Product + security re-sign required |
+| `SD1-01` | SD1 | 数据模型、状态 reducer、transition contract | BRAND-VERIFY | Architecture reviewer required |
 | `SD1-02` | SD1 | CAS/fencing/signed anchor/effect recovery | SD1-01 | Storage/security reviewer required |
 | `SD1-03` | SD1 | 隔离 worktree、ArtifactRef、manifest/seal | SD1-02 | Security reviewer required |
 | `SD2-01` | SD2 | base-SHA policy intersection 与 protected surfaces | SD1-03 | Security + repository owner required |
@@ -83,14 +84,14 @@ SD0-01 → SD0-02 → SD0-03
 
 ### SD0-02 · Builtin Hook 不得因截断漏扫后缀
 
-- **Scope**：修改 `packages/plugin-runtime` 的 builtin Hook payload gate。当前 >1MB payload 在 dispatch 前截断会让危险内容藏在未扫描后缀；改为 full-payload bounded streaming scan，或对超限 builtin payload 直接 fail-closed。记录 raw digest、scanned digest/length 和 typed denial；不得先截断再当作“已完整审查”。非 builtin fail-open 语义不得扩散到安全 Hook。
+- **Scope**：修改 `packages/plugin-runtime` 的 builtin Hook payload gate。当前 >1MB payload 在 dispatch 前截断会让危险内容藏在未扫描后缀；改为 full-payload bounded streaming scan，或对超限 builtin payload direct-veto。证据 schema 必须区分两条路径：direct-veto 写 `{rawBytes, rawDigest, scanStatus:'not_started', scannedBytes:0, scannedDigest:null}`；只有 full scan 成功才写 `scanStatus:'complete'`，并要求 raw/scanned length 与 digest 一致。不得把“未扫描”伪装为“扫描结果等于 raw”。非 builtin fail-open 语义不得扩散到安全 Hook。
 - **Dependencies**：SD0-01。
-- **Tests/evidence**：在 `domain-hooks.test.ts` 增加危险片段位于 1MB 之后、UTF-8 边界、深层 JSON、超限、timeout/crash fixture；断言 builtin 全部 veto 且 tool 未执行，plugin/project/user 原有语义保持。运行 `pnpm --filter @apollo-code/plugin-runtime test`、typecheck 和 tool-hook E2E。
+- **Tests/evidence**：在 `domain-hooks.test.ts` 增加危险片段位于 1MB 之后、UTF-8 边界、深层 JSON、超限、timeout/crash fixture；direct-veto 逐字段断言 `rawBytes/rawDigest + not_started + 0 + null`，full scan 逐字段断言 `complete + rawBytes=scannedBytes + rawDigest=scannedDigest`；两路 builtin 均 veto 且 tool 未执行，plugin/project/user 原有语义保持。运行 `pnpm --filter @apollo-code/plugin-runtime test`、typecheck 和 tool-hook E2E。
 - **Human gate**：独立 security reviewer 核对扫描覆盖、资源上限、DoS 行为和 fail-closed 日志；未签字不得开始 SD0-03。
 
 ### SD0-03 · 冻结 Self-Development threat model 与安全默认
 
-- **Scope**：在新工作包建立 threat-model fixtures、path classification schema、角色矩阵、dangerous-flag hard deny 和 policy version contract；将 §18 所有子系统配置为未注册/默认 off。同步修正 §15 legacy 默认的后续实现任务：缺省 runtime tuning 必须 off，shadow/apply 需注册 schema 和迁移，不能顺手连接 apply。
+- **Scope**：在中性、non-production fixture 区建立 threat-model fixtures、path classification schema、角色矩阵、dangerous-flag hard deny 和 policy version contract；品牌冻结前不创建正式 SelfDev package/CLI identity。将 §18 所有子系统配置为未注册/默认 off。同步修正 §15 legacy 默认的后续实现任务：缺省 runtime tuning 必须 off，shadow/apply 需注册 schema 和迁移，不能顺手连接 apply。
 - **Dependencies**：SD0-02。
 - **Tests/evidence**：文档/config/event verifier；policy fixture 验证 builtin deny 不能被 user/base 放宽；production command tree 中不存在 `selfdev` entry；§15 缺省 off 的 config/CLI/runtime migration tests（若该修复与本任务同 PR，否则作为 blocking linked change）。记录 protected category 到实际路径的首版映射。
 - **Human gate**：BDFL/product owner 确认 v1 scope；security owner 确认 threat model、protected surface 和 default-off。两者缺一即 blocked。
@@ -99,23 +100,30 @@ SD0-01 → SD0-02 → SD0-03
 
 ### BRAND-01 · 在 production contracts 前冻结 canonical identity
 
-- **Scope**：**先等待用户给出最终 canonical identity**；随后建立唯一 source-of-truth 映射，原子迁移现有 package scope/names、CLI binary、config/home paths、env prefixes、docs/URLs、GitHub/npm metadata、telemetry namespaces、native artifacts、signing identifiers 和兼容 alias/deprecation。最终 identity artifact/digest 必须在 SD1 contracts、SD4 CLI/composition 与 SD0–SD4 exact-SHA evidence 之前固定。Logo/视觉资产只有在用户确认 identity 与视觉方向后另行设计；不得在本计划中创造候选品牌。
+- **Scope**：**先等待用户给出最终 canonical identity**；随后建立唯一 source-of-truth 映射，原子迁移现有 package scope/names、CLI binary、config/home paths、env prefixes、docs/URLs、GitHub/npm metadata、telemetry namespaces、native artifacts、signing identifiers 和兼容 alias/deprecation。SD0 的安全 P0 修复可在品牌选择前先落地，不能因 BRAND 阻塞；最终 identity artifact/digest 必须在 SD1 production contracts 和后续 evidence chain 前固定。Logo/视觉资产只有在用户确认 identity 与视觉方向后另行设计；不得在本计划中创造候选品牌。
 - **Dependencies**：SD0-03；此外依赖用户明确选择名称、scope、CLI 命令、域名/仓库归属和兼容期限。
 - **Tests/evidence**：identity string inventory 前后对账为 0 未分类；fresh install/upgrade/config/session/credential/native resolution/docs links/CLI aliases/package publication dry-run；旧 identity 仅出现在 approved compatibility/history allowlist。迁移必须单独 changeset 和 rollback plan，并生成后续任务绑定的 canonical identity artifact/digest。
 - **Human gate**：**当前 BLOCKED ON USER CHOICE**。用户签署 canonical identity/mapping；法律、npm/GitHub/domain 可用性由授权人核验。任何 agent 不得替用户选择名称或生成 final logo。
+
+### BRAND-VERIFY · 在最终 branded exact SHA 重建 SD0 信任证据
+
+- **Scope**：Brand migration 完成后、SD1 开始前，在最终 branded exact SHA 重跑 SD0-01/02/03 的全部安全测试、threat fixtures、protected-path mapping、docs/config/error/event checks，并重新生成 identity-bound evidence digests。Brand 前的 P0 修复提交仍保留，但其旧 SHA evidence 不能作为 SD1/beta gate。
+- **Dependencies**：BRAND-01；SD0-01/02/03 已在品牌前完成并有原始审计记录。
+- **Tests/evidence**：重跑 raw Bash zero-silent-auto-allow corpus、Hook direct-veto/full-scan evidence contract、threat model/dangerous flags/default-off/path classification，以及全量 docs/config/error/event verifiers；输出 old→branded SHA evidence mapping，所有 artifacts、logs 和 reports 绑定同一 final branded SHA，未分类 identity/path 为 0。
+- **Human gate**：原 SD0 security reviewer 与 product owner 必须在 branded evidence 上重新签字；任一测试或 mapping 变化先修复并产生新 SHA，再完整重跑。BRAND-VERIFY 未关闭，SD1-01 blocked。
 
 ## 5. SD1 — Contracts、Store 与 Worktree
 
 ### SD1-01 · 领域模型与确定性 reducer
 
-- **Scope**：按 BRAND-01 冻结的 identity 新建正式领域包，实现 §18 的 `SelfDevRun`、versioned policy/artifact、Baseline/Candidate/Verification/Acceptance/Approval/Promotion/effect/journal-anchor types、typed reasons、domain-separated canonical encoding 和纯状态 reducer。明确区分 existing `baseRef@baseSha` 与事前不存在的 `promotionRef`。Reducer 不 import provider、tools、CLI 或 storage；模型输出永远是 input data，不直接 transition。
-- **Dependencies**：BRAND-01。
+- **Scope**：按 BRAND-VERIFY 关闭的 identity/evidence 新建正式领域包，实现 §18 的 `SelfDevRun`、versioned policy/artifact、Baseline/Candidate/Verification/Acceptance/Approval/Promotion/effect/journal-anchor types、无自引用的 key RegistryPayload/Binding、typed reasons、domain-separated canonical encoding 和纯状态 reducer。明确区分 existing `baseRef@baseSha` 与事前不存在的 `promotionRef`。Reducer 不 import provider、tools、CLI 或 storage；模型输出永远是 input data，不直接 transition。
+- **Dependencies**：BRAND-VERIFY。
 - **Tests/evidence**：表驱动逐条覆盖 §18 显式 transition、统一 FAILABLE/CANCELLABLE 集、`STALEABLE` **每个状态**→STALE、reason/state 适用表、清理 guard 和 PROMOTING commit point；特别包含 PROPOSED 的 stale-base/ref-occupied。所有未列 transition、未完成 worker/lease/challenge/worktree cleanup、终态恢复、version mismatch、missing guard、inconclusive-as-pass 均拒绝。加入 property/fuzz test 验证任何状态序列都不能绕过 SEALING/VERIFYING/ACCEPTING/AWAITING_HUMAN，且 cancel/promotion CAS 竞态只收敛到 CANCELLED 或 COMPLETED/FAILED。运行新包 test/typecheck 和 architecture dependency test。
 - **Human gate**：独立 architecture reviewer 对照 §18 transition table 逐行签字。
 
 ### SD1-02 · CAS、monotonic fencing、独立 journal anchor 与 effect recovery
 
-- **Scope**：在 `packages/storage` 增加 SelfDev adapter，实现 atomic compare-and-swap、短 lease + 单调 fencing token、corruption-evident hash chain/checkpoint、single-use nonce/receipt 和 crash-safe append；在候选/Runner/本地 store 写权限之外提供 protected append-only Ed25519 `JournalAnchorStore` + monotonic counter。Effect intent 显式分类为 transactional/queryable、idempotent/retryable 或 opaque/ambiguous，开始前预留 worst-case budget，每个 attempt 计费；只承诺 exactly-once committed state，opaque provider/model/suite 未知结果不盲重放。Orchestrator port 必须带 expectedVersion/effectKey/generation/fencingToken；禁止 last-write-wins。
+- **Scope**：在 `packages/storage` 增加 SelfDev adapter，实现 atomic compare-and-swap、短 lease + 单调 fencing token、corruption-evident hash chain/checkpoint、single-use nonce/receipt 和 crash-safe append；在候选/Runner/本地 store 写权限之外提供 protected append-only Ed25519 `JournalAnchorStore` + monotonic counter。Anchor 只能使用 registry 中 `journal-anchor-issuer` service key/domain，并绑定 service actor/build、latest binding epoch 与 revocation。Effect intent 显式分类为 transactional/queryable、idempotent/retryable 或 opaque/ambiguous，开始前预留 worst-case budget，每个 attempt 计费；只承诺 exactly-once committed state，opaque provider/model/suite 未知结果不盲重放。
 - **Dependencies**：SD1-01。
 - **Tests/evidence**：并发双 writer、lease expiry/steal/token 单调性，以及 worker 在“authorization 后、commit 前”暂停、被 steal 后恢复写入的 fault injection；断言旧 fence + generation + stateVersion 100% 被拒绝。覆盖 journal truncate/reorder/duplicate/unknown schema、**完整链重写**、旧有效 anchor/store snapshot rollback、counter 回退、key revocation、anchor outage、checkpoint rollback；覆盖三类 effect 在 intent/physical attempt/receipt 前后的 crash，验证 transactional reconcile、idempotent retry 逐次计费、opaque 无 receipt 必为 fail/inconclusive 且无 blind replay。运行 storage test/typecheck、Windows/Linux filesystem fixture；保存 local bytes、独立 anchor 记录和恢复状态 digest。
 - **Human gate**：storage reviewer + security reviewer 确认 durability、fencing、anchor trust boundary、budget charging 和 fail-closed 语义；无独立 protected anchor 的实现不得称 tamper-evident/production。
@@ -131,9 +139,9 @@ SD0-01 → SD0-02 → SD0-03
 
 ### SD2-01 · base-SHA policy intersection 与 protected surfaces
 
-- **Scope**：实现 versioned `meet_v1(builtinPolicy,userPolicy,policyLoadedFrom(baseSha))`，把 builtin/user/base source artifacts 与独立 EffectivePolicy artifact 在 PROPOSED 固定。逐字段 lattice 不得自行解释：allowed paths/capabilities/suites 取交集，deny 取并集且优先；最大 budget/TTL/diff/repair/concurrency 取 min；最低 quality/holdout/safety/reviewer count 取 max；required suites/safety/holdout 取并集；所有 allow-boolean 取 AND；missing/unknown/unfulfillable 全 fail closed。建立 default-deny 路径分类。最低 protected：SelfDev 控制面、Permission、Sandbox/native、Auth/secret、Plugin/Hook trust、Skill auto-activation、approval/journal/anchor/artifact、CI/release/signing、`.git`、依赖 manifests/lockfile、工作区外路径。候选 policy/AGENT/Skill/Plugin/CI 不参与当前 run。
+- **Scope**：实现 versioned `meet_v1(builtinPolicy,userPolicy,policyLoadedFrom(baseSha))`，把 builtin/user/base source artifacts 与独立 EffectivePolicy artifact 在 PROPOSED 固定。逐字段 lattice 不得自行解释：allowed paths/capabilities/suites 与 baseRef matchers/promotion prefixes 语义取交集，deny 取并集；promotion reservation required 取 OR、backend 精确一致、TTL 取 min；最大 budget/TTL/diff/repair/concurrency 取 min；最低 quality/pass/reviewer count 取 max；required suites 取并集；baseline repair rule 取交集且 new/count/severity regression 永禁；risk path/task/capability trigger 取并集、diff/severity threshold 取更早触发值、normal/high reviewer count 取 max；allow-boolean 取 AND。missing/unknown/unfulfillable 全 fail closed。建立 default-deny 路径分类和 store-backed promotionRef reservation。候选 policy/AGENT/Skill/Plugin/CI 不参与当前 run。
 - **Dependencies**：SD1-03。
-- **Tests/evidence**：对每个 lattice 字段做三源排列、边界、空集、deny-vs-allow、required-not-allowed、整数溢出、布尔 AND 的 table/property tests；source/effective artifact bytes/digest 在 run 中改变必拒绝。每一 protected category 至少一个真实路径和新增未知路径 fixture；user/base 尝试扩大 builtin、candidate 修改 policy、symlink/case/rename/Unicode 绕过全部 deny；missing field、unknown field/enum/schema/lattice/canonicalizer、parse/digest error 全 fail closed。输出机器可读 coverage 报告，未分类路径数量必须为 0。
+- **Tests/evidence**：对每个 lattice 字段做三源排列、边界、空集、matcher/prefix 交集、deny-vs-allow、reservation race/expiry、baseline rule/task-class 匹配、new/increased/severity regression、risk threshold/trigger/reviewer count、required-not-allowed、整数溢出、AND/OR 的 table/property tests；source/effective artifact bytes/digest 在 run 中改变必拒绝。每一 protected category 至少一个真实路径和新增未知路径 fixture；user/base 尝试扩大 builtin、candidate 修改 policy、symlink/case/rename/Unicode 绕过全部 deny；missing field、unknown field/enum/schema/lattice/canonicalizer、parse/digest error 全 fail closed。输出机器可读 coverage 报告，未分类路径数量必须为 0。
 - **Human gate**：security owner 和 repository owner 对首版路径映射逐项确认；任何例外必须写 RFC，不能在 prompt 中临时允许。
 
 ### SD2-02 · 专用 Developer Runner 与 typed tools
@@ -161,32 +169,32 @@ SD0-01 → SD0-02 → SD0-03
 
 ### SD3-02 · Baseline/Candidate verifier、holdout 与 VerificationBundle
 
-- **Scope**：实现 BASELINING/VERIFYING worker、required/safety/holdout suites、deterministic graders、ArtifactRef evidence 和 bundle digest。Holdout 对 Developer 不可见；反馈只暴露规范化类别。Baseline 失败处理必须由 base policy 明确，不能默认忽略。
+- **Scope**：实现 BASELINING/VERIFYING worker、required/safety/holdout suites、deterministic graders、ArtifactRef evidence 和 bundle digest。Trusted suite 输出 versioned failure class/severity/count/output digest；只有 effective baseline rule 同时匹配 suite、failure class 与 goal task class 才允许目标修复既有失败，candidate 不得新增 class、增加 count、提高 severity 或扩大 failure output。Holdout 对 Developer 不可见；反馈只暴露规范化类别。
 - **Dependencies**：SD3-01。
-- **Tests/evidence**：pass/fail/inconclusive/baseline-existing-failure/timeout/crash/environment drift/holdout leak fixture；同输入重复两次 bundle digest 一致；missing/modified evidence、伪造 stdout、candidate 更改 test/config 都不能提升 verdict。记录 trajectory/quality/cost/safety 四类指标。
+- **Tests/evidence**：pass/fail/inconclusive/baseline-existing-failure/timeout/crash/environment drift/holdout leak fixture；逐项覆盖 rule 不匹配、task class 不匹配、新 failure class、count+1、severity 升级和 output 扩大，均 fail closed；同输入重复两次 bundle digest 一致；missing/modified evidence、伪造 stdout、candidate 更改 test/config 都不能提升 verdict。记录 trajectory/quality/cost/safety 四类指标。
 - **Human gate**：eval owner 批准 required/holdout 来源、泄漏模型和 grader 阈值；安全 suite 必须零失败。
 
 ### SD3-03 · 独立 Reviewer、AcceptanceReport 与 shadow E2E
 
-- **Scope**：实现 `selfdev.review` 无工具 profile、新会话/身份、sealed-only 输入和 versioned/length-bounded/strict-schema typed data channel；候选 bytes 只能位于 untrusted field，不能靠 delimiter/prompt 指令隔离。AcceptanceReport/model recommendation 明确为 **advisory**，绝不构成安全事实；isolation attestation 绑定 reviewer runtime/profile/prompt/typed envelope/decoder/context-source digests。Reviewer 只能建议 `accept|repair|reject|inconclusive`，不能修改 candidate、verification 或状态；deterministic safety/verification 保持硬门。EffectivePolicy 判定 high-risk 时需要两个独立 reviewer，否则 inconclusive。完成 SD3 shadow pipeline，但 promotion API 保持不存在。
+- **Scope**：实现仅允许 model/service `ReviewerActorRef` 的 `selfdev.review` 无工具 profile、新会话/独立 principal、sealed-only 输入和 versioned/length-bounded/strict-schema typed data channel；HumanApprover、run owner、Developer 与其他 role 类型上不可产出 attestation/advisory。AcceptanceReport/model recommendation 仅 **advisory**；attestation 绑定 reviewer actor/principal/runtime/profile/prompt/envelope/decoder/fresh session/fresh context-source instance 与 sealed evidence。Deterministic risk classifier 按 EffectivePolicy triggers/thresholds 计算 normal/high 和 required count，无法分类按 high。计数 reviewer 的 actor/principal/session/context-source 必须两两唯一且不能复用 run participants/key/context。完成 SD3 shadow pipeline，但 promotion API 保持不存在。
 - **Dependencies**：SD3-02。
-- **Tests/evidence**：证明 reviewer 看不到 Developer transcript、临时文件、Memory、自动 Skill、Plugin、holdout secret；candidate 做 prompt/delimiter/schema/oversize/parser injection 时必须 parse-fail→inconclusive 且不能取得工具/审批；篡改任一 isolation digest 即拒绝；deterministic fail 无法被模型改 pass。High-risk fixture 必须证明两个 reviewer 无共享 session/Memory/Plugin/context 且缺一即停。Shadow E2E 覆盖完整 pass、repair、reject、cancel、crash recovery 和 stale base，重复运行保存 metrics。
+- **Tests/evidence**：HumanApprover/run-owner/Developer/service 非-reviewer 构造报告全部 type/runtime 拒绝；同 actorId、principal/key、session、contextSource 任一复用均 isolation fail，sealed evidence 可相同但 context instance 必须独立。覆盖 path/task/capability/diff/severity 每种 risk trigger、阈值边界和缺失分类；high-risk fixture 达到 policy 唯一 reviewer count 才可继续。另证明 Reviewer 看不到 Developer transcript/Memory/Plugin/holdout secret，prompt/delimiter/schema/oversize/parser injection→inconclusive，deterministic fail 无法被 advisory 改 pass。Shadow E2E 覆盖 pass/repair/reject/cancel/crash/stale。
 - **Human gate**：由未参与 Developer 实现的 acceptance reviewer 检查 isolation evidence 和一组 sealed advisory reports；product owner 明确接受“模型只建议、人类最终逐项判断”的 shadow UX。
 
 ## 8. SD4 — 人工批准与 Branch-only Promotion
 
 ### SD4-01 · Human challenge 与 ApprovalReceipt
 
-- **Scope**：实现 discriminated actor/key registry/revocation 与两种信任根：本地 TTY + recent OS re-auth + OS-protected key，或独立受信审批界面；model/service 永不能构造 `HumanApproverRef`。按 §18 冻结字段并生成 domain-separated ApprovalContext，覆盖 goal、run/state version、generation、budget limits/usage、baseline/environment、candidate/policy、完整 CommitObjectPlan/PromotionPlan、verification/acceptance。Challenge issuer signature、HumanProof actor signature 和 Receipt issuer signature 逐层绑定 context/challenge/proof；区分 challenge nonce 与 Receipt 两次 single-use。UI 展示完整 context、deterministic 硬门、advisory findings 和 `expectedCommitObjectId`。无 `--yes`/`--force`/env/stdin/model confirmation。
+- **Scope**：实现无自引用 `SelfDevKeyRegistryPayload` + 外部 Binding/ArtifactRef 与 append-only epoch；key record 按 human-proof actor、challenge issuer、receipt issuer、journal-anchor issuer 分 discriminator，绑定 usage/domain/actor-or-service/build/root-purpose/validity/revocation。Human key 只能签 HumanProof，control-plane issuer 使用独立 service key；cross-domain/role/key 复用拒绝。提供本地 TTY + recent OS re-auth + OS-protected human key，或独立受信审批界面。按 §18 生成 ApprovalContext；Challenge issuer、HumanProof actor、Receipt issuer 三签逐层绑定 context/challenge/proof 与 registry binding。UI 展示完整 context、硬门/advisory 和 expected commit/ref transaction。无自动确认。
 - **Dependencies**：SD3-03。
-- **Tests/evidence**：仅 TTY 无 OS auth、uid/name 伪装、model/service actor、错误/撤销 key、registry rollback、auth context 过期、pipe/stdin、`--yes`、signature/domain swap、重放、nonce/receipt race 全拒绝；goal/state version/generation/budget usage/baseline/environment/candidate/policy/plan/verification/acceptance 任一字段在 freeze 后变化都吊销旧 challenge/receipt。覆盖 base race、promotionRef 预占和 request-changes；nonce 与 receipt 各自只能消费一次。安全 UX 测试必须验证人类看到了完整绑定摘要、硬门和 advisory findings 后才签发 actor proof。
+- **Tests/evidence**：RegistryPayload canonical bytes 不含自身 artifact/digest，Binding 复算可构造；payload/binding/epoch/previous binding 任一篡改或 rollback 拒绝。对 human key 冒充 challenge/receipt/journal issuer、issuer key cross-domain、actor/service/build/root-purpose mismatch、wrong algorithm、expired/revoked key 做全矩阵 deny。另覆盖仅 TTY 无 OS auth、uid/name/model/service 伪装、pipe/stdin/`--yes`、重放/race、freeze 后任一 context 字段变化、base/ref race 与 request-changes；nonce/receipt 各自 single-use。
 - **Human gate**：BDFL/product owner 做真实交互与最终语义判断验收；security reviewer 审批 trust root、registry/revocation、signature/domain、context freeze、nonce/TTL 和 replay 模型。没有两方签字不得连接 promotion。
 
 ### SD4-02 · Typed Git 本地 Branch-only Promotion Worker
 
-- **Scope**：实现 `selfdev.promote`，重新验证 receipt/context/freshness，以完整 canonical CommitObjectPlan 固定 tree、唯一 parent、author/committer raw identity、timestamps/timezones、message bytes、ordered extra headers、encoding 与 unsigned-v1 signature policy，并预计算 `expectedCommitObjectId`。Worker 清空/隔离 Git config/env/hooks/credential/signing helper，以 low-level typed object API 生成逐字节相同 payload/OID，再执行 expected=null/all-zero → new=exact OID 的 ref CAS。只允许本地未检出 branch；不访问 remote，不修改 current branch/index/worktree。effect recovery 只承诺 exactly-once committed state。
+- **Scope**：实现 `selfdev.promote`，重新验证 receipt/context，以完整 canonical CommitObjectPlan 固定 raw bytes/OID。`APPROVED→PROMOTING` store CAS 只消费 receipt/write intent；任何 freshness read 都只是 preflight。Worker 必须在**同一个 Git ref transaction**中执行 `verify baseRef==baseSha` 与 `create promotionRef expected-zero→expectedCommitObjectId`，任一失败整体 abort 且不得创建 promotion ref。Worker 隔离 Git config/env/hooks/credential/signing helper，以 low-level typed API 构造 object/ref transaction；effect recovery 只承诺 exactly-once committed state。
 - **Dependencies**：SD4-01。
-- **Tests/evidence**：对 author/committer name/email raw bytes、timestamp、timezone、message newline/encoding、extra-header order/continuation、signature policy、sha1/sha256 object format、user/system Git config 做 golden OID；任一 byte/implicit clock/config 漂移即拒绝。覆盖 dirty worktree、promotionRef 已存在、baseRef moved、receipt expired/replayed、cancel 与 commit-point CAS、crash before/after object/ref/PromotionReceipt、hook、remote URL/credential trap；网络 0 请求、current worktree hash 不变，ref CAS 的 expected/new OID 与批准 plan 精确相等。
+- **Tests/evidence**：对 commit raw fields/object format/config 做 golden OID。新增关键 TOCTOU fault：在 store intent/freshness preflight 后、Git transaction 前暂停，外部移动 `baseRef`，resume 时 transaction verify 必失败且 `promotionRef` 不存在；并覆盖 transaction 内 create conflict、base verify/create 任一失败的全回滚、transaction 成功后 receipt crash/reconcile。另测 dirty worktree、receipt replay、cancel race、hook/remote/credential trap；网络 0 请求、current worktree 不变，transaction plan/digest/OIDs 与获批 plan 精确相等。
 - **Human gate**：repository owner 对真实临时仓库演示确认 branch-only、无 hooks/remote/current-worktree mutation。
 
 ### SD4-03 · Production composition、CLI 与跨平台 E2E
@@ -225,7 +233,7 @@ SD0-01 → SD0-02 → SD0-03
 
 只有以下条件同时成立，计划才可标记完成：
 
-- BRAND-01 在 SD1 前由用户冻结 canonical identity 并完成迁移；SD0–SD4 后续每个任务均绑定该 identity artifact、exact-SHA evidence 和对应 human gate；§18 状态表按真实 wiring 更新。
+- SD0 P0 在品牌前已完成；BRAND-01 冻结 identity 后，BRAND-VERIFY 在最终 branded exact SHA 重跑全部 SD0 tests/threat/docs/config/error/event checks 并取得 product/security 新签字；SD1–SD4 每个任务继续绑定该 identity/evidence chain、exact SHA 与 human gate；§18 状态表按真实 wiring 更新。
 - SelfDev 默认 off、branch-only；无 push/merge/tag/publish path，无 dangerous bypass。
 - Baseline、VerificationBundle、AcceptanceReport、ApprovalReceipt 与 promotion receipt 绑定同一 base/candidate/policy digest；stale/timeout/inconclusive 全 fail closed。
 - 全仓与目标平台 gates 通过；external/human release checklist 没有被 mock/dry-run/self-signed 证据冒充。
