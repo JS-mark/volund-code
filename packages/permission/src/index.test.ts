@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PermissionManager } from './index'
+import { PermissionManager, type PermissionRequest } from './index'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },
@@ -15,6 +15,7 @@ const bashReq = (command: string) => ({
   session: { id: 's', cwd: process.cwd() },
   attempt: 1,
 })
+const grantKey = (request: PermissionRequest) => JSON.stringify([request.toolName, request.spec])
 
 const FORMERLY_SILENT_BASH_COMMANDS = [
   'pwd',
@@ -32,14 +33,26 @@ const BASH_CONTROL_CORPUS = [
   'git status && unknown-command',
   'git status || unknown-command',
   'git status | unknown-command',
+  'git status & unknown-command',
   'git status < input.txt',
   'git status > output.txt',
   'git status >> output.txt',
+  "cat <<'EOF'\ngit status\nEOF",
+  'cat <<< "git status"',
+  'cat <(git status)',
   'git status `unknown-command`',
   'git status $(unknown-command)',
+  'git status \\\nunknown-command',
+  'git\tstatus',
   'git status\nunknown-command',
+  'git status\runknown-command',
   'git status\r\nunknown-command',
+  'git status\u0085unknown-command',
   'git\u00a0status',
+  'git status\u2028unknown-command',
+  'git status\u2029unknown-command',
+  'git status\u202eunknown-command',
+  'git\u200bstatus',
   'git status "&&" unknown-command',
   'unknown-command --flag',
   'gh pr create',
@@ -50,12 +63,93 @@ const BASH_CONTROL_CORPUS = [
 const RAW_BASH_CORPUS = [...FORMERLY_SILENT_BASH_COMMANDS, ...BASH_CONTROL_CORPUS]
 
 describe('PermissionManager', () => {
-  it('uses strict decision order', async () => {
-    const prompt = vi.fn()
-    const manager = new PermissionManager({ projectDeny: () => true, globalAllow: () => true })
-    manager.setPromptHandler(prompt)
-    expect((await manager.request(req())).kind).toBe('deny')
+  it('puts project and global deny rules above session cache and explicit allows', async () => {
+    let projectDeny = false
+    let projectAllow = false
+    let globalAllow = false
+    const configuration = { dangerouslySkip: false }
+    const cachedPrompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const cached = new PermissionManager(
+      {
+        projectDeny: () => projectDeny,
+        projectAllow: () => projectAllow,
+        globalAllow: () => globalAllow,
+      },
+      configuration,
+    )
+    cached.setPromptHandler(cachedPrompt)
+
+    // Seed an exact session grant without conflicting rules, then turn every lower step on.
+    expect(await cached.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    projectDeny = true
+    projectAllow = true
+    globalAllow = true
+    configuration.dangerouslySkip = true
+
+    expect(await cached.request(bashReq('git status'))).toEqual({ kind: 'deny' })
+    expect(cachedPrompt).toHaveBeenCalledOnce()
+
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const globalDenied = new PermissionManager(
+      {
+        globalDeny: () => true,
+        projectAllow: () => true,
+        globalAllow: () => true,
+      },
+      { dangerouslySkip: true },
+    )
+    globalDenied.setPromptHandler(prompt)
+
+    expect(await globalDenied.request(bashReq('pnpm test'))).toEqual({ kind: 'deny' })
     expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('covers the cache, project, global, dangerous, and prompt conflict matrix', async () => {
+    const command = bashReq('git status')
+
+    let lowerRulesEnabled = false
+    const cachedPrompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const cachedConfiguration = { dangerouslySkip: false }
+    const cached = new PermissionManager(
+      {
+        projectAllow: () => lowerRulesEnabled,
+        globalAllow: () => lowerRulesEnabled,
+      },
+      cachedConfiguration,
+    )
+    cached.setPromptHandler(cachedPrompt)
+    expect(await cached.request(command)).toEqual({ kind: 'allow-session' })
+    lowerRulesEnabled = true
+    cachedConfiguration.dangerouslySkip = true
+    expect(await cached.request(command)).toEqual({ kind: 'allow-session' })
+    expect(cachedPrompt).toHaveBeenCalledOnce()
+
+    const projectPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const project = new PermissionManager(
+      { projectAllow: () => true, globalAllow: () => true },
+      { dangerouslySkip: true },
+    )
+    project.setPromptHandler(projectPrompt)
+    expect(await project.request(command)).toEqual({ kind: 'allow-project' })
+    expect(projectPrompt).not.toHaveBeenCalled()
+
+    const globalPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const global = new PermissionManager({ globalAllow: () => true }, { dangerouslySkip: true })
+    global.setPromptHandler(globalPrompt)
+    expect(await global.request(command)).toEqual({ kind: 'allow-forever' })
+    expect(globalPrompt).not.toHaveBeenCalled()
+
+    const bypassPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const bypass = new PermissionManager({}, { dangerouslySkip: true })
+    bypass.setPromptHandler(bypassPrompt)
+    expect(await bypass.request(command)).toEqual({ kind: 'allow-once' })
+    expect(bypassPrompt).not.toHaveBeenCalled()
+
+    const finalPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const prompted = new PermissionManager()
+    prompted.setPromptHandler(finalPrompt)
+    expect(await prompted.request(command)).toEqual({ kind: 'deny' })
+    expect(finalPrompt).toHaveBeenCalledOnce()
   })
   it('serializes prompts and caches session grants', async () => {
     let active = 0,
@@ -73,7 +167,10 @@ describe('PermissionManager', () => {
     expect((await manager.request(req())).kind).toBe('allow-session')
   })
   it('conservatively auto-allows cwd reads', async () => {
-    const manager = new PermissionManager()
+    const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const manager = new PermissionManager({}, { dangerouslySkip: true, logger })
+    manager.setPromptHandler(prompt)
     expect(
       (
         await manager.request({
@@ -85,6 +182,8 @@ describe('PermissionManager', () => {
         })
       ).kind,
     ).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    expect(logger.warn).not.toHaveBeenCalled()
   })
   it('prompts for every raw Bash command, including shell-control edge cases', async () => {
     const prompt = vi.fn(async () => ({ kind: 'deny' as const }))
@@ -145,6 +244,55 @@ describe('PermissionManager', () => {
     expect(await session.request(sessionRequest)).toEqual({ kind: 'allow-session' })
     expect(prompt).toHaveBeenCalledTimes(1)
   })
+
+  it('keys Bash session grants by the exact command and prompts again for variants', async () => {
+    const prompt = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'allow-session' as const })
+      .mockResolvedValue({ kind: 'deny' as const })
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+
+    expect(await manager.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq('git status'))).toEqual({ kind: 'allow-session' })
+    expect(await manager.request(bashReq('git status '))).toEqual({ kind: 'deny' })
+    expect(await manager.request(bashReq('git  status'))).toEqual({ kind: 'deny' })
+    expect(prompt).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([
+    { decision: 'allow-project' as const, scope: 'project' as const },
+    { decision: 'allow-forever' as const, scope: 'global' as const },
+  ])(
+    'reloads an exact $scope Bash grant without widening to variants',
+    async ({ decision, scope }) => {
+      const persisted = new Set<string>()
+      const first = new PermissionManager(
+        {},
+        {
+          persist: async (savedScope, request, allow) => {
+            if (allow && savedScope === scope) persisted.add(grantKey(request))
+          },
+        },
+      )
+      first.setPromptHandler(async () => ({ kind: decision }))
+      expect(await first.request(bashReq('pnpm test'))).toEqual({ kind: decision })
+
+      const reloadPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+      const reloaded = new PermissionManager(
+        scope === 'project'
+          ? { projectAllow: (request) => persisted.has(grantKey(request)) }
+          : { globalAllow: (request) => persisted.has(grantKey(request)) },
+      )
+      reloaded.setPromptHandler(reloadPrompt)
+
+      expect(await reloaded.request(bashReq('pnpm test'))).toEqual({
+        kind: scope === 'project' ? 'allow-project' : 'allow-forever',
+      })
+      expect(await reloaded.request(bashReq('pnpm test -- --runInBand'))).toEqual({ kind: 'deny' })
+      expect(reloadPrompt).toHaveBeenCalledOnce()
+    },
+  )
 
   it('keeps the explicit dangerous bypass after deny rules and logs its use', async () => {
     const logger = {
