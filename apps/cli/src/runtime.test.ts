@@ -5,6 +5,7 @@ import { Duplex, PassThrough } from 'node:stream'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
 import type { Runner, SessionState } from '@apollo-code/core'
 import type { PluginHost } from '@apollo-code/native-bridge'
+import { PermissionManager } from '@apollo-code/permission'
 import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
 import type { ToolContext } from '@apollo-code/tool-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -284,31 +285,42 @@ describe('RuntimeSessionPort', () => {
     expect(await readFile(join(root, `${target.id}.jsonl`), 'utf8')).not.toContain('still current')
   })
 
-  it('emits appendix D tool.permission_asked before prompting (r13-I8)', async () => {
+  it('routes git status through PermissionManager and emits tool.permission_asked before prompting', async () => {
     const events = new EventBus()
     const seen: Array<{ type: string; payload: unknown }> = []
     events.subscribe((event) => {
       seen.push({ type: event.type, payload: event.payload })
     })
-    const decision = await requestPermission({
-      events,
-      interactivePermissionPrompt: async () => ({ kind: 'allow-once' }),
-      version: 1,
-      request: {
-        toolName: 'Bash',
-        spec: { bash: { command: 'ls' } },
-        input: { command: 'ls' },
-        session: { id: 'session-1', cwd: '/repo' },
-        attempt: 1,
-        toolUseId: 'toolu_1',
-      },
-    })
+    const request = {
+      toolName: 'Bash',
+      spec: { bash: { command: 'git status' } },
+      input: { command: 'git status' },
+      session: { id: 'session-1', cwd: '/repo' },
+      attempt: 1,
+      toolUseId: 'toolu_1',
+    }
+    const manager = new PermissionManager()
+    manager.setPromptHandler((pending) =>
+      requestPermission({
+        events,
+        interactivePermissionPrompt: async () => ({ kind: 'allow-once' }),
+        version: 1,
+        request: pending,
+      }),
+    )
+
+    const decision = await manager.request(request)
+
     expect(decision).toEqual({ kind: 'allow-once' })
     expect(seen).toEqual([
       {
         type: 'tool.permission_asked',
         // 附录 D.2：★toolUseId（真实 tool_use id 透传）★tool ★spec（摘要）。
-        payload: { toolUseId: 'toolu_1', tool: 'Bash', spec: { bash: { command: 'ls' } } },
+        payload: {
+          toolUseId: 'toolu_1',
+          tool: 'Bash',
+          spec: { bash: { command: 'git status' } },
+        },
       },
     ])
   })

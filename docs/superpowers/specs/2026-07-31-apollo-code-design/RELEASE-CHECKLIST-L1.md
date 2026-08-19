@@ -128,7 +128,7 @@ L1 CI matrix：`ts` + `license-check` + `native`(4 target) + `sandbox-escape`(4 
 ### 4.2 Permission 决策链（§4.4）
 
 - [ ] ⚙️ **8 步决策链完整**（项目黑→全局黑→sessionCache→项目toml→全局toml→auto-allow→dangerous-skip→弹窗，单元测试）
-- [ ] ⚙️ **auto-allow 保守规则**（Read/Grep/Glob 在 cwd 内 allow-session；Bash 白名单只读子集；其它一律弹窗）
+- [ ] ⚙️ **auto-allow 保守规则**（Read/Grep/Glob 在 cwd 内 allow-session；raw Bash 无静默白名单，含 `pwd` / `git status` / `pnpm test` 在内均须显式 grant 或弹窗；无 prompt 时 deny）
 - [ ] ⚙️ **弹窗串行**（permission 内部队列一次一个）
 - [ ] ⚙️ **`permissionCache` 只在 session 内有效**（SessionState 不持久化它）
 - [ ] 🛡️ **`--dangerously-skip-permissions` / `--yolo` 必须打警告日志 + UI 顶栏红条**（apps/cli 强制）

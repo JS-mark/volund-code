@@ -61,6 +61,10 @@ pnpm turbo run typecheck test build --force
 | eight-step permission order | `@apollo-code/permission` | `src/index.test.ts` — `uses strict decision order` |
 | serialized permission prompts and session cache | `@apollo-code/permission` | `src/index.test.ts` — `serializes prompts and caches session grants` |
 | conservative cwd read auto-allow | `@apollo-code/permission` | `src/index.test.ts` — `conservatively auto-allows cwd reads` |
+| every raw Bash command prompts, including shell-control edge cases | `@apollo-code/permission` | `src/index.test.ts` — `prompts for every raw Bash command, including shell-control edge cases` |
+| raw Bash denies when no prompt exists | `@apollo-code/permission` | `src/index.test.ts` — `denies every ungranted raw Bash command when no prompt is available` |
+| explicit Bash grants, persistence, session cache, and dangerous bypass order | `@apollo-code/permission` | `src/index.test.ts` — the three named Bash grant / cache / bypass tests |
+| raw Bash permission event integration | `apollo-code` | `src/runtime.test.ts` — `routes git status through PermissionManager and emits tool.permission_asked before prompting` |
 | sandbox tier frozen per process | `@apollo-code/native-bridge` | `src/sandbox.test.ts` — `is frozen for the lifetime of the process` |
 | worker handshake/restart/idle lifecycle | `@apollo-code/native-bridge` | `src/worker-pool.test.ts` — all three named tests |
 | malformed worker protocol handling | `@apollo-code/native-bridge` | `src/ipc.test.ts` — `rejects malformed protocol frames without losing later frames` |
