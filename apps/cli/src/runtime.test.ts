@@ -336,16 +336,21 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).not.toHaveBeenCalled()
   })
 
-  it('uses the shared safe formatter for line approval without changing the raw Bash command', async () => {
+  it('keeps ordinary Cf raw for native execution and exact session grant keys', async () => {
     const events = new EventBus()
+    const permissionEvents: unknown[] = []
+    events.subscribe((event) => {
+      if (event.type === 'tool.permission_asked') permissionEvents.push(event.payload)
+    })
     const state = createSession({
       id: 'session-line',
       cwd: process.cwd(),
       maxTokens: 200_000,
       toolRegistrySnapshot: 'runtime-permission-test',
     })
-    const rawCommand = 'printf "safe\u202Ehidden"'
-    const linePrompt = vi.fn(async (_question: string) => 'a')
+    const rawCommand = 'printf "safe\u200Btext"'
+    const normalizedVariant = 'printf "safetext"'
+    const linePrompt = vi.fn().mockResolvedValueOnce('s').mockResolvedValueOnce('d')
     const nativeExecute = vi.fn(async (_program: string, _args: string[]) => 'executed raw input')
     const logger = {
       debug: vi.fn(),
@@ -372,17 +377,39 @@ describe('production tool permission composition', () => {
       }),
     )
 
-    const result = await executor.execute(
+    const firstResult = await executor.execute(
       new BashTool({ platform: 'darwin' }),
       { command: rawCommand },
       new AbortController().signal,
       'toolu_line_unicode',
     )
+    const cachedResult = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: rawCommand },
+      new AbortController().signal,
+      'toolu_line_unicode_cached',
+    )
+    const variantResult = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: normalizedVariant },
+      new AbortController().signal,
+      'toolu_line_unicode_variant',
+    )
 
-    expect(result.isError).not.toBe(true)
-    expect(linePrompt).toHaveBeenCalledWith(expect.stringContaining('safe\\u{202E}hidden'))
+    expect(firstResult.isError).not.toBe(true)
+    expect(cachedResult.isError).not.toBe(true)
+    expect(variantResult.isError).toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(2)
+    expect(linePrompt.mock.calls[0]![0]).toContain('safe\\u{200B}text')
     expect(linePrompt.mock.calls[0]![0]).not.toContain(rawCommand)
+    expect(linePrompt.mock.calls[1]![0]).toContain('safetext')
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
     expect(nativeExecute.mock.calls[0]![1].join(' ')).toContain(rawCommand)
+    expect(nativeExecute.mock.calls[1]![1].join(' ')).toContain(rawCommand)
+    expect(permissionEvents).toMatchObject([
+      { spec: { bash: { command: rawCommand } } },
+      { spec: { bash: { command: normalizedVariant } } },
+    ])
   })
 
   it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
@@ -444,6 +471,10 @@ describe('production tool permission composition', () => {
     ['AWS', `AKIA${'D'.repeat(16)}`],
     ['JWT', `eyJ${'E'.repeat(8)}.${'F'.repeat(12)}.${'G'.repeat(12)}`],
     ['GitHub with Cf', `ghp_\u200B${'H'.repeat(24)}`],
+    ['Bearer grammar with Cf', 'Bea\u200Brer qwerty123456'],
+    ['token grammar with Cf', 'tok\u200Ben=abc'],
+    ['Bearer grammar with NFKC', 'Ｂｅａｒｅｒ qwerty123456'],
+    ['api-key grammar with a Unicode hyphen', 'api‐key=abc'],
   ])('redacts a bare %s secret in line display and the permission event', async (_kind, secret) => {
     const events = new EventBus()
     const state = createSession({
@@ -504,93 +535,145 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).not.toHaveBeenCalled()
   })
 
-  it('enforces deny after a tui handler tries to approve sensitive hidden details', async () => {
-    const events = new EventBus()
-    const state = createSession({
-      id: 'session-sensitive-tui',
-      cwd: process.cwd(),
-      maxTokens: 200_000,
-      toolRegistrySnapshot: 'runtime-permission-test',
-    })
-    const rawSecret = `eyJ${'K'.repeat(8)}.${'L'.repeat(12)}.${'M'.repeat(12)}`
-    const rawCommand = `echo ${rawSecret}|touch /tmp/side-effect`
-    const mutation = {
-      bashFrozen: false,
-      displayFrozen: false,
-      displayMutated: false,
-      inputFrozen: false,
-      requestFrozen: false,
-      specFrozen: false,
-      specMutated: false,
-    }
-    const prompt = vi.fn(async (request: InteractivePermissionRequest) => {
-      mutation.requestFrozen = Object.isFrozen(request)
-      mutation.displayFrozen = Object.isFrozen(request.display)
-      mutation.inputFrozen = Object.isFrozen(request.input)
-      mutation.specFrozen = Object.isFrozen(request.spec)
-      mutation.displayMutated = Reflect.set(request.display, 'approvable', true)
-      if (request.spec && typeof request.spec === 'object' && !Array.isArray(request.spec)) {
-        const bashDescriptor = Object.getOwnPropertyDescriptor(request.spec, 'bash')
-        const bash = bashDescriptor && 'value' in bashDescriptor ? bashDescriptor.value : undefined
-        if (bash && typeof bash === 'object' && !Array.isArray(bash)) {
-          mutation.bashFrozen = Object.isFrozen(bash)
-          mutation.specMutated = Reflect.set(bash, 'command', 'safe replacement')
-        }
+  it.each([
+    { kind: 'Cf Bearer grammar', rawSecret: 'Bea\u200Brer qwerty123456' },
+    { kind: 'Cf token grammar', rawSecret: 'tok\u200Ben=abc' },
+    { kind: 'NFKC Bearer grammar', rawSecret: 'Ｂｅａｒｅｒ qwerty123456' },
+    { kind: 'Unicode-hyphen api-key grammar', rawSecret: 'api‐key=abc' },
+  ])(
+    'enforces deny after a tui handler tries to approve $kind hidden details',
+    async ({ rawSecret }) => {
+      const events = new EventBus()
+      const state = createSession({
+        id: 'session-sensitive-tui',
+        cwd: process.cwd(),
+        maxTokens: 200_000,
+        toolRegistrySnapshot: 'runtime-permission-test',
+      })
+      const rawCommand = `echo ${rawSecret}|touch /tmp/side-effect`
+      const mutation = {
+        bashFrozen: false,
+        displayFrozen: false,
+        displayMutated: false,
+        inputFrozen: false,
+        requestFrozen: false,
+        specFrozen: false,
+        specMutated: false,
       }
-      return { kind: 'allow-once' as const }
-    })
-    const nativeExecute = vi.fn(async () => 'must not execute')
-    const logger = {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    }
-    const chain = createProductionToolPermissionChain({
-      state,
-      events,
-      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'tui' },
-      logger,
-      interactivePermissionPrompt: () => prompt,
-    })
-    const executor = chain.bindExecutor(
-      (signal): ToolContext => ({
-        abortSignal: signal,
-        session: { id: state.id, cwd: state.cwd, turnId: 'turn-sensitive' },
-        native: { execute: nativeExecute },
+      const prompt = vi.fn(async (request: InteractivePermissionRequest) => {
+        mutation.requestFrozen = Object.isFrozen(request)
+        mutation.displayFrozen = Object.isFrozen(request.display)
+        mutation.inputFrozen = Object.isFrozen(request.input)
+        mutation.specFrozen = Object.isFrozen(request.spec)
+        mutation.displayMutated = Reflect.set(request.display, 'approvable', true)
+        if (request.spec && typeof request.spec === 'object' && !Array.isArray(request.spec)) {
+          const bashDescriptor = Object.getOwnPropertyDescriptor(request.spec, 'bash')
+          const bash =
+            bashDescriptor && 'value' in bashDescriptor ? bashDescriptor.value : undefined
+          if (bash && typeof bash === 'object' && !Array.isArray(bash)) {
+            mutation.bashFrozen = Object.isFrozen(bash)
+            mutation.specMutated = Reflect.set(bash, 'command', 'safe replacement')
+          }
+        }
+        return { kind: 'allow-once' as const }
+      })
+      const nativeExecute = vi.fn(async () => 'must not execute')
+      const logger = {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      }
+      const chain = createProductionToolPermissionChain({
+        state,
+        events,
+        permissionSnapshot: { dangerouslySkip: false, interactionMode: 'tui' },
         logger,
-        ui: { requestInput: async () => '' },
-      }),
-    )
+        interactivePermissionPrompt: () => prompt,
+      })
+      const executor = chain.bindExecutor(
+        (signal): ToolContext => ({
+          abortSignal: signal,
+          session: { id: state.id, cwd: state.cwd, turnId: 'turn-sensitive' },
+          native: { execute: nativeExecute },
+          logger,
+          ui: { requestInput: async () => '' },
+        }),
+      )
 
-    const result = await executor.execute(
-      new BashTool({ platform: 'darwin' }),
-      { command: rawCommand },
-      new AbortController().signal,
-      'toolu_sensitive_tui',
-    )
+      const result = await executor.execute(
+        new BashTool({ platform: 'darwin' }),
+        { command: rawCommand },
+        new AbortController().signal,
+        'toolu_sensitive_tui',
+      )
 
-    expect(result.isError).toBe(true)
-    expect(prompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        display: {
-          approvable: false,
-          spec: '[sensitive permission details hidden - deny only]',
-          toolName: 'Bash',
-        },
-      }),
-    )
-    expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain(rawSecret)
-    expect(mutation).toEqual({
-      bashFrozen: true,
-      displayFrozen: true,
-      displayMutated: false,
-      inputFrozen: true,
-      requestFrozen: true,
-      specFrozen: true,
-      specMutated: false,
+      expect(result.isError).toBe(true)
+      expect(prompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          display: {
+            approvable: false,
+            spec: '[sensitive permission details hidden - deny only]',
+            toolName: 'Bash',
+          },
+        }),
+      )
+      expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain(rawSecret)
+      expect(mutation).toEqual({
+        bashFrozen: true,
+        displayFrozen: true,
+        displayMutated: false,
+        inputFrozen: true,
+        requestFrozen: true,
+        specFrozen: true,
+        specMutated: false,
+      })
+      expect(nativeExecute).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ['Cf token key', 'tok\u200Ben'],
+    ['NFKC api-key with a Unicode hyphen', 'ａｐｉ‐ｋｅｙ'],
+    ['canonical credential key', 'credential'],
+    ['canonical access_key with Cf', 'access\u200B_key'],
+    ['canonical private-key with NFKC and a Unicode hyphen', 'ｐｒｉｖａｔｅ‐ｋｅｙ'],
+  ])('redacts values behind a normalized %s in line display and events', async (_kind, key) => {
+    const events = new EventBus()
+    const permissionEvents: unknown[] = []
+    events.subscribe((event) => {
+      if (event.type === 'tool.permission_asked') permissionEvents.push(event.payload)
     })
-    expect(nativeExecute).not.toHaveBeenCalled()
+    const linePrompt = vi.fn(async () => 'a')
+    const request: PermissionRequest = {
+      attempt: 1,
+      input: {},
+      session: { id: 'approval-normalized-key', cwd: process.cwd() },
+      spec: { custom: { [key]: 'abc' } },
+      toolName: 'PluginTool',
+      toolUseId: `toolu_normalized_key_${_kind}`,
+    }
+
+    await expect(
+      requestPermission({
+        events,
+        interactionMode: 'line',
+        interactivePermissionPrompt: undefined,
+        linePermissionPrompt: linePrompt,
+        request,
+        terminalIsInteractive: () => true,
+        version: 1,
+      }),
+    ).resolves.toEqual({ kind: 'deny' })
+
+    expect(linePrompt).toHaveBeenCalledWith(
+      expect.stringContaining('[sensitive permission details hidden - deny only]'),
+    )
+    expect(permissionEvents).toEqual([
+      expect.objectContaining({ spec: { custom: { [key]: '[REDACTED]' } } }),
+    ])
+    expect(JSON.stringify(permissionEvents)).not.toContain('"abc"')
+    expect(request.spec).toEqual({ custom: { [key]: 'abc' } })
   })
 
   it.each([
