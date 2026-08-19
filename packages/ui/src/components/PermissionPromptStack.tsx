@@ -18,6 +18,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
       if (!request) return
       const decision = decisionForInput(input)
       if (!decision) return
+      if (!request.display.approvable && decision !== 'deny') return
       controller.decide(request.id, { kind: decision })
     },
     { isActive: Boolean(request) },
@@ -34,20 +35,24 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
       paddingX={1}
     >
       <Text color="yellow" bold>
-        Permission required: {request.toolName}
+        Permission required: {request.display.toolName}
       </Text>
       <Text color="gray" wrap="wrap">
-        {JSON.stringify(request.spec)}
+        {request.display.spec}
       </Text>
       <Text>
-        <Text color="green" bold>
-          a
-        </Text>{' '}
-        allow once{' '}
-        <Text color="cyan" bold>
-          s
-        </Text>{' '}
-        allow session{' '}
+        {request.display.approvable ? (
+          <>
+            <Text color="green" bold>
+              a
+            </Text>{' '}
+            allow once{' '}
+            <Text color="cyan" bold>
+              s
+            </Text>{' '}
+            allow session{' '}
+          </>
+        ) : null}
         <Text color="red" bold>
           d
         </Text>{' '}

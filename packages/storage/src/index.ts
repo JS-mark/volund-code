@@ -19,7 +19,7 @@ import { dirname, extname, isAbsolute, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
 import type { CoreEvent, EventBus, PromptComposer } from '@apollo-code/core'
-import type { PermissionManager } from '@apollo-code/permission'
+import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
 import { sanitize, type JsonValue } from '@apollo-code/shared'
 
 import type { MemoryRecordAttachment } from './memory-runtime'
@@ -105,7 +105,9 @@ function containsInlineBinary(value: unknown): boolean {
 export interface PromptLoaderOptions {
   cwd: string
   apolloHome?: string
-  permissions: PermissionManager
+  permissions: {
+    request(request: PermissionRequest): Promise<PermissionDecision>
+  }
   maxDepth?: number
   maxIncludes?: number
 }

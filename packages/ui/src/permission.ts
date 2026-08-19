@@ -5,6 +5,11 @@ export interface InteractivePermissionDecision {
 }
 
 export interface InteractivePermissionRequest {
+  display: {
+    approvable: boolean
+    spec: string
+    toolName: string
+  }
   id: string
   attempt: number
   input: unknown

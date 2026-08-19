@@ -18,6 +18,7 @@ import {
   buildStatusViewModel,
   createPluginMemoryHost,
   createProductionPorts,
+  ProductionPermissionSessionPolicy,
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
@@ -287,7 +288,7 @@ describe('RuntimeSessionPort', () => {
 })
 
 describe('production tool permission composition', () => {
-  it('uses the non-TTY fallback to deny a real BashTool before native execution', async () => {
+  it('uses explicit none interaction to deny a real BashTool before native execution', async () => {
     const events = new EventBus()
     const state = createSession({
       id: 'session-1',
@@ -305,11 +306,12 @@ describe('production tool permission composition', () => {
     const chain = createProductionToolPermissionChain({
       state,
       events,
-      permissionConfiguration: { dangerouslySkip: false, logger },
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'none' },
+      logger,
       interactivePermissionPrompt: () => undefined,
       terminalIsInteractive: () => false,
     })
-    const executor = chain.createExecutor(
+    const executor = chain.bindExecutor(
       (signal): ToolContext => ({
         abortSignal: signal,
         session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
@@ -329,6 +331,213 @@ describe('production tool permission composition', () => {
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Permission denied for Bash' }])
     expect(nativeExecute).not.toHaveBeenCalled()
+  })
+
+  it('uses the shared safe formatter for line approval without changing the raw Bash command', async () => {
+    const events = new EventBus()
+    const state = createSession({
+      id: 'session-line',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const rawCommand = 'printf "safe\u202Ehidden"'
+    const linePrompt = vi.fn(async (_question: string) => 'a')
+    const nativeExecute = vi.fn(async (_program: string, _args: string[]) => 'executed raw input')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    const executor = chain.bindExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-line' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: rawCommand },
+      new AbortController().signal,
+      'toolu_line_unicode',
+    )
+
+    expect(result.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledWith(expect.stringContaining('safe\\u{202E}hidden'))
+    expect(linePrompt.mock.calls[0]![0]).not.toContain(rawCommand)
+    expect(nativeExecute.mock.calls[0]![1].join(' ')).toContain(rawCommand)
+  })
+
+  it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
+    const events = new EventBus()
+    const state = createSession({
+      id: 'session-sensitive-line',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const rawCommand = 'printf safe token=top-secret|touch /tmp/side-effect'
+    const linePrompt = vi.fn(async (_question: string) => 'a')
+    const nativeExecute = vi.fn(async () => 'must not execute')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    const executor = chain.bindExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-sensitive' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: rawCommand },
+      new AbortController().signal,
+      'toolu_sensitive_line',
+    )
+
+    expect(result.isError).toBe(true)
+    expect(linePrompt).toHaveBeenCalledWith(
+      expect.stringContaining('[sensitive permission details hidden - deny only]'),
+    )
+    expect(linePrompt.mock.calls[0]![0]).not.toContain('top-secret')
+    expect(linePrompt.mock.calls[0]![0]).not.toContain('side-effect')
+    expect(nativeExecute).not.toHaveBeenCalled()
+  })
+
+  it('enforces deny after a tui handler tries to approve sensitive hidden details', async () => {
+    const events = new EventBus()
+    const state = createSession({
+      id: 'session-sensitive-tui',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const rawCommand = 'echo token=top-secret|touch /tmp/side-effect'
+    const prompt = vi.fn(async (_request: unknown) => ({ kind: 'allow-once' as const }))
+    const nativeExecute = vi.fn(async () => 'must not execute')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'tui' },
+      logger,
+      interactivePermissionPrompt: () => prompt,
+    })
+    const executor = chain.bindExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-sensitive' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: rawCommand },
+      new AbortController().signal,
+      'toolu_sensitive_tui',
+    )
+
+    expect(result.isError).toBe(true)
+    expect(prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        display: {
+          approvable: false,
+          spec: '[sensitive permission details hidden - deny only]',
+          toolName: 'Bash',
+        },
+      }),
+    )
+    expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain('top-secret')
+    expect(nativeExecute).not.toHaveBeenCalled()
+  })
+
+  it('never falls back to line input for tui-without-handler or a non-TTY line mode', async () => {
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    for (const [id, interactionMode, terminal] of [
+      ['tui-no-handler', 'tui', true],
+      ['line-non-tty', 'line', false],
+    ] as const) {
+      const state = createSession({
+        id,
+        cwd: process.cwd(),
+        maxTokens: 200_000,
+        toolRegistrySnapshot: 'runtime-permission-test',
+      })
+      const linePrompt = vi.fn(async () => 'a')
+      const nativeExecute = vi.fn(async () => 'must not run')
+      const chain = createProductionToolPermissionChain({
+        state,
+        events: new EventBus(),
+        permissionSnapshot: { dangerouslySkip: false, interactionMode },
+        logger,
+        interactivePermissionPrompt: () => undefined,
+        linePermissionPrompt: linePrompt,
+        terminalIsInteractive: () => terminal,
+      })
+      const executor = chain.bindExecutor(
+        (signal): ToolContext => ({
+          abortSignal: signal,
+          session: { id: state.id, cwd: state.cwd, turnId: 'turn-negative' },
+          native: { execute: nativeExecute },
+          logger,
+          ui: { requestInput: async () => '' },
+        }),
+      )
+
+      const result = await executor.execute(
+        new BashTool({ platform: 'darwin' }),
+        { command: 'git status' },
+        new AbortController().signal,
+        `toolu_${id}`,
+      )
+
+      expect(result.isError).toBe(true)
+      expect(linePrompt).not.toHaveBeenCalled()
+      expect(nativeExecute).not.toHaveBeenCalled()
+    }
   })
 
   it('uses the production permission chain for a real BashTool before one native invocation', async () => {
@@ -362,10 +571,11 @@ describe('production tool permission composition', () => {
     const chain = createProductionToolPermissionChain({
       state,
       events,
-      permissionConfiguration: { dangerouslySkip: false, logger },
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'tui' },
+      logger,
       interactivePermissionPrompt: () => prompt,
     })
-    const executor = chain.createExecutor(
+    const executor = chain.bindExecutor(
       (signal): ToolContext => ({
         abortSignal: signal,
         session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
@@ -431,15 +641,16 @@ describe('production tool permission composition', () => {
       info: vi.fn(),
       warn: vi.fn(),
     }
-    const permissionConfiguration = { dangerouslySkip: false, logger }
-    const chain = createProductionToolPermissionChain({
+    const permissionSnapshot = { dangerouslySkip: false, interactionMode: 'none' as const }
+    const deniedChain = createProductionToolPermissionChain({
       state,
       events,
-      permissionConfiguration,
+      permissionSnapshot,
+      logger,
       interactivePermissionPrompt: () => undefined,
       terminalIsInteractive: () => false,
     })
-    const executor = chain.createExecutor(
+    const deniedExecutor = deniedChain.bindExecutor(
       (signal): ToolContext => ({
         abortSignal: signal,
         session: { id: state.id, cwd: state.cwd, turnId: 'turn-1' },
@@ -450,7 +661,7 @@ describe('production tool permission composition', () => {
     )
     const bash = new BashTool({ platform: 'darwin' })
 
-    const denied = await executor.execute(
+    const denied = await deniedExecutor.execute(
       bash,
       { command: 'pwd' },
       new AbortController().signal,
@@ -460,8 +671,33 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).not.toHaveBeenCalled()
     expect(permissionEvents).toHaveLength(1)
 
-    permissionConfiguration.dangerouslySkip = true
-    const allowed = await executor.execute(
+    ;(permissionSnapshot as { dangerouslySkip: boolean }).dangerouslySkip = true
+    const stillDenied = await deniedExecutor.execute(
+      bash,
+      { command: 'pwd --physical' },
+      new AbortController().signal,
+      'toolu_existing_executor_after_mutation',
+    )
+    expect(stillDenied.isError).toBe(true)
+    expect(nativeExecute).not.toHaveBeenCalled()
+
+    const allowedChain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionSnapshot: { dangerouslySkip: true, interactionMode: 'none' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+    })
+    const allowedExecutor = allowedChain.bindExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-2' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const allowed = await allowedExecutor.execute(
       bash,
       { command: 'pwd' },
       new AbortController().signal,
@@ -469,8 +705,126 @@ describe('production tool permission composition', () => {
     )
     expect(allowed.isError).not.toBe(true)
     expect(nativeExecute).toHaveBeenCalledOnce()
-    expect(permissionEvents).toHaveLength(1)
+    expect(permissionEvents).toHaveLength(2)
     expect(logger.warn).toHaveBeenCalledWith('permissions bypassed', { toolName: 'Bash' })
+  })
+})
+
+describe('production permission session snapshots', () => {
+  it('freezes root policy, shares it with children, and fails closed for an orphan child', () => {
+    const policy = new ProductionPermissionSessionPolicy()
+    policy.configureInteraction({ mode: 'line' })
+    const root = createSession({
+      id: 'root-off',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+    })
+    const first = policy.snapshotFor(root)
+
+    policy.configureSecurity({ skipPermissions: true })
+    policy.configureInteraction({ mode: 'tui' })
+    expect(policy.snapshotFor(root)).toBe(first)
+    const child = createSession({
+      id: 'child-off',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+      lineage: { depth: 1, parentSessionId: root.id, parentTurnId: 'turn-1' },
+    })
+    expect(policy.snapshotFor(child)).toBe(first)
+    expect(first).toEqual({ dangerouslySkip: false, interactionMode: 'line' })
+
+    const nextRoot = createSession({
+      id: 'root-on',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+    })
+    expect(policy.snapshotFor(nextRoot)).toEqual({
+      dangerouslySkip: true,
+      interactionMode: 'tui',
+    })
+
+    const orphan = createSession({
+      id: 'orphan',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+      lineage: { depth: 1, parentSessionId: 'missing-parent', parentTurnId: 'turn-x' },
+    })
+    expect(() => policy.snapshotFor(orphan)).toThrowError(
+      expect.objectContaining({ code: 'permission_parent_snapshot_missing' }),
+    )
+
+    policy.releaseLineage(root.id)
+    expect(policy.snapshotForSession(root.id)).toBeUndefined()
+    expect(policy.snapshotForSession(child.id)).toBeUndefined()
+    expect(policy.snapshotForSession(nextRoot.id)).toBeDefined()
+  })
+
+  it('inherits policy without sharing a parent PermissionManager session cache', async () => {
+    const policy = new ProductionPermissionSessionPolicy()
+    policy.configureInteraction({ mode: 'tui' })
+    const root = createSession({
+      id: 'cache-root',
+      cwd: process.cwd(),
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+    })
+    const child = createSession({
+      id: 'cache-child',
+      cwd: process.cwd(),
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+      lineage: { depth: 1, parentSessionId: root.id, parentTurnId: 'turn-1' },
+    })
+    const rootSnapshot = policy.snapshotFor(root)
+    const childSnapshot = policy.snapshotFor(child)
+    expect(childSnapshot).toBe(rootSnapshot)
+    const rootPrompt = vi.fn(async () => ({ kind: 'allow-session' as const }))
+    const childPrompt = vi.fn(async () => ({ kind: 'deny' as const }))
+    const nativeExecute = vi.fn(async () => 'ok')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const bind = (
+      state: SessionState,
+      snapshot: typeof rootSnapshot,
+      prompt: typeof rootPrompt | typeof childPrompt,
+    ) =>
+      createProductionToolPermissionChain({
+        state,
+        events: new EventBus(),
+        permissionSnapshot: snapshot,
+        logger,
+        interactivePermissionPrompt: () => prompt,
+      }).bindExecutor(
+        (signal): ToolContext => ({
+          abortSignal: signal,
+          session: { id: state.id, cwd: state.cwd, turnId: 'turn-cache' },
+          native: { execute: nativeExecute },
+          logger,
+          ui: { requestInput: async () => '' },
+        }),
+      )
+    const rootExecutor = bind(root, rootSnapshot, rootPrompt)
+    const childExecutor = bind(child, childSnapshot, childPrompt)
+    const bash = new BashTool({ platform: 'darwin' })
+    const execute = (executor: typeof rootExecutor, toolUseId: string) =>
+      executor.execute(bash, { command: 'git status' }, new AbortController().signal, toolUseId)
+
+    await execute(rootExecutor, 'toolu_root_first')
+    await execute(rootExecutor, 'toolu_root_cached')
+    const childResult = await execute(childExecutor, 'toolu_child_not_cached')
+
+    expect(rootPrompt).toHaveBeenCalledOnce()
+    expect(childPrompt).toHaveBeenCalledOnce()
+    expect(childResult.isError).toBe(true)
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
   })
 })
 

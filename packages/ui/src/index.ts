@@ -1,4 +1,5 @@
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
+export * from './permission-display'
 export * from './components/welcome/index'
 export const THEME_SCHEMA_VERSION = 1 as const
 export const THEME_TOKEN_NAMES = [
