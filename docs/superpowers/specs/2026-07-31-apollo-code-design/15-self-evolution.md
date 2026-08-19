@@ -1,199 +1,164 @@
-> ↩ [返回索引 (README)](./README.md) · ← [上一章: §14 Onboarding](./14-onboarding.md)
+> ↩ [返回索引 (README)](./README.md) · ← [上一章: §14 Onboarding](./14-onboarding.md) · [下一章: §16 能力追踪](./16-capability-traceability.md) →
 
 ---
 
-## §15 自我进化框架（Self-Evolution Framework）
+## §15 自适应运行时调优（Adaptive Runtime Tuning）
 
-> **本节为 r10 新增**：响应用户原则「核心智能层需要不断自我进化」。本节定义一个**贯穿 apollo 所有能力的反馈闭环框架**——让 context 管理、router、retry、tool 超时等运行时参数能根据使用信号渐进式自我调优，同时保持安全边界冻结、人可审计、可回滚、可关闭。
+> **状态：EXPERIMENTAL / PARTIAL。** 本节只定义白名单内运行时数值参数的有界调优，不修改代码、测试、配置制品或发布产物。代码/制品变更属于 [§18 受控自我开发 / 变更流水线](./18-self-development.md)，当前尚未交付。
+>
+> **当前实现事实（基线 `9f3e115`）**：`EvolutionEngine`、`EvolutionStore`、规则评估和 `apollo evolution show|rollback` 已存在；生产组装只在创建 Runner 时读取部分 context tuning 值。`observe()`、`validate()`、tuning Memory、Router/Retry/Tool-timeout 应用、确认 UI 和调优 telemetry 均未接入生产调用链，因此当前不是闭环。
 
-### 15.1 设计目标与边界
+### 15.1 定义与命名边界
 
-| 目标 | 含义 |
-|---|---|
-| **模型主导** | 进化引擎（一个常驻 core 模块）根据观察信号自主提出调参假设并小步调整，无需人逐个审批每个参数 |
-| **人可审计** | 所有调整进 `~/.apollo/tuning/audit.jsonl`，用户随时可查看、回滚、关闭 |
-| **渐进** | 单次调整步长受限（±10% 或固定小步），杜绝突变；恶化连续 N 次自动回滚 |
-| **可回滚** | 每次调整记 before/after 值，`apollo evolution rollback` 一键还原 |
-| **可关闭** | `config.toml [evolution] enabled = false` 全局关闭进化，参数回到内置默认 |
-| **安全边界冻结** | 沙箱 profile / permission 决策链 / untrusted 包裹 / dangerous-* 行为 **永不参与自调优** |
+| 名称 | 作用 | 不包含 |
+|---|---|---|
+| **Adaptive Runtime Tuning** | 观察运行信号，在静态白名单和步长限制内建议/验证数值参数 | 改代码、生成 commit、运行自选命令、审批或发布 |
+| **Self-Development / Change Pipeline** | §18 的候选代码/制品开发、独立验证和人工批准 | 普通数值 tuning |
+| **普通 Agent 编码** | 用户指令下使用 Read/Edit/Write/Bash | 自动调优或自我开发闭环 |
 
-**非目标**（明确不做）：
-- ❌ 全自动无监督进化：累计大调整（跨阈值）需人确认（§15.6）
-- ❌ 进化安全边界：§4/§5 的安全契约是人工设定的硬约束，进化系统只能观察不能改
-- ❌ 跨用户聚合学习：隐私红线（对齐 AGENT.md §4.13），进化只基于本机本用户信号
-- ❌ 预测性调优（提前改参数）：只基于已发生的信号反应式调整，不预测
+不得把普通 Edit/Bash 使用、Memory 写入、Skill 激活、Plugin/Hook 扩展或 subagent 分工称为本节“自适应调优”。本节沿用现有文件名和 CLI namespace `evolution` 只为兼容；产品文案应优先使用 **Adaptive Runtime Tuning**。
 
-### 15.2 双层记忆模型
+### 15.2 目标与永久边界
 
-进化系统学到的东西分两类，分别存不同载体（对应 r10 用户决策）：
+目标：
 
-#### Layer A —— Memory（`scope: 'tuning'`）· 模型可读的模式/偏好/教训
+- 根据本机、本用户的聚合运行信号，小步优化低风险体验/效率参数。
+- 每个建议、应用、验证和回滚都可审计、可解释、可关闭。
+- 先 shadow 验证收益，再允许用户对单个 namespace 显式 opt-in 应用。
+- 任何结果缺失、样本不足、验证不确定或安全 guard 不完整时保持默认值。
 
-复用 §6.12 Memory 系统，新增 `scope: 'tuning'`（与 `global` / `project` 并列）。存的是**自然语言描述的经验**，模型经 `Memory.recall` 召回后作为行为参考（soft，非强制）：
+永久非目标：
 
-```markdown
----
-id: mem_tuning_01H8...
-scope: tuning                          # ★ 新增 scope 值
-title: "用户偏好简洁回答，不要长篇解释"
-tags: [response-style, preference]
-source: evolution                      # 'evolution' = 进化引擎写入
-pinned: false
-created: 2026-08-01T12:00:00Z
-updated: 2026-08-01T12:00:00Z
----
-观察：最近 20 次回复中，用户 5 次在 assistant 长回复后立即发"简短点"或中断。
-结论：本用户偏好简洁。模型回答时应优先给出结论 + 关键步骤，背景解释放最后或省略。
-```
+- **永不调优安全参数**：Sandbox profile/tier、Permission 决策顺序和 allow/deny、安全命令规则、untrusted wrapping、Hook trust/priority、Auth/secret、Plugin trust、自动 Skill、Memory permission、审批、CI/release/signing/publish 等全部永久排除。
+- 不跨用户聚合、不上传 prompt/代码/secret，不用远端训练替代本地授权。
+- 不让模型、Plugin、Skill、候选项目内容或动态配置扩充可调参数白名单。
+- 不把 tuning audit 当成 §18 的候选证据、approval 或 release gate。
 
-**特点**：
-- 模型可读（经 `Memory.recall({ scope: 'tuning' })` 召回进 context）
-- 用户可编辑（`apollo memory edit <id>`，§6.12.7 CLI 复用）
-- 走 §6.12.6 已有 `memory.preWrite` 脱敏 hook
-- 进化引擎写入时 `source: 'evolution'`，与 `source: 'model'` 区分
+### 15.3 当前实现状态
 
-#### Layer B —— tuning 配置（`~/.apollo/tuning/*.jsonl`）· 机器应用的调优参数
+下表以仓库生产组装为准；类型、测试或存储类存在，不代表调用链已闭合。
 
-每个能力节点一个 tuning namespace，存**结构化的参数 + 观察信号 + 调整历史**：
+| 子能力 | 当前状态 | 证据与限制 |
+|---|---|---|
+| 静态 defaults / namespace / 参数 allowlist | **Implemented** | `packages/core/src/evolution-engine.ts` 定义 context/router/retry/tool-timeout defaults 和静态参数集合 |
+| 规则评估 | **Implemented, not observed in production** | `#evaluate()` 使用固定阈值规则；不是模型驱动、ML 或自主假设生成 |
+| 步长 clamp / 累计偏离确认接口 / worsen rollback | **Implemented as engine logic** | 只有调用 `propose()` / `validate()` 才生效；生产未注入确认 handler，也未调用验证 |
+| JSONL tuning store / audit / rollback | **Implemented** | `EvolutionStore` 可读写 namespace/audit，CLI `show|rollback` 已接线 |
+| Runner 读取 tuning | **Partial** | 只读取 context 的 `compaction_threshold`、`target_ratio`、`keep_recent`；`summary_keep_recent` 未传入 ContextPolicy；其他 namespace 未应用 |
+| Observation | **Not wired** | `EvolutionEngine.observe()` 无生产 caller，真实运行信号没有进入采样窗口 |
+| Validation | **Not wired** | `EvolutionEngine.validate()` 无生产 caller，生产不存在调参后的对照验证/自动回滚闭环 |
+| Tuning Memory | **Existing-unwired, outside §15 target** | `TuningMemoryStore.write()` 存在但无生产 caller；自然语言 lesson/prompt recall 不是数值 runtime tuning |
+| Human confirmation | **Not wired** | engine 默认 `confirm` 为拒绝；CLI/TUI 没有累计偏离确认流程 |
+| Runtime tuning telemetry | **Not shipped** | 不能把本节历史事件名称当作已注册/已发出的事件 schema |
+| Default safety posture | **Needs migration** | 当前代码在 `[evolution].enabled` 缺省时按 enabled 处理；目标契约要求默认 `off`，见 §15.4 |
 
-```
-~/.apollo/tuning/
-├─ context.jsonl       # ContextPolicy 参数（compaction_threshold / target_ratio / ...）
-├─ router.jsonl        # Router 参数（fallback 优先级 / cooldown / ...）
-├─ retry.jsonl         # Retry 参数（同 provider 重试次数 / 退避系数）
-├─ tool-timeout.jsonl  # 各 tool timeoutMs
-└─ audit.jsonl         # ★ 所有调整的统一审计日志（人可审计/回滚）
-```
+因此当前可能发生的是：Runner 读取已经存在的 context JSONL 值并注入三项 ContextPolicy 参数；当前生产运行不会自行产生新的 observation、proposal、validation 或 tuning Memory。文档和 UI 不得把这一状态描述成“自动优化中”或“闭环已开启”。
 
-每个 namespace 文件格式（以 `context.jsonl` 为例）：
+### 15.4 目标运行模式与默认值
 
-```jsonl
-{"param":"compaction_threshold","value":0.85,"source":"builtin","at":"2026-08-01T00:00:00Z","reason":"initial"}
-{"param":"compaction_threshold","value":0.90,"source":"evolution","at":"2026-08-01T12:00:00Z","reason":"observed 3/10 post-compact repeats; raised to reduce over-aggressive compaction","signal":{"post_compact_repeat_rate":0.3}}
-{"param":"compaction_threshold","value":0.88,"source":"evolution","at":"2026-08-02T00:00:00Z","reason":"after raising to 0.90, context_length errors increased 2x; partially reverted","signal":{"context_length_error_rate":0.15}}
-```
+后续实现必须提供三个语义明确的模式；具体 config key 只有在 schema/附录/迁移同时落地后才成为支持接口：
 
-**特点**：
-- 机器可读，程序应用（Runner 启动时读当前值注入各能力节点）
-- 每行一次调整（append-only，可回溯）
-- `audit.jsonl` 是跨 namespace 的统一审计视图
+| 模式 | 行为 | 目标默认 |
+|---|---|---|
+| **off** | 使用内置默认；不观察、不建议、不应用持久 tuning | **新安装和未显式迁移用户的默认** |
+| **shadow** | 收集去敏聚合信号并运行规则/验证，只记录“本可建议”的结果；不改变 Runner 参数 | 首次 opt-in 唯一允许模式 |
+| **apply** | 在 shadow evidence gate 通过后，对用户显式选择的 namespace 应用低风险小步调整 | 非默认；每个 namespace 单独 opt-in |
 
-### 15.3 通用进化循环（Observation → Hypothesis → Adjustment → Validation）
-
-```
-每个接入进化的能力节点运行时:
-
-1. Observation（收集信号）
-   - 各节点定义自己的信号采集（见 §15.4 矩阵）
-   - 信号写入对应 tuning namespace 的 signal 段（滑动窗口，最近 N 次）
-
-2. Hypothesis（判断是否需要调参）
-   - 进化引擎（packages/core 内 EvolutionEngine 模块）周期性扫描各 namespace 的信号
-   - 规则化判断（v1，不做 ML）：
-     例：context namespace 的 post_compact_repeat_rate > 0.2 且 sample ≥ 10 → 假设"压缩过激"
-   - 不满足任何规则 → 不调整（保持当前值）
-
-3. Adjustment（小步调整）
-   - 步长受限：单次 ≤ ±10% 或固定小步（如 threshold ±0.05）
-   - 写入 tuning namespace（append 一行）+ audit.jsonl
-   - 触及"大调整阈值"（见 §15.6）→ 弹窗等人确认，不自动应用
-
-4. Validation（观察调整后信号）
-   - 下一个采样窗口对比调整前后的信号
-   - 恶化（如调高 threshold 后 context_length 错误率翻倍）→ 自动回滚到上一个值
-   - 连续 N=3 次恶化 → 标记该参数"不适合自调优"，停止自动调整（记 audit）
-```
-
-**采样窗口**：默认每 20 次相关事件（如 20 次压缩、20 次 provider 调用）为一个采样窗口；窗口内信号聚合后才评估，避免单次噪声触发调整。
-
-### 15.4 进化接入点矩阵（贯穿性体现）
-
-| 能力节点 | 可调参数 | 观察信号 | 调整策略 | 落地里程碑 |
-|---|---|---|---|---|
-| **ContextPolicy**（§8b） | `compaction_threshold` / `target_ratio` / `keep_recent` / `summary_keep_recent` | 压缩后用户重复信息频率 / `context_length` 错误率 / summary 失败率 | 频繁重复→提高 threshold；频繁超限→降低 | **L2**（首个进化点） |
-| **Router**（§3） | fallback 优先级权重 / `cooldownSeconds` | 各 provider 失败率 / fallback 后用户中断率 | 某 provider 失败率高→降优先级 | L3 |
-| **Retry**（§3.9a） | 同 provider 重试次数 / 退避系数（1s/4s） | 重试成功率 / 重试后仍失败比例 | 重试常成功→可增加次数；重试常失败→减少（避免浪费 token） | L3 |
-| **Tool 超时**（§4） | 各 tool `timeoutMs` | tool 超时频率 / 超时后用户重试频率 | 常超时的 tool 延长 timeout | L3 |
-| **Sandbox**（§5） | ❌ **不可调**（安全边界冻结） | violation 频率 / tier 降级频率（仅观察） | 仅观察，发现高频 violation 记 Memory(scope=tuning) 教训提示用户 | 不接入（观察 only） |
-| **Hook priority**（§6.11） | ❌ **不可自动调**（人工设） | hook veto 频率（仅观察） | 仅观察 | 不接入（观察 only） |
-
-**为什么 Sandbox / Hook priority 不接入**：这两类参数直接关系安全/正确性。沙箱 profile 一改可能开逃逸口子；hook priority 一改可能让恶意插件抢 builtin。进化系统只能**观察**它们（发现异常记教训），不能**调整**它们。
-
-### 15.5 安全护栏
-
-| 护栏 | 规则 |
-|---|---|
-| **安全参数冻结** | sandbox profile / permission 决策链（§4.4）/ untrusted 包裹（§6.5.0a）/ `dangerous-*` 行为 / hook priority 分域（§6.11.1）**永不参与自调优** |
-| **单次步长受限** | 数值参数单次调整 ≤ ±10% 或固定小步（threshold ±0.05 / timeout ±10s / retry 次数 ±1）；超过步长的"建议"必须走人确认 |
-| **恶化自动回滚** | 调整后下一窗口信号恶化 → 自动回滚；连续 3 次恶化 → 标参数为"不适合自调优"停止自动调整 |
-| **全局可关闭** | `config.toml [evolution] enabled = false` → 进化引擎停用，所有参数回内置默认；`[evolution] namespaces = ['context']` 可按 namespace 细粒度开关 |
-| **审计完整** | 所有调整（含自动回滚）进 `~/.apollo/tuning/audit.jsonl`，含 before/after/reason/signal；`apollo evolution show` 查看；`apollo evolution rollback [--namespace X --to <timestamp>]` 回滚 |
-| **不跨用户** | 进化只基于本机本用户信号；绝不聚合多用户数据（隐私红线，对齐 AGENT.md §4.13） |
-| **脱敏** | tuning 日志的 signal 段不含 prompt/代码明文，只含聚合指标（频率/计数/比率）；`shared.sanitize()` 在写入前强制 |
-
-### 15.6 人机协作（哪些需人确认）
-
-| 调整类型 | 处理 |
-|---|---|
-| **小幅调整**（步长内，低风险参数如 context threshold） | 静默应用 + 记 audit；UI 状态栏可有可无的小标记"进化中" |
-| **累计大调整**（某参数累计偏离默认 > 30%） | 弹窗确认：「参数 X 已从默认 0.85 累计调到 0.95，是否保留？[保留/回滚/设为默认]」 |
-| **首次启用新 namespace** | 弹窗介绍该 namespace 会观察什么、调什么，用户 opt-in |
-| **任何安全相关参数** | 永不自动调整；用户手动改需走 §12.5b RFC + 人审批 |
-
-**进化引擎不是黑箱**：用户随时 `apollo evolution show` 看到当前所有参数偏离默认多少、近期调整历史、各信号当前值。进化系统的目标是用得越久越贴合本用户，但**用户始终是最终决策者**。
-
-### 15.7 边界与安全清单
-
-| 规则 | 强制点 |
-|---|---|
-| 安全相关参数（sandbox / permission / untrusted / hook priority）**禁止**参与自调优 | EvolutionEngine 白名单单元测试（assert 这些参数不在可调列表） |
-| 单次调整步长**必须**受限（±10% 或固定小步） | EvolutionEngine 单元测试（注入大步长建议，assert 被拒绝） |
-| 调整后信号恶化**必须**自动回滚 | EvolutionEngine 集成测试（注入恶化信号，assert 参数还原） |
-| 连续 3 次恶化**必须**停止该参数自动调整 | EvolutionEngine 集成测试 |
-| 所有调整**必须**进 audit.jsonl（含 before/after/reason/signal） | EvolutionEngine 单元测试 + audit 文件 schema 校验 |
-| `[evolution] enabled = false` **必须**让所有参数回内置默认 | core 启动流程单元测试 |
-| tuning 日志 signal 段**禁止**含 prompt/代码明文 | `shared.sanitize()` 强制 + 单元测试（注入含 secret 的 signal，assert 脱敏） |
-| 进化**禁止**跨用户聚合（只读本机信号） | EvolutionEngine 代码无任何网络/多用户读取路径（code review + ESLint） |
-
-### 15.8 事件（telemetry，本地）
-
-| 事件 | 说明 |
-|---|---|
-| `evolution.adjusted` | 某参数被调整（`{ namespace, param, before, after, reason }`） |
-| `evolution.rolled_back` | 恶化自动回滚（`{ namespace, param, reason }`） |
-| `evolution.disabled` | 用户关闭进化或某 namespace |
-| `evolution.confirmation_requested` | 累计大调整弹窗（`{ namespace, param, deviation_pct }`） |
-| `evolution.observation` | 采样窗口聚合信号（采样发，每窗口 1 次） |
-
-### 15.9 配置（`config.toml [evolution]`）
+**自动应用的前置 evidence gate** 至少包括：同版本 baseline、足够样本、确定性规则、预算内变更、下一窗口验证、可复现 rollback、audit 完整和独立评审。该 gate 未落地前，即使当前实现的 legacy `enabled` 默认行为仍为 true，也不得将它解释为目标默认或扩大接线；用户要获得 fail-safe 行为应显式设置：
 
 ```toml
 [evolution]
-enabled = true                              # 全局开关
-namespaces = ['context', 'router', 'retry', 'tool-timeout']  # 启用的 namespace（细粒度）
-sample_window = 20                          # 采样窗口大小（事件数）
-max_deviation_pct = 30                      # 累计偏离默认超此值需人确认
-rollback_on_worsen = true                   # 恶化自动回滚（强烈不建议关）
-worsen_streak_limit = 3                     # 连续恶化 N 次停止自动调整
+enabled = false
 ```
 
-### 15.10 里程碑
+实现迁移时必须先把缺省语义改为 off，再引入 shadow/apply 的注册 schema、doctor 提示和升级说明。不能仅靠修改文档声称默认已关闭。
 
-- **L1**：无进化系统（参数用内置默认）
-- **L2**：EvolutionEngine 核心模块 + **ContextPolicy 首个进化点**（compaction_threshold/target_ratio/keep_recent 自调优）+ `apollo evolution show/rollback` CLI + Memory(scope=tuning) 写入
-- **L3**：扩展 Router / Retry / Tool timeout 进化点 + 累计大调整弹窗确认
-- **L4**：进化效果 dashboard（`apollo evolution dashboard` 展示参数随时间变化曲线）+ Memory(scope=tuning) 完整召回 + 用户偏好深度学习
+### 15.5 目标闭环：Observe → Hypothesize → Adjust/Shadow → Validate
 
-### 15.11 跨节落地
+这是**目标架构**，不是当前生产状态：
 
-- **§8b ContextPolicy**：首个进化点，§8b.14 详述接入
-- **§3.7 Router / §3.9a Retry**：L3 进化点，参数可调
-- **§4.3 Tool timeout**：L3 进化点
-- **§5 Sandbox**：仅观察，不接入（安全边界冻结）
-- **§6.12 Memory**：`scope: 'tuning'` 作为 Layer A 载体，复用现有存储/召回/脱敏/hook
-- **§11 CLI**：`apollo evolution <show|rollback|enable|disable>` 命令族
-- **§12.5b RFC**：进化护栏参数变更（§15.5）需 RFC + 人审批
-- **§12.6b AI-native 协作**：进化系统的"人在环检查点"（累计大调整确认）是 AI-native 范式下人保留决策权的体现
+1. **Observe**：能力节点只提交 schema 化、去敏的计数/比率；窗口达到最小样本前不评估。
+2. **Hypothesize**：v1 由版本化的确定性规则评估。当前 `#evaluate()` 就是规则骨架，不是“模型主导”。
+3. **Adjust/Shadow**：off 不处理；shadow 只写建议 evidence；apply 才能在 allowlist、步长、累计偏离和用户 namespace opt-in 下持久化新值。
+4. **Validate**：在下一独立窗口与调整前 baseline 比较；worsen 或 inconclusive 都回到 previous/default，连续失败后冻结参数。
+
+未来若引入模型生成 hypothesis，模型输出也只能是 untrusted proposal，必须通过同一静态 allowlist、确定性 clamp、证据门和 rollback；这不改变本节是 runtime tuning、也不自动获得 §18 权限。
+
+### 15.6 Namespace 与接线矩阵
+
+| Namespace | 白名单参数 | 目标信号 | 当前生产接线 | 最早可应用条件 |
+|---|---|---|---|---|
+| **context** | `compaction_threshold` / `target_ratio` / `keep_recent` / `summary_keep_recent` | 压缩后重复率、context-length 错误、立即重压缩、近期内容丢失 | **部分读取；无 observe/validate** | shadow E2E + ContextPolicy 四参数完整接线 + 恶化回滚证据 |
+| **router** | `cooldown_ms` / `max_attempts`（最终白名单需重新安全评审） | fallback 成功/失败、用户中断、成本 | **未应用** | Router 边界测试、provider 失败注入、成本/可用性双 guard |
+| **retry** | `max_retries` / `backoff_factor`（最终白名单需重新安全评审） | retry 成功/失败、额外 token/时间 | **未应用** | Retry 去重/计费证据、预算上限、无重复副作用证明 |
+| **tool-timeout** | default/per-tool timeout，硬上限 300s | timeout 与用户重试率 | **未应用** | typed tool 级信号、后台任务分离、资源占用 guard |
+| **sandbox / permission / hook / auth / trust / release** | **无，永久排除** | 可只做安全观测 | **不得应用** | 不存在解锁阶段；需人工规范/实现变更 |
+
+Router/Retry/Tool-timeout 在状态表中“规则存在”不等于可上线；没有 composition wiring、真实 observation、验证与边界 E2E 时一律保持 off。
+
+### 15.7 数据面；自然语言 Memory 不属于本闭环
+
+§15 只有一个权威数据面：`~/.apollo/tuning/<namespace>.jsonl` 保存结构化 before/after/reason/aggregate signal/action，`audit.jsonl` 提供跨 namespace 视图。记录应 append-only、版本化、内容脱敏并可校验；路径存在不代表记录可信，读取仍需 schema 和边界校验。
+
+仓库虽然已有未接线的 `TuningMemoryStore.write()`，但“把自然语言偏好/教训写入 Memory 再召回 prompt”会改变模型行为，不是白名单数值参数 tuning，**不属于 §15 的 Observe/Adjust/Validate pipeline 或交付阶段**。若未来需要该功能，必须在 §6.12 下另立产品、permission、sanitize、preWrite、prompt-injection 和用户审计契约；它不得作为 §15 的输入、输出、evidence 或启用前置，也永远不能授权工具、修改 §18 policy、提供 approval 或覆盖用户指令。当前生产既没有该写入 caller，也没有专用召回路径。
+
+### 15.8 调整与验证护栏
+
+| 护栏 | 目标强制语义 | 当前实现情况 |
+|---|---|---|
+| 静态白名单 | 参数集合由 builtin code 定义；config/模型只能缩小 | engine 已有静态集合；仍需 composition/boundary tests |
+| 单步上限 | 数值变更不超过固定小步与相对 10% 的更严格者 | engine 已 clamp |
+| 值域上限 | 每个参数有绝对 min/max；tool timeout ≤ 300s | timeout 有范围；其他参数需补完整值域 |
+| 累计偏离 | 超阈值不静默应用；要求显式确认或恢复/冻结 | engine 有 callback，但生产未接 UI，默认拒绝 |
+| 下一窗口验证 | worsen 自动 rollback；inconclusive 也不保留 | engine 有 `validate()`，生产未调用 |
+| 连续失败冻结 | 默认 3 次 worsen 后停止该参数 | engine 有骨架；生产未形成窗口 |
+| 审计 | proposal/application/rollback/freeze 都绑定规则/信号版本 | store 部分可用；事件/schema 尚未交付 |
+| 默认关闭 | 缺省 off；先 shadow，apply 需 evidence gate + opt-in | **尚未实现；当前 legacy 缺省为 enabled** |
+
+值域、步长、样本窗口和 worsen 判定必须是可信版本化 policy，不接受项目文件、Plugin、Skill 或模型动态扩宽。任何安全相关参数即使用户要求也不能通过 tuning API 修改；它们只能走正常人工配置/RFC/代码评审/发布流程。
+
+### 15.9 人机控制面
+
+当前已支持：
+
+```text
+apollo evolution show [--namespace <name>] [--since <time>] [--json]
+apollo evolution rollback [--namespace <name>] [--to <time>]
+```
+
+这两个命令只查看/回滚本地 tuning store，不证明 observation 或 validation 已运行。历史文档里的 `enable`、`disable`、dashboard 或累计偏离弹窗不是当前 CLI 能力。
+
+目标控制面必须额外做到：
+
+- 明示 off/shadow/apply 和每个 namespace 的状态，不能只显示模糊“enabled”。
+- 显示当前值、builtin default、来源、样本量、规则版本、最近验证和 rollback 原因。
+- 从 shadow 升级 apply 需要明确 opt-in；安全 namespace 不出现启用入口。
+- 关闭后立即使用 builtin defaults；是否保留历史 audit 与“应用值”分离，关闭不能删审计。
+
+### 15.10 隐私、审计与故障语义
+
+- Signal 只能包含聚合数值和版本标识，不保存 prompt、代码、文件内容、secret、完整 URL 或个人标识。
+- sanitize 必须在持久化边界执行；sanitize/append/schema 失败 → 本窗口丢弃并保持默认，不允许“先应用后补日志”。
+- Store 截断、未知 schema、非有限数值、越界值或 clock 回退 → 忽略该记录、发本地诊断并保持 previous/default。
+- Network telemetry 仍遵守 §8 默认本地、显式 opt-in；本节不能自行开启 OTel。
+- 任何拟新增 tuning 事件必须先进入 §2.3/附录 D 的 event schema registry 并通过事件验证；当前不得声称已发出。
+
+### 15.11 Evidence gates 与交付顺序
+
+1. **T0 — Truth/default**：修正缺省为 off，配置 schema/附录/doctor/迁移一致；补生产调用图断言，文档不再声称闭环。
+2. **T1 — Context shadow**：完整接入 context 四参数 observation，但只 shadow；同版本 baseline、信号去敏、窗口/规则/审计和 restart E2E 全绿。
+3. **T2 — Context apply opt-in**：用户按 namespace 显式启用；下一窗口 validation、inconclusive rollback、冻结和 UI/CLI 可见性全绿，独立安全评审通过。
+4. **T3 — Additional namespaces**：Router、Retry、Tool-timeout 每个单独做 threat/effect/budget evidence；不能因 context 通过而批量解锁。
+5. **T4 — Dashboard（可选）**：只读展示 T2/T3 的真实数值 evidence，不扩大调参能力；自然语言 Memory lesson 不在本节路线图内。
+
+所有阶段都遵守 [§10 evidence-gated roadmap](./10-milestones.md)：class、fixture、mock 或 unit test 只能证明局部实现；必须有 supported entry、composition wiring、边界 E2E 和同 SHA evidence 才能提升状态。
+
+### 15.12 与 §18 的隔离契约
+
+- §15 不能写仓库 worktree、创建 branch/commit、运行测试命令、启动 Developer/Reviewer 或消费 Human approval。
+- §18 可以把 §15 的**去敏 shadow 指标**作为人工查看的 proposal clue，但不能据此自动创建/批准 run；输入需重新按 §18 policy 固定和审计。
+- §18 的 policy、approval、sandbox、permission、auth、CI/release 永远不是 §15 tunable。
+- 两系统的 store、state、receipt、CLI 和事件 schema 必须分开；`apollo evolution` 不得成为 `apollo selfdev` 的别名。
 
 ---
 
@@ -201,4 +166,5 @@ worsen_streak_limit = 3                     # 连续恶化 N 次停止自动调�
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
-| 2026-08-01 | §15 v1（r10） | 新增「自我进化框架」整节：响应用户原则「核心智能层需不断自我进化」。双层记忆模型（Memory scope=tuning 存模式 + tuning/*.jsonl 存参数）+ 通用进化循环（Observation→Hypothesis→Adjustment→Validation）+ 进化接入点矩阵（Context L2 / Router+Retry+Tool L3 / Sandbox 观察 only）+ 安全护栏（安全参数冻结 / 步长受限 / 恶化回滚 / 可关闭 / 审计完整 / 不跨用户 / 脱敏）+ 人机协作（小幅静默 / 大调整确认）+ 边界清单 + 配置 + 里程碑 + 跨节落地。 |
+| 2026-08-19 | §15 v2 | 重命名为 Adaptive Runtime Tuning；与 §18 代码/制品变更分离；按生产调用链标注 partial/unwired；明确当前规则驱动而非模型驱动；目标默认 off、先 shadow、apply 需 evidence gate；安全参数永久排除。 |
+| 2026-08-01 | §15 v1（r10） | 首版 runtime parameter tuning 设计；历史内容中的闭环/默认/接线表述已由 v2 当前事实表取代。 |
