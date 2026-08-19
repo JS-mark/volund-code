@@ -22,7 +22,13 @@ export class ApolloError extends Error {
 
 export { validateWorkspacePath } from './path-guard'
 export { sanitize } from './sanitize'
-export { detectSecret, type SecretDetection, type SecretKind } from './secret-detector'
+export {
+  detectSecret,
+  isCredentialKeyForSecretDetection,
+  normalizeForSecretDetection,
+  type SecretDetection,
+  type SecretKind,
+} from './secret-detector'
 export * from './config-schema'
 export * from './error-codes'
 export * from './errors'

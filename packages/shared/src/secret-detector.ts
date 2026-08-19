@@ -65,8 +65,12 @@ const secretRules: readonly SecretRule[] = [
 
 const credentialUriPattern =
   /\b(?:https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqps?|ftp|ssh):\/\/[^\s/:@]+:([^\s/@]+)@/i
-const credentialAssignmentPattern =
-  /\b(?:api[\s_.-]*key|access[\s_.-]*(?:key|token)|auth[\s_.-]*token|client[\s_.-]*secret|credential|oauth[\s_.-]*code|pass(?:phrase|word)|private[\s_.-]*key|secret|token)\s*(?::|=>|->|=)\s*["'`]?([^\s"'`,;]+)/i
+const credentialKeySource = String.raw`(?:api[\s_.-]*key|access[\s_.-]*(?:key|token)|auth[\s_.-]*token|client[\s_.-]*secret|credential|oauth[\s_.-]*code|pass(?:phrase|word)|private[\s_.-]*key|secret|token)`
+const credentialKeyPattern = new RegExp(`^(?:${credentialKeySource})$`, 'i')
+const credentialAssignmentPattern = new RegExp(
+  String.raw`\b${credentialKeySource}\s*(?::|=>|->|=)\s*["'\x60]?([^\s"'\x60,;]+)`,
+  'i',
+)
 
 const harmlessPlaceholders = new Set([
   '***',
@@ -87,11 +91,20 @@ const harmlessPlaceholders = new Set([
   'your-token-here',
 ])
 
-function normalizeForDetection(value: string): string {
+/**
+ * Normalizes only the value used by secret detectors. Callers must retain the original value for
+ * display, execution, persistence, and identity-sensitive matching.
+ */
+export function normalizeForSecretDetection(value: string): string {
   return value
     .normalize('NFKC')
     .replace(/\p{Cf}/gu, '')
     .replace(/[‐‑‒–—―−]/g, '-')
+}
+
+/** Uses the same canonical credential-label grammar as assignment detection. */
+export function isCredentialKeyForSecretDetection(value: string): boolean {
+  return credentialKeyPattern.test(normalizeForSecretDetection(value))
 }
 
 function isHarmlessPlaceholder(value: string): boolean {
@@ -123,7 +136,7 @@ function containsCredentialValue(pattern: RegExp, value: string, minimumLength: 
  * placeholders to keep ordinary prose usable.
  */
 export function detectSecret(value: string): SecretDetection | undefined {
-  const normalized = normalizeForDetection(value)
+  const normalized = normalizeForSecretDetection(value)
   for (const rule of secretRules) {
     if (rule.pattern.test(normalized)) return { kind: rule.kind }
   }

@@ -54,7 +54,14 @@ import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
-import { detectSecret, sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
+import {
+  detectSecret,
+  isCredentialKeyForSecretDetection,
+  normalizeForSecretDetection,
+  sanitize,
+  type JsonValue,
+  type Logger,
+} from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
@@ -787,6 +794,18 @@ function hasOnlyStringKeys(keys: PropertyKey[]): keys is string[] {
   return keys.every((key) => typeof key === 'string')
 }
 
+function containsPermissionApprovalSecret(value: string): boolean {
+  const normalized = normalizeForSecretDetection(value)
+  return Boolean(detectSecret(value)) || sanitize(normalized) !== normalized
+}
+
+function isPermissionApprovalCredentialKey(value: string): boolean {
+  const normalized = normalizeForSecretDetection(value)
+  const probeValue = 'permission-approval-key-probe'
+  const sanitizedProbe = sanitize({ [normalized]: probeValue })
+  return isCredentialKeyForSecretDetection(value) || sanitizedProbe[normalized] !== probeValue
+}
+
 function clonePermissionApprovalValue(
   input: unknown,
   budget: PermissionApprovalBudget,
@@ -799,7 +818,7 @@ function clonePermissionApprovalValue(
   if (input === null) return null
   if (typeof input === 'string') {
     consumePermissionApprovalText(budget, input)
-    if (detectSecret(input)) {
+    if (containsPermissionApprovalSecret(input)) {
       budget.redacted = true
       return '[REDACTED]'
     }
@@ -845,14 +864,18 @@ function clonePermissionApprovalValue(
       const descriptor = Object.getOwnPropertyDescriptor(input, key)
       if (!descriptor?.enumerable || !('value' in descriptor))
         throw new TypeError('permission approval value has hidden or accessor properties')
-      const safeKey = detectSecret(key) ? `[REDACTED_KEY_${index}]` : key
+      const safeKey = containsPermissionApprovalSecret(key) ? `[REDACTED_KEY_${index}]` : key
       if (safeKey !== key) budget.redacted = true
       if (Object.hasOwn(output, safeKey))
         throw new TypeError('permission approval redaction produced a duplicate key')
+      const redactValue = isPermissionApprovalCredentialKey(key)
+      if (redactValue) budget.redacted = true
       Object.defineProperty(output, safeKey, {
         configurable: true,
         enumerable: true,
-        value: clonePermissionApprovalValue(descriptor.value, budget, depth + 1),
+        value: redactValue
+          ? '[REDACTED]'
+          : clonePermissionApprovalValue(descriptor.value, budget, depth + 1),
         writable: true,
       })
     }

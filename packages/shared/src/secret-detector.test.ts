@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { detectSecret, type SecretKind } from './secret-detector'
+import {
+  detectSecret,
+  isCredentialKeyForSecretDetection,
+  normalizeForSecretDetection,
+  type SecretKind,
+} from './secret-detector'
 
 describe('detectSecret', () => {
   it.each<[SecretKind, string]>([
@@ -36,6 +41,33 @@ describe('detectSecret', () => {
   ])('normalizes Unicode and invisible separator variants', (value) => {
     expect(detectSecret(value)).toBeDefined()
   })
+
+  it.each([
+    ['Bea\u200Brer qwerty123456', 'Bearer qwerty123456'],
+    ['ｔｏｋｅｎ=abc', 'token=abc'],
+    ['api‐key=abc', 'api-key=abc'],
+    ['ｔｏｋ\u2060ｅｎ−abc', 'token-abc'],
+  ])('shares the %s detection normalization without mutating caller data', (raw, normalized) => {
+    expect(normalizeForSecretDetection(raw)).toBe(normalized)
+    expect(raw).not.toBe(normalized)
+  })
+
+  it.each([
+    'credential',
+    'access\u200B_key',
+    'ｐｒｉｖａｔｅ‐ｋｅｙ',
+    'client.secret',
+    'oauth code',
+  ])('recognizes the canonical credential key after detection normalization: %s', (key) => {
+    expect(isCredentialKeyForSecretDetection(key)).toBe(true)
+  })
+
+  it.each(['monkey', 'credential rotation', 'private', 'access'])(
+    'does not widen the canonical credential key grammar: %s',
+    (key) => {
+      expect(isCredentialKeyForSecretDetection(key)).toBe(false)
+    },
+  )
 
   it.each([
     'Use the GitHub provider for pull requests.',

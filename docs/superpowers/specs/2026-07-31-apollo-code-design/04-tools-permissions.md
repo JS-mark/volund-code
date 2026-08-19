@@ -230,7 +230,7 @@ permission.request(req):
 
 1. `PermissionRequest`、原始 tool input、`ToolExecutor` / native 调用以及 session / project / global grant key 始终使用原值；显示层不得 normalize、改写或回写这些值。
 2. CLI line fallback 与 TUI 共用 UI 包的 injective formatter。Cc / Cf / Cs / Zl / Zp、非 ASCII Zs、bidi/default-ignorable/zero-width、noncharacter 必须显示成唯一可见的 `\u{XXXX}`；字面反斜杠必须双写。普通 ASCII 空格、中文和不含 default-ignorable 的 emoji 保持可读。
-3. Host 先对 spec / input / tool label / tool-use id 做 descriptor-safe、bounded 的独立结构快照，再同时应用通用 `sanitize` 与凭证 `detectSecret`（含 Cf 归一化绕过）。任一命中都必须结构化脱敏并锁定 deny-only；无法安全克隆、超出深度/节点/字节预算或无法完整格式化时使用固定 marker，绝不回退 raw。
+3. Host 先对 spec / input / tool label / tool-use id 做 descriptor-safe、bounded 的独立结构快照，再同时应用通用 `sanitize` 与凭证 `detectSecret`。审批专用检测还必须对 NFKC、移除 Cf、统一 Unicode hyphen 后的副本运行通用 `sanitize` grammar（字符串叶与对象 credential key 均覆盖）；对象 key 还必须复用 `detectSecret` 的权威 credential-assignment label grammar，不得另写漂移的子集。归一化仅用于检测，非敏感原值不得被副本替换。任一检测或脱敏命中都必须把对应叶结构化替换为 `[REDACTED]` 并锁定 deny-only；无法安全克隆、超出深度/节点/字节预算或无法完整格式化时使用固定 marker，绝不回退 raw。
 4. 传给 line / TUI handler 的审批 request 必须是 deep-frozen 独立快照，Host 在 `await` handler 前捕获不可变 approval gate；handler 后续修改 request/display/spec 不得把 deny-only 翻转为 allow。`tool.permission_asked` / telemetry 与审批 UI 共用同一 secret-safe spec/tool 值；这不改变执行与 grant key 的原始值。
 
 非目标：L1 不实现完整 UTS #39 confusable 检测，也不把直接 `cat` / 打印 JSON 当作人工审批界面；只有上述受控 CLI/TUI permission surface 承担可批准显示契约。
