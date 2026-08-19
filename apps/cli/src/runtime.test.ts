@@ -5,9 +5,11 @@ import { Duplex, PassThrough } from 'node:stream'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
 import type { Runner, SessionState } from '@apollo-code/core'
 import type { PluginHost } from '@apollo-code/native-bridge'
+import type { PermissionRequest } from '@apollo-code/permission'
 import { DefaultMemoryService, LocalMemoryRepository, MemoryError } from '@apollo-code/storage'
 import type { ToolContext } from '@apollo-code/tool-kit'
 import { BashTool } from '@apollo-code/tools'
+import type { InteractivePermissionRequest } from '@apollo-code/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -23,6 +25,7 @@ import {
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   registerRuntimeMemoryPrompts,
+  requestPermission,
   RuntimeSessionPort,
 } from './runtime'
 
@@ -434,6 +437,73 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['OpenAI provider', `sk-proj-${'A'.repeat(24)}`],
+    ['Anthropic provider', `sk-ant-api03-${'B'.repeat(24)}`],
+    ['GitHub', `ghp_${'C'.repeat(24)}`],
+    ['AWS', `AKIA${'D'.repeat(16)}`],
+    ['JWT', `eyJ${'E'.repeat(8)}.${'F'.repeat(12)}.${'G'.repeat(12)}`],
+    ['GitHub with Cf', `ghp_\u200B${'H'.repeat(24)}`],
+  ])('redacts a bare %s secret in line display and the permission event', async (_kind, secret) => {
+    const events = new EventBus()
+    const state = createSession({
+      id: `session-secret-${_kind.replaceAll(' ', '-').toLowerCase()}`,
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const rawCommand = `printf '${secret}'`
+    const permissionEvents: unknown[] = []
+    events.subscribe((event) => {
+      if (event.type === 'tool.permission_asked') permissionEvents.push(event.payload)
+    })
+    const linePrompt = vi.fn(async (_question: string) => 'a')
+    const nativeExecute = vi.fn(async () => 'must not execute')
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    }
+    const chain = createProductionToolPermissionChain({
+      state,
+      events,
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    const executor = chain.bindExecutor(
+      (signal): ToolContext => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-secret' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: rawCommand },
+      new AbortController().signal,
+      `toolu_secret_${_kind}`,
+    )
+
+    expect(result.isError).toBe(true)
+    expect(linePrompt).toHaveBeenCalledWith(
+      expect.stringContaining('[sensitive permission details hidden - deny only]'),
+    )
+    expect(linePrompt.mock.calls[0]![0]).not.toContain(secret)
+    expect(permissionEvents).toHaveLength(1)
+    expect(permissionEvents[0]).toMatchObject({
+      spec: { bash: { command: '[REDACTED]' } },
+    })
+    expect(JSON.stringify(permissionEvents[0])).not.toContain(secret)
+    expect(nativeExecute).not.toHaveBeenCalled()
+  })
+
   it('enforces deny after a tui handler tries to approve sensitive hidden details', async () => {
     const events = new EventBus()
     const state = createSession({
@@ -442,8 +512,33 @@ describe('production tool permission composition', () => {
       maxTokens: 200_000,
       toolRegistrySnapshot: 'runtime-permission-test',
     })
-    const rawCommand = 'echo token=top-secret|touch /tmp/side-effect'
-    const prompt = vi.fn(async (_request: unknown) => ({ kind: 'allow-once' as const }))
+    const rawSecret = `eyJ${'K'.repeat(8)}.${'L'.repeat(12)}.${'M'.repeat(12)}`
+    const rawCommand = `echo ${rawSecret}|touch /tmp/side-effect`
+    const mutation = {
+      bashFrozen: false,
+      displayFrozen: false,
+      displayMutated: false,
+      inputFrozen: false,
+      requestFrozen: false,
+      specFrozen: false,
+      specMutated: false,
+    }
+    const prompt = vi.fn(async (request: InteractivePermissionRequest) => {
+      mutation.requestFrozen = Object.isFrozen(request)
+      mutation.displayFrozen = Object.isFrozen(request.display)
+      mutation.inputFrozen = Object.isFrozen(request.input)
+      mutation.specFrozen = Object.isFrozen(request.spec)
+      mutation.displayMutated = Reflect.set(request.display, 'approvable', true)
+      if (request.spec && typeof request.spec === 'object' && !Array.isArray(request.spec)) {
+        const bashDescriptor = Object.getOwnPropertyDescriptor(request.spec, 'bash')
+        const bash = bashDescriptor && 'value' in bashDescriptor ? bashDescriptor.value : undefined
+        if (bash && typeof bash === 'object' && !Array.isArray(bash)) {
+          mutation.bashFrozen = Object.isFrozen(bash)
+          mutation.specMutated = Reflect.set(bash, 'command', 'safe replacement')
+        }
+      }
+      return { kind: 'allow-once' as const }
+    })
     const nativeExecute = vi.fn(async () => 'must not execute')
     const logger = {
       debug: vi.fn(),
@@ -485,9 +580,87 @@ describe('production tool permission composition', () => {
         },
       }),
     )
-    expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain('top-secret')
+    expect(JSON.stringify(prompt.mock.calls[0]![0])).not.toContain(rawSecret)
+    expect(mutation).toEqual({
+      bashFrozen: true,
+      displayFrozen: true,
+      displayMutated: false,
+      inputFrozen: true,
+      requestFrozen: true,
+      specFrozen: true,
+      specMutated: false,
+    })
     expect(nativeExecute).not.toHaveBeenCalled()
   })
+
+  it.each([
+    {
+      kind: 'accessor',
+      fixture: () => {
+        const read = vi.fn(() => ({ command: 'must not be read' }))
+        return {
+          assertSafe: () => expect(read).not.toHaveBeenCalled(),
+          spec: Object.defineProperty({}, 'bash', {
+            enumerable: true,
+            get: read,
+          }),
+        }
+      },
+    },
+    {
+      kind: 'over-budget string',
+      fixture: () => ({
+        assertSafe: undefined,
+        spec: { bash: { command: 'x'.repeat(65_537) } },
+      }),
+    },
+  ] as const)(
+    'fails closed for an approval $kind without leaking it to the event',
+    async ({ fixture, kind }) => {
+      const events = new EventBus()
+      const seen: unknown[] = []
+      events.subscribe((event) => {
+        if (event.type === 'tool.permission_asked') seen.push(event.payload)
+      })
+      const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+      const testFixture = fixture()
+      const request: PermissionRequest = {
+        attempt: 1,
+        input: {},
+        session: { id: 'approval-malformed', cwd: process.cwd() },
+        spec: testFixture.spec,
+        toolName: 'Bash',
+        toolUseId: `toolu_${kind}`,
+      }
+
+      await expect(
+        requestPermission({
+          events,
+          interactionMode: 'tui',
+          interactivePermissionPrompt: prompt,
+          request,
+          version: 1,
+        }),
+      ).resolves.toEqual({ kind: 'deny' })
+
+      expect(prompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          display: expect.objectContaining({
+            approvable: false,
+            spec: '[permission details unavailable - deny only]',
+          }),
+        }),
+      )
+      expect(seen).toEqual([
+        expect.objectContaining({
+          spec: {
+            custom: { permissionApproval: '[permission details unavailable - deny only]' },
+          },
+        }),
+      ])
+      testFixture.assertSafe?.()
+    },
+  )
 
   it('never falls back to line input for tui-without-handler or a non-TTY line mode', async () => {
     const logger = {

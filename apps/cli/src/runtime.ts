@@ -34,7 +34,7 @@ import {
 import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/core'
 import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
-import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
+import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
 import {
   BridgeRuntime,
   createToolHookDispatcher,
@@ -54,7 +54,7 @@ import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
-import { sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
+import { detectSecret, sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
 import { SkillsRuntime } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
@@ -755,33 +755,200 @@ async function permissionPrompt(
   return { kind: answer === 's' ? 'allow-session' : answer === 'a' ? 'allow-once' : 'deny' }
 }
 
+const MAX_PERMISSION_APPROVAL_DEPTH = 32
+const MAX_PERMISSION_APPROVAL_NODES = 4_096
+const MAX_PERMISSION_APPROVAL_BYTES = 64 * 1024
+const permissionDetailsUnavailable = '[permission details unavailable - deny only]'
+const sensitivePermissionDetailsHidden = '[sensitive permission details hidden - deny only]'
+
+interface PermissionApprovalBudget {
+  bytes: number
+  nodes: number
+  redacted: boolean
+  readonly seen: Set<object>
+}
+
+interface PermissionApprovalValue {
+  readonly complete: boolean
+  readonly redacted: boolean
+  readonly value: JsonValue
+}
+
+interface PermissionApprovalText extends Omit<PermissionApprovalValue, 'value'> {
+  readonly value: string
+}
+
+function consumePermissionApprovalText(budget: PermissionApprovalBudget, value: string): void {
+  budget.bytes -= Buffer.byteLength(value, 'utf8')
+  if (budget.bytes < 0) throw new RangeError('permission approval exceeds its byte budget')
+}
+
+function hasOnlyStringKeys(keys: PropertyKey[]): keys is string[] {
+  return keys.every((key) => typeof key === 'string')
+}
+
+function clonePermissionApprovalValue(
+  input: unknown,
+  budget: PermissionApprovalBudget,
+  depth = 0,
+): JsonValue {
+  budget.nodes -= 1
+  if (budget.nodes < 0) throw new RangeError('permission approval exceeds its node budget')
+  if (depth > MAX_PERMISSION_APPROVAL_DEPTH)
+    throw new RangeError('permission approval exceeds its depth limit')
+  if (input === null) return null
+  if (typeof input === 'string') {
+    consumePermissionApprovalText(budget, input)
+    if (detectSecret(input)) {
+      budget.redacted = true
+      return '[REDACTED]'
+    }
+    return input
+  }
+  if (typeof input === 'boolean') return input
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input) || Object.is(input, -0))
+      throw new TypeError('permission approval number cannot be represented exactly')
+    return input
+  }
+  if (typeof input !== 'object') throw new TypeError('permission approval value is not JSON-safe')
+  if (budget.seen.has(input)) throw new TypeError('permission approval value is cyclic')
+  budget.seen.add(input)
+  try {
+    if (Array.isArray(input)) {
+      if (input.length > budget.nodes)
+        throw new RangeError('permission approval array exceeds its node budget')
+      const keys = Reflect.ownKeys(input)
+      if (!hasOnlyStringKeys(keys)) throw new TypeError('permission approval array has symbol keys')
+      if (keys.length !== input.length + 1)
+        throw new TypeError('permission approval array is sparse or has extra properties')
+      const output: JsonValue[] = []
+      for (let index = 0; index < input.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(input, String(index))
+        if (!descriptor?.enumerable || !('value' in descriptor))
+          throw new TypeError('permission approval array has hidden or accessor elements')
+        output.push(clonePermissionApprovalValue(descriptor.value, budget, depth + 1))
+      }
+      return output
+    }
+
+    const prototype = Object.getPrototypeOf(input)
+    if (prototype !== Object.prototype && prototype !== null)
+      throw new TypeError('permission approval value is not a plain object')
+    const keys = Reflect.ownKeys(input)
+    if (keys.length > budget.nodes)
+      throw new RangeError('permission approval object exceeds its node budget')
+    if (!hasOnlyStringKeys(keys)) throw new TypeError('permission approval value has symbol keys')
+    const output: Record<string, JsonValue> = {}
+    for (const [index, key] of keys.entries()) {
+      consumePermissionApprovalText(budget, key)
+      const descriptor = Object.getOwnPropertyDescriptor(input, key)
+      if (!descriptor?.enumerable || !('value' in descriptor))
+        throw new TypeError('permission approval value has hidden or accessor properties')
+      const safeKey = detectSecret(key) ? `[REDACTED_KEY_${index}]` : key
+      if (safeKey !== key) budget.redacted = true
+      if (Object.hasOwn(output, safeKey))
+        throw new TypeError('permission approval redaction produced a duplicate key')
+      Object.defineProperty(output, safeKey, {
+        configurable: true,
+        enumerable: true,
+        value: clonePermissionApprovalValue(descriptor.value, budget, depth + 1),
+        writable: true,
+      })
+    }
+    return output
+  } finally {
+    budget.seen.delete(input)
+  }
+}
+
+function freezePermissionApprovalValue<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor && 'value' in descriptor) freezePermissionApprovalValue(descriptor.value)
+  }
+  return Object.freeze(value)
+}
+
+function preparePermissionApprovalValue(
+  input: unknown,
+  fallback: JsonValue,
+): PermissionApprovalValue {
+  try {
+    const budget: PermissionApprovalBudget = {
+      bytes: MAX_PERMISSION_APPROVAL_BYTES,
+      nodes: MAX_PERMISSION_APPROVAL_NODES,
+      redacted: false,
+      seen: new Set(),
+    }
+    const detectedSafeValue = clonePermissionApprovalValue(input, budget)
+    const sanitizedValue = sanitize(detectedSafeValue)
+    const sanitizerRedacted = JSON.stringify(sanitizedValue) !== JSON.stringify(detectedSafeValue)
+    return freezePermissionApprovalValue({
+      complete: true,
+      redacted: budget.redacted || sanitizerRedacted,
+      value: sanitizedValue,
+    })
+  } catch {
+    return freezePermissionApprovalValue({ complete: false, redacted: false, value: fallback })
+  }
+}
+
+function preparePermissionApprovalSpec(input: PermissionSpec): PermissionApprovalValue {
+  const prepared = preparePermissionApprovalValue(input, {
+    custom: { permissionApproval: permissionDetailsUnavailable },
+  })
+  if (prepared.value && typeof prepared.value === 'object' && !Array.isArray(prepared.value))
+    return prepared
+  return freezePermissionApprovalValue({
+    complete: false,
+    redacted: false,
+    value: { custom: { permissionApproval: permissionDetailsUnavailable } },
+  })
+}
+
+function preparePermissionApprovalText(input: string): PermissionApprovalText {
+  const prepared = preparePermissionApprovalValue(input, '[permission label unavailable]')
+  if (typeof prepared.value === 'string')
+    return freezePermissionApprovalValue({
+      complete: prepared.complete,
+      redacted: prepared.redacted,
+      value: prepared.value,
+    })
+  return freezePermissionApprovalValue({
+    complete: false,
+    redacted: false,
+    value: '[permission label unavailable]',
+  })
+}
+
 function buildPermissionDisplay(
-  raw: Pick<PermissionRequest, 'spec' | 'toolName'>,
-  sanitized: Pick<InteractivePermissionRequest, 'spec' | 'toolName'>,
+  spec: PermissionApprovalValue,
+  toolName: PermissionApprovalText,
+  input: PermissionApprovalValue,
+  toolUseId: PermissionApprovalText,
 ): InteractivePermissionRequest['display'] {
-  const rawSpec = formatPermissionValueForDisplay(raw.spec)
-  const sanitizedSpec = formatPermissionValueForDisplay(sanitized.spec)
-  const rawToolName = formatPermissionTextForDisplay(raw.toolName)
-  const sanitizedToolName = formatPermissionTextForDisplay(sanitized.toolName)
+  const sanitizedSpec = formatPermissionValueForDisplay(spec.value)
+  const sanitizedToolName = formatPermissionTextForDisplay(toolName.value)
   if (
-    !rawSpec.approvable ||
+    !spec.complete ||
+    !toolName.complete ||
+    !input.complete ||
+    !toolUseId.complete ||
     !sanitizedSpec.approvable ||
-    !rawToolName.approvable ||
     !sanitizedToolName.approvable
   )
     return {
       approvable: false,
-      spec: '[permission details unavailable - deny only]',
+      spec: permissionDetailsUnavailable,
       toolName: sanitizedToolName.text,
     }
-  if (rawSpec.text !== sanitizedSpec.text || rawToolName.text !== sanitizedToolName.text)
+  if (spec.redacted || toolName.redacted || input.redacted || toolUseId.redacted)
     return {
       approvable: false,
-      spec: '[sensitive permission details hidden - deny only]',
-      toolName:
-        rawToolName.text === sanitizedToolName.text
-          ? sanitizedToolName.text
-          : '[sensitive tool name hidden]',
+      spec: sensitivePermissionDetailsHidden,
+      toolName: toolName.redacted ? '[sensitive tool name hidden]' : sanitizedToolName.text,
     }
   return { approvable: true, spec: sanitizedSpec.text, toolName: sanitizedToolName.text }
 }
@@ -800,19 +967,25 @@ export async function requestPermission(input: {
   version: number
 }): Promise<PermissionDecision> {
   const id = uuidv7()
-  const sanitizedSpec = sanitize(input.request.spec as JsonValue)
-  const sanitizedToolName = sanitize(input.request.toolName)
-  const uiRequest: InteractivePermissionRequest = {
-    display: buildPermissionDisplay(input.request, {
-      spec: sanitizedSpec,
-      toolName: sanitizedToolName,
-    }),
+  const approvalSpec = preparePermissionApprovalSpec(input.request.spec)
+  const approvalToolName = preparePermissionApprovalText(input.request.toolName)
+  const approvalToolUseId = preparePermissionApprovalText(input.request.toolUseId ?? id)
+  const approvalInput = preparePermissionApprovalValue(
+    input.request.input,
+    '[permission input unavailable]',
+  )
+  const display = freezePermissionApprovalValue(
+    buildPermissionDisplay(approvalSpec, approvalToolName, approvalInput, approvalToolUseId),
+  )
+  const approvalAllowed = display.approvable
+  const uiRequest = freezePermissionApprovalValue<InteractivePermissionRequest>({
+    display,
     id,
     attempt: input.request.attempt,
-    input: sanitize(input.request.input as JsonValue),
-    spec: sanitizedSpec,
-    toolName: sanitizedToolName,
-  }
+    input: approvalInput.value,
+    spec: approvalSpec.value,
+    toolName: approvalToolName.value,
+  })
   // 附录 D.2 tool.permission_asked：{toolUseId, tool, spec}——toolUseId 优先用真实
   // tool_use id（ToolExecutor 透传），非模型路径回退本次弹窗请求 id。
   await input.events.emit({
@@ -820,9 +993,9 @@ export async function requestPermission(input: {
     version: input.version,
     sessionId: input.request.session.id,
     payload: {
-      toolUseId: input.request.toolUseId ?? id,
-      tool: input.request.toolName,
-      spec: sanitizedSpec,
+      toolUseId: approvalToolUseId.value,
+      tool: approvalToolName.value,
+      spec: approvalSpec.value,
     },
   })
   if (input.interactionMode === 'none') return { kind: 'deny' }
@@ -834,7 +1007,7 @@ export async function requestPermission(input: {
     )
   if (!input.interactivePermissionPrompt) return { kind: 'deny' }
   const decision = await input.interactivePermissionPrompt(uiRequest)
-  if (!uiRequest.display.approvable) return { kind: 'deny' }
+  if (!approvalAllowed) return { kind: 'deny' }
   return { kind: decision.kind }
 }
 
