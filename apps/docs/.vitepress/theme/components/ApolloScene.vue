@@ -17,9 +17,14 @@ onMounted(async () => {
   if (!canvas.value) return
   reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   try {
-    teardown = await initScene(host.value, canvas.value, () => {
-      ready.value = true
-    }, reducedMotion)
+    teardown = await initScene(
+      host.value,
+      canvas.value,
+      () => {
+        ready.value = true
+      },
+      reducedMotion,
+    )
   } catch (error) {
     // WebGL 不可用：保留 CSS 光环兜底层
     console.warn('[apollo-scene] WebGL init failed, static fallback stays.', error)
@@ -116,9 +121,12 @@ async function initScene(hostEl, canvasEl, markReady, isReducedMotion) {
   glow.scale.setScalar(15)
   scene.add(core, shell, glow)
   disposables.push(
-    core.geometry, core.material,
-    shell.geometry, shell.material,
-    glow.material, glow.material.map,
+    core.geometry,
+    core.material,
+    shell.geometry,
+    shell.material,
+    glow.material,
+    glow.material.map,
   )
 
   // --- 轨道环（绕核心） + 环上节点 ---
