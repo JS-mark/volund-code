@@ -37,6 +37,7 @@ describe('sandbox probe', () => {
     expect(Object.isFrozen(first)).toBe(true)
     expect(Object.isFrozen(first.features)).toBe(true)
     expect(resolverMocks.resolveBinary).toHaveBeenCalledTimes(1)
+    expect(resolverMocks.resolveBinary).toHaveBeenCalledWith('sandbox')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
