@@ -1913,33 +1913,19 @@ export class BridgeRuntime {
           return serializationFailure()
         }
       }
-      let handlerPayload: unknown
-      if (hook.domain === 'builtin') {
-        const gate = gateBuiltinPayload(current)
-        if (gate.status === 'blocked') return gate.result
-        // Continue the pipeline with the exact normalized value measured above, so
-        // hidden internal slots cannot reappear after a security hook scanned its clone.
-        current = gate.value
-        handlerPayload = current
-      } else handlerPayload = clone(current)
-      let timer: NodeJS.Timeout | undefined
-      // The async wrapper converts a synchronously throwing handler into a rejection
-      // so the race below routes it through the same domain semantics.
-      const invoke: Promise<void | HookResult> = (async () => hook.handler(handlerPayload))()
-      // Keep a late rejection (after the race already settled) from becoming unhandled.
-      void invoke.catch(() => {})
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new PluginError('hook_dispatch_timeout', `${hook.plugin}:${event}`)),
-          timeoutMs,
-        )
-      })
-      let result: HookResult | void
-      try {
-        result = await Promise.race([invoke, timeout])
-      } catch (error) {
-        const timedOut = error instanceof PluginError && error.code === 'hook_dispatch_timeout'
-        const message = error instanceof Error ? error.message : String(error)
+      const handleHookFailure = (
+        error: unknown,
+        phase: 'invoke' | 'result',
+      ): { status: 'blocked'; result: HookResult } | { status: 'skipped' } => {
+        let timedOut = false
+        let message = 'hook failure detail unavailable'
+        try {
+          timedOut =
+            phase === 'invoke' &&
+            error instanceof PluginError &&
+            error.code === 'hook_dispatch_timeout'
+          message = error instanceof Error ? error.message : String(error)
+        } catch {}
         if (hook.domain === 'builtin') {
           report?.(
             timedOut
@@ -1961,10 +1947,15 @@ export class BridgeRuntime {
                 },
           )
           return {
-            veto: true,
-            reason: timedOut
-              ? `builtin hook ${hook.plugin} on ${event} timed out after ${timeoutMs}ms (fail-closed)`
-              : `builtin hook ${hook.plugin} on ${event} failed: ${message} (fail-closed)`,
+            status: 'blocked',
+            result: {
+              veto: true,
+              reason: timedOut
+                ? `builtin hook ${hook.plugin} on ${event} timed out after ${timeoutMs}ms (fail-closed)`
+                : phase === 'result'
+                  ? `builtin hook ${hook.plugin} on ${event} returned an invalid result (fail-closed)`
+                  : `builtin hook ${hook.plugin} on ${event} failed (fail-closed)`,
+            },
           }
         }
         report?.({
@@ -1976,25 +1967,61 @@ export class BridgeRuntime {
           cause: timedOut ? 'timeout' : 'error',
           message,
         })
+        return { status: 'skipped' }
+      }
+      if (hook.domain === 'builtin') {
+        const gate = gateBuiltinPayload(current)
+        if (gate.status === 'blocked') return gate.result
+        // Continue the pipeline with the exact normalized value measured above, so
+        // hidden internal slots cannot reappear after a security hook scanned its clone.
+        current = gate.value
+      }
+      let timer: NodeJS.Timeout | undefined
+      // The async wrapper converts clone/preparation failures and synchronously
+      // throwing handlers into rejections routed through the same domain semantics.
+      const invoke: Promise<void | HookResult> = (async () =>
+        hook.handler(hook.domain === 'builtin' ? current : clone(current)))()
+      // Keep a late rejection (after the race already settled) from becoming unhandled.
+      void invoke.catch(() => {})
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new PluginError('hook_dispatch_timeout', `${hook.plugin}:${event}`)),
+          timeoutMs,
+        )
+      })
+      let result: HookResult | void
+      try {
+        result = await Promise.race([invoke, timeout])
+      } catch (error) {
+        const failure = handleHookFailure(error, 'invoke')
+        if (failure.status === 'blocked') return failure.result
         continue
       } finally {
         if (timer) clearTimeout(timer)
       }
-      if (result?.veto)
-        return {
-          veto: true,
-          ...(result.reason === undefined ? {} : { reason: result.reason }),
+      try {
+        if (result?.veto) {
+          const reason = result.reason
+          return {
+            veto: true,
+            ...(reason === undefined ? {} : { reason }),
+          }
         }
-      if (hook.domain === 'builtin') {
-        // A builtin may mutate its input in place and return void. Re-gate every
-        // non-veto completion, then continue from a fresh measured clone so a
-        // retained handler reference cannot mutate downstream state later.
-        const candidate = result && result.value !== undefined ? result.value : current
-        const gate = gateBuiltinPayload(candidate)
-        if (gate.status === 'blocked') return gate.result
-        current = gate.value
-      } else if (result && result.value !== undefined) {
-        current = result.value
+        const rewrite = result?.value
+        if (hook.domain === 'builtin') {
+          // A builtin may mutate its input in place and return void. Re-gate every
+          // non-veto completion, then continue from a fresh measured clone so a
+          // retained handler reference cannot mutate downstream state later.
+          const gate = gateBuiltinPayload(rewrite === undefined ? current : rewrite)
+          if (gate.status === 'blocked') return gate.result
+          current = gate.value
+        } else if (rewrite !== undefined) {
+          current = rewrite
+        }
+      } catch (error) {
+        const failure = handleHookFailure(error, 'result')
+        if (failure.status === 'blocked') return failure.result
+        continue
       }
     }
     return { value: current }
