@@ -145,6 +145,62 @@ const statusUnavailable = (code: string) => ({
   reason: { code },
 })
 
+export interface HookSignalRuntimeMapping {
+  error?: { code: string; context: Record<string, JsonValue> }
+  warning?: string
+  telemetry?: { name: string; payload: Record<string, JsonValue> }
+}
+
+const unreachableHookSignal = (signal: never): never => {
+  void signal
+  throw new TypeError('unhandled hook pipeline signal')
+}
+
+/** Pure, exhaustive adapter from plugin-runtime hook signals to CLI observability. */
+export function mapHookPipelineSignal(signal: HookPipelineSignal): HookSignalRuntimeMapping {
+  switch (signal.kind) {
+    case 'builtin_hook_timeout':
+    case 'builtin_hook_error':
+      return {
+        error: { code: signal.code, context: { hook: signal.hook, event: signal.event } },
+      }
+    case 'hook_skipped':
+      return {
+        warning: `Hook skipped (${signal.domain} ${signal.hook} on ${signal.event}, ${signal.cause}): ${signal.message}`,
+        telemetry: {
+          name: 'hook.skipped',
+          payload: {
+            domain: signal.domain,
+            hook: signal.hook,
+            event: signal.event,
+            cause: signal.cause,
+          },
+        },
+      }
+    case 'builtin_hook_payload_too_large': {
+      const evidence = {
+        domain: signal.domain,
+        hook: signal.hook,
+        event: signal.event,
+        limitBytes: signal.limitBytes,
+        rawBytes: signal.rawBytes,
+        rawDigest: signal.rawDigest,
+        scanStatus: signal.scanStatus,
+        scannedBytes: signal.scannedBytes,
+        scannedDigest: signal.scannedDigest,
+        decision: signal.decision,
+      } satisfies Record<string, JsonValue>
+      return {
+        error: { code: signal.code, context: evidence },
+        warning: `Builtin hook payload rejected for ${signal.hook} on ${signal.event}: ${signal.rawBytes} bytes exceeds ${signal.limitBytes}`,
+        telemetry: { name: 'hook.payload_rejected', payload: evidence },
+      }
+    }
+    default:
+      return unreachableHookSignal(signal)
+  }
+}
+
 export interface StatusViewModelInput {
   state: SessionState
   version: string
@@ -1766,43 +1822,23 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     // reports "no hooks" so tool execution degrades gracefully during startup.
     let sessionHooks: BridgeRuntime | undefined
     const reportHookSignal = (signal: HookPipelineSignal) => {
-      if (signal.kind === 'builtin_hook_timeout' || signal.kind === 'builtin_hook_error') {
+      const mapping = mapHookPipelineSignal(signal)
+      if (mapping.error) {
         void events
           .emit({
             type: 'error.raised',
             version: state.version,
             sessionId: state.id,
             ...(runner?.state.activeTurn ? { turnId: runner.state.activeTurn } : {}),
-            payload: { code: signal.code, context: { hook: signal.hook, event: signal.event } },
+            payload: mapping.error,
           })
           .catch(() => undefined)
-        return
       }
-      if (signal.kind === 'hook_skipped') {
-        logger.warn(
-          `Hook skipped (${signal.domain} ${signal.hook} on ${signal.event}, ${signal.cause}): ${signal.message}`,
-        )
+      if (mapping.warning) logger.warn(mapping.warning)
+      if (mapping.telemetry)
         void telemetry
-          .emit('hook.skipped', 'plugin-runtime', {
-            domain: signal.domain,
-            hook: signal.hook,
-            event: signal.event,
-            cause: signal.cause,
-          })
+          .emit(mapping.telemetry.name, 'plugin-runtime', mapping.telemetry.payload)
           .catch(() => undefined)
-        return
-      }
-      logger.warn(
-        `Hook payload truncated for ${signal.hook} on ${signal.event}: ${signal.truncatedBytes} bytes over ${signal.limitBytes}`,
-      )
-      void telemetry
-        .emit('hook.payload_truncated', 'plugin-runtime', {
-          hook: signal.hook,
-          event: signal.event,
-          limitBytes: signal.limitBytes,
-          truncatedBytes: signal.truncatedBytes,
-        })
-        .catch(() => undefined)
     }
     const executor = permissionChain.bindExecutor(
       (signal) => ({

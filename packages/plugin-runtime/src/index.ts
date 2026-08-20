@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { types as nodeTypes } from 'node:util'
 
 import { startPluginHost } from '@apollo-code/native-bridge'
 import type { PluginHost, PluginSandboxProfile } from '@apollo-code/native-bridge'
@@ -1120,7 +1121,7 @@ export type HookDomain = HostHookDomain | 'plugin'
 
 /** Per-handler timeout for intercepting hooks (spec §2.6 执行语义: 超时 5 秒). */
 export const HOOK_HANDLER_TIMEOUT_MS = 5_000
-/** Size gate applied to builtin (security) hook payloads before dispatch (spec §2.6: >1MB 截断). */
+/** Hard byte limit for builtin (security) hook payloads before dispatch. */
 export const BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES = 1024 * 1024
 
 const HOST_DOMAIN_PRIORITY_BANDS = {
@@ -1141,8 +1142,8 @@ const HOOK_DOMAIN_ORDER: Record<HookDomain, number> = {
 
 /**
  * Telemetry / error signals surfaced by {@link BridgeRuntime.runDomainHooks}. The
- * composition layer maps `builtin_hook_timeout` (and `builtin_hook_error`) to
- * `error.raised` events and logs/records the fail-open signals.
+ * composition layer maps builtin fail-closed signals to `error.raised` events and
+ * logs/records the fail-open signals.
  */
 export type HookPipelineSignal =
   | {
@@ -1171,13 +1172,18 @@ export type HookPipelineSignal =
       message: string
     }
   | {
-      kind: 'hook_payload_truncated'
-      code: 'hook_payload_truncated'
+      kind: 'builtin_hook_payload_too_large'
+      code: 'builtin_hook_payload_too_large'
       domain: 'builtin'
       hook: string
       event: HookEvent
       limitBytes: number
-      truncatedBytes: number
+      rawBytes: number
+      rawDigest: `sha256:${string}`
+      scanStatus: 'not_started'
+      scannedBytes: 0
+      scannedDigest: null
+      decision: 'veto'
     }
 
 export interface RunDomainHooksOptions {
@@ -1185,7 +1191,7 @@ export interface RunDomainHooksOptions {
   toolUseId?: string
   /** Per-handler timeout; defaults to {@link HOOK_HANDLER_TIMEOUT_MS}. */
   timeoutMs?: number
-  /** Observability channel for fail-closed / fail-open / truncation signals. */
+  /** Observability channel for fail-closed / fail-open signals. */
   report?: (signal: HookPipelineSignal) => void
 }
 
@@ -1223,75 +1229,246 @@ const redact = (value: unknown): unknown => {
   return value
 }
 
-const serializedBytes = (value: unknown): number => {
-  try {
-    return Buffer.byteLength(JSON.stringify(value) ?? 'null')
-  } catch {
-    return Number.POSITIVE_INFINITY
+type HookPayloadMeasurement = {
+  rawBytes: number
+  rawDigest: `sha256:${string}`
+}
+
+const HOOK_JSON_V1_MAX_DEPTH = 512
+const HOOK_JSON_V1_MAX_NODES = 200_000
+const HOOK_JSON_V1_MAX_WORK_BYTES = 16 * 1024 * 1024
+const HOOK_JSON_V1_BYTES_TAG = '$apollo.bytes.v1'
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype) as object
+const typedArraySlotGetter = <T>(key: 'buffer' | 'byteOffset' | 'byteLength') => {
+  const getter = Object.getOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, key)?.get
+  if (!getter) throw new TypeError(`missing intrinsic TypedArray ${key} getter`)
+  return (value: Uint8Array): T => Reflect.apply(getter, value, []) as T
+}
+const getTypedArrayBuffer = typedArraySlotGetter<ArrayBufferLike>('buffer')
+const getTypedArrayByteOffset = typedArraySlotGetter<number>('byteOffset')
+const getTypedArrayByteLength = typedArraySlotGetter<number>('byteLength')
+const isUnsupportedHookExotic = (value: object) =>
+  nodeTypes.isProxy(value) ||
+  nodeTypes.isAnyArrayBuffer(value) ||
+  nodeTypes.isArrayBufferView(value) ||
+  nodeTypes.isMap(value) ||
+  nodeTypes.isSet(value) ||
+  nodeTypes.isWeakMap(value) ||
+  nodeTypes.isWeakSet(value) ||
+  nodeTypes.isDate(value) ||
+  nodeTypes.isRegExp(value) ||
+  nodeTypes.isNativeError(value) ||
+  nodeTypes.isPromise(value)
+
+/**
+ * Canonical JSON-v1 for the builtin hook size boundary. Keys are sorted by UTF-16 code
+ * unit order, Uint8Array attachment bytes use a reserved base64 tag, and only strict
+ * JSON data is accepted. Encoding is fed incrementally into SHA-256 so an oversized
+ * string does not create a second full-payload copy. Unsupported/resource-exhausting
+ * values fail closed instead of being silently dropped/coerced by JSON.stringify.
+ */
+const measureHookPayloadJsonV1 = (value: unknown): HookPayloadMeasurement => {
+  const hash = createHash('sha256')
+  let rawBytes = 0
+  let nodes = 0
+  const active = new WeakSet<object>()
+  const write = (chunk: string) => {
+    const bytes = Buffer.byteLength(chunk, 'utf8')
+    const nextBytes = rawBytes + bytes
+    if (!Number.isSafeInteger(nextBytes) || nextBytes > HOOK_JSON_V1_MAX_WORK_BYTES)
+      throw new TypeError('hook JSON-v1 canonical work limit exceeded')
+    rawBytes = nextBytes
+    hash.update(chunk, 'utf8')
+  }
+  const writeString = (text: string) => {
+    write('"')
+    for (let offset = 0; offset < text.length;) {
+      let end = Math.min(text.length, offset + 8_192)
+      const last = text.charCodeAt(end - 1)
+      const next = text.charCodeAt(end)
+      if (end < text.length && last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
+        end++
+      const encoded = JSON.stringify(text.slice(offset, end))
+      write(encoded.slice(1, -1))
+      offset = end
+    }
+    write('"')
+  }
+  const encode = (node: unknown, depth: number): void => {
+    nodes++
+    if (nodes > HOOK_JSON_V1_MAX_NODES) throw new TypeError('hook JSON-v1 node limit exceeded')
+    if (depth > HOOK_JSON_V1_MAX_DEPTH) throw new TypeError('hook JSON-v1 depth limit exceeded')
+    if (node === null) {
+      write('null')
+      return
+    }
+    if (typeof node === 'string') {
+      writeString(node)
+      return
+    }
+    if (typeof node === 'boolean') {
+      write(node ? 'true' : 'false')
+      return
+    }
+    if (typeof node === 'number') {
+      if (!Number.isFinite(node) || Object.is(node, -0))
+        throw new TypeError('hook JSON-v1 contains an unsupported number')
+      write(JSON.stringify(node))
+      return
+    }
+    if (typeof node !== 'object')
+      throw new TypeError(`hook JSON-v1 contains unsupported ${typeof node} data`)
+    const isUint8Array = nodeTypes.isUint8Array(node)
+    if (!isUint8Array && isUnsupportedHookExotic(node))
+      throw new TypeError('hook JSON-v1 contains an unsupported exotic object')
+    if (active.has(node)) throw new TypeError('hook JSON-v1 contains a cycle')
+    active.add(node)
+    try {
+      if (isUint8Array) {
+        // Read the view's internal slots through the realm intrinsic. A Uint8Array
+        // subclass can override the public properties, but the canonical preimage
+        // and strict clone must remain bound to its real backing bytes.
+        const bytes = node as Uint8Array
+        const buffer = getTypedArrayBuffer(bytes)
+        const byteOffset = getTypedArrayByteOffset(bytes)
+        const byteLength = getTypedArrayByteLength(bytes)
+        if (nodeTypes.isSharedArrayBuffer(buffer))
+          throw new TypeError('hook JSON-v1 contains shared mutable bytes')
+        write(`{"${HOOK_JSON_V1_BYTES_TAG}":"`)
+        const bytesPerChunk = 12_288
+        for (let offset = 0; offset < byteLength; offset += bytesPerChunk) {
+          const length = Math.min(bytesPerChunk, byteLength - offset)
+          write(Buffer.from(buffer, byteOffset + offset, length).toString('base64'))
+        }
+        write('"}')
+        return
+      }
+      if (Array.isArray(node)) {
+        if (nodes + node.length > HOOK_JSON_V1_MAX_NODES)
+          throw new TypeError('hook JSON-v1 node limit exceeded')
+        const keys = Reflect.ownKeys(node)
+        if (nodes + keys.length - 1 > HOOK_JSON_V1_MAX_NODES)
+          throw new TypeError('hook JSON-v1 node limit exceeded')
+        if (keys.length !== node.length + 1)
+          throw new TypeError('hook JSON-v1 contains a sparse or extended array')
+        if (
+          keys.some((key) => {
+            if (key === 'length') return false
+            if (typeof key !== 'string') return true
+            const index = Number(key)
+            return (
+              !Number.isInteger(index) || index < 0 || index >= node.length || String(index) !== key
+            )
+          })
+        )
+          throw new TypeError('hook JSON-v1 contains a sparse or extended array')
+        write('[')
+        for (let index = 0; index < node.length; index++) {
+          const descriptor = Object.getOwnPropertyDescriptor(node, index)
+          if (!descriptor?.enumerable || !('value' in descriptor))
+            throw new TypeError('hook JSON-v1 contains a sparse or extended array')
+          if (index > 0) write(',')
+          encode(descriptor.value, depth + 1)
+        }
+        write(']')
+        return
+      }
+      const prototype = Object.getPrototypeOf(node)
+      if (prototype !== Object.prototype && prototype !== null)
+        throw new TypeError('hook JSON-v1 contains a non-plain object')
+      const ownKeys = Reflect.ownKeys(node)
+      if (nodes + ownKeys.length > HOOK_JSON_V1_MAX_NODES)
+        throw new TypeError('hook JSON-v1 node limit exceeded')
+      const stringKeys: string[] = []
+      let unsortedKeyBytes = 0
+      for (const key of ownKeys) {
+        if (typeof key !== 'string') throw new TypeError('hook JSON-v1 contains a symbol key')
+        unsortedKeyBytes += Buffer.byteLength(key, 'utf8')
+        if (
+          !Number.isSafeInteger(unsortedKeyBytes) ||
+          unsortedKeyBytes > HOOK_JSON_V1_MAX_WORK_BYTES
+        )
+          throw new TypeError('hook JSON-v1 canonical work limit exceeded')
+        stringKeys.push(key)
+      }
+      const keys = stringKeys.toSorted()
+      if (keys.includes(HOOK_JSON_V1_BYTES_TAG))
+        throw new TypeError('hook JSON-v1 contains a reserved field')
+      write('{')
+      for (const [index, key] of keys.entries()) {
+        const descriptor = Object.getOwnPropertyDescriptor(node, key)
+        if (!descriptor?.enumerable || !('value' in descriptor))
+          throw new TypeError('hook JSON-v1 contains a hidden or accessor field')
+        if (index > 0) write(',')
+        writeString(key)
+        write(':')
+        encode(descriptor.value, depth + 1)
+      }
+      write('}')
+    } finally {
+      active.delete(node)
+    }
+  }
+  encode(value, 0)
+  return {
+    rawBytes,
+    rawDigest: `sha256:${hash.digest('hex')}`,
   }
 }
 
-const TRUNCATION_MARKER = 'apollo-hook'
-
 /**
- * Size gate for builtin security hooks (spec §2.6 防喂爆扫描器): payloads over
- * `limitBytes` are truncated before a builtin handler ever sees them. Truncation is
- * structure-preserving (strings shrink proportionally) with a hard serialized fallback
- * so the gate always holds. The input value is never mutated.
+ * Clone only the strict data model accepted by {@link measureHookPayloadJsonV1}.
+ * In particular, byte views become tight copies: structuredClone preserves the
+ * entire backing ArrayBuffer and could otherwise copy or expose unmeasured bytes.
+ * The caller must measure/validate the input immediately before calling this.
  */
-export function truncateHookPayload(
-  value: unknown,
-  limitBytes: number = BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
-): { value: unknown; truncatedBytes: number } {
-  const total = serializedBytes(value)
-  if (total <= limitBytes) return { value, truncatedBytes: 0 }
-  const marker = (removed: number) => `[...${TRUNCATION_MARKER}: truncated ${removed} bytes...]`
-  const shrinkStrings = (item: unknown, factor: number): unknown => {
-    const walk = (node: unknown): unknown => {
-      if (typeof node === 'string') {
-        const bytes = Buffer.byteLength(node)
-        const keep = Math.max(16, Math.floor(bytes * factor))
-        if (bytes <= keep) return node
-        const kept = Buffer.from(node, 'utf8').subarray(0, keep).toString('utf8')
-        return `${kept}${marker(bytes - Buffer.byteLength(kept))}`
-      }
-      if (Array.isArray(node)) return node.map(walk)
-      if (node && typeof node === 'object')
-        return Object.fromEntries(Object.entries(node).map(([key, nested]) => [key, walk(nested)]))
-      return node
+const cloneHookPayloadJsonV1 = (value: unknown): unknown => {
+  const cloneNode = (node: unknown): unknown => {
+    if (node === null || ['string', 'boolean', 'number'].includes(typeof node)) return node
+    if (typeof node !== 'object') throw new TypeError('hook JSON-v1 clone received invalid data')
+    if (nodeTypes.isUint8Array(node)) {
+      const bytes = node as Uint8Array
+      const buffer = getTypedArrayBuffer(bytes)
+      const byteOffset = getTypedArrayByteOffset(bytes)
+      const byteLength = getTypedArrayByteLength(bytes)
+      if (nodeTypes.isSharedArrayBuffer(buffer))
+        throw new TypeError('hook JSON-v1 clone received shared mutable bytes')
+      const tight = new Uint8Array(byteLength)
+      tight.set(new Uint8Array(buffer, byteOffset, byteLength))
+      return tight
     }
-    return walk(item)
-  }
-  let next = value
-  for (let attempt = 0; attempt < 4 && serializedBytes(next) > limitBytes; attempt++) {
-    const current = serializedBytes(next)
-    const factor = Math.max(0.05, (limitBytes * 0.85) / (Number.isFinite(current) ? current : 1))
-    next = shrinkStrings(next, factor)
-  }
-  if (serializedBytes(next) > limitBytes) {
-    // Pathological shape (e.g. millions of tiny fields): hard slice the serialized
-    // form. Re-serialization escapes the sliced text, so shrink until it fits.
-    let encoded: string
-    try {
-      encoded = JSON.stringify(next) ?? 'null'
-    } catch {
-      encoded = String(next)
-    }
-    const sliceBytes = (keep: number) =>
-      Buffer.from(encoded, 'utf8').subarray(0, keep).toString('utf8')
-    let keep = Math.floor(limitBytes * 0.8)
-    let hard: unknown
-    do {
-      hard = {
-        truncated: true,
-        originalBytes: Number.isFinite(total) ? total : -1,
-        text: sliceBytes(keep),
+    if (Array.isArray(node)) {
+      const copy: unknown[] = []
+      copy.length = node.length
+      for (let index = 0; index < node.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(node, index)
+        if (!descriptor || !('value' in descriptor))
+          throw new TypeError('hook JSON-v1 clone received invalid array data')
+        copy[index] = cloneNode(descriptor.value)
       }
-      keep = Math.floor(keep * 0.8)
-    } while (serializedBytes(hard) > limitBytes && keep > 0)
-    next = hard
+      return copy
+    }
+    const copy: Record<string, unknown> = {}
+    const stringKeys: string[] = []
+    for (const key of Reflect.ownKeys(node)) {
+      if (typeof key !== 'string')
+        throw new TypeError('hook JSON-v1 clone received invalid object data')
+      stringKeys.push(key)
+    }
+    for (const key of stringKeys.toSorted()) {
+      const descriptor = Object.getOwnPropertyDescriptor(node, key)
+      if (!descriptor || !('value' in descriptor))
+        throw new TypeError('hook JSON-v1 clone received invalid object data')
+      Object.defineProperty(copy, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: cloneNode(descriptor.value),
+      })
+    }
+    return copy
   }
-  return { value: next, truncatedBytes: Math.max(0, total - serializedBytes(next)) }
+  return cloneNode(value)
 }
 
 export class BridgeRuntime {
@@ -1649,7 +1826,9 @@ export class BridgeRuntime {
    *   `builtin_hook_timeout` / `builtin_hook_error` is reported for `error.raised`.
    * - `plugin` / `project` / `user` timeout or exception -> fail-open: the handler is
    *   skipped (`hook_skipped` reported) and the pipeline continues.
-   * Builtin payloads additionally pass the >1MB truncation gate before dispatch.
+   * Every builtin input and non-veto rewrite passes strict JSON-v1 measurement. A
+   * serialized payload over 1MiB is never truncated or scanned: it is rejected before
+   * the next consumer with honest `scanStatus: not_started` evidence.
    */
   async runDomainHooks(
     event: HookEvent,
@@ -1672,26 +1851,81 @@ export class BridgeRuntime {
     let current = payload
     for (const hook of handlers) {
       if (options.signal?.aborted) throw options.signal.reason
-      let handlerPayload = current
-      if (hook.domain === 'builtin') {
-        const gate = truncateHookPayload(current)
-        if (gate.truncatedBytes > 0) {
-          handlerPayload = gate.value
+      const gateBuiltinPayload = (
+        candidate: unknown,
+      ): { status: 'blocked'; result: HookResult } | { status: 'ready'; value: unknown } => {
+        const serializationFailure = () => {
           report?.({
-            kind: 'hook_payload_truncated',
-            code: 'hook_payload_truncated',
+            kind: 'builtin_hook_error',
+            code: 'builtin_hook_error',
+            domain: 'builtin',
+            hook: hook.plugin,
+            event,
+            message: 'hook JSON-v1 serialization failed',
+          })
+          return {
+            status: 'blocked' as const,
+            result: {
+              veto: true,
+              reason: `builtin hook ${hook.plugin} on ${event} payload serialization failed (fail-closed)`,
+            },
+          }
+        }
+        let measurement: HookPayloadMeasurement
+        try {
+          measurement = measureHookPayloadJsonV1(candidate)
+        } catch {
+          return serializationFailure()
+        }
+        if (measurement.rawBytes > BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES) {
+          report?.({
+            kind: 'builtin_hook_payload_too_large',
+            code: 'builtin_hook_payload_too_large',
             domain: 'builtin',
             hook: hook.plugin,
             event,
             limitBytes: BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
-            truncatedBytes: gate.truncatedBytes,
+            rawBytes: measurement.rawBytes,
+            rawDigest: measurement.rawDigest,
+            scanStatus: 'not_started',
+            scannedBytes: 0,
+            scannedDigest: null,
+            decision: 'veto',
           })
+          return {
+            status: 'blocked',
+            result: {
+              veto: true,
+              reason: `builtin hook ${hook.plugin} on ${event} rejected an oversized payload (fail-closed)`,
+            },
+          }
+        }
+        try {
+          const value = cloneHookPayloadJsonV1(candidate)
+          const delivered = measureHookPayloadJsonV1(value)
+          if (
+            delivered.rawBytes !== measurement.rawBytes ||
+            delivered.rawDigest !== measurement.rawDigest
+          )
+            return serializationFailure()
+          return { status: 'ready', value }
+        } catch {
+          return serializationFailure()
         }
       }
+      let handlerPayload: unknown
+      if (hook.domain === 'builtin') {
+        const gate = gateBuiltinPayload(current)
+        if (gate.status === 'blocked') return gate.result
+        // Continue the pipeline with the exact normalized value measured above, so
+        // hidden internal slots cannot reappear after a security hook scanned its clone.
+        current = gate.value
+        handlerPayload = current
+      } else handlerPayload = clone(current)
       let timer: NodeJS.Timeout | undefined
       // The async wrapper converts a synchronously throwing handler into a rejection
       // so the race below routes it through the same domain semantics.
-      const invoke: Promise<void | HookResult> = (async () => hook.handler(clone(handlerPayload)))()
+      const invoke: Promise<void | HookResult> = (async () => hook.handler(handlerPayload))()
       // Keep a late rejection (after the race already settled) from becoming unhandled.
       void invoke.catch(() => {})
       const timeout = new Promise<never>((_, reject) => {
@@ -1751,7 +1985,17 @@ export class BridgeRuntime {
           veto: true,
           ...(result.reason === undefined ? {} : { reason: result.reason }),
         }
-      if (result && result.value !== undefined) current = result.value
+      if (hook.domain === 'builtin') {
+        // A builtin may mutate its input in place and return void. Re-gate every
+        // non-veto completion, then continue from a fresh measured clone so a
+        // retained handler reference cannot mutate downstream state later.
+        const candidate = result && result.value !== undefined ? result.value : current
+        const gate = gateBuiltinPayload(candidate)
+        if (gate.status === 'blocked') return gate.result
+        current = gate.value
+      } else if (result && result.value !== undefined) {
+        current = result.value
+      }
     }
     return { value: current }
   }

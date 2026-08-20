@@ -1579,6 +1579,8 @@ type BuiltinHookScanEvidence =
     }
 ```
 
+SD0-02 v1 选择第一条 direct-veto 路径：每个 builtin handler 输入和每次 non-veto completion（原地 mutation、显式 rewrite、返回 void）都经 `apollo-hook-cjson-v1` 计量；通过后以 fresh measured clone 继续，避免 retained-reference mutation。该编码对 plain JSON 递归排序 key，以保留 base64 typed tag 编码 inline `Uint8Array`，byte view 规范化为 tight copy（不复制/暴露 view 外 backing），增量计算 UTF-8 bytes + SHA-256；cycle、BigInt/undefined/function/symbol、non-finite/-0、accessor/hidden/symbol field、non-plain prototype、sparse/extended array、SharedArrayBuffer 以及 depth=512/node=200,000/canonical-work=16 MiB 预算超限均为 serialization failure，沿 `builtin_hook_error` typed veto，不能制造 rawDigest。serialized bytes ≤ 1 MiB 才把完整 payload 交给 handler；> 1 MiB 必须 emit `builtin_hook_payload_too_large`/`hook.payload_rejected` 与第一条 evidence，handler 不调用。未来只有实际扫描了同一完整 canonical byte stream 才能使用第二条 `complete` 分支。
+
 | 阶段 | 能力边界 | 可量化退出标准 |
 |---|---|---|
 | **SD0 — Contract & security prerequisites** | 冻结本节、threat model、路径分类和 release scope；先关闭会影响专用 Runner 的已知权限/Hook P0 | 文档/链接/配置/事件检查全绿；v1 raw Bash 零 silent auto-allow；builtin Hook 超限 direct-veto 必为 `rawBytes/rawDigest + scanStatus:not_started + scannedBytes:0 + scannedDigest:null`，只有 full scan 成功才要求 raw/scanned length+digest 一致；安全评审签字。无产品入口 |

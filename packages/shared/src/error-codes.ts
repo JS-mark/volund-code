@@ -28,6 +28,7 @@ export const ErrorCodes = {
   internalError: 'internal_error', // machine-output.ts `--json` error 兜底码
 
   /* ── 附录 B.2 契约码 ─────────────────────────────────────────────────── */
+  builtinHookPayloadTooLarge: 'builtin_hook_payload_too_large', // B.2 §2.6 / §18 SD0-02（超限 builtin payload direct-veto）
   builtinHookTimeout: 'builtin_hook_timeout', // B.2 §2.6 r13-I10（plugin-runtime hook pipeline 信号，组合层映射 error.raised）
   hookPriorityOutOfRange: 'hook_priority_out_of_range', // B.2 §6.11.1（实现未接线，预留；现用 plugin_hook_priority_invalid）
   searchWorkerCrashed: 'search_worker_crashed', // B.2 §5.6.1 / §5.8（worker-pool 现以 restart 计数降级，未 emit 码，预留）
@@ -76,7 +77,6 @@ export const ErrorCodes = {
   /* ── plugin 域（PluginError / HookPipelineSignal，packages/plugin-runtime） */
   builtinHookError: 'builtin_hook_error', // builtin 域 hook 抛错（组合层映射 error.raised）
   hookDispatchTimeout: 'hook_dispatch_timeout', // hook 分发超时（PluginError）
-  hookPayloadTruncated: 'hook_payload_truncated', // hook payload 尺寸闸截断信号
   hookSkipped: 'hook_skipped', // hook fail-open 跳过信号
   pluginActivationCancelled: 'plugin_activation_cancelled',
   pluginActivationTimeout: 'plugin_activation_timeout',
@@ -208,7 +208,7 @@ export const ErrorCodes = {
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
 
 /**
- * 附录 B.2 登记表的 10 个契约码（`error.raised` 跨模块契约子集）。
+ * 附录 B.2 登记表的 11 个契约码（`error.raised` 跨模块契约子集）。
  * scripts/verify-error-codes.mjs 会解析附录 B markdown 并双向校验本表。
  */
 export const appendixErrorCodes = [
@@ -216,6 +216,7 @@ export const appendixErrorCodes = [
   'stream_interrupted',
   'provider_sticky_violation',
   'subagent_budget_exhausted',
+  'builtin_hook_payload_too_large',
   'builtin_hook_timeout',
   'hook_priority_out_of_range',
   'provider_name_conflict',
