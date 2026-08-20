@@ -160,6 +160,137 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     ])
   })
 
+  it.each(['plugin', 'project', 'user'] as const)(
+    'fail-opens when a %s hook payload cannot be cloned',
+    async (domain) => {
+      const runtime = new BridgeRuntime(stubHost())
+      const handler = vi.fn()
+      if (domain === 'plugin')
+        runtime.create(manifest, process.cwd(), 'tool-1').hooks.on('preToolUse', handler)
+      else runtime.registerHostHook(domain, 'preToolUse', handler)
+      const payload = { safe: true, uncloneable: () => undefined }
+      let cloneErrorMessage = ''
+      try {
+        structuredClone(payload)
+      } catch (error) {
+        cloneErrorMessage = error instanceof Error ? error.message : String(error)
+      }
+      const signals: HookPipelineSignal[] = []
+
+      const outcome = await runtime.runDomainHooks('preToolUse', payload, {
+        report: (signal) => signals.push(signal),
+      })
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(outcome?.value).toBe(payload)
+      expect(signals).toEqual([
+        {
+          kind: 'hook_skipped',
+          code: 'hook_skipped',
+          domain,
+          hook: domain === 'plugin' ? manifest.name : `apollo.${domain}`,
+          event: 'preToolUse',
+          cause: 'error',
+          message: cloneErrorMessage,
+        },
+      ])
+    },
+  )
+
+  it.each(['veto', 'value', 'proxy'] as const)(
+    'fail-closes a malformed builtin HookResult envelope: %s',
+    async (failure) => {
+      const runtime = new BridgeRuntime(stubHost())
+      const later = vi.fn()
+      const trapMessage = `private ${failure} trap detail`
+      runtime.registerHostHook(
+        'builtin',
+        'preToolUse',
+        () => {
+          if (failure === 'proxy')
+            return new Proxy(
+              {},
+              {
+                get(target, property, receiver) {
+                  if (property === 'then') return Reflect.get(target, property, receiver)
+                  throw new Error(trapMessage)
+                },
+              },
+            )
+          return Object.defineProperty({}, failure, {
+            enumerable: true,
+            get() {
+              throw new Error(trapMessage)
+            },
+          })
+        },
+        { name: 'apollo.malformed' },
+      )
+      runtime.registerHostHook('project', 'preToolUse', later)
+      const signals: HookPipelineSignal[] = []
+
+      const outcome = await runtime.runDomainHooks(
+        'preToolUse',
+        { safe: true },
+        { report: (signal) => signals.push(signal) },
+      )
+
+      expect(outcome?.veto).toBe(true)
+      expect(outcome?.reason).toContain('fail-closed')
+      expect(outcome?.reason).not.toContain(trapMessage)
+      expect(later).not.toHaveBeenCalled()
+      expect(signals).toEqual([
+        {
+          kind: 'builtin_hook_error',
+          code: 'builtin_hook_error',
+          domain: 'builtin',
+          hook: 'apollo.malformed',
+          event: 'preToolUse',
+          message: trapMessage,
+        },
+      ])
+    },
+  )
+
+  it.each(['plugin', 'project', 'user'] as const)(
+    'fail-opens when a %s hook returns a malformed HookResult envelope',
+    async (domain) => {
+      const runtime = new BridgeRuntime(stubHost())
+      const trapMessage = `private ${domain} result trap detail`
+      const handler = vi.fn(() =>
+        Object.defineProperty({}, 'value', {
+          enumerable: true,
+          get() {
+            throw new Error(trapMessage)
+          },
+        }),
+      )
+      if (domain === 'plugin')
+        runtime.create(manifest, process.cwd(), 'tool-1').hooks.on('preToolUse', handler)
+      else runtime.registerHostHook(domain, 'preToolUse', handler)
+      const payload = { safe: true }
+      const signals: HookPipelineSignal[] = []
+
+      const outcome = await runtime.runDomainHooks('preToolUse', payload, {
+        report: (signal) => signals.push(signal),
+      })
+
+      expect(handler).toHaveBeenCalledOnce()
+      expect(outcome?.value).toBe(payload)
+      expect(signals).toEqual([
+        {
+          kind: 'hook_skipped',
+          code: 'hook_skipped',
+          domain,
+          hook: domain === 'plugin' ? manifest.name : `apollo.${domain}`,
+          event: 'preToolUse',
+          cause: 'error',
+          message: trapMessage,
+        },
+      ])
+    },
+  )
+
   it('skips a throwing plugin hook and lets later handlers decide', async () => {
     const runtime = new BridgeRuntime(stubHost())
     const bridge = runtime.create(manifest, process.cwd(), 'tool-1')
@@ -811,6 +942,31 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
         decision: 'veto',
       }),
     ])
+  })
+
+  it('isolates downstream state from a delayed retained-reference mutation', async () => {
+    vi.useFakeTimers()
+    const runtime = new BridgeRuntime(stubHost())
+    const retained = { data: 'safe' }
+    let projectPayload: { data: string } | undefined
+    runtime.registerHostHook('builtin', 'preToolUse', () => {
+      setTimeout(() => {
+        retained.data = 'dangerous delayed mutation'
+      }, 10)
+      return { value: retained }
+    })
+    runtime.registerHostHook('project', 'preToolUse', (payload) => {
+      projectPayload = payload as { data: string }
+    })
+
+    const outcome = await runtime.runDomainHooks('preToolUse', { data: 'initial' })
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(retained).toEqual({ data: 'dangerous delayed mutation' })
+    expect(projectPayload).toEqual({ data: 'safe' })
+    expect(outcome).toEqual({ value: { data: 'safe' } })
+    expect(projectPayload).not.toBe(retained)
+    expect(outcome?.value).not.toBe(retained)
   })
 
   it('fails closed at the JSON-v1 depth and node resource limits', async () => {
