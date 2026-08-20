@@ -355,6 +355,23 @@ describe('per-event payload schemas', () => {
         context: { depth: 4, max: 3 },
       }),
     ).toBeTruthy()
+    expect(
+      errorRaisedPayloadSchema.parse({
+        code: 'builtin_hook_payload_too_large',
+        context: {
+          domain: 'builtin',
+          hook: 'apollo.secret-scan',
+          event: 'preToolUse',
+          limitBytes: 1_048_576,
+          rawBytes: 1_048_577,
+          rawDigest: `sha256:${'a'.repeat(64)}`,
+          scanStatus: 'not_started',
+          scannedBytes: 0,
+          scannedDigest: null,
+          decision: 'veto',
+        },
+      }),
+    ).toBeTruthy()
     // code 必须是 string（附录 B registry 键），不是 enum/number。
     expect(errorRaisedPayloadSchema.safeParse({ code: 42 }).success).toBe(false)
     expect(errorRaisedPayloadSchema.safeParse({}).success).toBe(false)

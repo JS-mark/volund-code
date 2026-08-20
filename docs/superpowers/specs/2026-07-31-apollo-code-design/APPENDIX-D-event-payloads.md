@@ -44,4 +44,4 @@
 
 ## D.4 本地 telemetry 事件（非 EventBus，平行登记）
 
-auth 事件谱（§8.4.1，17 类）、memory 事件（§6.12.11）、review 事件（§17.7）、context 采样事件（§8b）、telemetry 类（`ipc.line_too_large` / `hook.payload_truncated`）走本地 telemetry sink，**不进 EventBus / JSONL**；其 payload 契约以各章为准，新增时同步登记到对应章节的事件小节。
+auth 事件谱（§8.4.1，17 类）、memory 事件（§6.12.11）、review 事件（§17.7）、context 采样事件（§8b）、telemetry 类（`ipc.line_too_large` / `hook.payload_rejected`）走本地 telemetry sink，**不进 EventBus / JSONL**；其 payload 契约以各章为准，新增时同步登记到对应章节的事件小节。`hook.payload_rejected` 固定记录 `domain:'builtin'/hook/event/limitBytes/rawBytes/rawDigest/scanStatus:'not_started'/scannedBytes:0/scannedDigest:null/decision:'veto'`，不得包含原 payload。

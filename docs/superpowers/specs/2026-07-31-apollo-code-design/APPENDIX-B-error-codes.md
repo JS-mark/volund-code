@@ -21,6 +21,7 @@
 | `stream_interrupted` | §2.4 B6 / §3.9a | provider stream 异常终止（RST/429/abort/不完整响应） | streaming block 灰色标注 `[stream interrupted: <reason>]` + 撤销 | 自动（router.onError 决策） |
 | `provider_sticky_violation` | §2.4 B4 / §3.7.1 | sticky 锁定期 Router 返回异 provider decision | 提示"provider 冷却中，请重发" | 用户重发 |
 | `subagent_budget_exhausted` | §2.7 | subagent 三阈值（cost/token/time）任一命中 | 子任务标注 `[budget exhausted, partial result]` | 用户提额重派 |
+| `builtin_hook_payload_too_large` | §2.6 / §18 SD0-02 | builtin Hook 当前 canonical JSON-v1 payload 超过 1 MiB；未调用 handler、未开始扫描 | 红条“安全检查输入超限，操作已阻断” | 缩小 payload 后重试 |
 | `builtin_hook_timeout` | §2.6（r13-I10） | builtin 域安全 hook 超 5s | 红条"安全检查超时，操作已阻断（可重试）" | ✅ |
 | `hook_priority_out_of_range` | §6.11.1 | hook priority 超出 [0,1000] | 装载警告，该 handler 拒载 | 修 manifest 后重载 |
 | `provider_name_conflict` | PLUGIN-PROVIDER-r1 §P5 | 插件 provider 名与内置/已注册冲突 | 注册拒绝 + 警告 | 改名重载 |
@@ -33,7 +34,7 @@
 | 标识 | 类型 | 来源 |
 |---|---|---|
 | `ipc.line_too_large` | telemetry 事件 | §5.6.2（NDJSON 行超 `max_line_bytes`） |
-| `hook.payload_truncated` | telemetry 事件 | §2.6（安全 hook payload 超 1MB 尺寸闸） |
+| `hook.payload_rejected` | telemetry 事件 | §2.6（builtin Hook canonical JSON-v1 payload 超 1 MiB，direct-veto；含 raw size/digest 与未扫描证据） |
 | exit code `4` | CLI exit code | §17（review 存在 ≥ gate 级 finding） |
 | exit code `130` | CLI exit code | §11（Ctrl+C 终止） |
 | exit code `1` / `2` | CLI exit code | §11（一般错误 / 用法错误） |

@@ -84,9 +84,9 @@ SD0-01 → SD0-02 → SD0-03
 
 ### SD0-02 · Builtin Hook 不得因截断漏扫后缀
 
-- **Scope**：修改 `packages/plugin-runtime` 的 builtin Hook payload gate。当前 >1MB payload 在 dispatch 前截断会让危险内容藏在未扫描后缀；改为 full-payload bounded streaming scan，或对超限 builtin payload direct-veto。证据 schema 必须区分两条路径：direct-veto 写 `{rawBytes, rawDigest, scanStatus:'not_started', scannedBytes:0, scannedDigest:null}`；只有 full scan 成功才写 `scanStatus:'complete'`，并要求 raw/scanned length 与 digest 一致。不得把“未扫描”伪装为“扫描结果等于 raw”。非 builtin fail-open 语义不得扩散到安全 Hook。
+- **Scope**：修改 `packages/plugin-runtime` 的 builtin Hook payload gate。当前 >1MB payload 在 dispatch 前截断会让危险内容藏在未扫描后缀；v1 明确选择 **strict canonical JSON-v1 计量后超限 direct-veto**，不做 streaming scan：每个 builtin handler 输入及每次 non-veto completion（含原地 mutation/返回 void）都复检并以 fresh measured clone 继续；serialized bytes ≤ 1 MiB 时传完整 payload，> 1 MiB 时 handler 不调用。direct-veto 写 `{rawBytes,rawDigest,scanStatus:'not_started',scannedBytes:0,scannedDigest:null,decision:'veto'}`；serialization/资源预算失败沿 `builtin_hook_error` typed veto，不能伪造 digest。未来只有真的 full scan 成功才可写 `scanStatus:'complete'`，并要求 raw/scanned length 与 digest 一致。非 builtin fail-open 语义不得扩散到安全 Hook。
 - **Dependencies**：SD0-01。
-- **Tests/evidence**：在 `domain-hooks.test.ts` 增加危险片段位于 1MB 之后、UTF-8 边界、深层 JSON、超限、timeout/crash fixture；direct-veto 逐字段断言 `rawBytes/rawDigest + not_started + 0 + null`，full scan 逐字段断言 `complete + rawBytes=scannedBytes + rawDigest=scannedDigest`；两路 builtin 均 veto 且 tool 未执行，plugin/project/user 原有语义保持。运行 `pnpm --filter @apollo-code/plugin-runtime test`、typecheck 和 tool-hook E2E。
+- **Tests/evidence**：在 `domain-hooks.test.ts` 覆盖危险片段位于 1 MiB 之后、exact limit/limit+1、UTF-8 边界、深层/多字段 JSON、cycle/BigInt/accessor/non-plain/Proxy、depth/node/work resource budget、Uint8Array spoof/cross-realm SAB/tight subview、builtin 显式 rewrite 与原地 mutation 复检和 timeout/crash；direct-veto 逐字段断言 `rawBytes/rawDigest + not_started + 0 + null + veto`。真实 ToolExecutor 断言 `preToolUse` veto 时 permission/native invoke=0；`postToolUse` 只封锁结果且不宣称回滚。plugin/project/user oversized rewrite 原语义保持。运行 `pnpm --filter @apollo-code/plugin-runtime test`、typecheck 和 CLI tool-hook/mapper tests。
 - **Human gate**：独立 security reviewer 核对扫描覆盖、资源上限、DoS 行为和 fail-closed 日志；未签字不得开始 SD0-03。
 
 ### SD0-03 · 冻结 Self-Development threat model 与安全默认

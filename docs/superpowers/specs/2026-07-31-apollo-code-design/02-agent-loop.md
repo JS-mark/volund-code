@@ -336,7 +336,9 @@ async parallelInvoke(toolUses, turnAbortSignal):
 - 拦截型 hook 必须同步或短异步返回，超时 **5 秒**——超时后果**按 hook 域分治**（r13-I10，安全设计修正）：
   - **builtin 域（priority 900–1000，安全 hook）**：超时 → **fail-closed**——视为 veto，阻断当前操作，emit `error.raised { code: 'builtin_hook_timeout', hook, event }` + UI 红条"安全检查超时，操作已阻断（可重试）"。理由：memory 脱敏（priority=1000）/ 注入扫描等安全 hook 若"超时跳过"，恶意 payload 只需让扫描器卡 5 秒即可绕过全部防护——拦截型 hook 的 fail-open 是可主动利用的旁路。
   - **project / plugin / user 域**：超时 → fail-open（跳过该 handler，继续 pipeline），记录 telemetry。可用性优先。
-  - **防"喂爆扫描器"**：builtin 域安全 hook 收到的 payload 先过尺寸闸——> 1MB 截断后再扫描，超限部分计入 telemetry（`hook.payload_truncated`）。
+  - **防“喂爆扫描器”且禁止截断漏扫**：每个 builtin handler 调用前，runtime 对当前完整 payload 做 strict canonical JSON-v1 UTF-8 计量与 SHA-256；plain JSON 使用排序 key，inline `Uint8Array` 使用保留的 base64 typed tag 并规范化为 tight copy（不得复制/暴露 view 之外的 backing bytes），accessor、cycle、non-JSON prototype/值、共享可变 bytes，或 depth（512）/node（200,000）/canonical work（16 MiB）预算超限均作为 `builtin_hook_error` fail-closed，且资源失败不得制造 digest。serialized bytes **≤ 1 MiB** 时 handler 收到完整 payload；**> 1 MiB** 时 handler 不调用、扫描不开始，立即 veto，并 emit `error.raised { code:'builtin_hook_payload_too_large', context:{ domain:'builtin',hook,event,limitBytes,rawBytes,rawDigest,scanStatus:'not_started',scannedBytes:0,scannedDigest:null,decision:'veto' } }` 与本地 telemetry `hook.payload_rejected`。禁止截断后扫描，禁止把未扫描伪装成 raw/scanned 相等。builtin 的每次 non-veto completion（包括原地 mutation、显式 rewrite 或返回 void）在交给下一个 handler/返回 pipeline 前都用同一闸复检，并以 fresh measured clone 继续以切断 retained-reference mutation；project/plugin/user 的既有超限、timeout、error、rewrite 语义不变。
+  - 域顺序固定为 builtin → project → plugin → user；因此后置非 builtin rewrite 不获得“已被 builtin 扫描”的 attestation，也不会在本 P0 中回流复扫。需要最终态安全证明的受限 profile 必须禁用这些后置 rewrite，或另设 base-owned terminal validator，不能把本尺寸闸误称为全 pipeline 最终验证。
+  - `preToolUse` 的上述 veto 发生在 permission/native invoke 前；`postToolUse` 的 veto 只能封锁/替换将要返回的结果，tool 副作用已经发生，日志和 UI 不得声称已回滚。
 - Hook 抛异常默认**不阻断主流程**（记录到 telemetry），可配置 fail-hard（builtin 域安全 hook 的异常语义同超时：fail-closed）。
 - 强制点：core 单测 ×2——builtin 域 hook 卡 6s → 当前 tool 被阻断；plugin 域 hook 卡 6s → 放行 + warning。
 - ★ **r9 新增 `ctx.kv` 命名空间隔离**：每个 hook handler 的 `ctx.kv` 按 (event 类型 + 来源 plugin/project/user + toolUseId) 命名空间隔离。同一 hook 点的串行 pipeline 内，前者 handler 写入的 kv 后者可读（pipeline 共享）；`parallelInvoke` 的不同 tool_use 之间 kv 不共享（避免竞态）。详见 §6.4.1 `apollo.hook.kv`。
@@ -428,4 +430,3 @@ maxTurns: 10                # 可选；等价于该 agent 的 maxToolLoopsPerTur
 | 未知异常                          | catch-all                 | emit error.raised，turn.status='error'，session 存活 |
 
 **统一语义**：Runner 尽最大努力**不让整个 session 崩**，除非 SessionState 本身损坏或磁盘完全失能。
-

@@ -28,7 +28,7 @@ describe('error code registry', () => {
   it('registers the full appendix B.2 contract set', () => {
     const registry = new Set(Object.values(ErrorCodes))
     for (const code of appendixErrorCodes) expect(registry.has(code)).toBe(true)
-    expect(appendixErrorCodes).toHaveLength(10)
+    expect(appendixErrorCodes).toHaveLength(11)
   })
 
   it('covers every APOLLO_<CATEGORY> produced by the normalizeError factory', () => {

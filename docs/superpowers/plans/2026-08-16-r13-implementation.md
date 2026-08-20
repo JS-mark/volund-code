@@ -55,8 +55,8 @@
 
 ### REM-52 · hook 派发 + 超时分域（r13-I10 + r11-REM5）
 - 契约：`02-agent-loop.md` §2.6 执行语义（r13 分域段）+ `06b` §6.11.1 串行 pipeline + r11 计划 REM-5 落点
-- 范围：先接线 preToolUse/postToolUse 到 tools invoke 链（复用 plugin-runtime `runHooks`，veto 短路已实现）；再实现超时 5s 分域——**domain = hook 来源**（builtin/plugin/project/user）：builtin 超时 → fail-closed（veto + `error.raised{code:'builtin_hook_timeout'}`）；其余 → 跳过 + warning；>1MB payload 截断闸
-- 验收：单测 ×2（builtin 卡 6s → tool 阻断；plugin 卡 6s → 放行 + warning）；veto `rm -rf` e2e 用例（r11-REM5 验收）
+- 范围：先接线 preToolUse/postToolUse 到 tools invoke 链（复用 plugin-runtime `runHooks`，veto 短路已实现）；再实现超时 5s 分域——**domain = hook 来源**（builtin/plugin/project/user）：builtin 超时 → fail-closed（veto + `error.raised{code:'builtin_hook_timeout'}`）；其余 → 跳过 + warning。后续 SD0-02 已把原“>1MB 截断闸”修正为 strict canonical JSON-v1 **>1 MiB direct-veto**：handler 不调用，发 `builtin_hook_payload_too_large` + `hook.payload_rejected`，证据明确 `scanStatus:'not_started'`。
+- 验收：单测 ×2（builtin 卡 6s → tool 阻断；plugin 卡 6s → 放行 + warning）；veto `rm -rf` e2e 用例（r11-REM5 验收）；SD0-02 另覆盖危险尾部、exact limit/limit+1、UTF-8、异常 serialization、builtin rewrite 复检和真实 ToolExecutor native invoke=0。
 - 注：spec 括号里的 priority 900–1000 与现行 -100~100 方言若冲突，按 domain 字段实现并在 PR 里记录（A/B 报告），不改 spec
 
 ### REM-54 · tool_use 聚合规则（r13-I1）

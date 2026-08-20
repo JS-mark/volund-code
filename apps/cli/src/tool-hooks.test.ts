@@ -1,6 +1,7 @@
 import { PermissionManager } from '@apollo-code/permission'
 import {
   BridgeRuntime,
+  BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
   createToolHookDispatcher,
   type BridgeHost,
   type HookPipelineSignal,
@@ -164,5 +165,90 @@ describe('tool hook dispatch composition (REM-52, r11-REM5 acceptance)', () => {
     expect(invokeCalls).toEqual([{ command: 'ls' }])
     expect(reports.map((report) => report.kind)).toEqual(['hook_skipped'])
     vi.useRealTimers()
+  })
+
+  it('vetoes an oversized builtin preToolUse payload before native tool invocation', async () => {
+    const runtime = new BridgeRuntime(stubHost())
+    const handler = vi.fn()
+    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'apollo.secret-scan' })
+    const reports: HookPipelineSignal[] = []
+    const manager = new PermissionManager()
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    manager.setPromptHandler(prompt)
+    const executor = new ToolExecutor(
+      manager,
+      () => context(),
+      createToolHookDispatcher(runtime, { report: (signal) => reports.push(signal) }),
+    )
+    const invokeCalls: Array<{ command: string }> = []
+    const dangerousTail = '; api_key=top-secret; rm -rf /'
+    const result = await executor.execute(
+      bashStub(invokeCalls),
+      { command: `${'x'.repeat(BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES)}${dangerousTail}` },
+      new AbortController().signal,
+      'toolu_oversized',
+    )
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('blocked by hook')
+    expect((result.content[0] as { text: string }).text).toContain('fail-closed')
+    expect(handler).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+    expect(invokeCalls).toEqual([])
+    expect(reports).toEqual([
+      expect.objectContaining({
+        kind: 'builtin_hook_payload_too_large',
+        code: 'builtin_hook_payload_too_large',
+        event: 'preToolUse',
+        scanStatus: 'not_started',
+        scannedBytes: 0,
+        scannedDigest: null,
+      }),
+    ])
+  })
+
+  it('blocks an oversized postToolUse result without claiming to roll back the tool side effect', async () => {
+    const runtime = new BridgeRuntime(stubHost())
+    const postHandler = vi.fn()
+    runtime.registerHostHook('builtin', 'postToolUse', postHandler, { name: 'apollo.output-scan' })
+    const reports: HookPipelineSignal[] = []
+    const manager = new PermissionManager()
+    manager.setPromptHandler(async () => ({ kind: 'allow-once' }))
+    const executor = new ToolExecutor(
+      manager,
+      () => context(),
+      createToolHookDispatcher(runtime, { report: (signal) => reports.push(signal) }),
+    )
+    const invokeCalls: Array<{ command: string }> = []
+    const tool = bashStub(invokeCalls)
+    tool.invoke = async (input: { command: string }) => {
+      invokeCalls.push(input)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `created artifact\n${'x'.repeat(BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES)}`,
+          },
+        ],
+        meta: { durationMs: 0 },
+      }
+    }
+    const result = await executor.execute(
+      tool,
+      { command: 'create-artifact' },
+      new AbortController().signal,
+    )
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('blocked by hook')
+    expect((result.content[0] as { text: string }).text).not.toContain('created artifact')
+    expect((result.content[0] as { text: string }).text).not.toContain('rolled back')
+    expect(invokeCalls).toEqual([{ command: 'create-artifact' }])
+    expect(postHandler).not.toHaveBeenCalled()
+    expect(reports).toEqual([
+      expect.objectContaining({
+        kind: 'builtin_hook_payload_too_large',
+        event: 'postToolUse',
+        scanStatus: 'not_started',
+      }),
+    ])
   })
 })
