@@ -2,7 +2,7 @@
 
 > **用途**：给后续模型或工程师继续当前工作。本文记录的是当前分支的工程事实、未提交改动归属、已完成审查、下一步和不可跨越的安全边界。
 >
-> **更新时间**：2026-08-21（Asia/Shanghai）
+> **更新时间**：2026-08-22（Asia/Shanghai）
 >
 > **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
 
@@ -18,6 +18,7 @@
 最近已提交：
 
 ```text
+2450a95 docs(plan): record self-evolution handoff
 33e5ce5 fix(plugin): harden contained legacy state
 e220d08 fix(ci): select cli workspace by path
 9ccf9f1 fix(plugin): remove legacy authority bypass
@@ -48,7 +49,7 @@ c3de176 fix(plugin): contain legacy production activation
 
 冻结的方向是：
 
-> Everything extensible is a capability plugin; kernel, sandbox, permission, Catalog, verifier and human gate are not plugins.
+> Everything extensible is a capability plugin; the K0 security kernel is not.
 
 对应职责：
 
@@ -56,6 +57,7 @@ c3de176 fix(plugin): contain legacy production activation
 - K1–K3 capability plugin 提供可替换行为。
 - K0/Rust 是 reference monitor 和安全执行平面，验证并强制 authority ceiling。
 - Rust 不意味着所有业务插件必须用 Rust；Rust 负责可信 launcher、sandbox、broker、token/effect enforcement。
+- K0 职责按 §8/§19 的非穷尽定义解释；未列名的可信裁判默认不能插件化。
 
 ### 2.3 “自进化”的真实状态
 
@@ -97,14 +99,20 @@ P0 kill switch 已提交并通过独立审查：
 - `[evolution]` config schema 已从开放段收窄为严格 `enabled?: boolean`。
 - `apollo evolution show|rollback` 仍是显式维护命令；它们不会开启自动调优。
 
-第一轮独立审查结果：`0 Critical / 4 Important / REQUEST_CHANGES`。四项为：
+第一轮独立审查结果曾为 `0 Critical / 4 Important / REQUEST_CHANGES`。四项均已由 writer 在冻结候选中处理，但尚未取得对最终 exact diff 的独立 PASS：
 
 1. Engine 曾把 truthy 非 boolean 当启用；已修。
 2. production 曾吞掉坏 config 后继续；已修为非 ENOENT 向上抛。
-3. 显式启用后曾原样信任 legacy JSONL；正在实现双层 strict validation。
-4. 公开默认行为变化缺独立 changeset；待当前切片完成后补。
+3. 显式启用后曾原样信任 legacy JSONL；冻结候选已加入 Store + Engine 双层 strict validation。
+4. 公开默认行为变化缺独立 changeset；冻结候选已新增 changeset。
 
-当前正在实现的 T1a 合同：
+当前 T1a writer 已停写并报告 frozen candidate：
+
+- focused tracked diff SHA-256：`452211bab71530bc6de45f12cad3bf64f580144dca79534c2194b2cac6a94dfd`；
+- changeset SHA-256：`d44b8a8a15da0d919d0af1981676310ed1e40c2ae348491b6b0e38a53a968cea`；
+- 未 stage、未 commit；最终独立复审前不能把它当作 accepted evidence。
+
+冻结候选合同：
 
 - Core 冻结 context 安全范围：
   - `compaction_threshold`: `0.65..0.95`
@@ -118,7 +126,7 @@ P0 kill switch 已提交并通过独立审查：
 - invalid legacy 行忽略并保留前一合法值；future schema 使该 namespace 的 current/rollback fail-closed。
 - 固定 diagnostic code，不得包含原始 JSON、reason/signal 值、secret 或绝对路径。
 - T1a 不声称 namespace/audit 双写 crash-atomic，也不引入无跨进程锁保障的 global sequence。
-- 独立 changeset 待补，至少覆盖 `@apollo-code/core`、`apollo-code`、`@apollo-code/shared`、`@apollo-code/config`、`@apollo-code/storage`。
+- 独立 changeset 已生成，覆盖 `@apollo-code/core`、`apollo-code`、`@apollo-code/shared`、`@apollo-code/config`、`@apollo-code/storage`；最终内容仍需随 focused diff 复审。
 
 T1a 当前可能涉及的文件：
 
@@ -134,14 +142,27 @@ packages/core/src/evolution-engine.ts
 packages/core/src/evolution-engine.test.ts
 packages/shared/src/config-schema.ts
 packages/shared/src/config-schema.test.ts
+packages/shared/src/error-codes.ts
 packages/storage/src/evolution-store.ts
-packages/storage/src/evolution-store.test.ts（可能新增/修改）
-.changeset/<new-tuning-hardening>.md（待新增）
+packages/storage/src/evolution-store.test.ts
+.changeset/safe-evolution-projection.md
 ```
+
+writer 报告的验证结果：core 61/61、storage 73 passed + 1 skipped、CLI 97/97、shared 100/100、config 12/12；全仓 typecheck 55/55、docs build、format、config-docs、error-codes、lint、`git diff --check` 通过。主 agent 仍需核对 exact file set/diff hash，并由独立 reviewer 对同一冻结候选达到 `0 Critical / 0 Important` 后才可单独提交。
 
 ### 4.2 ABI-00 文档冻结
 
-ABI writer 当前约 95%。正在完成：
+ABI writer 已停写并报告 `READY_FIX3` frozen candidate；未 stage、未 commit。五文件 SHA-256：
+
+```text
+§18     bbc292f525a94a33360ea91c5db95b961dc9c39c0650018e1fbc3d9e17419a88
+§19a    a9accf44d22a1420a4e9478ab918199ddb154400f98d12746d5c63d085eabcdf
+§19     59f82dafec3c16fc005bd32e99d8331e169424913cea26bb3009256f6aac125d
+Plan    d3a6c02a79b1f81ba247276e0c1645766904c18dd17ae2f2468f93e9af7db158
+README  ccd162dcb88f0408326680249fec794674c56225be5d20403340c6f1eab48722
+```
+
+冻结候选覆盖：
 
 - Canonical JSON/domain/signature；
 - closed role/artifact DAG；
@@ -166,7 +187,9 @@ docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md 
 docs/superpowers/specs/2026-07-31-apollo-code-design/README.md                # 只能部分暂存 ABI hunks
 ```
 
-ABI writer 结束前不得评审移动中的内容。停写后必须取得以上五个文件的 exact SHA-256，并让两位独立 reviewer 分别按同一组哈希复审：
+writer 报告 `git diff --check`、Markdown links/fences、docs tests 7/7、direct VitePress、plugin-runtime 94/94、packlist fence 和 stale phrase checks 通过。完整 docs build 在共享 moving worktree 中被 `packages/storage/src/evolution-store.ts` 的 TypeDoc 类型错误阻止；需要在 T1a 候选稳定后重跑并归因，不能把 direct VitePress 通过替代完整门禁。
+
+现在必须让两位独立 reviewer 分别按上述同一组哈希复审：
 
 - byte/crypto/registry reviewer；
 - state machine/identity/recovery reviewer。
@@ -221,29 +244,36 @@ T1b 完成前，当前 JSONL 双写不能称为 crash-atomic 或 evidence-grade�
 
 ### 立即执行
 
-1. 等 T1a writer 停写并报告 diff hash、测试和剩余风险。
-2. 主 agent 逐行检查 core/store decoder、安全 bounds、legacy/future schema、路径构造前验证、diagnostic 脱敏。
-3. 运行定向 tests/typecheck/config-docs/format/diff-check。
-4. 让原独立 reviewer 对新的 exact diff hash 复审；必须 `0C/0I`。
-5. 只暂存 T1a 精确文件与独立 changeset，检查 cached diff/name list，单独 commit；不得混入 ABI/§20。
-6. ABI writer 停写后锁定五文件 exact SHA-256，恢复两位 ABI reviewer 做 exact-hash 双审。
-7. 运行 ABI stale phrase、link/fence/docs build、plugin-runtime/packlist tests。
-8. ABI 只暂存 §18/§19/§19a/plan 与 README ABI hunks，检查 cached diff 后单独 commit。
+1. 主 agent 按 T1a focused diff SHA 检查 core/store decoder、安全 bounds、legacy/future schema、路径构造前验证、diagnostic 脱敏与 changeset。
+2. 在冻结 T1a 候选上重跑定向 tests/typecheck/config-docs/format/diff-check，并让独立 reviewer 达到 `0C/0I`。
+3. 只暂存 T1a 精确文件与独立 changeset，检查 cached diff/name list，单独 commit；不得混入 ABI/§20。
+4. 对上述 ABI 五文件 exact SHA 恢复 byte/crypto/registry 与 state/identity/recovery 两位 reviewer；两路都必须 `0C/0I`。
+5. 重跑 ABI stale phrase、link/fence/full docs build、plugin-runtime/packlist tests；TypeDoc 红项必须在稳定 worktree 中关闭或证明属于已修复的 T1a moving-state。
+6. ABI 只暂存 §18/§19/§19a/plan 与 README ABI hunks，检查 cached diff 后单独 commit；排除 §20 hunks。
+7. 并行完成 `BRAND-DISCOVERY/FREEZE`：只做全新候选、实时 clearance、用户选择和 canonical identity tuple；不得提前迁移 package/CLI/home/native/signing identity。
 
 ### 随后执行
 
-9. 实现 T1b journal/recovery，独立 fault-injection 验收并单独 commit。
-10. 实现私有 TypeScript/Rust contract packages 与同一 checked-in corpus/cross-language golden vectors。
-11. 完成 Rust reference monitor：最小 fs view、真实 seccomp、origin-level network、resource limits、identity-pinned executable、credential/token 不外泄。
-12. 实现 Catalog：closed-role artifact DAG、CEB/CAB、revision、reservation/fence、immutable identity/history。
-13. 实现 SelfDev control plane、restricted Developer、base-owned checks、independent acceptance、human signed receipt、branch-only promotion。
-14. 第一条完整 proof 必须结束于 `STAGED_DISABLED`，仍不得自动 adoption/enable。
-15. 完成 HarnessDefinition/RunBinding、driver conformance 和 H3b self-host evidence。
-16. 品牌迁移、全量 release evidence、prerelease/beta gate。
+8. 实现 T1b journal/recovery，独立 fault-injection 验收并单独 commit。
+9. 实现私有 TypeScript/Rust contract packages 与同一 checked-in corpus/cross-language golden vectors。
+10. 关闭 P0 Rust reference monitor：最小 fs view、真实 seccomp、origin-level network、resource limits、identity-pinned executable、credential/token 不外泄。
+11. 实现 Catalog CAT-01/02：closed-role artifact DAG、CEB/CAB、revision、reservation/fence、immutable identity/history。
+12. 只有 `CAT-02 + cleared canonical identity` 同时完成后，执行 `BRAND-MIGRATE`；随后在 branded exact SHA 完成 `BRAND-VERIFY` 和原 product/security/platform/supply-chain 重新签字。
+13. `BRAND-VERIFY` 通过后才接 ABI runtime production activation、typed brokers 和 universal registry。
+14. 实现 SelfDev control plane、restricted Developer、base-owned checks、independent acceptance、human signed receipt、branch-only promotion。
+15. 第一条完整 proof 必须结束于 `STAGED_DISABLED`，仍不得自动 adoption/enable。
+16. 完成 HarnessDefinition/RunBinding、driver conformance 和 H3b self-host evidence。
+17. 完成全量 release evidence、prerelease/beta gate。
 
 ## 8. 品牌与 logo 的硬门
 
-用户要求品牌突出：AI + 安全 + 极简，同时体现 plugin cells / sandbox boundary / Rust enforcement。
+完整品牌决策、视觉语义、identity tuple、迁移顺序和验收门见：
+
+> [Brand Identity & Migration Plan](./2026-08-22-brand-identity-and-migration.md)
+
+用户要求品牌突出：AI + 安全 + 极简，同时体现 plugin cells / sandbox boundary / Rust enforcement。精确架构表述统一为：`Everything extensible is a capability plugin; the K0 security kernel is not.` K0 是非穷尽集合，包括 sandbox/reference monitor、permission/policy、identity/trust、canonical/signature verifier、Catalog reducer/journal、mandatory security hooks/secret guard、核心 state/promotion invariants 与 human gates。
+
+历史决策必须准确解释：用户曾在“AI + 安全”轮次选择 `Cereward AI`，但该名称随后触发先前 clearance 否决门并停止落库，状态为 `WITHDRAWN / DO NOT USE`。`Evalistry` 被用户后续的“名字不好”推翻，`Rigorbind` 也未通过 clearance，三者都不是当前候选。用户随后加入 Everything is Plugin + Sandbox + Rust，使品牌语义重新打开。主 Logo 工作方向是 **Controlled Port**：可替换 capability cell + 连续 sandbox/K0 boundary + single logical K0 authority chokepoint；成品仍待用户视觉确认，Rust-enforced 声明仍须逐平台、逐 surface 取证。
 
 但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Apollo`。进入品牌迁移前必须由用户确认：
 
