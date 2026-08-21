@@ -1,10 +1,14 @@
-> ↩ [返回索引 (README)](./README.md) · ← [上一章: §17 Code Review](./17-code-review.md)
+> ↩ [返回索引 (README)](./README.md) · ← [上一章: §17 Code Review](./17-code-review.md) · → [下一章: §19 Plugin Kernel](./19-plugin-kernel.md)
 
 ---
 
 ## §18 受控自我开发 / 变更流水线（Controlled Self-Development / Change Pipeline）
 
 > **状态：PROPOSED — NOT SHIPPED。** 本节是目标契约，不描述当前产品能力。当前仓库没有本节定义的 orchestrator、状态存储、受限 Developer Runner、独立验收、审批回执或 branch promotion。最早可用于生产的阶段是 **SD4（branch-only）**；在此之前只能做单元测试、fixture 或 shadow 评估。
+>
+> **2026-08-21 PHASE RE-PLAN / v1 scope override：** [§19 Plugin Kernel](./19-plugin-kernel.md) 将本节的通用“候选仓库变更”收窄为 **K3 candidate Capability Manifest/ABI v2 bundle**。本文后续凡写“候选代码/制品/仓库变更”，v1 均应读作 policy 允许路径内的 candidate capability plugin；K0 security kernel、K1 protected built-ins、trust/catalog、trusted suites/holdout、CI/release 和本控制面不可自改。`originClass=K3`、`trustDomain` 与 SelfDev provenance 在 adoption/enable 后也不可改写。Candidate 必须形成 §19 的 closed-role artifact DAG；K3 Human approval 只能批准 signatures 与 output attestations 之后生成的 exact `CatalogEvidenceBinding`，不能直接批准 raw bundle 或零散 evidence。
+>
+> **SD4 effect override：** Human prompt 前必须冻结同一 `SelfDevPromotionPlan` 下的 `CatalogStageEffectPlan` 与 `GitPromotionEffectPlan`；plan 不含 CatalogEvidenceBinding/approval/self back-reference，其 canonical bytes/digest 被纳入 CatalogEvidenceBinding，因此 Human ApprovalReceipt 仍只引用该 binding。Catalog-owned reservation namespace 与 SelfDev run/receipt namespace 必须同驻一个 linearizable、serializable `PromotionCoordinationStore`，禁止跨 store eventual absence check。Catalog effect 以 `capabilityId` 做 bounded-lease、per-capability CAS reservation/fencing，只写不可激活、非 lifecycle event 的 `STAGE_PENDING` 并产出绑定 plan/binding/approval 的 `CatalogStageReceipt`；Git effect 绑定同一 reservation/fence 并产出同样绑定的 `GitPromotionReceipt`。二者是仅有的两个外部 promotion effects。Reducer 只有在两个 receipts 与 frozen plan 精确匹配且 lease 未过期后，才能在同一 store 的**一个 serializable CAS transaction** 中锁 reservation，并在 SelfDev namespace 同时写 `SelfDevCompletionReceipt` 与 `run=COMPLETED`。`STAGED_DISABLED` 只是同一 consistent snapshot 中 valid `STAGE_PENDING + SelfDevCompletionReceipt` 的只读纯投影，不得追加第三个 Catalog write/event；未完成的 expired reservation 只有在一个 transaction 同时锁 reservation/completion keys 并证明 receipt absent 后，才可由新获批 run 以更高 fence supersede。仅 transient/unknown outcome 可按原 idempotency key reconcile；capability reservation/revision/fence、branch target 或 receipt mismatch 等 deterministic conflict 必须终止为 `FAILED/promotion_conflict`，重试需新 run + 新 human approval；无关 capability 的 Catalog event 不构成冲突。每个 effect/receipt/Completion-CAS/lease-expiry/supersede boundary 都必须 fault-inject，completion 与 supersede 只能有一个 serialization winner；branch、reservation、stage receipt 或 Human ApprovalReceipt 单独都不是 activation authority。Adoption 必须重新进入 `APPROVAL_REQUIRED`，enable 另需独立人工 receipt。若本节其余文字与这些限制冲突，以 §19 和 [2026-08-20 实施计划](../../plans/2026-08-20-plugin-kernel-implementation.md) 为准；本节其余状态机、证据绑定、独立验收和人工确认要求继续有效。
 >
 > 本节与 [§15 自适应运行时调优](./15-self-evolution.md) 是两个独立系统：§15 只调节白名单内的运行时数值参数，不改代码或制品；§18 才讨论如何提出、开发、验证并经人工批准一个仓库变更。
 
