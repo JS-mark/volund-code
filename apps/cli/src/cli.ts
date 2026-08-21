@@ -159,13 +159,24 @@ export async function runCli(
     const action = args._[1] ?? 'list'
     try {
       if (action === 'list') {
-        const plugins = await ports.plugin.list()
+        const [plugins, availability] = await Promise.all([
+          ports.plugin.list(),
+          ports.plugin.availability(),
+        ])
         stdout += args.json
-          ? `${JSON.stringify(Object.entries(plugins).map(([name, state]) => ({ name, ...state })))}\n`
+          ? `${JSON.stringify(
+              Object.entries(plugins).map(([name, state]) =>
+                Object.assign({}, state, {
+                  name,
+                  availability,
+                  reasonCode: availability.code,
+                }),
+              ),
+            )}\n`
           : `${Object.entries(plugins)
               .map(
                 ([name, state]) =>
-                  `${name}@${state.version}\t${state.enabled ? 'enabled' : 'disabled'}`,
+                  `${name}@${state.version}\tdisabled (legacy runtime unavailable)`,
               )
               .join('\n')}${Object.keys(plugins).length ? '\n' : ''}`
         return { exitCode: 0, stdout, stderr }
@@ -194,7 +205,11 @@ export async function runCli(
       }
       if (action === 'doctor') {
         const report = await ports.plugin.doctor(target)
-        stdout += `${args.json ? JSON.stringify(report) : `${report.name}@${report.version}\nPermissions: ${report.permissions.join(', ') || 'none'}`}\n`
+        stdout += `${
+          args.json
+            ? JSON.stringify(report)
+            : `${report.name}@${report.version}\nPermissions: ${report.permissions.join(', ') || 'none'}\nAvailability: unavailable (${report.availability.code})\n${report.availability.detail}\nReopen requires: ${report.availability.reopenCondition}`
+        }\n`
         return { exitCode: 0, stdout, stderr }
       }
       return { exitCode: 2, stdout, stderr: `Unknown plugin action: ${action}` }

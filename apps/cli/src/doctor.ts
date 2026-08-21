@@ -4,7 +4,7 @@ import { access } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { ApolloPorts } from './ports'
+import type { ApolloPorts, PluginAvailability } from './ports'
 
 const execFileAsync = promisify(execFile)
 const GH_VERSION_TIMEOUT_MS = 5000
@@ -22,6 +22,8 @@ export interface DoctorCheck {
   gh?: GhCliHealth
   name: string
   ok: boolean
+  /** Structured production plugin containment disclosure. */
+  plugin?: PluginAvailability
   /** Warn-only check: rendered ⚠️ and never trips --strict (r13-G6). */
   warn?: boolean
 }
@@ -66,12 +68,13 @@ export async function runDoctor(
   ports: ApolloPorts,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DoctorCheck[]> {
-  const [native, auth, config, telemetry, gh] = await Promise.all([
+  const [native, auth, config, telemetry, gh, plugin] = await Promise.all([
     ports.native.health(),
     ports.auth.health(),
     ports.config.health(cwd),
     ports.telemetry.health(),
     detectGhCli(env),
+    ports.plugin?.availability(),
   ])
   let writable = true
   try {
@@ -108,6 +111,17 @@ export async function runDoctor(
       ok: true,
       ...(gh.installed ? {} : { warn: true }),
     },
+    ...(plugin
+      ? [
+          {
+            name: 'plugin activation',
+            ok: true,
+            warn: true,
+            detail: `${plugin.detail} Reopen requires ${plugin.reopenCondition}.`,
+            plugin,
+          } satisfies DoctorCheck,
+        ]
+      : []),
     {
       name: 'local telemetry',
       ok: telemetry.writable && telemetry.corruptLines === 0,

@@ -56,7 +56,8 @@ The current CLI includes:
 - provider credential login/logout with secure storage;
 - permission checks, native sandbox integration, and runtime diagnostics;
 - session history, resume, and guarded restore flows;
-- local plugin install, enable, disable, diagnose, list, and uninstall commands;
+- contained plugin management: list, diagnose, disable, and uninstall remain available, while
+  legacy install/enable/activation temporarily fail closed pending Catalog v2 and the verified ABI;
 - local telemetry inspection, redacted export, and clearing;
 - configurable provider/model routing, including role-based candidates.
 

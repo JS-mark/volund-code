@@ -1,5 +1,10 @@
 # Plugin host capability matrix
 
+> **Production containment:** this is the quarantined v1 compatibility/test matrix, not a current
+> production availability claim. Legacy install, enable, activation, and Memory-policy hosting fail
+> closed with `plugin_legacy_activation_unavailable` until Catalog v2 + the verified ABI pass an
+> explicit security reopen review. Only the package-private test harness exercises this matrix.
+
 The executable source of truth is `APOLLO_BRIDGE_CAPABILITIES` in
 `packages/plugin-runtime/src/index.ts`. CI verifies that it contains every leaf method from
 `ApolloBridge`, that every row has a test entry point, and that unsupported methods explain why.
@@ -36,11 +41,12 @@ workspace/project/session, and cannot supply trusted provenance.
 The host records metadata-only audit events. Memory export contains attachment references, never
 attachment bytes, and no Memory bridge method uploads, shares, or performs network access.
 
-## Production Memory hook contract
+## Quarantined legacy Memory hook contract
 
-Plugins that combine `hooks.on` with at least one declared Memory read scope are loaded into one
-process-wide Memory-policy runtime. This is the only runtime that dispatches Memory lifecycle hooks,
-so multiple chat sessions do not duplicate policy execution and standalone CLI writes are covered.
+The following is the retained v1 compatibility contract. P0-00 removed its production composition:
+no process-wide Memory-policy runtime starts, stale approvals are disabled, and ordinary Memory
+writes do not dispatch third-party hooks. Catalog/ABI migration must re-verify or retire each rule
+before any production reopen.
 
 - `memory.preWrite` runs for every create, update, delete, pin, unpin, and attachment-state mutation.
   The built-in validation and secret detector run first; policy runs before fact, index, or import
@@ -58,6 +64,5 @@ so multiple chat sessions do not duplicate policy execution and standalone CLI w
 - `memory.postWrite` runs after facts and the search index commit. `memory.deleted` follows it only
   for the first successful transition to a record tombstone. Observer failures are audited but
   cannot turn an already durable write into a reported failure.
-- Disabled or uninstalled plugins are removed from the policy runtime before subsequent writes.
-  Metadata-only attempts, accepts, vetoes, errors, and observer results are appended with mode 0600
-  to `memory/hook-audit.jsonl`; Memory content is never written there.
+- The package-private legacy test harness still verifies the retained bridge and hook capability
+  semantics. Production does not create `memory/hook-audit.jsonl` while containment is active.

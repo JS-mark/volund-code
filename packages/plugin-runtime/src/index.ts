@@ -27,6 +27,23 @@ import type {
   ProviderRequest,
 } from '@apollo-code/provider-kit'
 
+import { legacyPluginTestAuthority } from './internal/legacy-test-authority'
+
+export const LEGACY_PLUGIN_UNAVAILABLE = Object.freeze({
+  available: false as const,
+  code: 'plugin_legacy_activation_unavailable' as const,
+  detail:
+    'Legacy plugin install and activation are temporarily unavailable until Catalog v2 and the verified capability ABI reopen them.',
+  reopenCondition: 'CAT-01/02 + ABI-R1 production verification and explicit security review',
+})
+
+const legacyPluginUnavailable = (operation: string) =>
+  new PluginError(
+    LEGACY_PLUGIN_UNAVAILABLE.code,
+    `${operation} is temporarily unavailable; ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition} required`,
+  )
+const legacyPluginTestManagers = new WeakSet<object>()
+
 export class PluginError extends Error {
   constructor(
     readonly code: string,
@@ -175,6 +192,24 @@ export interface PluginApproval {
 }
 export interface PluginState {
   approvals: Record<string, PluginApproval>
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+function isPluginState(value: unknown): value is PluginState {
+  if (!isRecord(value) || !isRecord(value.approvals)) return false
+  return Object.values(value.approvals).every(
+    (approval) =>
+      isRecord(approval) &&
+      typeof approval.version === 'string' &&
+      typeof approval.permissionHash === 'string' &&
+      typeof approval.enabled === 'boolean' &&
+      (approval.failures === undefined || typeof approval.failures === 'number'),
+  )
+}
+function fileErrorCode(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined
+  return typeof error.code === 'string' ? error.code : undefined
 }
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
 const RANGE = /^(\^|~)?(\d+)\.(\d+)\.(\d+)$/
@@ -355,18 +390,53 @@ export async function verifyBundle(
 }
 export class PluginManager {
   private state: PluginState = { approvals: {} }
+  private readonly legacyTestAuthority: boolean
+  constructor(
+    root: string,
+    apolloVersion: string,
+    confirm: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>,
+  )
   constructor(
     readonly root: string,
     readonly apolloVersion: string,
     readonly confirm: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>,
-  ) {}
+    authority?: typeof legacyPluginTestAuthority,
+  ) {
+    this.legacyTestAuthority = authority === legacyPluginTestAuthority
+    if (this.legacyTestAuthority) legacyPluginTestManagers.add(this)
+  }
   async init() {
     await mkdir(this.root, { recursive: true })
+    this.state = { approvals: {} }
+    let serialized: string
     try {
-      this.state = JSON.parse(
-        await readFile(join(this.root, 'plugins.json'), 'utf8'),
-      ) as PluginState
-    } catch {}
+      serialized = await readFile(join(this.root, 'plugins.json'), 'utf8')
+    } catch (error) {
+      if (fileErrorCode(error) === 'ENOENT') return
+      throw legacyPluginUnavailable('legacy plugin state read')
+    }
+    let state: unknown
+    try {
+      state = JSON.parse(serialized)
+    } catch {
+      throw legacyPluginUnavailable('legacy plugin state migration')
+    }
+    if (!isPluginState(state)) throw legacyPluginUnavailable('legacy plugin state migration')
+    this.state = state
+    if (!this.legacyTestAuthority) {
+      let migrated = false
+      for (const approval of Object.values(this.state.approvals)) {
+        if (!approval.enabled) continue
+        approval.enabled = false
+        migrated = true
+      }
+      if (migrated)
+        try {
+          await this.save()
+        } catch {
+          throw legacyPluginUnavailable('legacy plugin state migration persistence')
+        }
+    }
   }
   private async save() {
     const temp = join(this.root, `.plugins-${process.pid}.tmp`)
@@ -382,6 +452,7 @@ export class PluginManager {
     return manifest
   }
   async install(source: string) {
+    if (!this.legacyTestAuthority) throw legacyPluginUnavailable('plugin install')
     const manifest = await this.inspect(source),
       destination = join(this.root, manifest.name),
       temp = join(this.root, `.${manifest.name}-${process.pid}.install`)
@@ -420,6 +491,7 @@ export class PluginManager {
     return manifest
   }
   async setEnabled(name: string, enabled: boolean) {
+    if (enabled && !this.legacyTestAuthority) throw legacyPluginUnavailable('plugin enable')
     const record = this.state.approvals[name]
     if (!record) throw new PluginError('plugin_not_installed', name)
     record.enabled = enabled
@@ -809,6 +881,7 @@ export class PluginRuntime {
     this.#heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 30_000
   }
   async loadEnabled() {
+    if (!legacyPluginTestManagers.has(this.manager)) return []
     const failures: Array<{ name: string; error: Error }> = []
     for (const [name, approval] of Object.entries(this.manager.list())) {
       if (!approval.enabled) continue
@@ -821,6 +894,8 @@ export class PluginRuntime {
     return failures
   }
   async load(name: string, signal?: AbortSignal) {
+    if (!legacyPluginTestManagers.has(this.manager))
+      throw legacyPluginUnavailable('plugin activation')
     if (this.#active.has(name)) throw new PluginError('plugin_already_loaded', name)
     if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
     const approval = this.manager.list()[name]

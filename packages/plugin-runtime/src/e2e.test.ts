@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path'
 import type { ToolSpec } from '@apollo-code/plugin-sdk'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { BridgeRuntime, PluginManager, PluginRuntime } from './index'
+import { BridgeRuntime, PluginRuntime } from './index'
+import { createLegacyPluginTestManager } from './test-only/legacy-harness'
 
 const run = describe.skipIf(process.env.APOLLO_RUN_PLUGIN_E2E !== '1')
 const fixtures: string[] = []
@@ -19,7 +20,7 @@ run('sandboxed community plugin E2E (requires a supported native sandbox binary)
     fixtures.push(root)
     const source = join(root, 'source')
     await cp(resolve('../../examples/community-plugin'), source, { recursive: true })
-    const manager = new PluginManager(join(root, 'plugins'), '0.0.0', async () => true)
+    const manager = createLegacyPluginTestManager(join(root, 'plugins'), '0.0.0')
     await manager.init()
     const manifest = await manager.install(source)
     let tool: ToolSpec | undefined

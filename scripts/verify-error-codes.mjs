@@ -21,6 +21,13 @@ export const emittedWithoutLiteral = new Map([
   ['plugin_internal_error', 'packages/plugin-runtime/src/index.ts safeRpcError 兜底'],
   ['memory_unknown', 'packages/ui/src/memory-panel.ts memoryPanelError 兜底'],
   ['memory_index_corrupt', 'packages/storage/src/memory-index.ts 快照读取三元缺省码'],
+  // P0-00 containment removes production legacy plugin composition without deleting the
+  // compatibility contracts that Catalog v2/ABI migration must either rewire or retire.
+  ['memory_hook_failed', 'P0-00 quarantined legacy production Memory policy runtime'],
+  ['memory_hook_reentrant', 'P0-00 quarantined legacy production Memory policy runtime'],
+  ['memory_hook_veto', 'P0-00 quarantined legacy production Memory policy runtime'],
+  ['plugin_http_not_connected', 'P0-00 removed legacy production session plugin bridge'],
+  ['plugin_ui_not_connected', 'P0-00 removed legacy production session plugin bridge'],
   // normalizeError 的 `APOLLO_${category.toUpperCase()}` 动态工厂（shared/src/errors.ts）
   ['APOLLO_NETWORK', 'normalizeError APOLLO_<CATEGORY> 工厂'],
   ['APOLLO_AUTH', 'normalizeError APOLLO_<CATEGORY> 工厂'],

@@ -15,21 +15,21 @@ apollo chat --cwd <path> --trust-workspace "prompt"
 
 `apollo evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `apollo evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. Setting `[evolution] enabled = false` in `~/.apollo/config.toml` makes new sessions use built-in context defaults.
 
-| Command                        | Purpose                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `apollo` / `apollo chat`       | Start an interactive or one-shot coding session.                          |
-| `apollo login <provider>`      | Verify, then securely store a provider credential.                        |
-| `apollo logout <provider>`     | Remove a stored provider credential.                                      |
-| `apollo config`                | Inspect configuration.                                                    |
-| `apollo history list` / `show` | Inspect local session history.                                            |
-| `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                 |
-| `apollo restore <session-id>`  | Restore files changed during a session.                                   |
-| `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness. |
-| `apollo memory <action>`       | Manage durable memories, pinned context, and the local search index.      |
-| `apollo plugin <action>`       | Install, list, diagnose, enable, disable, or uninstall local plugins.     |
-| `apollo hook list`             | List built-in hooks.                                                      |
-| `apollo version`               | Print the version.                                                        |
-| `apollo help`                  | Show command help.                                                        |
+| Command                        | Purpose                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `apollo` / `apollo chat`       | Start an interactive or one-shot coding session.                                              |
+| `apollo login <provider>`      | Verify, then securely store a provider credential.                                            |
+| `apollo logout <provider>`     | Remove a stored provider credential.                                                          |
+| `apollo config`                | Inspect configuration.                                                                        |
+| `apollo history list` / `show` | Inspect local session history.                                                                |
+| `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                                     |
+| `apollo restore <session-id>`  | Restore files changed during a session.                                                       |
+| `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness.                     |
+| `apollo memory <action>`       | Manage durable memories, pinned context, and the local search index.                          |
+| `apollo plugin <action>`       | Inspect or remove contained local plugins; legacy install/enable are temporarily unavailable. |
+| `apollo hook list`             | List built-in hooks.                                                                          |
+| `apollo version`               | Print the version.                                                                            |
+| `apollo help`                  | Show command help.                                                                            |
 
 Common modes include `--no-tui`, `--json`, and `--no-color`. Non-interactive runs do not load project configuration unless `--trust-project-config` is supplied. Dangerous sandbox bypass flags are audited and require explicit confirmation.
 
@@ -124,4 +124,4 @@ Provider plugins never enter a role or fallback candidate pool merely by registe
 
 ## Plugins
 
-`apollo plugin install <local-directory>` validates the manifest and bundle, displays requested Apollo permissions, and installs only after explicit approval. New and resumed sessions activate only installed, approved, enabled plugins through the native sandbox host. Registered tools must use the `plugin:<manifest-name>:<tool-name>` namespace; their results are wrapped as untrusted content. Disabling or uninstalling a plugin terminates its host and removes its registrations, while enabling it restores activation for the active session. Use `plugin list [--json]`, `plugin doctor <name>`, `plugin enable|disable <name>`, and `plugin uninstall <name>` to manage the local copy. Registry and GitHub install specs, upgrades, and the L4 development hot-reload command are not implemented yet.
+Legacy v1 plugin installation, enablement, and activation are temporarily unavailable in production. They fail with `plugin_legacy_activation_unavailable` until Catalog v2, the verified capability ABI, and an explicit security reopen review are complete. Startup atomically migrates stale `enabled:true` records to disabled; no new or resumed session loads them. `plugin list [--json]`, `plugin doctor <name>`, `plugin disable <name>`, and `plugin uninstall <name>` remain available for safe inspection and cleanup. List text labels retained records `disabled (legacy runtime unavailable)`; list JSON preserves each stored record and adds `availability` plus `reasonCode`. `plugin doctor` and the general `doctor` command disclose the containment state and reopen condition. A malformed legacy state file yields the same stable typed fail-closed diagnostic. The legacy host capability matrix remains executable only through the package-private test harness; it is not a production availability claim.

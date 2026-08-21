@@ -35,6 +35,7 @@
 |---|---|---|
 | `ipc.line_too_large` | telemetry 事件 | §5.6.2（NDJSON 行超 `max_line_bytes`） |
 | `hook.payload_rejected` | telemetry 事件 | §2.6（builtin Hook canonical JSON-v1 payload 超 1 MiB，direct-veto；含 raw size/digest 与未扫描证据） |
+| `plugin_legacy_activation_unavailable` | typed PluginError / doctor reason | §19 PK-P0-0：Catalog v2 + verified ABI reopen review 前，production install/enable/activation 一律 fail closed；list/doctor/disable/uninstall 保留 |
 | exit code `4` | CLI exit code | §17（review 存在 ≥ gate 级 finding） |
 | exit code `130` | CLI exit code | §11（Ctrl+C 终止） |
 | exit code `1` / `2` | CLI exit code | §11（一般错误 / 用法错误） |
