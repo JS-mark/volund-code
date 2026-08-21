@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +19,7 @@ import {
   verifyBundle,
   verifyPluginRegistryMetadata,
 } from './index'
+import { createLegacyPluginTestManager } from './test-only/legacy-harness'
 const manifest = {
   name: 'apollo-plugin-test',
   version: '1.0.0',
@@ -208,7 +209,7 @@ describe('plugin runtime', () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
       dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = new PluginManager(root, '1.0.0', async () => true)
+      manager = createLegacyPluginTestManager(root, '1.0.0')
     await manager.init()
     await manager.install(source)
     let registered: { handler(input: unknown): Promise<unknown> } | undefined
@@ -300,7 +301,7 @@ describe('plugin runtime', () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
       dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = new PluginManager(root, '1.0.0', async () => true)
+      manager = createLegacyPluginTestManager(root, '1.0.0')
     await manager.init()
     await manager.install(source)
     let terminated = 0
@@ -351,7 +352,7 @@ describe('plugin runtime', () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
       dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = new PluginManager(root, '1.0.0', async () => true)
+      manager = createLegacyPluginTestManager(root, '1.0.0')
     await manager.init()
     await manager.install(source)
     let registrationsDisposed = 0
@@ -415,7 +416,7 @@ describe('plugin runtime', () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
       dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = new PluginManager(root, '1.0.0', async () => true)
+      manager = createLegacyPluginTestManager(root, '1.0.0')
     await manager.init()
     await manager.install(source)
     const runtime = new PluginRuntime(
@@ -476,13 +477,186 @@ describe('plugin runtime', () => {
   it('installs atomically and auto disables repeated failures', async () => {
     const source = await fixture(),
       root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      manager = new PluginManager(root, '1.0.0', async () => true)
+      manager = createLegacyPluginTestManager(root, '1.0.0')
     await manager.init()
     await manager.install(source)
     expect(manager.list()[manifest.name]?.enabled).toBe(true)
     await manager.recordFailure(manifest.name, 2)
     expect(await manager.recordFailure(manifest.name, 2)).toBe(true)
     expect(manager.list()[manifest.name]?.enabled).toBe(false)
+  })
+  it('contains legacy production activation until Catalog v2 can issue receipts', async () => {
+    const source = await fixture(),
+      root = await mkdtemp(join(tmpdir(), 'apollo-contained-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-contained-data-')),
+      confirm = vi.fn(async () => true),
+      manager = new PluginManager(root, '1.0.0', confirm)
+    await manager.init()
+    await expect(manager.install(join(root, 'missing-source'))).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+    await expect(manager.setEnabled('missing-plugin', true)).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(manager.list()).toEqual({})
+
+    const start = vi.fn(async (): Promise<PluginHost> => {
+      throw new Error('production activation must not reach the host')
+    })
+    const runtime = new PluginRuntime(
+      manager,
+      new BridgeRuntime({
+        session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+        register: () => ({ dispose() {} }),
+        fs: {
+          readFile: async () => '',
+          writeFile: async () => {},
+          exists: async () => false,
+          glob: async () => [],
+          stat: async () => ({}),
+        },
+        exec: async () => ({}),
+        fetch: async () => ({}),
+        ui: () => undefined,
+        storage: async () => undefined,
+        config: () => undefined,
+        log: () => undefined,
+      }),
+      { dataRoot, start },
+    )
+    await expect(runtime.loadEnabled()).resolves.toEqual([])
+    await expect(runtime.load(manifest.name)).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+    expect(start).not.toHaveBeenCalled()
+
+    await manager.uninstall(manifest.name)
+    expect(manager.list()).toEqual({})
+  })
+  it('migrates stale enabled legacy records to disabled on production startup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-stale-enabled-'))
+    const statePath = join(root, 'plugins.json')
+    const initial = {
+      formatVersion: 1,
+      approvals: {
+        [manifest.name]: {
+          version: manifest.version,
+          permissionHash: 'legacy-hash',
+          enabled: true,
+          failures: 7,
+          receipt: { issuer: 'legacy-registry', serial: 41 },
+        },
+        'apollo-plugin-second': {
+          version: '2.0.0',
+          permissionHash: 'second-hash',
+          enabled: true,
+          failures: 2,
+        },
+        'apollo-plugin-already-disabled': {
+          version: '3.0.0',
+          permissionHash: 'disabled-hash',
+          enabled: false,
+          failures: 9,
+        },
+      },
+    }
+    const initialSerialized = JSON.stringify(initial)
+    await writeFile(statePath, initialSerialized)
+    const manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    const migrated = {
+      ...initial,
+      approvals: Object.fromEntries(
+        Object.entries(initial.approvals).map(([name, approval]) => [
+          name,
+          { ...approval, enabled: false },
+        ]),
+      ),
+    }
+    expect(manager.list()).toEqual(migrated.approvals)
+    await expect(manager.setEnabled(manifest.name, true)).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+    const migratedSerialized = await readFile(statePath, 'utf8')
+    expect(migratedSerialized).not.toBe(initialSerialized)
+    expect(JSON.parse(migratedSerialized)).toEqual(migrated)
+
+    const sentinelTime = new Date('2001-02-03T04:05:06.000Z')
+    await utimes(statePath, sentinelTime, sentinelTime)
+    const beforeSecondInit = await stat(statePath)
+    await manager.init()
+    const afterSecondInit = await stat(statePath)
+    expect(afterSecondInit.mtimeMs).toBe(beforeSecondInit.mtimeMs)
+    expect(await readFile(statePath, 'utf8')).toBe(migratedSerialized)
+  })
+  it('fails malformed production state closed with a stable diagnostic and zero activation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-data-')),
+      manager = new PluginManager(root, '1.0.0', async () => true),
+      start = vi.fn(async (): Promise<PluginHost> => {
+        throw new Error('malformed state must not reach the plugin host')
+      })
+    await writeFile(join(root, 'plugins.json'), '{ definitely-not-json')
+
+    await expect(manager.init()).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+      message: expect.stringContaining('legacy plugin state migration'),
+    })
+    expect(manager.list()).toEqual({})
+
+    const runtime = new PluginRuntime(
+      manager,
+      new BridgeRuntime({
+        session: { id: 's', cwd: root, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
+        register: () => ({ dispose() {} }),
+        fs: {
+          readFile: async () => '',
+          writeFile: async () => {},
+          exists: async () => false,
+          glob: async () => [],
+          stat: async () => ({}),
+        },
+        exec: async () => ({}),
+        fetch: async () => ({}),
+        ui: () => undefined,
+        storage: async () => undefined,
+        config: () => undefined,
+        log: () => undefined,
+      }),
+      { dataRoot, start },
+    )
+    await expect(runtime.loadEnabled()).resolves.toEqual([])
+    expect(start).not.toHaveBeenCalled()
+  })
+  it('keeps migrated state disabled when atomic persistence fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-migration-save-failure-'))
+    await writeFile(
+      join(root, 'plugins.json'),
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: manifest.version,
+            permissionHash: 'legacy-hash',
+            enabled: true,
+            failures: 5,
+          },
+        },
+      }),
+    )
+    await mkdir(join(root, `.plugins-${process.pid}.tmp`))
+    const manager = new PluginManager(root, '1.0.0', async () => true)
+
+    await expect(manager.init()).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+      message: expect.stringContaining('migration persistence'),
+    })
+    expect(manager.list()[manifest.name]).toEqual({
+      version: manifest.version,
+      permissionHash: 'legacy-hash',
+      enabled: false,
+      failures: 5,
+    })
   })
   it('enforces rpc allowlists and per-turn quotas', () => {
     const guard = createRpcGuard(manifest, 1)

@@ -234,7 +234,14 @@ describe('runCli', () => {
   })
 
   it('installs, lists, diagnoses, disables, and uninstalls plugins through one port', async () => {
+    const availability = {
+      available: false as const,
+      code: 'plugin_legacy_activation_unavailable' as const,
+      detail: 'Legacy plugin install and activation are temporarily unavailable.',
+      reopenCondition: 'Catalog v2 verification',
+    }
     const plugin = {
+      availability: vi.fn(async () => availability),
       install: vi.fn(async () => ({ name: 'apollo-plugin-demo', version: '1.0.0' })),
       uninstall: vi.fn(async () => {}),
       list: vi.fn(async () => ({
@@ -245,21 +252,40 @@ describe('runCli', () => {
         name: 'apollo-plugin-demo',
         version: '1.0.0',
         permissions: ['tools.register'],
+        availability,
       })),
     }
     expect((await runCli(['plugin', 'install', './demo'], ports({ plugin }))).stdout).toContain(
       'Installed apollo-plugin-demo@1.0.0',
     )
-    expect((await runCli(['plugin', 'list', '--json'], ports({ plugin }))).stdout).toContain(
-      'apollo-plugin-demo',
+    expect((await runCli(['plugin', 'list'], ports({ plugin }))).stdout).toBe(
+      'apollo-plugin-demo@1.0.0\tdisabled (legacy runtime unavailable)\n',
     )
     expect(
+      JSON.parse((await runCli(['plugin', 'list', '--json'], ports({ plugin }))).stdout),
+    ).toEqual([
+      {
+        name: 'apollo-plugin-demo',
+        version: '1.0.0',
+        enabled: true,
+        availability,
+        reasonCode: 'plugin_legacy_activation_unavailable',
+      },
+    ])
+    expect(
       (await runCli(['plugin', 'doctor', 'apollo-plugin-demo'], ports({ plugin }))).stdout,
-    ).toContain('tools.register')
+    ).toContain('plugin_legacy_activation_unavailable')
     await runCli(['plugin', 'disable', 'apollo-plugin-demo'], ports({ plugin }))
     await runCli(['plugin', 'uninstall', 'apollo-plugin-demo'], ports({ plugin }))
     expect(plugin.setEnabled).toHaveBeenCalledWith('apollo-plugin-demo', false)
     expect(plugin.uninstall).toHaveBeenCalledWith('apollo-plugin-demo')
+    const generalDoctor = JSON.parse(
+      (await runCli(['doctor', '--json'], ports({ plugin }))).stdout,
+    ) as Array<{ name: string; plugin?: typeof availability; warn?: boolean }>
+    expect(generalDoctor.find((check) => check.name === 'plugin activation')).toMatchObject({
+      warn: true,
+      plugin: availability,
+    })
   })
 
   it('lists and inspects MCP servers without exposing URL credentials', async () => {

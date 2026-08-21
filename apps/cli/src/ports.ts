@@ -123,11 +123,23 @@ export interface McpPort {
   ): Promise<{ tools: Array<{ name: string; description?: string }> }>
 }
 export interface PluginPort {
+  availability(): Promise<PluginAvailability>
   install(source: string): Promise<{ name: string; version: string }>
   uninstall(name: string): Promise<void>
   list(): Promise<Record<string, { version: string; enabled: boolean; failures?: number }>>
   setEnabled(name: string, enabled: boolean): Promise<void>
-  doctor(name: string): Promise<{ name: string; version: string; permissions: readonly string[] }>
+  doctor(name: string): Promise<{
+    name: string
+    version: string
+    permissions: readonly string[]
+    availability: PluginAvailability
+  }>
+}
+export interface PluginAvailability {
+  available: false
+  code: 'plugin_legacy_activation_unavailable'
+  detail: string
+  reopenCondition: string
 }
 export interface ApolloPorts {
   identity: Readonly<AppIdentity>

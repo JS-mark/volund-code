@@ -98,6 +98,7 @@ export const ErrorCodes = {
   pluginHostExited: 'plugin_host_exited',
   pluginIntegrityFailed: 'plugin_integrity_failed',
   pluginInternalError: 'plugin_internal_error', // safeRpcError 兜底（非字面量 emit）
+  pluginLegacyActivationUnavailable: 'plugin_legacy_activation_unavailable',
   pluginManifestInvalid: 'plugin_manifest_invalid',
   pluginMemoryHookDispatchRequired: 'plugin_memory_hook_dispatch_required',
   pluginMemoryHookScopeRequired: 'plugin_memory_hook_scope_required',
