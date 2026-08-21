@@ -1,4 +1,15 @@
-import { access, appendFile, glob, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import {
+  access,
+  appendFile,
+  glob,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  writeFile,
+} from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -23,7 +34,12 @@ import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/
 import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
-import { LEGACY_PLUGIN_UNAVAILABLE, PluginError, PluginManager } from '@apollo-code/plugin-runtime'
+import {
+  LEGACY_PLUGIN_UNAVAILABLE,
+  PluginError,
+  PluginManager,
+  satisfies,
+} from '@apollo-code/plugin-runtime'
 import type { HookPipelineSignal } from '@apollo-code/plugin-runtime'
 import type { PluginMemoryScope } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
@@ -98,6 +114,7 @@ import type {
   ApolloPorts,
   InteractiveSession,
   PermissionInteractionMode,
+  PluginCompatibilityDiagnostic,
   SessionPort,
 } from './ports'
 import type { AppIdentity } from './shared/app-identity'
@@ -1139,6 +1156,116 @@ export interface ProductionOptions {
   model?: string
 }
 
+function diagnosticRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+async function readContainedPluginDiagnostic(
+  pluginRoot: string,
+  name: string,
+  storedVersion: string,
+  apolloVersion: string,
+): Promise<{
+  version: string
+  permissions: readonly string[]
+  compatibility: PluginCompatibilityDiagnostic
+}> {
+  const manifestLimit = 1024 * 1024
+  const permissionLimit = 64
+  const permissionLengthLimit = 128
+  const safeStoredVersion =
+    storedVersion.length <= 128 && /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(storedVersion)
+      ? storedVersion
+      : 'unknown'
+  const invalid = (detail: string) => ({
+    version: safeStoredVersion,
+    permissions: [] as readonly string[],
+    compatibility: { status: 'invalid' as const, detail },
+  })
+  if (!/^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/.test(name))
+    throw new PluginError('plugin_path_escape', 'invalid plugin diagnostic target')
+  let manifest: unknown
+  try {
+    const canonicalRoot = await realpath(pluginRoot)
+    const expectedDirectory = join(canonicalRoot, name)
+    const canonicalDirectory = await realpath(expectedDirectory)
+    if (canonicalDirectory !== expectedDirectory)
+      return invalid('Plugin directory is not canonical; legacy activation remains unavailable.')
+    const expectedManifest = join(canonicalDirectory, 'manifest.json')
+    const canonicalManifest = await realpath(expectedManifest)
+    if (canonicalManifest !== expectedManifest)
+      return invalid('Manifest path is not canonical; legacy activation remains unavailable.')
+    const handle = await open(canonicalManifest, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+    try {
+      const stat = await handle.stat()
+      if (!stat.isFile() || stat.size > manifestLimit)
+        return invalid(
+          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
+        )
+      const buffer = Buffer.alloc(manifestLimit + 1)
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+      if (bytesRead > manifestLimit)
+        return invalid(
+          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
+        )
+      manifest = JSON.parse(buffer.toString('utf8', 0, bytesRead))
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return invalid('Manifest metadata is unreadable; legacy activation remains unavailable.')
+  }
+  if (!diagnosticRecord(manifest))
+    return invalid('Manifest metadata is invalid; legacy activation remains unavailable.')
+  const permissionsRecord = diagnosticRecord(manifest.permissions)
+    ? manifest.permissions
+    : undefined
+  const rawPermissions = permissionsRecord?.apollo
+  if (Array.isArray(rawPermissions) && rawPermissions.length > permissionLimit)
+    return invalid(
+      'Manifest permissions exceed diagnostic limits; legacy activation remains unavailable.',
+    )
+  const permissions: string[] = []
+  if (Array.isArray(rawPermissions)) {
+    for (const permission of rawPermissions) {
+      if (
+        typeof permission !== 'string' ||
+        permission.length > permissionLengthLimit ||
+        !/^[a-z][a-z0-9.:-]*$/.test(permission)
+      )
+        return invalid('Manifest permissions are invalid; legacy activation remains unavailable.')
+      permissions.push(permission)
+    }
+  }
+  const engines = diagnosticRecord(manifest.engines) ? manifest.engines : undefined
+  const range =
+    typeof engines?.apollo === 'string' && engines.apollo.length <= 256 ? engines.apollo : undefined
+  const compatibility: PluginCompatibilityDiagnostic = range
+    ? satisfies(apolloVersion, range)
+      ? {
+          status: 'compatible',
+          detail: `Declared Apollo engine range is compatible with ${apolloVersion}.`,
+        }
+      : {
+          status: 'incompatible',
+          detail: `Declared Apollo engine range is incompatible with ${apolloVersion}; legacy activation remains unavailable.`,
+        }
+    : {
+        status: 'invalid',
+        detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
+      }
+  return {
+    version:
+      typeof manifest.version === 'string' &&
+      manifest.version.length <= 128 &&
+      /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
+        ? manifest.version
+        : safeStoredVersion,
+    permissions,
+    compatibility,
+  }
+}
+
 export function registerRuntimeMemoryPrompts(
   composer: PromptComposer,
   memory: MemoryService,
@@ -1495,7 +1622,6 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
     }
     runner = new Runner(state, router, composer, tools, events, {}, contextPolicy)
-    await pluginsReady
     return runner
   }
   dispatcher = new SubagentDispatcher({
@@ -1608,11 +1734,17 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         await pluginsReady
         const state = plugins.list()[name]
         if (!state) throw new Error(`plugin_not_installed: ${name}`)
-        const manifest = await plugins.inspect(join(pluginRoot, name))
+        const diagnostic = await readContainedPluginDiagnostic(
+          pluginRoot,
+          name,
+          state.version,
+          options.identity.version,
+        )
         return {
-          name: manifest.name,
-          version: manifest.version,
-          permissions: manifest.permissions.apollo,
+          name,
+          version: diagnostic.version,
+          permissions: diagnostic.permissions,
+          compatibility: diagnostic.compatibility,
           availability: LEGACY_PLUGIN_UNAVAILABLE,
         }
       },

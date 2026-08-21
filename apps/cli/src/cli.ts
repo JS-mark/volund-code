@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
-import { sanitize, validateWorkspacePath } from '@apollo-code/shared'
+import { ErrorCodes, sanitize, validateWorkspacePath } from '@apollo-code/shared'
 import {
   PermissionPromptController,
   renderPrivacyDisclosure,
@@ -31,6 +31,9 @@ import type { ApolloPorts } from './ports'
 import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
 const defaultInteractiveModel = 'anthropic/claude-sonnet-4-20250514'
+const registeredPluginErrorCodes: ReadonlySet<string> = new Set(
+  Object.values(ErrorCodes).filter((code) => code.startsWith('plugin_')),
+)
 
 const argsDefinition = {
   cwd: { type: 'string' as const },
@@ -154,8 +157,12 @@ export async function runCli(
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
   if (subcommand === 'plugin') {
-    if (!ports.plugin)
-      return { exitCode: 2, stdout, stderr: 'plugin integration port is not connected' }
+    if (!ports.plugin) {
+      const message = 'plugin integration port is not connected'
+      return args.json
+        ? jsonFailure(message, 2, 'plugin_integration_unavailable')
+        : { exitCode: 2, stdout, stderr: message }
+    }
     const action = args._[1] ?? 'list'
     try {
       if (action === 'list') {
@@ -182,7 +189,12 @@ export async function runCli(
         return { exitCode: 0, stdout, stderr }
       }
       const target = args._[2]
-      if (!target) return { exitCode: 2, stdout, stderr: `plugin ${action} requires a target` }
+      if (!target) {
+        const message = `plugin ${action} requires a target`
+        return args.json
+          ? jsonFailure(message, 2, 'plugin_command_target_required', 'usage')
+          : { exitCode: 2, stdout, stderr: message }
+      }
       if (action === 'install') {
         const manifest = await ports.plugin.install(target)
         return {
@@ -208,13 +220,28 @@ export async function runCli(
         stdout += `${
           args.json
             ? JSON.stringify(report)
-            : `${report.name}@${report.version}\nPermissions: ${report.permissions.join(', ') || 'none'}\nAvailability: unavailable (${report.availability.code})\n${report.availability.detail}\nReopen requires: ${report.availability.reopenCondition}`
+            : `${report.name}@${report.version}\nPermissions: ${report.permissions.join(', ') || 'none'}\nCompatibility: ${report.compatibility.status}\n${report.compatibility.detail}\nAvailability: unavailable (${report.availability.code})\n${report.availability.detail}\nReopen requires: ${report.availability.reopenCondition}`
         }\n`
         return { exitCode: 0, stdout, stderr }
       }
-      return { exitCode: 2, stdout, stderr: `Unknown plugin action: ${action}` }
+      const message = `Unknown plugin action: ${action}`
+      return args.json
+        ? jsonFailure(message, 2, 'plugin_command_unknown', 'usage')
+        : { exitCode: 2, stdout, stderr: message }
     } catch (error) {
-      return { exitCode: 1, stdout, stderr: error instanceof Error ? error.message : String(error) }
+      const message = error instanceof Error ? error.message : String(error)
+      const candidateCode =
+        error !== null &&
+        typeof error === 'object' &&
+        'code' in error &&
+        typeof error.code === 'string'
+          ? error.code
+          : undefined
+      const code =
+        candidateCode && registeredPluginErrorCodes.has(candidateCode)
+          ? candidateCode
+          : 'plugin_internal_error'
+      return args.json ? jsonFailure(message, 1, code) : { exitCode: 1, stdout, stderr: message }
     }
   }
   if (subcommand === 'mcp') {

@@ -38,7 +38,12 @@ Executed locally on macOS arm64 on 2026-08-04 (Asia/Shanghai), with an isolated 
 
 That earlier run reported Sandbox Tier `NONE`; it remains packaging/lifecycle evidence only and is not activation acceptance evidence.
 
-### Sandboxed activation rerun (APO-48)
+### Sandboxed activation rerun (APO-48; historical only)
+
+> **Superseded by P0-00 containment:** the evidence below describes an earlier candidate and is not a
+> current production availability or acceptance claim. Production legacy host composition and its
+> E2E lane have since been removed. ABI-R1 must supply fresh verified execution evidence before a
+> security review may reopen activation.
 
 Candidate implementation SHA: `33b72726275629f9f23fe251c93b3f4cef1323a0`.
 
