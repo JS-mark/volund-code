@@ -1,7 +1,7 @@
 # Apollo Code — 设计文档 (Design Spec)
 
 > **状态**：🚧 In Progress（规范包含 shipped、partial 与 proposed 内容；章节状态必须逐项读取，不能把设计存在等同于产品已实现）
-> **日期**：2026-08-19
+> **日期**：2026-08-21
 > **作者**：Mark + Claude
 > **相关**：[AGENT.md](../../../../AGENT.md) · [CLAUDE.md](../../../../CLAUDE.md)
 
@@ -25,13 +25,14 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 遥测          | **默认本地文件**，OTel 网络上报显式 opt-in                                                                                                         |
 | 开发范式      | **AI 完全开发 + 人定方向**（spec 即可执行契约；详见 [§12.6b](./12-open-governance.md)）                                                            |
 | 自适应调优    | [§15](./15-self-evolution.md)：规则驱动运行时参数 tuning；当前仅 partial/unwired，目标默认 off、先 shadow、apply 需 evidence gate                              |
-| 受控自我开发  | [§18](./18-self-development.md)：候选开发 → 确定性验证 → 独立验收 → 人工批准 → 本地分支；**全节 proposed / not shipped**                                  |
+| 扩展/安全内核 | [§19](./19-plugin-kernel.md)：目标原则 **Everything extensible is a plugin; the security kernel is not**；closed-role artifact DAG、TS permission → InvocationGrant → exact BrokerCallToken、Rust-owned OS brokers；当前约 30% / partial，八项 P0 未关闭，Rust-enforced 仍是 target claim |
+| 受控自我开发  | [§18](./18-self-development.md) + §19：K3 CatalogEvidenceBinding → 人工批准 → 同一 PromotionCoordinationStore 的 fenced Catalog reservation + SelfDev Completion CAS，再加 Git effect → 只读 `STAGED_DISABLED` 投影；**proposed / not shipped** |
 
 ---
 
 ## 目录（AI / 编辑器可跟进的相对路径）
 
-原始整文档已按顶级章节 §1–§18 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
+原始整文档已按顶级章节 §1–§19 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
 在 GitHub、VS Code、绝大多数 IDE 与 AI 阅读器中均可点击/跳转。
 
 | §   | 章节                                                   | 文件                                                               | 行数 |
@@ -58,6 +59,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 16  | 能力追踪与验收基线                                     | [`16-capability-traceability.md`](./16-capability-traceability.md) | 动态 |
 | 17  | Code Review 功能（r13 新增）                           | [`17-code-review.md`](./17-code-review.md)                         | ~130 |
 | 18  | 受控自我开发 / 变更流水线（proposed / not shipped）     | [`18-self-development.md`](./18-self-development.md)               | 动态 |
+| 19  | Plugin Kernel / Capability ABI v2（phase re-plan）      | [`19-plugin-kernel.md`](./19-plugin-kernel.md)                     | 动态 |
 
 ### 附属专题文档
 
@@ -78,7 +80,8 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 附录 C · config 全量 schema (r13 新增)         | [`APPENDIX-C-config-schema.md`](./APPENDIX-C-config-schema.md) | config.toml 全 key 表（含 projectOverride 标注）+ 未知 key 策略 + 全量示例；zod schema 与文档的唯一真相源（I4）                                                                                                                               |
 | 附录 D · 事件 payload 字段表 (r13 新增)        | [`APPENDIX-D-event-payloads.md`](./APPENDIX-D-event-payloads.md) | 19 种事件 per-event payload 契约 + per-event zod schema + CI 强制（I8）                                                                                                                                                                       |
 | 附录 E · 契约空白登记表 (r13 新增)             | [`APPENDIX-E-contract-gap-registry.md`](./APPENDIX-E-contract-gap-registry.md) | r11/r12 审计暴露的 20 条"实现被迫自定"契约空白的收编登记（D1）                                                                                                                                                                                |
-| Self-Development 实施计划                       | [`2026-08-19-self-development-implementation.md`](../../plans/2026-08-19-self-development-implementation.md) | SD0–SD5 依赖顺序、证据/人工门禁、brand 占位与 `0.1.0-beta.1` 目标；计划不代表功能已交付                                                                                                                    |
+| Self-Development 原实施计划                     | [`2026-08-19-self-development-implementation.md`](../../plans/2026-08-19-self-development-implementation.md) | SD0–SD5 原依赖顺序与详细 identity/evidence/approval 契约；phase 顺序与候选范围已由 2026-08-20 re-plan 收窄                                                                                               |
+| Plugin Kernel + Self-Development 实施计划        | [`2026-08-20-plugin-kernel-implementation.md`](../../plans/2026-08-20-plugin-kernel-implementation.md) | **当前执行顺序权威**：ARCH → P0-00 legacy kill switch → ABI-00 contract → P0-01…03 → Catalog core → brand migration/reverify → ABI runtime → migration → K3 fenced dual-effect promotion → prerelease；brand discovery 可只读并行                                      |
 
 > 各文件内保留原章节编号（如 `## §1`、`### 1.1`），可与 git 历史里的旧单文件版本一一对应。
 
@@ -87,11 +90,11 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 ## 阅读顺序建议
 
 - **想快速了解全貌** → 从 §1 → §2 → §10 走一遍。
-- **想理解运行时/内核** → §2 (Agent Loop) → §3 (Provider) → §4 (Tools) → §5 (Rust)。
-- **想理解扩展生态** → §6a → §6b → §6c → §11 (CLI)。
+- **想理解运行时/内核** → §2 (Agent Loop) → §3 (Provider) → §4 (Tools) → §5 (Rust) → §19 (Plugin Kernel)。
+- **想理解扩展生态** → §19（边界/ABI）→ §6a → §6b → §6c → §11 (CLI)。
 - **想理解落地/交付** → §7 → §8 → §9 → §14。
 - **想参与共建** → §12（治理）→ §10（里程碑）。
-- **想区分“参数调优”和“程序改自己”** → §15（Adaptive Runtime Tuning）→ §18（Self-Development；当前未交付）。
+- **想区分“参数调优”和“程序改自己”** → §15（Adaptive Runtime Tuning）→ §19（K3 边界）→ §18（Self-Development；当前未交付）。
 
 ---
 
@@ -102,10 +105,11 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 - **§3 Router** ↔ **[PLUGIN-PROVIDER-r1](./PLUGIN-PROVIDER-r1.md)** ↔ **§6 插件**：插件 provider 经 ProviderRegistry 进 Router 候选池（受控扩展，不破坏 Router 强制）
 - **§4 Tool** 与 **§5 Rust 沙箱** 通过 §5.6 `native-bridge` 对接
 - **§5 Rust 沙箱** ↔ **[SANDBOX-COMPAT-r1](./SANDBOX-COMPAT-r1.md)** ↔ **§9.4 CI matrix** ↔ **§10 L1 闸门** ↔ **§14.3b Tier 披露** 形成沙箱一等公民闭环
-- **§6 Plugins** 与 **§4 Tool 注册**、**§8 Config**、**§11 CLI** 均有交叉
+- **§19 Plugin Kernel** 是 §4/§5/§6 的新总约束：所有可扩展能力走 closed-role Capability ABI；K0 分为 TS control plane 与 Rust enforcement plane，handler 使用 InvocationGrant、具体 effect 使用 exact BrokerCallToken，workspace-fs/HTTP/process 由 Rust-owned broker 直接执行；sandbox/permission/verifier/catalog/mandatory security gates/human gate 都不是插件
+- **§6 Plugins** 描述当前 v1 surfaces，并与 **§4 Tool 注册**、**§8 Config**、**§11 CLI** 交叉；迁移到 Manifest/ABI v2 时以 §19 为权威
 - **§10 里程碑** 与各章节末尾的"里程碑"小节形成 vertical/horizontal 交叉视图
-- **§15 Adaptive Runtime Tuning** 只调白名单数值参数；**§18 Self-Development** 才涉及候选代码/制品，且 SD4 前不得宣称可开启
-- **§18** 复用 §4/§5 的安全原语、§17 的 review 概念和 §9/§10 的 evidence gate，但要求独立状态机、证据绑定与人工 approval
+- **§15 Adaptive Runtime Tuning** 只调白名单数值参数；**§18 Self-Development** 才涉及候选制品，且 SD4 前不得宣称可开启
+- **§18** 复用 §4/§5 的安全原语、§17 的 review 概念和 §9/§10 的 evidence gate；v1 由 **§19** 收窄为 K3 capability，Catalog reservation 与 SelfDev receipt/run 同驻一个 serializable PromotionCoordinationStore；Git/Catalog receipts 齐备后以同一 CAS 写 `CompletionReceipt + COMPLETED`，`STAGED_DISABLED` 仅为无第三写的只读投影
 
 ---
 
