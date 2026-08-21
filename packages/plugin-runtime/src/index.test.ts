@@ -39,6 +39,9 @@ describe('plugin runtime', () => {
     expect(source).not.toMatch(
       /legacyPluginTestAuthority|legacyPluginTestManagers|startPluginHost|PluginConnection/,
     )
+    expect(source).toMatch(
+      /fsConstants\.O_RDONLY\s*\|\s*fsConstants\.O_NOFOLLOW\s*\|\s*fsConstants\.O_NONBLOCK/,
+    )
     expect(packageManifest).not.toMatch(/^\s*"dist",?$/m)
     await expect(
       access(new URL('./internal/legacy-test-authority.ts', import.meta.url)),
@@ -241,7 +244,7 @@ describe('plugin runtime', () => {
     await expect(manager.install(join(root, 'missing-source'))).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
-    await expect(manager.setEnabled('missing-plugin', true)).rejects.toMatchObject({
+    await expect(manager.setEnabled('apollo-plugin-missing', true)).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
     expect(confirm).not.toHaveBeenCalled()
@@ -274,6 +277,215 @@ describe('plugin runtime', () => {
     })
     await manager.uninstall(manifest.name)
     expect(manager.list()).toEqual({})
+  })
+  it('rejects inherited and invalid approval keys before any mutation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-approval-keys-'))
+    await writeFile(
+      join(root, 'plugins.json'),
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: manifest.version,
+            permissionHash: 'legacy-hash',
+            enabled: true,
+            failures: 7,
+          },
+        },
+      }),
+    )
+    const manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+    const objectPrototypeBefore = Object.getOwnPropertyDescriptors(Object.prototype)
+    const objectConstructorBefore = Object.getOwnPropertyDescriptors(Object)
+
+    try {
+      for (const name of [
+        '__proto__',
+        'constructor',
+        'prototype',
+        '',
+        '../outside',
+        'apollo-plugin-',
+        String.raw`apollo-plugin-a\outside`,
+      ]) {
+        await expect(manager.setEnabled(name, false)).rejects.toMatchObject({
+          code: 'plugin_path_escape',
+        })
+        await expect(manager.setEnabled(name, true)).rejects.toMatchObject({
+          code: 'plugin_path_escape',
+        })
+        await expect(manager.recordFailure(name)).rejects.toMatchObject({
+          code: 'plugin_path_escape',
+        })
+      }
+
+      await expect(manager.setEnabled('apollo-plugin-missing', false)).rejects.toMatchObject({
+        code: 'plugin_not_installed',
+      })
+      await expect(manager.recordFailure('apollo-plugin-missing')).resolves.toBe(false)
+      await manager.setEnabled(manifest.name, false)
+      expect(manager.list()[manifest.name]).toMatchObject({ enabled: false, failures: 0 })
+      expect(Object.getPrototypeOf(manager.list())).toBeNull()
+      expect(Reflect.get(manager.list(), '__proto__')).toBeUndefined()
+    } finally {
+      for (const property of ['enabled', 'failures']) {
+        const prototypeDescriptor = objectPrototypeBefore[property]
+        const constructorDescriptor = objectConstructorBefore[property]
+        if (prototypeDescriptor)
+          Reflect.defineProperty(Object.prototype, property, prototypeDescriptor)
+        else Reflect.deleteProperty(Object.prototype, property)
+        if (constructorDescriptor) Object.defineProperty(Object, property, constructorDescriptor)
+        else Reflect.deleteProperty(Object, property)
+      }
+    }
+
+    expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(objectPrototypeBefore)
+    expect(Object.getOwnPropertyDescriptors(Object)).toEqual(objectConstructorBefore)
+  })
+  it('rejects symlinked and oversized legacy state before parsing', async () => {
+    const symlinkRoot = await mkdtemp(join(tmpdir(), 'apollo-state-symlink-'))
+    const outside = join(symlinkRoot, 'outside.json')
+    await writeFile(outside, JSON.stringify({ approvals: {} }))
+    await symlink(outside, join(symlinkRoot, 'plugins.json'))
+    const symlinkManager = new PluginManager(symlinkRoot, '1.0.0', async () => true)
+    await expect(symlinkManager.init()).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+
+    const oversizedRoot = await mkdtemp(join(tmpdir(), 'apollo-state-oversized-'))
+    await writeFile(join(oversizedRoot, 'plugins.json'), 'x'.repeat(1024 * 1024 + 1))
+    const oversizedManager = new PluginManager(oversizedRoot, '1.0.0', async () => true)
+    await expect(oversizedManager.init()).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+  })
+  it.each([
+    [
+      'too many approvals',
+      JSON.stringify({
+        approvals: Object.fromEntries(
+          Array.from({ length: 1025 }, (_, index) => [
+            `apollo-plugin-state-${index}`,
+            { version: '1.0.0', permissionHash: 'hash', enabled: true, failures: 0 },
+          ]),
+        ),
+      }),
+    ],
+    [
+      'an invalid approval key',
+      JSON.stringify({
+        approvals: {
+          constructor: { version: '1.0.0', permissionHash: 'hash', enabled: true, failures: 0 },
+        },
+      }),
+    ],
+    [
+      'an oversized version',
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: 'v'.repeat(129),
+            permissionHash: 'hash',
+            enabled: true,
+            failures: 0,
+          },
+        },
+      }),
+    ],
+    [
+      'a terminal-control version',
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: '1.0.0\n\u001B[31m',
+            permissionHash: 'hash',
+            enabled: true,
+            failures: 0,
+          },
+        },
+      }),
+    ],
+    [
+      'an oversized permission hash',
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: '1.0.0',
+            permissionHash: 'h'.repeat(513),
+            enabled: true,
+            failures: 0,
+          },
+        },
+      }),
+    ],
+    [
+      'a non-finite failure count',
+      `{"approvals":{"${manifest.name}":{"version":"1.0.0","permissionHash":"hash","enabled":true,"failures":1e309}}}`,
+    ],
+    [
+      'a negative failure count',
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: '1.0.0',
+            permissionHash: 'hash',
+            enabled: true,
+            failures: -1,
+          },
+        },
+      }),
+    ],
+    [
+      'a fractional failure count',
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: '1.0.0',
+            permissionHash: 'hash',
+            enabled: true,
+            failures: 1.5,
+          },
+        },
+      }),
+    ],
+  ])('rejects legacy state containing %s', async (_reason, serialized) => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-state-bounds-'))
+    await writeFile(join(root, 'plugins.json'), serialized)
+    const manager = new PluginManager(root, '1.0.0', async () => true)
+
+    await expect(manager.init()).rejects.toMatchObject({
+      code: 'plugin_legacy_activation_unavailable',
+    })
+    expect(Object.keys(manager.list())).toEqual([])
+  })
+  it('rejects invalid failure thresholds and never overflows persisted failure counts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-failure-threshold-'))
+    await writeFile(
+      join(root, 'plugins.json'),
+      JSON.stringify({
+        approvals: {
+          [manifest.name]: {
+            version: manifest.version,
+            permissionHash: 'legacy-hash',
+            enabled: true,
+            failures: 1_000_000,
+          },
+        },
+      }),
+    )
+    const manager = new PluginManager(root, '1.0.0', async () => true)
+    await manager.init()
+
+    for (const threshold of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1_000_001])
+      await expect(manager.recordFailure(manifest.name, threshold)).rejects.toMatchObject({
+        code: 'plugin_legacy_activation_unavailable',
+      })
+
+    await expect(manager.recordFailure(manifest.name, 1_000_000)).resolves.toBe(true)
+    expect(manager.list()[manifest.name]?.failures).toBe(1_000_000)
+    const reloaded = new PluginManager(root, '1.0.0', async () => true)
+    await expect(reloaded.init()).resolves.toBeUndefined()
+    expect(reloaded.list()[manifest.name]?.failures).toBe(1_000_000)
   })
   it('projects stale enabled legacy records disabled without rewriting state', async () => {
     const root = await mkdtemp(join(tmpdir(), 'apollo-stale-enabled-'))

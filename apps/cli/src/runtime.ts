@@ -1159,6 +1159,11 @@ export interface ProductionOptions {
 function diagnosticRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+const LEGACY_PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+function assertLegacyPluginName(name: string): void {
+  if (!LEGACY_PLUGIN_NAME.test(name))
+    throw new PluginError('plugin_path_escape', 'invalid plugin target')
+}
 
 async function readContainedPluginDiagnostic(
   pluginRoot: string,
@@ -1182,8 +1187,7 @@ async function readContainedPluginDiagnostic(
     permissions: [] as readonly string[],
     compatibility: { status: 'invalid' as const, detail },
   })
-  if (!/^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/.test(name))
-    throw new PluginError('plugin_path_escape', 'invalid plugin diagnostic target')
+  assertLegacyPluginName(name)
   let manifest: unknown
   try {
     const canonicalRoot = await realpath(pluginRoot)
@@ -1711,6 +1715,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         )
       },
       async uninstall(name) {
+        assertLegacyPluginName(name)
         await pluginsReady
         await plugins.uninstall(name)
       },
@@ -1719,6 +1724,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         return plugins.list()
       },
       async setEnabled(name, enabled) {
+        assertLegacyPluginName(name)
         if (enabled)
           throw new PluginError(
             LEGACY_PLUGIN_UNAVAILABLE.code,
@@ -1731,9 +1737,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         return LEGACY_PLUGIN_UNAVAILABLE
       },
       async doctor(name) {
+        assertLegacyPluginName(name)
         await pluginsReady
-        const state = plugins.list()[name]
-        if (!state) throw new Error(`plugin_not_installed: ${name}`)
+        const approvals = plugins.list()
+        const state = Object.hasOwn(approvals, name) ? approvals[name] : undefined
+        if (!state) throw new PluginError('plugin_not_installed', name)
         const diagnostic = await readContainedPluginDiagnostic(
           pluginRoot,
           name,

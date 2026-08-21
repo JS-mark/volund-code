@@ -4,21 +4,21 @@
 
 `apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。`~/.apollo/config.toml` 中设置 `[evolution] enabled = false` 后，新会话使用内置 context 默认值。
 
-| 命令                           | 用途                                        |
-| ------------------------------ | ------------------------------------------- |
-| `apollo` / `apollo chat`       | 启动交互式或单次编程会话。                  |
-| `apollo login <provider>`      | 验证并安全保存 provider 凭据。              |
-| `apollo logout <provider>`     | 删除已保存的 provider 凭据。                |
-| `apollo config`                | 查看配置。                                  |
-| `apollo history list` / `show` | 查看本地会话历史。                          |
-| `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。            |
-| `apollo restore <session-id>`  | 回滚该会话修改过的文件。                    |
-| `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。          |
-| `apollo memory <action>`       | 管理长期记忆、pinned 上下文和本地搜索索引。 |
-| `apollo plugin <action>`       | 安装、列出、诊断、启停或卸载本地插件。      |
-| `apollo hook list`             | 列出内置 hooks。                            |
+| 命令                           | 用途                                         |
+| ------------------------------ | -------------------------------------------- |
+| `apollo` / `apollo chat`       | 启动交互式或单次编程会话。                   |
+| `apollo login <provider>`      | 验证并安全保存 provider 凭据。               |
+| `apollo logout <provider>`     | 删除已保存的 provider 凭据。                 |
+| `apollo config`                | 查看配置。                                   |
+| `apollo history list` / `show` | 查看本地会话历史。                           |
+| `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。             |
+| `apollo restore <session-id>`  | 回滚该会话修改过的文件。                     |
+| `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。           |
+| `apollo memory <action>`       | 管理长期记忆、pinned 上下文和本地搜索索引。  |
+| `apollo plugin <action>`       | 检查或清理本地插件；旧版安装与启用暂不可用。 |
+| `apollo hook list`             | 列出内置 hooks。                             |
 
-`apollo plugin install <本地目录>` 会校验 manifest 与 bundle、展示权限，并仅在明确批准后安装。新建和恢复会话只会通过原生沙箱宿主激活已安装、已批准且 enabled 的插件。工具必须使用 `plugin:<manifest-name>:<tool-name>` 命名空间，返回内容会标记为 untrusted；disable 或 uninstall 会终止宿主并清除注册，enable 会在活动会话中恢复加载。可用 `plugin list [--json]`、`plugin doctor <name>`、`plugin enable|disable <name>` 和 `plugin uninstall <name>` 管理。registry/GitHub spec、升级与 L4 热重载尚未实现。
+旧版 v1 插件的安装、启用和激活目前在生产环境中暂不可用，并以 `plugin_legacy_activation_unavailable` 失败；只有 Catalog v2、经验证的 capability ABI 和显式安全复审完成后才可重新开放。启动时会把可解析的旧 `enabled:true` 记录解释为 disabled，且不会加载插件。`plugin list [--json]`、`plugin doctor <name>`、`plugin disable <name>` 和 `plugin uninstall <name>` 仍可用于安全检查与清理。插件命令在 `--json` 失败时只向 stdout 依次写入 `error`、`final` 两条 NDJSON 事件，stderr 为空。
 | `apollo version` | 输出版本。 |
 | `apollo help` | 显示帮助。 |
 

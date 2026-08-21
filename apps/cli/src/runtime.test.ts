@@ -1499,12 +1499,15 @@ describe('production plugin composition root containment', () => {
     await session.end()
   })
 
-  it('reports malformed legacy state with a stable fail-closed diagnostic', async () => {
-    const root = await mkdtemp(join(process.cwd(), '.plugin-malformed-state-'))
+  it.each([
+    ['malformed', () => '{ malformed'],
+    ['oversized', () => 'x'.repeat(1024 * 1024 + 1)],
+  ])('reports %s legacy state without blocking sessions or Memory', async (kind, state) => {
+    const root = await mkdtemp(join(process.cwd(), `.plugin-${kind}-state-`))
     fixtures.push(root)
     const home = join(root, 'home')
     await mkdir(join(home, 'plugins'), { recursive: true })
-    await writeFile(join(home, 'plugins', 'plugins.json'), '{ malformed')
+    await writeFile(join(home, 'plugins', 'plugins.json'), state())
     const ports = createProductionPorts({
       apolloHome: home,
       identity: { version: '1.2.3' },
@@ -1514,12 +1517,12 @@ describe('production plugin composition root containment', () => {
     await session.end()
     await expect(
       ports.memory!.create({
-        id: 'malformed-plugin-state-does-not-block-memory',
+        id: `${kind}-plugin-state-does-not-block-memory`,
         scope: projectMemoryScope(root),
         content: 'safe',
         provenance: { source: 'user' },
       }),
-    ).resolves.toMatchObject({ id: 'malformed-plugin-state-does-not-block-memory' })
+    ).resolves.toMatchObject({ id: `${kind}-plugin-state-does-not-block-memory` })
 
     const listed = await runCli(['plugin', 'list', '--json'], ports)
     const events = listed.stdout
@@ -1586,11 +1589,6 @@ describe('production plugin composition root containment', () => {
       join(pluginRoot, 'plugins.json'),
       JSON.stringify({
         approvals: {
-          '../../outside': {
-            version: '9.9.9',
-            permissionHash: 'traversal',
-            enabled: true,
-          },
           [symlinkedName]: {
             version: '1.2.3',
             permissionHash: 'symlink',
@@ -1724,6 +1722,16 @@ describe('production plugin composition root containment', () => {
     expect(JSON.parse(diagnosed.stdout)).toMatchObject({
       availability: { available: false, code: 'plugin_legacy_activation_unavailable' },
     })
+    const missing = await runCli(['plugin', 'doctor', 'apollo-plugin-missing', '--json'], ports)
+    const missingEvents = missing.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(missing).toMatchObject({ exitCode: 1, stderr: '' })
+    expect(missingEvents).toMatchObject([
+      { type: 'error', data: { code: 'plugin_not_installed', exitCode: 1 } },
+      { type: 'final', data: { status: 'error', exitCode: 1 } },
+    ])
     expect((await runCli(['plugin', 'enable', pluginName], ports)).stderr).toContain(
       'plugin_legacy_activation_unavailable',
     )
