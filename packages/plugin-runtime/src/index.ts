@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { types as nodeTypes } from 'node:util'
 
@@ -188,25 +189,83 @@ export interface PluginApproval {
 export interface PluginState {
   approvals: Record<string, PluginApproval>
 }
+const PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+const PLUGIN_STATE_MAX_BYTES = 1024 * 1024
+const PLUGIN_STATE_MAX_APPROVALS = 1024
+const PLUGIN_STATE_MAX_VERSION_LENGTH = 128
+const PLUGIN_STATE_MAX_PERMISSION_HASH_LENGTH = 512
+const PLUGIN_STATE_MAX_FAILURES = 1_000_000
+const PLUGIN_STATE_VERSION =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 function isPluginState(value: unknown): value is PluginState {
   if (!isRecord(value) || !isRecord(value.approvals)) return false
-  return Object.values(value.approvals).every(
-    (approval) =>
+  const approvals = Object.entries(value.approvals)
+  if (approvals.length > PLUGIN_STATE_MAX_APPROVALS) return false
+  return approvals.every(
+    ([name, approval]) =>
+      PLUGIN_NAME.test(name) &&
       isRecord(approval) &&
       typeof approval.version === 'string' &&
+      approval.version.length <= PLUGIN_STATE_MAX_VERSION_LENGTH &&
+      PLUGIN_STATE_VERSION.test(approval.version) &&
       typeof approval.permissionHash === 'string' &&
+      approval.permissionHash.length <= PLUGIN_STATE_MAX_PERMISSION_HASH_LENGTH &&
       typeof approval.enabled === 'boolean' &&
-      (approval.failures === undefined || typeof approval.failures === 'number'),
+      (approval.failures === undefined ||
+        (typeof approval.failures === 'number' &&
+          Number.isSafeInteger(approval.failures) &&
+          approval.failures >= 0 &&
+          approval.failures <= PLUGIN_STATE_MAX_FAILURES)),
   )
 }
 function fileErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) return undefined
   return typeof error.code === 'string' ? error.code : undefined
 }
-const PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+function assertPluginName(name: string): void {
+  if (!PLUGIN_NAME.test(name)) throw new PluginError('plugin_path_escape', name)
+}
+function nullPrototypeApprovals(
+  entries: Iterable<readonly [string, PluginApproval]> = [],
+): Record<string, PluginApproval> {
+  const approvals: Record<string, PluginApproval> = {}
+  Object.setPrototypeOf(approvals, null)
+  for (const [name, approval] of entries) approvals[name] = approval
+  return approvals
+}
+function ownApproval(
+  approvals: Record<string, PluginApproval>,
+  name: string,
+): PluginApproval | undefined {
+  assertPluginName(name)
+  return Object.hasOwn(approvals, name) ? approvals[name] : undefined
+}
+async function readBoundedRegularFile(path: string, maxBytes: number): Promise<string> {
+  const handle = await open(
+    path,
+    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+  )
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile() || stat.size > maxBytes)
+      throw new PluginError('plugin_legacy_activation_unavailable', 'legacy plugin state rejected')
+    const buffer = Buffer.alloc(maxBytes + 1)
+    let offset = 0
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    if (offset > maxBytes)
+      throw new PluginError('plugin_legacy_activation_unavailable', 'legacy plugin state rejected')
+    return buffer.toString('utf8', 0, offset)
+  } finally {
+    await handle.close()
+  }
+}
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
 const RANGE = /^(\^|~)?(\d+)\.(\d+)\.(\d+)$/
 export function satisfies(version: string, range: string): boolean {
@@ -385,7 +444,7 @@ export async function verifyBundle(
   }
 }
 export class PluginManager {
-  private state: PluginState = { approvals: {} }
+  private state: PluginState = { approvals: nullPrototypeApprovals() }
   constructor(
     readonly root: string,
     readonly apolloVersion: string,
@@ -393,10 +452,13 @@ export class PluginManager {
   ) {}
   async init() {
     await mkdir(this.root, { recursive: true })
-    this.state = { approvals: {} }
+    this.state = { approvals: nullPrototypeApprovals() }
     let serialized: string
     try {
-      serialized = await readFile(join(this.root, 'plugins.json'), 'utf8')
+      serialized = await readBoundedRegularFile(
+        join(this.root, 'plugins.json'),
+        PLUGIN_STATE_MAX_BYTES,
+      )
     } catch (error) {
       if (fileErrorCode(error) === 'ENOENT') return
       throw legacyPluginUnavailable('legacy plugin state read')
@@ -408,7 +470,10 @@ export class PluginManager {
       throw legacyPluginUnavailable('legacy plugin state migration')
     }
     if (!isPluginState(state)) throw legacyPluginUnavailable('legacy plugin state migration')
-    this.state = state
+    this.state = {
+      ...state,
+      approvals: nullPrototypeApprovals(Object.entries(state.approvals)),
+    }
     for (const approval of Object.values(this.state.approvals)) approval.enabled = false
   }
   private async save() {
@@ -428,29 +493,35 @@ export class PluginManager {
     throw legacyPluginUnavailable('plugin install')
   }
   async setEnabled(name: string, enabled: boolean) {
+    const record = ownApproval(this.state.approvals, name)
     if (enabled) throw legacyPluginUnavailable('plugin enable')
-    const record = this.state.approvals[name]
     if (!record) throw new PluginError('plugin_not_installed', name)
     record.enabled = enabled
     record.failures = 0
     await this.save()
   }
   async recordFailure(name: string, threshold = 3) {
-    const record = this.state.approvals[name]
+    const record = ownApproval(this.state.approvals, name)
+    if (!Number.isSafeInteger(threshold) || threshold <= 0 || threshold > PLUGIN_STATE_MAX_FAILURES)
+      throw legacyPluginUnavailable('plugin failure threshold')
     if (!record) return false
-    record.failures = (record.failures ?? 0) + 1
+    record.failures = Math.min((record.failures ?? 0) + 1, PLUGIN_STATE_MAX_FAILURES)
     if (record.failures >= threshold) record.enabled = false
     await this.save()
     return !record.enabled
   }
   async uninstall(name: string) {
-    if (!PLUGIN_NAME.test(name)) throw new PluginError('plugin_path_escape', name)
+    assertPluginName(name)
     await rm(join(this.root, name), { recursive: true, force: true })
-    delete this.state.approvals[name]
+    if (Object.hasOwn(this.state.approvals, name)) delete this.state.approvals[name]
     await this.save()
   }
   list() {
-    return structuredClone(this.state.approvals)
+    return nullPrototypeApprovals(
+      Object.entries(this.state.approvals).map(
+        ([name, approval]) => [name, structuredClone(approval)] as const,
+      ),
+    )
   }
 }
 
