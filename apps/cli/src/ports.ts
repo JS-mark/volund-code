@@ -133,7 +133,12 @@ export interface PluginPort {
     version: string
     permissions: readonly string[]
     availability: PluginAvailability
+    compatibility: PluginCompatibilityDiagnostic
   }>
+}
+export interface PluginCompatibilityDiagnostic {
+  status: 'compatible' | 'incompatible' | 'invalid'
+  detail: string
 }
 export interface PluginAvailability {
   available: false

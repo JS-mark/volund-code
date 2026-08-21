@@ -18,16 +18,9 @@ const appendixRelativePath =
 export const emittedWithoutLiteral = new Map([
   ['APOLLO_SUBAGENT_DEPTH_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
   ['APOLLO_SUBAGENT_CONCURRENCY_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
-  ['plugin_internal_error', 'packages/plugin-runtime/src/index.ts safeRpcError 兜底'],
+  ['plugin_internal_error', 'apps/cli/src/cli.ts plugin JSON unknown-error fallback'],
   ['memory_unknown', 'packages/ui/src/memory-panel.ts memoryPanelError 兜底'],
   ['memory_index_corrupt', 'packages/storage/src/memory-index.ts 快照读取三元缺省码'],
-  // P0-00 containment removes production legacy plugin composition without deleting the
-  // compatibility contracts that Catalog v2/ABI migration must either rewire or retire.
-  ['memory_hook_failed', 'P0-00 quarantined legacy production Memory policy runtime'],
-  ['memory_hook_reentrant', 'P0-00 quarantined legacy production Memory policy runtime'],
-  ['memory_hook_veto', 'P0-00 quarantined legacy production Memory policy runtime'],
-  ['plugin_http_not_connected', 'P0-00 removed legacy production session plugin bridge'],
-  ['plugin_ui_not_connected', 'P0-00 removed legacy production session plugin bridge'],
   // normalizeError 的 `APOLLO_${category.toUpperCase()}` 动态工厂（shared/src/errors.ts）
   ['APOLLO_NETWORK', 'normalizeError APOLLO_<CATEGORY> 工厂'],
   ['APOLLO_AUTH', 'normalizeError APOLLO_<CATEGORY> 工厂'],
@@ -44,10 +37,82 @@ export const emittedWithoutLiteral = new Map([
   ['APOLLO_TIMEOUT', 'normalizeError APOLLO_<CATEGORY> 工厂'],
   ['APOLLO_CANCELLED', 'normalizeError APOLLO_<CATEGORY> 工厂'],
   ['APOLLO_UNKNOWN', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  // 附录 B.2 契约码：实现尚未接线（worker 崩溃现以 restart 计数降级 / builtin hook 未落地）
-  ['hook_priority_out_of_range', '附录 B.2 契约码，实现未接线（§6.11.1）'],
-  ['search_worker_crashed', '附录 B.2 契约码，worker-pool 以 restart 计数降级未 emit 码'],
-  ['fs_worker_crashed', '附录 B.2 契约码，worker-pool 以 restart 计数降级未 emit 码'],
+])
+
+const legacyHostRemovalGate = Object.freeze({
+  owner: 'ABI-R1',
+  removalGate:
+    'Verified replacement host transport must reconnect this contract or remove it at ABI review',
+})
+
+/**
+ * Intentionally dormant cross-module contracts. Unlike `emittedWithoutLiteral`, these codes are
+ * not emitted by the current production graph. Every reservation names an owner and the concrete
+ * gate that must either reconnect or remove it.
+ */
+export const reservedContractCodes = new Map([
+  ['plugin_activation_cancelled', legacyHostRemovalGate],
+  ['plugin_activation_timeout', legacyHostRemovalGate],
+  ['plugin_already_loaded', legacyHostRemovalGate],
+  ['plugin_approval_stale', legacyHostRemovalGate],
+  ['plugin_callback_cancelled', legacyHostRemovalGate],
+  ['plugin_callback_failed', legacyHostRemovalGate],
+  ['plugin_callback_timeout', legacyHostRemovalGate],
+  ['plugin_deactivated', legacyHostRemovalGate],
+  ['plugin_heartbeat_timeout', legacyHostRemovalGate],
+  ['plugin_host_exited', legacyHostRemovalGate],
+  ['plugin_not_enabled', legacyHostRemovalGate],
+  ['plugin_permission_denied', legacyHostRemovalGate],
+  ['plugin_rpc_frame_too_large', legacyHostRemovalGate],
+  ['plugin_rpc_invalid_json', legacyHostRemovalGate],
+  ['plugin_rpc_version', legacyHostRemovalGate],
+  [
+    'hook_priority_out_of_range',
+    { owner: 'HOOK-R1', removalGate: 'Implement manifest priority validation or revise §6.11.1' },
+  ],
+  [
+    'search_worker_crashed',
+    { owner: 'NATIVE-R1', removalGate: 'Emit on worker crash or revise the B.2 worker contract' },
+  ],
+  [
+    'fs_worker_crashed',
+    { owner: 'NATIVE-R1', removalGate: 'Emit on worker crash or revise the B.2 worker contract' },
+  ],
+  [
+    'memory_hook_failed',
+    {
+      owner: 'CAT-02',
+      removalGate: 'Catalog v2 must reconnect the verified Memory hook ABI or retire this code',
+    },
+  ],
+  [
+    'memory_hook_reentrant',
+    {
+      owner: 'CAT-02',
+      removalGate: 'Catalog v2 must reconnect the verified Memory hook ABI or retire this code',
+    },
+  ],
+  [
+    'memory_hook_veto',
+    {
+      owner: 'CAT-02',
+      removalGate: 'Catalog v2 must reconnect the verified Memory hook ABI or retire this code',
+    },
+  ],
+  [
+    'plugin_http_not_connected',
+    {
+      owner: 'ABI-R1',
+      removalGate: 'Verified replacement session bridge must emit this code or retire its contract',
+    },
+  ],
+  [
+    'plugin_ui_not_connected',
+    {
+      owner: 'ABI-R1',
+      removalGate: 'Verified replacement session bridge must emit this code or retire its contract',
+    },
+  ],
 ])
 
 /** 错误码字面量形状：snake_case（≥2 段）或 UPPER_SNAKE（≥2 段）。 */
@@ -81,7 +146,7 @@ export function parseAppendixCodes(markdown) {
   if (start === -1) return []
   const nextSection = markdown.indexOf('## B.3', start)
   const section = markdown.slice(start, nextSection === -1 ? undefined : nextSection)
-  return [...section.matchAll(/^\| `([a-z0-9_]+)` \|/gm)].map((match) => match[1])
+  return [...section.matchAll(/^\| `([a-z0-9_]+)`\s+\|/gm)].map((match) => match[1])
 }
 
 /**
@@ -89,7 +154,8 @@ export function parseAppendixCodes(markdown) {
  * 1. 属性 `code: 'literal'`（含三元兜底 `x.code : 'literal'`）；
  * 2. `new XxxError('code', ...)` 构造首参为纯码形状字面量（整串无空格，排除自然语言 message）；
  * 3. `` `code: ${detail}` `` 码前缀模板（new Error 构造与 error 载荷两处的惯例）；
- * 4. `new XxxError('code: message')` 码前缀引号串（theme_invalid 惯例）。
+ * 4. `new XxxError('code: message')` 码前缀引号串（theme_invalid 惯例）；
+ * 5. `jsonFailure(message, exit, 'code')` CLI machine-protocol helper third argument.
  */
 export function extractEmittedCodes(files) {
   const emits = []
@@ -98,6 +164,9 @@ export function extractEmittedCodes(files) {
     { pattern: /\bnew\s+\w*Error\s*\(\s*['"]([A-Za-z0-9_]+)['"]\s*(?=[,)])/g },
     { pattern: /`([a-z][a-z0-9]*(?:_[a-z0-9]+)+): *\$\{/g },
     { pattern: /\bnew\s+\w*Error\s*\(\s*'([a-z][a-z0-9]*(?:_[a-z0-9]+)+): /g },
+    {
+      pattern: /\bjsonFailure\s*\(\s*[^,\n]+,\s*\d+\s*,\s*['"]([A-Za-z0-9_]+)['"]/g,
+    },
   ]
   for (const file of files) {
     for (const { pattern } of patterns) {
@@ -109,8 +178,14 @@ export function extractEmittedCodes(files) {
   return emits
 }
 
-/** 汇总四向校验：表内键值合法且唯一 / 附录 B.2 ⊆ 表 / emit ⊆ 表 / 表 − emit − 豁免 = ∅。 */
-export function auditErrorCodes({ registryEntries, appendixCodes, emitted, exempt }) {
+/** 汇总四向校验：表内键值合法且唯一 / 附录 B.2 ⊆ 表 / emit ⊆ 表 / 表 − emit − 豁免 − 保留契约 = ∅。 */
+export function auditErrorCodes({
+  registryEntries,
+  appendixCodes,
+  emitted,
+  exempt = new Map(),
+  reserved = new Map(),
+}) {
   const errors = []
   const registry = new Map()
   const seenKeys = new Set()
@@ -132,13 +207,38 @@ export function auditErrorCodes({ registryEntries, appendixCodes, emitted, exemp
       )
   const emittedCodes = new Set(emitted.map((entry) => entry.code))
   for (const [code, key] of registry)
-    if (!emittedCodes.has(code) && !exempt.has(code))
+    if (!emittedCodes.has(code) && !exempt.has(code) && !reserved.has(code))
       errors.push(
-        `registry: '${code}' (${key}) is never emitted and not exempt (remove it or add an exemption with a real source)`,
+        `registry: '${code}' (${key}) is never emitted, exempt, or reserved (remove it, identify its real dynamic source, or add an owned removal gate)`,
       )
-  for (const code of exempt.keys())
+  for (const [code, source] of exempt) {
     if (!registry.has(code))
       errors.push(`exemption '${code}' is not in the registry (stale or misspelled exemption)`)
+    if (typeof source !== 'string' || source.trim() === '')
+      errors.push(`exemption '${code}' must identify a real dynamic emission source`)
+    if (reserved.has(code))
+      errors.push(`code '${code}' cannot be both dynamically emitted and reserved`)
+  }
+  for (const [code, reservation] of reserved) {
+    if (!registry.has(code))
+      errors.push(`reserved contract '${code}' is not in the registry (stale reservation)`)
+    if (emittedCodes.has(code) || exempt.has(code))
+      errors.push(`reserved contract '${code}' is now emitted; remove its reservation`)
+    if (
+      reservation === null ||
+      typeof reservation !== 'object' ||
+      typeof reservation.owner !== 'string' ||
+      reservation.owner.trim() === ''
+    )
+      errors.push(`reserved contract '${code}' must have an owner`)
+    if (
+      reservation === null ||
+      typeof reservation !== 'object' ||
+      typeof reservation.removalGate !== 'string' ||
+      reservation.removalGate.trim() === ''
+    )
+      errors.push(`reserved contract '${code}' must have a removalGate`)
+  }
   return errors
 }
 
@@ -182,6 +282,7 @@ if (isAbsolute(process.argv[1] ?? '') && resolve(process.argv[1]) === scriptPath
       appendixCodes,
       emitted,
       exempt: emittedWithoutLiteral,
+      reserved: reservedContractCodes,
     }),
   ]
   if (errors.length) {
@@ -189,7 +290,7 @@ if (isAbsolute(process.argv[1] ?? '') && resolve(process.argv[1]) === scriptPath
     process.exitCode = 1
   } else {
     console.log(
-      `Error code registry in sync: ${entries.length} registered, ${new Set(emitted.map((entry) => entry.code)).size} emitted literal codes, ${appendixCodes.length} appendix B.2 codes covered.`,
+      `Error code registry in sync: ${entries.length} registered, ${new Set(emitted.map((entry) => entry.code)).size} emitted literal codes, ${reservedContractCodes.size} owned reserved contracts, ${appendixCodes.length} appendix B.2 codes covered.`,
     )
   }
 }

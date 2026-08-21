@@ -7,6 +7,7 @@ import {
   isErrorCodeLiteral,
   parseAppendixCodes,
   parseRegistry,
+  reservedContractCodes,
 } from './verify-error-codes.mjs'
 
 void test('isErrorCodeLiteral accepts snake_case and UPPER_SNAKE with at least two segments', () => {
@@ -88,6 +89,7 @@ void test('extractEmittedCodes covers every emit idiom and skips prose messages'
         'throw new Error(`provider_not_registered: ${name}`)',
         "throw new Error('theme_invalid: expected an object')",
         "throw new Error('sandbox binary disappeared; restart required')",
+        "return jsonFailure(message, 2, 'plugin_command_unknown', 'usage')",
       ].join('\n'),
     },
     {
@@ -104,6 +106,7 @@ void test('extractEmittedCodes covers every emit idiom and skips prose messages'
       'fallback_chain_empty',
       'provider_not_registered',
       'theme_invalid',
+      'plugin_command_unknown',
       'plugin_manifest_invalid',
     ],
   )
@@ -138,7 +141,7 @@ void test('auditErrorCodes fails on unregistered emits, appendix gaps, and zombi
     emitted,
     exempt,
   })
-  assert.match(zombie.join('\n'), /'zombie_code' \(zombie\) is never emitted and not exempt/)
+  assert.match(zombie.join('\n'), /'zombie_code' \(zombie\) is never emitted, exempt, or reserved/)
 
   const staleExempt = auditErrorCodes({
     registryEntries,
@@ -162,3 +165,49 @@ void test('auditErrorCodes fails on unregistered emits, appendix gaps, and zombi
   })
   assert.match(duplicates.join('\n'), /duplicate code 'same_code'/)
 })
+
+void test('auditErrorCodes requires honest ownership metadata for dormant contracts', () => {
+  const registryEntries = [
+    { key: 'live', code: 'live_code' },
+    { key: 'dormant', code: 'dormant_code' },
+  ]
+  const emitted = [{ path: 'src/a.ts', code: 'live_code' }]
+  const valid = new Map([
+    ['dormant_code', { owner: 'ABI-R1', removalGate: 'reconnect or remove at ABI review' }],
+  ])
+  assert.deepEqual(
+    auditErrorCodes({ registryEntries, appendixCodes: [], emitted, reserved: valid }),
+    [],
+  )
+
+  const invalid = auditErrorCodes({
+    registryEntries,
+    appendixCodes: [],
+    emitted,
+    reserved: new Map([
+      ['dormant_code', { owner: '', removalGate: '' }],
+      ['stale_code', { owner: 'CAT-02', removalGate: 'remove' }],
+      ['live_code', { owner: 'ABI-R1', removalGate: 'remove' }],
+    ]),
+  })
+  expectIncludes(invalid, "reserved contract 'dormant_code' must have an owner")
+  expectIncludes(invalid, "reserved contract 'dormant_code' must have a removalGate")
+  expectIncludes(invalid, "reserved contract 'stale_code' is not in the registry")
+  expectIncludes(invalid, "reserved contract 'live_code' is now emitted")
+})
+
+void test('repository reserved contracts carry an owner and removal gate', () => {
+  assert.ok(reservedContractCodes.size > 0)
+  for (const [code, reservation] of reservedContractCodes) {
+    assert.match(code, /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/)
+    assert.ok(reservation.owner.length > 0)
+    assert.ok(reservation.removalGate.length > 0)
+  }
+})
+
+function expectIncludes(values, expected) {
+  assert.ok(
+    values.some((value) => value.includes(expected)),
+    `${expected}\n${values.join('\n')}`,
+  )
+}

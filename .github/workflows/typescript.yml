@@ -21,16 +21,8 @@ jobs:
       - run: pnpm turbo run build
       - run: pnpm lint
       - run: pnpm turbo run typecheck test
-      - name: Allow the bundled bwrap to create user namespaces
-        # Ubuntu 24.04 otherwise applies its path-based AppArmor restriction to
-        # the verified bwrap image executed from a sealed memory descriptor.
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Build the production plugin sandbox host
-        run: cargo build -p apollo-sandbox --bin apollo-sandbox
-      - name: Run plugin host E2E through the production native binary
+      - name: Verify legacy plugin containment and package boundary
         run: |
-          pnpm --filter @apollo-code/plugin-runtime test -- src/e2e.test.ts
-          pnpm --filter apollo-code exec vitest run src/runtime.test.ts
-        env:
-          APOLLO_RUN_PLUGIN_E2E: '1'
-          APOLLO_NATIVE_SANDBOX_BINARY: ${{ github.workspace }}/target/debug/apollo-sandbox
+          pnpm --filter @apollo-code/plugin-runtime test -- src/index.test.ts
+          pnpm --filter apollo-code exec vitest run src/architecture.test.ts src/runtime.test.ts
+          node --test scripts/verify-plugin-runtime-packlist.test.mjs

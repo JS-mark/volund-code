@@ -252,6 +252,7 @@ describe('runCli', () => {
         name: 'apollo-plugin-demo',
         version: '1.0.0',
         permissions: ['tools.register'],
+        compatibility: { status: 'compatible' as const, detail: 'compatible' },
         availability,
       })),
     }
@@ -286,6 +287,99 @@ describe('runCli', () => {
       warn: true,
       plugin: availability,
     })
+  })
+
+  it('emits error and final NDJSON events for every plugin JSON failure path', async () => {
+    const availability = {
+      available: false as const,
+      code: 'plugin_legacy_activation_unavailable' as const,
+      detail: 'Legacy plugin activation is temporarily unavailable.',
+      reopenCondition: 'Catalog v2 verification',
+    }
+    const unavailable = Object.assign(new Error('legacy activation unavailable'), {
+      code: availability.code,
+    })
+    const plugin = {
+      availability: vi.fn(async () => availability),
+      install: vi.fn(async () => Promise.reject(unavailable)),
+      uninstall: vi.fn(async () =>
+        Promise.reject(Object.assign(new Error('filesystem denied'), { code: 'EACCES' })),
+      ),
+      list: vi.fn(async () => ({})),
+      setEnabled: vi.fn(async (_name: string, enabled: boolean) => {
+        if (enabled) throw unavailable
+      }),
+      doctor: vi.fn(async () => Promise.reject(unavailable)),
+    }
+    const cases = [
+      {
+        args: ['plugin', 'install', './demo', '--json'],
+        testPorts: ports({ plugin }),
+        exitCode: 1,
+        code: 'plugin_legacy_activation_unavailable',
+        category: 'runtime',
+      },
+      {
+        args: ['plugin', 'enable', 'apollo-plugin-demo', '--json'],
+        testPorts: ports({ plugin }),
+        exitCode: 1,
+        code: 'plugin_legacy_activation_unavailable',
+        category: 'runtime',
+      },
+      {
+        args: ['plugin', 'enable', '--json'],
+        testPorts: ports({ plugin }),
+        exitCode: 2,
+        code: 'plugin_command_target_required',
+        category: 'usage',
+      },
+      {
+        args: ['plugin', 'explode', 'apollo-plugin-demo', '--json'],
+        testPorts: ports({ plugin }),
+        exitCode: 2,
+        code: 'plugin_command_unknown',
+        category: 'usage',
+      },
+      {
+        args: ['plugin', 'uninstall', 'apollo-plugin-demo', '--json'],
+        testPorts: ports({ plugin }),
+        exitCode: 1,
+        code: 'plugin_internal_error',
+        category: 'runtime',
+      },
+      {
+        args: ['plugin', 'list', '--json'],
+        testPorts: ports(),
+        exitCode: 2,
+        code: 'plugin_integration_unavailable',
+        category: 'runtime',
+      },
+    ]
+
+    for (const testCase of cases) {
+      const result = await runCli(testCase.args, testCase.testPorts)
+      const lines = result.stdout.trim().split('\n')
+      const events = lines.map((line) => JSON.parse(line))
+      expect(result).toMatchObject({ exitCode: testCase.exitCode, stderr: '' })
+      expect(lines).toHaveLength(2)
+      expect(events).toMatchObject([
+        {
+          type: 'error',
+          seq: 1,
+          data: {
+            code: testCase.code,
+            category: testCase.category,
+            retryable: false,
+            exitCode: testCase.exitCode,
+          },
+        },
+        {
+          type: 'final',
+          seq: 2,
+          data: { status: 'error', exitCode: testCase.exitCode },
+        },
+      ])
+    }
   })
 
   it('lists and inspects MCP servers without exposing URL credentials', async () => {

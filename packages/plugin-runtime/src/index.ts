@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto'
-import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { types as nodeTypes } from 'node:util'
 
-import { startPluginHost } from '@apollo-code/native-bridge'
-import type { PluginHost, PluginSandboxProfile } from '@apollo-code/native-bridge'
+import type { PluginSandboxProfile } from '@apollo-code/native-bridge'
 import type {
   ApolloBridge,
   Disposable,
@@ -27,8 +26,6 @@ import type {
   ProviderRequest,
 } from '@apollo-code/provider-kit'
 
-import { legacyPluginTestAuthority } from './internal/legacy-test-authority'
-
 export const LEGACY_PLUGIN_UNAVAILABLE = Object.freeze({
   available: false as const,
   code: 'plugin_legacy_activation_unavailable' as const,
@@ -42,8 +39,6 @@ const legacyPluginUnavailable = (operation: string) =>
     LEGACY_PLUGIN_UNAVAILABLE.code,
     `${operation} is temporarily unavailable; ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition} required`,
   )
-const legacyPluginTestManagers = new WeakSet<object>()
-
 export class PluginError extends Error {
   constructor(
     readonly code: string,
@@ -211,6 +206,7 @@ function fileErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) return undefined
   return typeof error.code === 'string' ? error.code : undefined
 }
+const PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
 const RANGE = /^(\^|~)?(\d+)\.(\d+)\.(\d+)$/
 export function satisfies(version: string, range: string): boolean {
@@ -390,21 +386,11 @@ export async function verifyBundle(
 }
 export class PluginManager {
   private state: PluginState = { approvals: {} }
-  private readonly legacyTestAuthority: boolean
-  constructor(
-    root: string,
-    apolloVersion: string,
-    confirm: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>,
-  )
   constructor(
     readonly root: string,
     readonly apolloVersion: string,
     readonly confirm: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>,
-    authority?: typeof legacyPluginTestAuthority,
-  ) {
-    this.legacyTestAuthority = authority === legacyPluginTestAuthority
-    if (this.legacyTestAuthority) legacyPluginTestManagers.add(this)
-  }
+  ) {}
   async init() {
     await mkdir(this.root, { recursive: true })
     this.state = { approvals: {} }
@@ -423,20 +409,7 @@ export class PluginManager {
     }
     if (!isPluginState(state)) throw legacyPluginUnavailable('legacy plugin state migration')
     this.state = state
-    if (!this.legacyTestAuthority) {
-      let migrated = false
-      for (const approval of Object.values(this.state.approvals)) {
-        if (!approval.enabled) continue
-        approval.enabled = false
-        migrated = true
-      }
-      if (migrated)
-        try {
-          await this.save()
-        } catch {
-          throw legacyPluginUnavailable('legacy plugin state migration persistence')
-        }
-    }
+    for (const approval of Object.values(this.state.approvals)) approval.enabled = false
   }
   private async save() {
     const temp = join(this.root, `.plugins-${process.pid}.tmp`)
@@ -451,47 +424,11 @@ export class PluginManager {
     await verifyBundle(dir, manifest)
     return manifest
   }
-  async install(source: string) {
-    if (!this.legacyTestAuthority) throw legacyPluginUnavailable('plugin install')
-    const manifest = await this.inspect(source),
-      destination = join(this.root, manifest.name),
-      temp = join(this.root, `.${manifest.name}-${process.pid}.install`)
-    await rm(temp, { recursive: true, force: true })
-    await cp(source, temp, { recursive: true, dereference: false, verbatimSymlinks: true })
-    await verifyBundle(temp, manifest)
-    const old = this.state.approvals[manifest.name],
-      hash = permissionHash(manifest),
-      expanded = Boolean(old && old.permissionHash !== hash)
-    if (!old || expanded)
-      if (!(await this.confirm(manifest, expanded))) {
-        await rm(temp, { recursive: true, force: true })
-        throw new PluginError('plugin_permission_denied', 'plugin permissions were not approved')
-      }
-    const backup = `${destination}.rollback`
-    await rm(backup, { recursive: true, force: true })
-    try {
-      await rename(destination, backup)
-    } catch {}
-    try {
-      await rename(temp, destination)
-      await rm(backup, { recursive: true, force: true })
-    } catch (error) {
-      try {
-        await rename(backup, destination)
-      } catch {}
-      throw error
-    }
-    this.state.approvals[manifest.name] = {
-      version: manifest.version,
-      permissionHash: hash,
-      enabled: true,
-      failures: 0,
-    }
-    await this.save()
-    return manifest
+  async install(_source: string): Promise<never> {
+    throw legacyPluginUnavailable('plugin install')
   }
   async setEnabled(name: string, enabled: boolean) {
-    if (enabled && !this.legacyTestAuthority) throw legacyPluginUnavailable('plugin enable')
+    if (enabled) throw legacyPluginUnavailable('plugin enable')
     const record = this.state.approvals[name]
     if (!record) throw new PluginError('plugin_not_installed', name)
     record.enabled = enabled
@@ -507,7 +444,7 @@ export class PluginManager {
     return !record.enabled
   }
   async uninstall(name: string) {
-    if (basename(name) !== name) throw new PluginError('plugin_path_escape', name)
+    if (!PLUGIN_NAME.test(name)) throw new PluginError('plugin_path_escape', name)
     await rm(join(this.root, name), { recursive: true, force: true })
     delete this.state.approvals[name]
     await this.save()
@@ -516,84 +453,6 @@ export class PluginManager {
     return structuredClone(this.state.approvals)
   }
 }
-
-type RpcFrame = {
-  jsonrpc: '2.0'
-  bridgeVersion: 1
-  id?: number
-  method?: string
-  params?: unknown
-  result?: unknown
-  error?: { code: number; message: string }
-}
-const RPC_MAX_FRAME = 1024 * 1024
-const RPC_METHODS = new Set([
-  'tools.register',
-  'tools.unregister',
-  'hooks.on',
-  'hooks.off',
-  'hooks.kv.get',
-  'hooks.kv.set',
-  'hooks.kv.delete',
-  'hooks.kv.clear',
-  'commands.register',
-  'prompt.contribute',
-  'prompt.revoke',
-  'session.getMessages',
-  'session.getUsage',
-  'session.on',
-  'fs.readFile',
-  'fs.writeFile',
-  'fs.exists',
-  'fs.glob',
-  'fs.stat',
-  'exec',
-  'http.fetch',
-  'ui.confirm',
-  'ui.prompt',
-  'ui.pick',
-  'ui.notify',
-  'storage.get',
-  'storage.set',
-  'storage.delete',
-  'memory.get',
-  'memory.list',
-  'memory.search',
-  'memory.create',
-  'memory.update',
-  'memory.delete',
-  'memory.export',
-  'config.get',
-  'log.debug',
-  'log.info',
-  'log.warn',
-  'log.error',
-  'call',
-])
-const RPC_MULTI_ARG_METHODS = new Set([
-  'hooks.on',
-  'hooks.off',
-  'hooks.kv.set',
-  'session.on',
-  'fs.readFile',
-  'fs.writeFile',
-  'exec',
-  'http.fetch',
-  'ui.prompt',
-  'ui.pick',
-  'ui.notify',
-  'storage.set',
-  'memory.get',
-  'memory.list',
-  'memory.search',
-  'memory.update',
-  'memory.delete',
-  'log.debug',
-  'log.info',
-  'log.warn',
-  'log.error',
-  'call',
-])
 
 export type BridgeCapabilityStatus = 'supported' | 'unsupported'
 export interface BridgeCapability {
@@ -668,311 +527,37 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
   })),
 ])
 
-const safeRpcError = (error: unknown) => {
-  if (error instanceof PluginError) return error.code
-  const code =
-    error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-      ? error.code
-      : undefined
-  return code?.match(/^(?:memory|plugin)_[a-z0-9_]+$/) ? code : 'plugin_internal_error'
-}
-
-class PluginConnection {
-  #buffer = ''
-  #nextId = 1
-  #pending = new Map<
-    number,
-    { resolve(value: unknown): void; reject(error: Error): void; timeout: NodeJS.Timeout }
-  >()
-  #activatedResolve!: () => void
-  #activatedReject!: (error: Error) => void
-  #closedResolve!: (error: Error) => void
-  #heartbeatTimer: NodeJS.Timeout | undefined
-  #disposed = false
-  readonly activated = new Promise<void>((resolve, reject) => {
-    this.#activatedResolve = resolve
-    this.#activatedReject = reject
-  })
-  readonly closed = new Promise<Error>((finish) => {
-    this.#closedResolve = finish
-  })
-  constructor(
-    readonly process: PluginHost,
-    readonly bridge: ApolloBridge,
-    readonly timeoutMs: number,
-  ) {
-    void this.activated.catch(() => {})
-    process.bridge.setEncoding('utf8')
-    process.bridge.on('data', (chunk: string | Buffer) => this.onData(String(chunk)))
-    process.bridge.on('error', (error) => this.fail(error))
-    void process.exited.then(({ code, signal }) => {
-      if (code !== 0 || signal)
-        this.fail(new PluginError('plugin_host_exited', `code=${code} signal=${signal ?? 'none'}`))
-    })
-  }
-  async invoke(callbackId: string, args: unknown[], signal?: AbortSignal): Promise<unknown> {
-    if (signal?.aborted) throw signal.reason
-    const id = this.#nextId++
-    const result = new Promise<unknown>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.#pending.delete(id)
-        reject(new PluginError('plugin_callback_timeout', callbackId))
-      }, this.timeoutMs)
-      this.#pending.set(id, { resolve, reject, timeout })
-    })
-    const abort = () =>
-      this.rejectPending(id, new PluginError('plugin_callback_cancelled', callbackId))
-    signal?.addEventListener('abort', abort, { once: true })
-    try {
-      await this.write({
-        jsonrpc: '2.0',
-        bridgeVersion: 1,
-        id,
-        method: 'callback.invoke',
-        params: { callbackId, args },
-      })
-      return await result
-    } finally {
-      signal?.removeEventListener('abort', abort)
-    }
-  }
-  dispose() {
-    this.#disposed = true
-    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
-    this.fail(new PluginError('plugin_deactivated', 'plugin connection closed'))
-    this.process.terminate()
-  }
-  private onData(chunk: string) {
-    this.#buffer += chunk
-    if (Buffer.byteLength(this.#buffer) > RPC_MAX_FRAME) {
-      this.process.terminate()
-      return this.fail(new PluginError('plugin_rpc_frame_too_large', 'bridge frame exceeds limit'))
-    }
-    for (;;) {
-      const newline = this.#buffer.indexOf('\n')
-      if (newline < 0) return
-      const line = this.#buffer.slice(0, newline)
-      this.#buffer = this.#buffer.slice(newline + 1)
-      if (!line) continue
-      let frame: RpcFrame
-      try {
-        frame = JSON.parse(line) as RpcFrame
-      } catch {
-        this.process.terminate()
-        return this.fail(new PluginError('plugin_rpc_invalid_json', 'invalid bridge JSON'))
-      }
-      void this.dispatch(frame).catch((error: unknown) => {
-        this.process.terminate()
-        this.fail(error instanceof Error ? error : new Error(String(error)))
-      })
-    }
-  }
-  private async dispatch(frame: RpcFrame) {
-    if (frame.jsonrpc !== '2.0' || frame.bridgeVersion !== 1) {
-      this.process.terminate()
-      return this.fail(new PluginError('plugin_rpc_version', 'unsupported bridge protocol'))
-    }
-    if (frame.id !== undefined && !frame.method) {
-      const pending = this.#pending.get(frame.id)
-      if (!pending) return
-      this.#pending.delete(frame.id)
-      clearTimeout(pending.timeout)
-      if (frame.error)
-        pending.reject(new PluginError('plugin_callback_failed', frame.error.message))
-      else pending.resolve(frame.result)
-      return
-    }
-    if (frame.method === 'host.ready') return
-    if (frame.method === 'host.activated') {
-      this.#activatedResolve()
-      return this.armHeartbeat()
-    }
-    if (frame.method === 'host.heartbeat') return this.armHeartbeat()
-    if (!frame.method || frame.id === undefined) return
-    try {
-      const result = await this.callBridge(frame.method, this.decode(frame.params))
-      await this.write({ jsonrpc: '2.0', bridgeVersion: 1, id: frame.id, result })
-    } catch (error) {
-      await this.write({
-        jsonrpc: '2.0',
-        bridgeVersion: 1,
-        id: frame.id,
-        // RPC errors cross a trust boundary. Return stable codes only; messages can
-        // contain commands, paths, URLs, or credentials supplied by a plugin.
-        error: { code: -32000, message: safeRpcError(error) },
-      })
-    }
-  }
-  private decode(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map((item) => this.decode(item))
-    if (value && typeof value === 'object') {
-      const record = value as Record<string, unknown>
-      if (typeof record.$callback === 'string')
-        return (...args: unknown[]) => this.invoke(record.$callback as string, args)
-      return Object.fromEntries(
-        Object.entries(record).map(([key, item]) => [key, this.decode(item)]),
-      )
-    }
-    return value
-  }
-  private async callBridge(method: string, params: unknown) {
-    if (!method.startsWith('apollo.')) throw new PluginError('plugin_rpc_method_denied', method)
-    const rpcPath = method.slice('apollo.'.length)
-    if (!RPC_METHODS.has(rpcPath)) throw new PluginError('plugin_rpc_method_denied', method)
-    const path = rpcPath.split('.')
-    let target: unknown = this.bridge
-    for (const part of path) target = (target as Record<string, unknown>)?.[part]
-    if (typeof target !== 'function') throw new PluginError('plugin_rpc_method_denied', method)
-    const result = await Reflect.apply(
-      target,
-      undefined,
-      RPC_MULTI_ARG_METHODS.has(rpcPath) && Array.isArray(params) ? params : [params],
-    )
-    return result && typeof result === 'object' && 'dispose' in result ? {} : result
-  }
-  private async write(frame: RpcFrame) {
-    const line = `${JSON.stringify(frame)}\n`
-    if (Buffer.byteLength(line) > RPC_MAX_FRAME)
-      throw new PluginError('plugin_rpc_frame_too_large', 'bridge frame exceeds limit')
-    if (!this.process.bridge.write(line))
-      await new Promise<void>((resolve) => this.process.bridge.once('drain', resolve))
-  }
-  private rejectPending(id: number, error: Error) {
-    const pending = this.#pending.get(id)
-    if (!pending) return
-    this.#pending.delete(id)
-    clearTimeout(pending.timeout)
-    pending.reject(error)
-  }
-  private fail(error: Error) {
-    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
-    this.#activatedReject(error)
-    for (const id of this.#pending.keys()) this.rejectPending(id, error)
-    if (!this.#disposed) this.#closedResolve(error)
-  }
-  private armHeartbeat() {
-    if (this.#heartbeatTimer) clearTimeout(this.#heartbeatTimer)
-    this.#heartbeatTimer = setTimeout(() => {
-      const error = new PluginError('plugin_heartbeat_timeout', 'plugin host stopped responding')
-      this.fail(error)
-    }, this.timeoutMs)
-    this.#heartbeatTimer.unref?.()
-  }
-}
-
 export interface PluginRuntimeOptions {
   dataRoot: string
   activationTimeoutMs?: number
   heartbeatTimeoutMs?: number
-  start?: typeof startPluginHost
 }
 export class PluginRuntime {
-  readonly #active = new Map<string, PluginConnection>()
-  readonly #start: typeof startPluginHost
-  readonly #activationTimeoutMs: number
-  readonly #heartbeatTimeoutMs: number
   constructor(
     readonly manager: PluginManager,
     readonly bridge: BridgeRuntime,
     readonly options: PluginRuntimeOptions,
-  ) {
-    this.#start = options.start ?? startPluginHost
-    this.#activationTimeoutMs = options.activationTimeoutMs ?? 10_000
-    this.#heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 30_000
+  ) {}
+  async loadEnabled(): Promise<Array<{ name: string; error: Error }>> {
+    return []
   }
-  async loadEnabled() {
-    if (!legacyPluginTestManagers.has(this.manager)) return []
-    const failures: Array<{ name: string; error: Error }> = []
-    for (const [name, approval] of Object.entries(this.manager.list())) {
-      if (!approval.enabled) continue
-      try {
-        await this.load(name)
-      } catch (error) {
-        failures.push({ name, error: error instanceof Error ? error : new Error(String(error)) })
-      }
-    }
-    return failures
-  }
-  async load(name: string, signal?: AbortSignal) {
-    if (!legacyPluginTestManagers.has(this.manager))
-      throw legacyPluginUnavailable('plugin activation')
-    if (this.#active.has(name)) throw new PluginError('plugin_already_loaded', name)
-    if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
-    const approval = this.manager.list()[name]
-    if (!approval?.enabled) throw new PluginError('plugin_not_enabled', name)
-    let timer: NodeJS.Timeout | undefined
-    let cancel: (() => void) | undefined
-    try {
-      const pluginDir = join(this.manager.root, name)
-      const manifest = await this.manager.inspect(pluginDir)
-      if (
-        approval.version !== manifest.version ||
-        approval.permissionHash !== permissionHash(manifest)
-      )
-        throw new PluginError('plugin_approval_stale', name)
-      this.bridge.registerUiContributions(manifest)
-      const dataDir = join(this.options.dataRoot, name)
-      await mkdir(dataDir, { recursive: true })
-      const host = await this.#start({
-        entry: join(pluginDir, manifest.main),
-        dataDir,
-        profile: sandboxProfile(manifest, pluginDir, dataDir),
-        activationTimeoutMs: this.#activationTimeoutMs,
-        ...(signal ? { signal } : {}),
-      })
-      const connection = new PluginConnection(
-        host,
-        this.bridge.create(manifest, dataDir),
-        this.#heartbeatTimeoutMs,
-      )
-      this.#active.set(name, connection)
-      void connection.closed.then(async () => {
-        if (this.#active.get(name) === connection) await this.deactivate(name)
-      })
-      if (signal?.aborted) throw new PluginError('plugin_activation_cancelled', name)
-      const cancelled = new Promise<never>((_, reject) => {
-        cancel = () => reject(new PluginError('plugin_activation_cancelled', name))
-        signal?.addEventListener('abort', cancel, { once: true })
-      })
-      await Promise.race([
-        connection.activated,
-        cancelled,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new PluginError('plugin_activation_timeout', name)),
-            this.#activationTimeoutMs,
-          )
-        }),
-      ])
-    } catch (error) {
-      await this.deactivate(name)
-      await this.manager.recordFailure(name)
-      throw error
-    } finally {
-      if (timer) clearTimeout(timer)
-      if (cancel) signal?.removeEventListener('abort', cancel)
-    }
+  async load(_name: string, _signal?: AbortSignal): Promise<never> {
+    throw legacyPluginUnavailable('plugin activation')
   }
   async deactivate(name: string) {
-    const connection = this.#active.get(name)
-    if (connection) connection.dispose()
-    this.#active.delete(name)
     await this.bridge.deactivate(name)
   }
   async setEnabled(name: string, enabled: boolean) {
     if (!enabled) await this.deactivate(name)
     await this.manager.setEnabled(name, enabled)
-    if (enabled) await this.load(name)
   }
   async uninstall(name: string) {
     await this.deactivate(name)
     await this.manager.uninstall(name)
   }
-  async dispose() {
-    for (const name of this.#active.keys()) await this.deactivate(name)
-  }
+  async dispose() {}
   active() {
-    return [...this.#active.keys()]
+    return []
   }
 }
 export function createRpcGuard(manifest: PluginManifest, maxCallsPerTurn = 500) {

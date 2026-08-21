@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
@@ -1430,8 +1430,8 @@ describe('production memory plugin policy composition', () => {
         name: pluginName,
         version: '1.2.3',
         type: 'module',
-        main: 'index.js',
-        engines: { apollo: '^1.2.3' },
+        main: 'missing-bundle.js',
+        engines: { apollo: '^0.1.0' },
         permissions: {
           apollo: ['hooks.on'],
           memory: { read: ['workspace', 'project', 'session'] },
@@ -1510,17 +1510,140 @@ describe('production plugin composition root containment', () => {
       identity: { version: '1.2.3' },
     })
 
+    const session = await ports.session.startInteractive!({ cwd: root })
+    await session.end()
+    await expect(
+      ports.memory!.create({
+        id: 'malformed-plugin-state-does-not-block-memory',
+        scope: projectMemoryScope(root),
+        content: 'safe',
+        provenance: { source: 'user' },
+      }),
+    ).resolves.toMatchObject({ id: 'malformed-plugin-state-does-not-block-memory' })
+
     const listed = await runCli(['plugin', 'list', '--json'], ports)
-    expect(listed).toMatchObject({
-      exitCode: 1,
-      stdout: '',
-      stderr:
-        'plugin_legacy_activation_unavailable: legacy plugin state migration is temporarily unavailable; CAT-01/02 + ABI-R1 production verification and explicit security review required',
-    })
+    const events = listed.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(listed).toMatchObject({ exitCode: 1, stderr: '' })
+    expect(events).toMatchObject([
+      {
+        type: 'error',
+        data: { code: 'plugin_legacy_activation_unavailable', exitCode: 1 },
+      },
+      { type: 'final', data: { status: 'error', exitCode: 1 } },
+    ])
     expect(await ports.plugin!.availability()).toMatchObject({
       available: false,
       code: 'plugin_legacy_activation_unavailable',
     })
+  })
+
+  it('does not read traversal or symlinked plugin manifests during diagnostics', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.plugin-diagnostic-paths-'))
+    fixtures.push(root)
+    const home = join(root, 'home')
+    const pluginRoot = join(home, 'plugins')
+    const outside = join(root, 'outside')
+    const symlinkedName = 'apollo-plugin-symlinked-diagnostic'
+    const oversizedName = 'apollo-plugin-oversized-diagnostic'
+    const permissionCountName = 'apollo-plugin-permission-count-diagnostic'
+    const permissionLengthName = 'apollo-plugin-permission-length-diagnostic'
+    await mkdir(outside, { recursive: true })
+    await mkdir(pluginRoot, { recursive: true })
+    await writeFile(
+      join(outside, 'manifest.json'),
+      JSON.stringify({
+        name: symlinkedName,
+        version: '9.9.9',
+        engines: { apollo: '^9.0.0' },
+        permissions: { apollo: ['outside.secret'] },
+      }),
+    )
+    await symlink(outside, join(pluginRoot, symlinkedName), 'dir')
+    await mkdir(join(pluginRoot, oversizedName), { recursive: true })
+    await writeFile(join(pluginRoot, oversizedName, 'manifest.json'), 'x'.repeat(1024 * 1024 + 1))
+    await mkdir(join(pluginRoot, permissionCountName), { recursive: true })
+    await writeFile(
+      join(pluginRoot, permissionCountName, 'manifest.json'),
+      JSON.stringify({
+        version: '9.9.9',
+        engines: { apollo: '^1.0.0' },
+        permissions: { apollo: Array.from({ length: 65 }, (_, index) => `tool.${index}`) },
+      }),
+    )
+    await mkdir(join(pluginRoot, permissionLengthName), { recursive: true })
+    await writeFile(
+      join(pluginRoot, permissionLengthName, 'manifest.json'),
+      JSON.stringify({
+        version: '9.9.9',
+        engines: { apollo: '^1.0.0' },
+        permissions: { apollo: [`tool.${'x'.repeat(129)}`] },
+      }),
+    )
+    await writeFile(
+      join(pluginRoot, 'plugins.json'),
+      JSON.stringify({
+        approvals: {
+          '../../outside': {
+            version: '9.9.9',
+            permissionHash: 'traversal',
+            enabled: true,
+          },
+          [symlinkedName]: {
+            version: '1.2.3',
+            permissionHash: 'symlink',
+            enabled: true,
+          },
+          [oversizedName]: {
+            version: '1.2.3',
+            permissionHash: 'oversized',
+            enabled: true,
+          },
+          [permissionCountName]: {
+            version: '1.2.3',
+            permissionHash: 'permission-count',
+            enabled: true,
+          },
+          [permissionLengthName]: {
+            version: '1.2.3',
+            permissionHash: 'permission-length',
+            enabled: true,
+          },
+        },
+      }),
+    )
+    const ports = createProductionPorts({
+      apolloHome: home,
+      identity: { version: '1.2.3' },
+    })
+
+    await expect(ports.plugin!.doctor('../../outside')).rejects.toMatchObject({
+      code: 'plugin_path_escape',
+    })
+    const symlinked = await ports.plugin!.doctor(symlinkedName)
+    expect(symlinked).toMatchObject({
+      name: symlinkedName,
+      version: '1.2.3',
+      permissions: [],
+      compatibility: { status: 'invalid' },
+      availability: { available: false },
+    })
+    expect(JSON.stringify(symlinked)).not.toContain('outside.secret')
+    expect(JSON.stringify(symlinked)).not.toContain('9.9.9')
+    for (const name of [oversizedName, permissionCountName, permissionLengthName]) {
+      const bounded = await ports.plugin!.doctor(name)
+      expect(bounded).toMatchObject({
+        name,
+        version: '1.2.3',
+        permissions: [],
+        compatibility: { status: 'invalid' },
+        availability: { available: false },
+      })
+      expect(JSON.stringify(bounded).length).toBeLessThan(1024)
+      expect(JSON.stringify(bounded)).not.toContain('9.9.9')
+    }
   })
 
   it('keeps list, doctor, disable, and uninstall available for contained records', async () => {
@@ -1536,12 +1659,11 @@ describe('production plugin composition root containment', () => {
         name: pluginName,
         version: '1.2.3',
         type: 'module',
-        main: 'index.js',
-        engines: { apollo: '^1.2.3' },
+        main: 'missing-bundle.js',
+        engines: { apollo: '^0.1.0' },
         permissions: { apollo: ['tools.register'] },
       }),
     )
-    await writeFile(join(pluginRoot, pluginName, 'index.js'), 'throw new Error("must not run")')
     await writeFile(
       join(pluginRoot, 'plugins.json'),
       JSON.stringify({
@@ -1567,6 +1689,10 @@ describe('production plugin composition root containment', () => {
     await ports.plugin!.setEnabled(pluginName, false)
     expect(await ports.plugin!.doctor(pluginName)).toMatchObject({
       name: pluginName,
+      compatibility: {
+        status: 'incompatible',
+        detail: expect.stringContaining('incompatible'),
+      },
       availability: {
         available: false,
         code: 'plugin_legacy_activation_unavailable',

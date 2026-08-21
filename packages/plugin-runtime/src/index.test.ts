@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Duplex, PassThrough } from 'node:stream'
 
-import type { PluginHost } from '@apollo-code/native-bridge'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -19,7 +17,6 @@ import {
   verifyBundle,
   verifyPluginRegistryMetadata,
 } from './index'
-import { createLegacyPluginTestManager } from './test-only/legacy-harness'
 const manifest = {
   name: 'apollo-plugin-test',
   version: '1.0.0',
@@ -35,6 +32,22 @@ async function fixture() {
   return root
 }
 describe('plugin runtime', () => {
+  it('keeps production artifacts free of legacy test authority seams', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8')
+    const packageManifest = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+
+    expect(source).not.toMatch(
+      /legacyPluginTestAuthority|legacyPluginTestManagers|startPluginHost|PluginConnection/,
+    )
+    expect(packageManifest).not.toMatch(/^\s*"dist",?$/m)
+    await expect(
+      access(new URL('./internal/legacy-test-authority.ts', import.meta.url)),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(
+      access(new URL('./test-only/legacy-harness.ts', import.meta.url)),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('publishes an exhaustive ApolloBridge capability matrix with test entry points', () => {
     const expected = [
       'tools.register',
@@ -205,262 +218,6 @@ describe('plugin runtime', () => {
     ).toThrow('plugin_ui_invalid')
   })
 
-  it('loads enabled plugins over NDJSON and cleans up registrations', async () => {
-    const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = createLegacyPluginTestManager(root, '1.0.0')
-    await manager.init()
-    await manager.install(source)
-    let registered: { handler(input: unknown): Promise<unknown> } | undefined
-    let disposed = false
-    const bridge = new BridgeRuntime({
-      session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
-      register: (_kind, value) => {
-        registered = value as typeof registered
-        return {
-          dispose: () => {
-            disposed = true
-          },
-        }
-      },
-      fs: {
-        readFile: async () => '',
-        writeFile: async () => {},
-        exists: async () => false,
-        glob: async () => [],
-        stat: async () => ({}),
-      },
-      exec: async () => ({}),
-      fetch: async () => ({}),
-      ui: () => undefined,
-      storage: async () => undefined,
-      config: () => undefined,
-      log: () => undefined,
-    })
-    let terminated = false
-    const start = async (): Promise<PluginHost> => {
-      const childToParent = new PassThrough(),
-        parentToChild = new PassThrough()
-      const transport = new Duplex({
-        read() {},
-        write(chunk, _encoding, callback) {
-          parentToChild.write(chunk, callback)
-        },
-        final(callback) {
-          parentToChild.end(callback)
-        },
-      })
-      childToParent.on('data', (chunk) => transport.push(chunk))
-      childToParent.on('end', () => transport.push(null))
-      parentToChild.setEncoding('utf8')
-      let buffer = ''
-      parentToChild.on('data', (chunk: string) => {
-        buffer += chunk
-        for (;;) {
-          const newline = buffer.indexOf('\n')
-          if (newline < 0) break
-          const frame = JSON.parse(buffer.slice(0, newline)) as { id: number; method?: string }
-          buffer = buffer.slice(newline + 1)
-          if (frame.method === 'callback.invoke')
-            childToParent.write(
-              `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: frame.id, result: { echoed: true } })}\n`,
-            )
-        }
-      })
-      queueMicrotask(() => {
-        childToParent.write(
-          `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: 1, method: 'apollo.tools.register', params: { name: 'echo', description: 'echo', inputSchema: {}, handler: { $callback: 'handler-1' } } })}\n`,
-        )
-        childToParent.write(
-          `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, method: 'host.activated', params: {} })}\n`,
-        )
-      })
-      return {
-        pid: 1,
-        bridge: transport,
-        terminate: () => {
-          terminated = true
-          transport.destroy()
-        },
-        exited: new Promise(() => {}),
-      }
-    }
-    const runtime = new PluginRuntime(manager, bridge, { dataRoot, start })
-    await runtime.loadEnabled()
-    expect(runtime.active()).toEqual([manifest.name])
-    await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_already_loaded')
-    await expect(registered!.handler({ text: 'hi' })).resolves.toEqual({ echoed: true })
-    await runtime.setEnabled(manifest.name, false)
-    expect(terminated).toBe(true)
-    expect(disposed).toBe(true)
-    expect(manager.list()[manifest.name]?.enabled).toBe(false)
-  })
-
-  it('times out activation, cleans the process, and disables after three failures', async () => {
-    const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = createLegacyPluginTestManager(root, '1.0.0')
-    await manager.init()
-    await manager.install(source)
-    let terminated = 0
-    const runtime = new PluginRuntime(
-      manager,
-      new BridgeRuntime({
-        session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
-        register: () => ({ dispose() {} }),
-        fs: {
-          readFile: async () => '',
-          writeFile: async () => {},
-          exists: async () => false,
-          glob: async () => [],
-          stat: async () => ({}),
-        },
-        exec: async () => ({}),
-        fetch: async () => ({}),
-        ui: () => undefined,
-        storage: async () => undefined,
-        config: () => undefined,
-        log: () => undefined,
-      }),
-      {
-        dataRoot,
-        activationTimeoutMs: 5,
-        start: async () => {
-          const bridge = new PassThrough()
-          return {
-            pid: 1,
-            bridge,
-            terminate: () => {
-              terminated++
-              bridge.destroy()
-            },
-            exited: new Promise(() => {}),
-          }
-        },
-      },
-    )
-    for (let attempt = 0; attempt < 3; attempt++)
-      await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_activation_timeout')
-    expect(terminated).toBe(3)
-    expect(manager.list()[manifest.name]?.enabled).toBe(false)
-  })
-
-  it('kills a no-response host and disposes its worker registrations', async () => {
-    vi.useFakeTimers()
-    const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = createLegacyPluginTestManager(root, '1.0.0')
-    await manager.init()
-    await manager.install(source)
-    let registrationsDisposed = 0
-    let terminated = 0
-    const bridge = new BridgeRuntime({
-      session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
-      register: () => ({
-        dispose: () => {
-          registrationsDisposed++
-        },
-      }),
-      fs: {
-        readFile: async () => '',
-        writeFile: async () => {},
-        exists: async () => false,
-        glob: async () => [],
-        stat: async () => ({}),
-      },
-      exec: async () => ({}),
-      fetch: async () => ({}),
-      ui: () => undefined,
-      storage: async () => undefined,
-      config: () => undefined,
-      log: () => undefined,
-    })
-    const runtime = new PluginRuntime(manager, bridge, {
-      dataRoot,
-      heartbeatTimeoutMs: 20,
-      start: async () => {
-        const transport = new PassThrough()
-        queueMicrotask(() => {
-          transport.write(
-            `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, id: 1, method: 'apollo.tools.register', params: { name: 'stalled', description: 'stalled', inputSchema: {}, handler: { $callback: 'handler-1' } } })}\n`,
-          )
-          transport.write(
-            `${JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 1, method: 'host.activated', params: {} })}\n`,
-          )
-        })
-        return {
-          pid: 1,
-          bridge: transport,
-          terminate: () => {
-            terminated++
-            transport.destroy()
-          },
-          exited: new Promise(() => {}),
-        }
-      },
-    })
-    await runtime.load(manifest.name)
-    expect(runtime.active()).toEqual([manifest.name])
-    await vi.advanceTimersByTimeAsync(21)
-    await Promise.resolve()
-    expect(terminated).toBe(1)
-    expect(registrationsDisposed).toBe(1)
-    expect(runtime.active()).toEqual([])
-    vi.useRealTimers()
-  })
-
-  it('cancels activation and rejects a changed approval hash', async () => {
-    const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-data-')),
-      manager = createLegacyPluginTestManager(root, '1.0.0')
-    await manager.init()
-    await manager.install(source)
-    const runtime = new PluginRuntime(
-      manager,
-      new BridgeRuntime({
-        session: { id: 's', cwd: source, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
-        register: () => ({ dispose() {} }),
-        fs: {
-          readFile: async () => '',
-          writeFile: async () => {},
-          exists: async () => false,
-          glob: async () => [],
-          stat: async () => ({}),
-        },
-        exec: async () => ({}),
-        fetch: async () => ({}),
-        ui: () => undefined,
-        storage: async () => undefined,
-        config: () => undefined,
-        log: () => undefined,
-      }),
-      {
-        dataRoot,
-        start: async () => {
-          const bridge = new PassThrough()
-          return {
-            pid: 1,
-            bridge,
-            terminate: () => bridge.destroy(),
-            exited: new Promise(() => {}),
-          }
-        },
-      },
-    )
-    const controller = new AbortController()
-    const loading = runtime.load(manifest.name, controller.signal)
-    controller.abort()
-    await expect(loading).rejects.toThrow('plugin_activation_cancelled')
-    await writeFile(
-      join(root, manifest.name, 'manifest.json'),
-      JSON.stringify({ ...manifest, permissions: { apollo: ['tools.register', 'log.write'] } }),
-    )
-    await expect(runtime.load(manifest.name)).rejects.toThrow('plugin_approval_stale')
-  })
   it('validates engines and rejects path escapes', () => {
     expect(validateManifest(manifest, '1.4.0').name).toBe(manifest.name)
     expect(() => validateManifest({ ...manifest, main: '../x' }, '1.0.0')).toThrow('invalid')
@@ -473,17 +230,6 @@ describe('plugin runtime', () => {
     await expect(verifyBundle(dir, manifest, { 'index.js': hash })).resolves.toBeUndefined()
     await symlink('index.js', join(dir, 'escape'))
     await expect(verifyBundle(dir, manifest, { escape: hash })).rejects.toThrow(/escapes|symlink/)
-  })
-  it('installs atomically and auto disables repeated failures', async () => {
-    const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-installed-')),
-      manager = createLegacyPluginTestManager(root, '1.0.0')
-    await manager.init()
-    await manager.install(source)
-    expect(manager.list()[manifest.name]?.enabled).toBe(true)
-    await manager.recordFailure(manifest.name, 2)
-    expect(await manager.recordFailure(manifest.name, 2)).toBe(true)
-    expect(manager.list()[manifest.name]?.enabled).toBe(false)
   })
   it('contains legacy production activation until Catalog v2 can issue receipts', async () => {
     const source = await fixture(),
@@ -501,9 +247,6 @@ describe('plugin runtime', () => {
     expect(confirm).not.toHaveBeenCalled()
     expect(manager.list()).toEqual({})
 
-    const start = vi.fn(async (): Promise<PluginHost> => {
-      throw new Error('production activation must not reach the host')
-    })
     const runtime = new PluginRuntime(
       manager,
       new BridgeRuntime({
@@ -523,18 +266,16 @@ describe('plugin runtime', () => {
         config: () => undefined,
         log: () => undefined,
       }),
-      { dataRoot, start },
+      { dataRoot },
     )
     await expect(runtime.loadEnabled()).resolves.toEqual([])
     await expect(runtime.load(manifest.name)).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
-    expect(start).not.toHaveBeenCalled()
-
     await manager.uninstall(manifest.name)
     expect(manager.list()).toEqual({})
   })
-  it('migrates stale enabled legacy records to disabled on production startup', async () => {
+  it('projects stale enabled legacy records disabled without rewriting state', async () => {
     const root = await mkdtemp(join(tmpdir(), 'apollo-stale-enabled-'))
     const statePath = join(root, 'plugins.json')
     const initial = {
@@ -563,6 +304,9 @@ describe('plugin runtime', () => {
     }
     const initialSerialized = JSON.stringify(initial)
     await writeFile(statePath, initialSerialized)
+    const sentinelTime = new Date('2001-02-03T04:05:06.000Z')
+    await utimes(statePath, sentinelTime, sentinelTime)
+    const beforeInit = await stat(statePath)
     const manager = new PluginManager(root, '1.0.0', async () => true)
     await manager.init()
     const migrated = {
@@ -578,25 +322,16 @@ describe('plugin runtime', () => {
     await expect(manager.setEnabled(manifest.name, true)).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
-    const migratedSerialized = await readFile(statePath, 'utf8')
-    expect(migratedSerialized).not.toBe(initialSerialized)
-    expect(JSON.parse(migratedSerialized)).toEqual(migrated)
-
-    const sentinelTime = new Date('2001-02-03T04:05:06.000Z')
-    await utimes(statePath, sentinelTime, sentinelTime)
-    const beforeSecondInit = await stat(statePath)
+    expect(await readFile(statePath, 'utf8')).toBe(initialSerialized)
+    expect((await stat(statePath)).mtimeMs).toBe(beforeInit.mtimeMs)
     await manager.init()
-    const afterSecondInit = await stat(statePath)
-    expect(afterSecondInit.mtimeMs).toBe(beforeSecondInit.mtimeMs)
-    expect(await readFile(statePath, 'utf8')).toBe(migratedSerialized)
+    expect(await readFile(statePath, 'utf8')).toBe(initialSerialized)
+    expect((await stat(statePath)).mtimeMs).toBe(beforeInit.mtimeMs)
   })
   it('fails malformed production state closed with a stable diagnostic and zero activation', async () => {
     const root = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-')),
       dataRoot = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-data-')),
-      manager = new PluginManager(root, '1.0.0', async () => true),
-      start = vi.fn(async (): Promise<PluginHost> => {
-        throw new Error('malformed state must not reach the plugin host')
-      })
+      manager = new PluginManager(root, '1.0.0', async () => true)
     await writeFile(join(root, 'plugins.json'), '{ definitely-not-json')
 
     await expect(manager.init()).rejects.toMatchObject({
@@ -624,13 +359,12 @@ describe('plugin runtime', () => {
         config: () => undefined,
         log: () => undefined,
       }),
-      { dataRoot, start },
+      { dataRoot },
     )
     await expect(runtime.loadEnabled()).resolves.toEqual([])
-    expect(start).not.toHaveBeenCalled()
   })
-  it('keeps migrated state disabled when atomic persistence fails', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-migration-save-failure-'))
+  it('does not touch a migration temp path while projecting legacy state disabled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'apollo-no-migration-write-'))
     await writeFile(
       join(root, 'plugins.json'),
       JSON.stringify({
@@ -647,10 +381,7 @@ describe('plugin runtime', () => {
     await mkdir(join(root, `.plugins-${process.pid}.tmp`))
     const manager = new PluginManager(root, '1.0.0', async () => true)
 
-    await expect(manager.init()).rejects.toMatchObject({
-      code: 'plugin_legacy_activation_unavailable',
-      message: expect.stringContaining('migration persistence'),
-    })
+    await expect(manager.init()).resolves.toBeUndefined()
     expect(manager.list()[manifest.name]).toEqual({
       version: manifest.version,
       permissionHash: 'legacy-hash',

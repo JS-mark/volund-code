@@ -2,8 +2,10 @@
   "name": "@apollo-code/plugin-runtime",
   "version": "0.1.0",
   "files": [
-    "dist",
-    "host"
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/index.js.map"
   ],
   "type": "module",
   "exports": {
@@ -13,7 +15,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ../../scripts/rewrite-esm-specifiers.mjs dist",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node ../../scripts/rewrite-esm-specifiers.mjs dist",
     "test": "vitest run --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
