@@ -24,5 +24,5 @@ jobs:
       - name: Verify legacy plugin containment and package boundary
         run: |
           pnpm --filter @apollo-code/plugin-runtime test -- src/index.test.ts
-          pnpm --filter apollo-code exec vitest run src/architecture.test.ts src/runtime.test.ts
+          pnpm --filter ./apps/cli exec vitest run src/architecture.test.ts src/runtime.test.ts
           node --test scripts/verify-plugin-runtime-packlist.test.mjs
