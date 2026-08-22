@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
+  CONTEXT_TUNABLE_BOUNDS,
   CONTEXT_TUNABLE_DEFAULTS,
+  CONTEXT_TUNABLE_PARAMS,
   EVOLUTION_DEFAULTS,
   EvolutionEngine,
   type EvolutionRecord,
@@ -22,7 +24,7 @@ const persistence = () => {
       records.push(record)
     },
     async audit() {
-      return records
+      return records.map((record) => ({ ...record, provenance: 'v1' as const }))
     },
   }
 }
@@ -37,10 +39,21 @@ describe('EvolutionEngine', () => {
     expect(Object.keys(CONTEXT_TUNABLE_DEFAULTS)).not.toEqual(
       expect.arrayContaining(['sandbox', 'permission', 'untrusted', 'hook_priority']),
     )
+    expect(CONTEXT_TUNABLE_BOUNDS).toEqual({
+      compaction_threshold: { min: 0.65, max: 0.95, integer: false },
+      target_ratio: { min: 0.45, max: 0.75, integer: false },
+      keep_recent: { min: 15, max: 25, integer: true },
+      summary_keep_recent: { min: 15, max: 25, integer: true },
+    })
+    expect(CONTEXT_TUNABLE_PARAMS).toEqual(Object.keys(CONTEXT_TUNABLE_BOUNDS))
+    expect(Object.isFrozen(CONTEXT_TUNABLE_PARAMS)).toBe(true)
+    expect(Object.isFrozen(CONTEXT_TUNABLE_BOUNDS)).toBe(true)
+    for (const bound of Object.values(CONTEXT_TUNABLE_BOUNDS))
+      expect(Object.isFrozen(bound)).toBe(true)
   })
   it('waits for a 20-event window and limits the adjustment step', async () => {
     const store = persistence(),
-      engine = new EvolutionEngine(store)
+      engine = new EvolutionEngine(store, { enabled: true })
     for (let index = 0; index < 19; index++)
       expect(await engine.observe({ post_compact_repeat_rate: 1 })).toBeUndefined()
     expect((await engine.observe({ post_compact_repeat_rate: 1 }))?.after).toBe(0.9)
@@ -50,7 +63,7 @@ describe('EvolutionEngine', () => {
   })
   it('rolls back worsening changes and stops after three', async () => {
     const store = persistence(),
-      engine = new EvolutionEngine(store)
+      engine = new EvolutionEngine(store, { enabled: true })
     await engine.propose('target_ratio', 0.55, 'test', {})
     for (let index = 0; index < 3; index++)
       await engine.validate('target_ratio', true, { error_rate: 1 })
@@ -58,9 +71,13 @@ describe('EvolutionEngine', () => {
     expect(store.records.at(-1)?.action).toBe('stopped')
     expect(await engine.propose('target_ratio', 0.5, 'ignored', {})).toBeUndefined()
   })
-  it('returns defaults when disabled', async () => {
+  it('defaults to disabled and returns defaults without reading persistence', async () => {
     const store = persistence()
+    const current = vi.spyOn(store, 'current')
+    const audit = vi.spyOn(store, 'audit')
+    const append = vi.spyOn(store, 'append')
     store.records.push({
+      schemaVersion: 1,
       namespace: 'context',
       param: 'target_ratio',
       before: 0.6,
@@ -70,11 +87,107 @@ describe('EvolutionEngine', () => {
       signal: {},
       action: 'adjusted',
     })
-    expect((await new EvolutionEngine(store, { enabled: false }).values()).target_ratio).toBe(0.6)
+    const engine = new EvolutionEngine(store)
+    expect((await engine.values()).target_ratio).toBe(0.6)
+    await expect(engine.observe({ post_compact_repeat_rate: 1 })).resolves.toBeUndefined()
+    await expect(
+      engine.propose('target_ratio', 0.5, 'must remain disabled', {}),
+    ).resolves.toBeUndefined()
+    await expect(engine.validate('target_ratio', true, { error_rate: 1 })).resolves.toBeUndefined()
+    expect(current).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+  })
+  it.each(['true', 1, {}, undefined])(
+    'does not treat non-boolean enabled value %j as authority',
+    async (enabled) => {
+      const store = persistence()
+      const current = vi.spyOn(store, 'current')
+      const engine = new EvolutionEngine(store, {
+        enabled: enabled as unknown as boolean,
+      })
+
+      expect(engine.isEnabled('context')).toBe(false)
+      expect(await engine.values()).toEqual(CONTEXT_TUNABLE_DEFAULTS)
+      expect(current).not.toHaveBeenCalled()
+    },
+  )
+  it('projects a valid partial context snapshot atomically over trusted defaults', async () => {
+    const current = vi.fn(async () => ({ target_ratio: 0.5, keep_recent: 25 }))
+    const engine = new EvolutionEngine(
+      { current, append: vi.fn(async () => undefined) },
+      { enabled: true },
+    )
+
+    await expect(engine.values()).resolves.toEqual({
+      ...CONTEXT_TUNABLE_DEFAULTS,
+      target_ratio: 0.5,
+      keep_recent: 25,
+    })
+    expect(current).toHaveBeenCalledWith('context')
+  })
+  it.each([
+    ['unknown key', { target_ratio: 0.5, future_projection: 1 }],
+    ['infinite value', { target_ratio: Number.POSITIVE_INFINITY }],
+    ['negative value', { target_ratio: -1 }],
+    ['string value', { target_ratio: '0.5' }],
+    ['fractional integer', { keep_recent: 20.5 }],
+    ['cross-field violation', { compaction_threshold: 0.8, target_ratio: 0.75 }],
+  ])('rejects the whole untrusted context snapshot for %s', async (_case, snapshot) => {
+    const engine = new EvolutionEngine(
+      { current: async () => snapshot, append: vi.fn(async () => undefined) },
+      { enabled: true },
+    )
+    await expect(engine.values()).resolves.toEqual(CONTEXT_TUNABLE_DEFAULTS)
+  })
+  it('rejects accessor and Proxy persistence projections without invoking accessors', async () => {
+    let getterCalled = false
+    const accessor = {}
+    Object.defineProperty(accessor, 'target_ratio', {
+      enumerable: true,
+      get() {
+        getterCalled = true
+        return 0.5
+      },
+    })
+    const proxy = new Proxy(
+      { target_ratio: 0.5 },
+      {
+        ownKeys() {
+          throw new Error('must not inspect proxy traps')
+        },
+      },
+    )
+    for (const snapshot of [accessor, proxy]) {
+      const engine = new EvolutionEngine(
+        { current: async () => snapshot, append: vi.fn(async () => undefined) },
+        { enabled: true },
+      )
+      await expect(engine.values()).resolves.toEqual(CONTEXT_TUNABLE_DEFAULTS)
+    }
+    expect(getterCalled).toBe(false)
+  })
+  it('does not read persisted values for namespaces without frozen bounds', async () => {
+    const current = vi.fn(async () => ({ max_retries: 5 }))
+    const engine = new EvolutionEngine(
+      { current, append: vi.fn(async () => undefined) },
+      { enabled: true },
+    )
+    await expect(engine.values('retry')).resolves.toEqual(EVOLUTION_DEFAULTS.retry)
+    expect(current).not.toHaveBeenCalled()
+  })
+  it('preserves persistence I/O rejection instead of converting it to defaults', async () => {
+    const failure = new Error('persistence unavailable')
+    const engine = new EvolutionEngine(
+      { current: async () => Promise.reject(failure), append: vi.fn(async () => undefined) },
+      { enabled: true },
+    )
+    await expect(engine.values()).rejects.toBe(failure)
   })
   it('supports router, retry, and tool timeout windows with namespace switches', async () => {
     const store = persistence()
     const engine = new EvolutionEngine(store, {
+      enabled: true,
       sampleWindow: 2,
       namespaces: ['retry', 'tool-timeout'],
     })
@@ -96,7 +209,7 @@ describe('EvolutionEngine', () => {
     })
   })
   it('rejects unknown and security parameters and caps tool timeouts', async () => {
-    const engine = new EvolutionEngine(persistence())
+    const engine = new EvolutionEngine(persistence(), { enabled: true })
     for (const param of ['sandbox', 'permission', 'untrusted', 'hook_priority'])
       expect(await engine.propose('router', param, 1, 'unsafe', {})).toBeUndefined()
     expect(
@@ -104,23 +217,17 @@ describe('EvolutionEngine', () => {
     ).toMatchObject({ after: 66_000 })
     expect(EVOLUTION_DEFAULTS['tool-timeout'].default_timeout_ms).toBeLessThanOrEqual(300_000)
   })
-  it('requires confirmation for cumulative deviation and freezes after rejection', async () => {
+  it('requires configured confirmation within the frozen envelope and freezes after rejection', async () => {
     const store = persistence()
-    store.records.push({
-      namespace: 'router',
-      param: 'cooldown_ms',
-      before: 60_000,
-      after: 78_000,
-      at: '',
-      reason: '',
-      signal: {},
-      action: 'adjusted',
+    const engine = new EvolutionEngine(store, {
+      enabled: true,
+      confirmationDeviation: 0.01,
+      confirm: async () => false,
     })
-    const engine = new EvolutionEngine(store, { confirm: async () => false })
-    expect(await engine.propose('router', 'cooldown_ms', 80_000, 'cumulative', {})).toMatchObject({
+    expect(await engine.propose('target_ratio', 0.55, 'cumulative', {})).toMatchObject({
       action: 'confirmation_rejected',
-      after: 60_000,
+      after: 0.6,
     })
-    expect(await engine.propose('router', 'cooldown_ms', 50_000, 'frozen', {})).toBeUndefined()
+    expect(await engine.propose('target_ratio', 0.5, 'frozen', {})).toBeUndefined()
   })
 })

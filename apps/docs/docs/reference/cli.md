@@ -11,9 +11,9 @@ apollo chat --cwd <path> --trust-workspace "prompt"
 
 `--trust-workspace` is the scriptable opt-in for non-interactive runs. It persists an exact canonical-path rule; it never grants a parent or subtree scope.
 
-## Context evolution (L2)
+## Adaptive runtime tuning (L2)
 
-`apollo evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `apollo evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. Setting `[evolution] enabled = false` in `~/.apollo/config.toml` makes new sessions use built-in context defaults.
+`apollo evolution show [--namespace context] [--since <date>]` displays the sanitized, append-only local tuning audit. `apollo evolution rollback [--namespace context] [--to <timestamp>]` restores context parameters to the preceding or selected point. New sessions use built-in context defaults unless `~/.apollo/config.toml` contains the exact boolean `[evolution] enabled = true`; missing or false remains off, while malformed, unreadable, or wrong-type configuration stops Runner startup before tuning is read. This compatibility switch only applies existing context tuning values—it does not start automatic observation or validation. `show` and `rollback` remain available while tuning is off.
 
 | Command                        | Purpose                                                                                       |
 | ------------------------------ | --------------------------------------------------------------------------------------------- |

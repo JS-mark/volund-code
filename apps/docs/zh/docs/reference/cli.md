@@ -1,8 +1,8 @@
 # CLI 参考
 
-## Context 自进化（L2）
+## 自适应运行时调优（L2）
 
-`apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。`~/.apollo/config.toml` 中设置 `[evolution] enabled = false` 后，新会话使用内置 context 默认值。
+`apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。新会话缺省使用内置 context 默认值；只有 `~/.apollo/config.toml` 中精确的 boolean `[evolution] enabled = true` 才进入已有 context tuning 读取路径。配置缺失或 false 时保持关闭；语法错误、不可读或错类型配置会在读取 tuning 前阻止 Runner 启动。这个兼容开关不会启动自动 observation/validation；关闭时 `show` 与 `rollback` 仍可使用。
 
 | 命令                           | 用途                                         |
 | ------------------------------ | -------------------------------------------- |

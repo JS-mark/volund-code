@@ -44,7 +44,7 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[ui]` | `color` | bool，默认 true | §8.3 | allowed |
 | `[telemetry]` | `sink` | `"local" \| "otel"`，默认 `local` | §8.7 | **forbidden**（§8.3.1） |
 | `[telemetry.otel]` | `endpoint` | string | §8.7 | **forbidden**（§8.3.1） |
-| `[evolution]` | enable / namespace 参数护栏 | 见 §15 | §15 | allowed |
+| `[evolution]` | `enabled` | bool，默认 `false`；仅显式 `true` 应用已有 context tuning，不开启 observe/validate | §15 | allowed |
 | `[auth]` | （全部） | — | §8.4 | **forbidden**（§8.3.1） |
 
 ## C.3 全量示例（节选拼合，键值以 C.2 为准）
@@ -86,6 +86,9 @@ max_tokens = 180000
 [memory]
 enabled = true
 max_body_lines = 200
+
+[evolution]
+enabled = false                  # T0：缺省关闭；show/rollback 仍可用
 
 [native]
 ipc_max_line_bytes = 4194304     # r13-I6

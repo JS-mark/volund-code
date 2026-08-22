@@ -30,7 +30,13 @@ import {
   Runner,
   updateSession,
 } from '@apollo-code/core'
-import type { PromptComposer, RunnerToolPort, SessionState } from '@apollo-code/core'
+import type {
+  ContextTunableParam,
+  EvolutionPersistence,
+  PromptComposer,
+  RunnerToolPort,
+  SessionState,
+} from '@apollo-code/core'
 import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
@@ -1379,6 +1385,45 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
   }
 }
 
+/**
+ * Resolve the legacy context-tuning compatibility switch for a production Runner.
+ * A missing file is the documented default-off case. Unreadable, invalid, or non-boolean
+ * configuration fails closed by propagating the configuration error before tuning is read.
+ * Only an own-property boolean `true` is authority; an inherited/prototype value never counts.
+ */
+export async function loadProductionContextTuning(options: {
+  readonly home: string
+  readonly persistence: EvolutionPersistence
+  readonly logger: Pick<Logger, 'warn'>
+}): Promise<{
+  readonly config: Record<string, JsonValue>
+  readonly values: Record<ContextTunableParam, number>
+}> {
+  let enabled = false
+  let config: Record<string, JsonValue> = {}
+  try {
+    config = await loadTomlFile(join(options.home, 'config.toml'), {
+      onWarning: (message) => options.logger.warn(message),
+    })
+    const section = config.evolution
+    enabled = Boolean(
+      section &&
+      typeof section === 'object' &&
+      !Array.isArray(section) &&
+      Object.hasOwn(section, 'enabled') &&
+      section.enabled === true,
+    )
+  } catch (error) {
+    // A missing file means the documented default-off posture. Syntax, type, and I/O
+    // failures are configuration failures and must stop Runner construction (§8.3/C.1).
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  return {
+    config,
+    values: await new EvolutionEngine(options.persistence, { enabled }).values(),
+  }
+}
+
 export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
@@ -1441,25 +1486,12 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       interactivePermissionPrompt: () => interactivePermissionPrompt,
     })
     const { permissionRequests } = permissionChain
-    let evolutionEnabled = true
-    let userConfig: Record<string, JsonValue> = {}
-    try {
-      // r13-I4 §8.3：未知 key warn + 忽略（key 全名 + 文件）；类型错的 fail 面在 config.health
-      userConfig = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      const section = userConfig.evolution
-      if (section && typeof section === 'object' && !Array.isArray(section))
-        evolutionEnabled = section.enabled !== false
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        logger.warn(
-          error instanceof Error && error.message
-            ? error.message
-            : 'Unable to read evolution config',
-        )
-    }
-    const tuned = await new EvolutionEngine(evolution, { enabled: evolutionEnabled }).values()
+    // §15 T0: persisted values apply only after an explicit, typed boolean opt-in.
+    const { config: userConfig, values: tuned } = await loadProductionContextTuning({
+      home,
+      persistence: evolution,
+      logger,
+    })
     const contextPolicy = new SlidingWindowPolicy({
       compactionThreshold: tuned.compaction_threshold,
       targetRatio: tuned.target_ratio,

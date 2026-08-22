@@ -21,6 +21,7 @@ import {
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
+  loadProductionContextTuning,
   registerRuntimeMemoryPrompts,
   requestPermission,
   RuntimeSessionPort,
@@ -1165,6 +1166,146 @@ describe('FileInputHistoryStore', () => {
     expect(text).not.toContain('secret-value')
     if (process.platform !== 'win32') {
       expect((await stat(path)).mode & 0o777).toBe(0o600)
+    }
+  })
+})
+
+describe('production evolution configuration', () => {
+  it.each([
+    ['a missing config', undefined, {}],
+    [
+      'an explicit false switch',
+      '[evolution]\nenabled = false\n',
+      { evolution: { enabled: false } },
+    ],
+  ])('fails closed for %s without reading tuning persistence', async (_case, config, expected) => {
+    const root = await mkdtemp(join(process.cwd(), '.evolution-default-off-'))
+    fixtures.push(root)
+    if (config !== undefined) await writeFile(join(root, 'config.toml'), config, 'utf8')
+    const persistence = {
+      current: vi.fn(async () => ({ target_ratio: 0.5 })),
+      append: vi.fn(async () => undefined),
+      audit: vi.fn(async () => []),
+    }
+    const logger = { warn: vi.fn() }
+
+    const result = await loadProductionContextTuning({ home: root, persistence, logger })
+    expect(result).toMatchObject({
+      values: {
+        compaction_threshold: 0.85,
+        target_ratio: 0.6,
+        keep_recent: 20,
+        summary_keep_recent: 20,
+      },
+    })
+    expect(result.config).toEqual(expected)
+    expect(persistence.current).not.toHaveBeenCalled()
+    expect(persistence.append).not.toHaveBeenCalled()
+    expect(persistence.audit).not.toHaveBeenCalled()
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a wrong-type switch', '[router]\ntype = "role"\n\n[evolution]\nenabled = "true"\n'],
+    ['malformed TOML', '[evolution\nenabled = true\n'],
+  ])('rejects %s before reading tuning persistence', async (_case, config) => {
+    const root = await mkdtemp(join(process.cwd(), '.evolution-invalid-config-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), config, 'utf8')
+    const persistence = {
+      current: vi.fn(async () => ({ target_ratio: 0.5 })),
+      append: vi.fn(async () => undefined),
+      audit: vi.fn(async () => []),
+    }
+
+    await expect(
+      loadProductionContextTuning({ home: root, persistence, logger: { warn: vi.fn() } }),
+    ).rejects.toThrow()
+    expect(persistence.current).not.toHaveBeenCalled()
+    expect(persistence.append).not.toHaveBeenCalled()
+    expect(persistence.audit).not.toHaveBeenCalled()
+  })
+
+  it('reads and applies persisted context tuning only for explicit boolean true', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.evolution-explicit-on-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), '[evolution]\nenabled = true\n', 'utf8')
+    const persistence = {
+      current: vi.fn(async () => ({ target_ratio: 0.5 })),
+      append: vi.fn(async () => undefined),
+      audit: vi.fn(async () => []),
+    }
+
+    await expect(
+      loadProductionContextTuning({ home: root, persistence, logger: { warn: vi.fn() } }),
+    ).resolves.toMatchObject({
+      config: { evolution: { enabled: true } },
+      values: { target_ratio: 0.5 },
+    })
+    expect(persistence.current).toHaveBeenCalledOnce()
+    expect(persistence.current).toHaveBeenCalledWith('context')
+    expect(persistence.append).not.toHaveBeenCalled()
+    expect(persistence.audit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a polluted prototype section', '[evolution.__proto__]\nenabled = true\n'],
+    ['a top-level prototype section', '[__proto__]\nenabled = true\n'],
+    ['a dotted prototype key', '[evolution]\n__proto__.enabled = true\n'],
+  ])('rejects %s before reading tuning persistence', async (_case, config) => {
+    const root = await mkdtemp(join(process.cwd(), '.evolution-pollution-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), config, 'utf8')
+    const persistence = {
+      current: vi.fn(async () => ({ target_ratio: 0.5 })),
+      append: vi.fn(async () => undefined),
+      audit: vi.fn(async () => []),
+    }
+
+    await expect(
+      loadProductionContextTuning({ home: root, persistence, logger: { warn: vi.fn() } }),
+    ).rejects.toThrow(/forbidden config key segment/)
+    expect(persistence.current).not.toHaveBeenCalled()
+    expect(persistence.append).not.toHaveBeenCalled()
+    expect(persistence.audit).not.toHaveBeenCalled()
+    expect(Object.hasOwn(Object.prototype, 'enabled')).toBe(false)
+  })
+
+  it('treats an inherited enabled value as no authority when the process prototype is polluted', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.evolution-inherited-'))
+    fixtures.push(root)
+    // The unknown `mode` key is stripped by validation, leaving an own but empty [evolution]
+    // section whose `enabled` could then only come from the prototype chain.
+    await writeFile(join(root, 'config.toml'), '[evolution]\nmode = "apply"\n', 'utf8')
+    const persistence = {
+      current: vi.fn(async () => ({ target_ratio: 0.5 })),
+      append: vi.fn(async () => undefined),
+      audit: vi.fn(async () => []),
+    }
+    // eslint-disable-next-line no-extend-native -- deliberately pollutes the prototype to prove the gate resists it
+    Object.defineProperty(Object.prototype, 'enabled', {
+      value: true,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    })
+    try {
+      const result = await loadProductionContextTuning({
+        home: root,
+        persistence,
+        logger: { warn: vi.fn() },
+      })
+      expect(result.values).toEqual({
+        compaction_threshold: 0.85,
+        target_ratio: 0.6,
+        keep_recent: 20,
+        summary_keep_recent: 20,
+      })
+      expect(persistence.current).not.toHaveBeenCalled()
+      expect(persistence.append).not.toHaveBeenCalled()
+      expect(persistence.audit).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(Object.prototype, 'enabled')
     }
   })
 })

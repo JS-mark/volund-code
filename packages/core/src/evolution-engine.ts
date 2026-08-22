@@ -1,22 +1,91 @@
-export const EVOLUTION_DEFAULTS = {
-  context: {
+import { types as utilTypes } from 'node:util'
+
+export const EVOLUTION_DEFAULTS = Object.freeze({
+  context: Object.freeze({
     compaction_threshold: 0.85,
     target_ratio: 0.6,
     keep_recent: 20,
     summary_keep_recent: 20,
-  },
-  router: { cooldown_ms: 60_000, max_attempts: 6 },
-  retry: { max_retries: 2, backoff_factor: 4 },
-  'tool-timeout': { default_timeout_ms: 60_000 },
-} as const
+  }),
+  router: Object.freeze({ cooldown_ms: 60_000, max_attempts: 6 }),
+  retry: Object.freeze({ max_retries: 2, backoff_factor: 4 }),
+  'tool-timeout': Object.freeze({ default_timeout_ms: 60_000 }),
+})
 
 export const CONTEXT_TUNABLE_DEFAULTS = EVOLUTION_DEFAULTS.context
 export type EvolutionNamespace = keyof typeof EVOLUTION_DEFAULTS
 export type ContextTunableParam = keyof typeof CONTEXT_TUNABLE_DEFAULTS
+export interface ContextTunableBound {
+  readonly min: number
+  readonly max: number
+  readonly integer: boolean
+}
+export const CONTEXT_TUNABLE_BOUNDS = Object.freeze({
+  compaction_threshold: Object.freeze({ min: 0.65, max: 0.95, integer: false }),
+  target_ratio: Object.freeze({ min: 0.45, max: 0.75, integer: false }),
+  keep_recent: Object.freeze({ min: 15, max: 25, integer: true }),
+  summary_keep_recent: Object.freeze({ min: 15, max: 25, integer: true }),
+}) satisfies Readonly<Record<ContextTunableParam, ContextTunableBound>>
+export const CONTEXT_TUNABLE_PARAMS: readonly ContextTunableParam[] = Object.freeze([
+  'compaction_threshold',
+  'target_ratio',
+  'keep_recent',
+  'summary_keep_recent',
+])
+
+export function isContextTunableParam(value: string): value is ContextTunableParam {
+  return Object.hasOwn(CONTEXT_TUNABLE_BOUNDS, value)
+}
+
+export function isContextTunableValue(param: ContextTunableParam, value: unknown): value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false
+  const bound = CONTEXT_TUNABLE_BOUNDS[param]
+  return value >= bound.min && value <= bound.max && (!bound.integer || Number.isInteger(value))
+}
+
+export function isValidContextTuningSnapshot(
+  value: Readonly<Record<ContextTunableParam, number>>,
+): boolean {
+  return (
+    CONTEXT_TUNABLE_PARAMS.every((param) => isContextTunableValue(param, value[param])) &&
+    value.target_ratio + 0.1 <= value.compaction_threshold
+  )
+}
+
+/**
+ * Atomically projects an untrusted persistence result onto the complete context snapshot.
+ * Any accessor, Proxy, unknown key, invalid scalar, or cross-field violation rejects the whole
+ * projection. I/O rejection is deliberately handled by the caller and is not converted here.
+ */
+export function projectContextTuningSnapshot(
+  input: unknown,
+): Readonly<Record<ContextTunableParam, number>> | undefined {
+  try {
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined
+    if (utilTypes.isProxy(input)) return undefined
+    const prototype = Object.getPrototypeOf(input)
+    if (prototype !== Object.prototype && prototype !== null) return undefined
+    const keys = Reflect.ownKeys(input)
+    const candidate: Record<ContextTunableParam, number> = { ...CONTEXT_TUNABLE_DEFAULTS }
+    for (const key of keys) {
+      if (typeof key !== 'string' || !isContextTunableParam(key)) return undefined
+      const descriptor = Object.getOwnPropertyDescriptor(input, key)
+      if (!descriptor?.enumerable || !('value' in descriptor)) return undefined
+      if (!isContextTunableValue(key, descriptor.value)) return undefined
+      candidate[key] = descriptor.value
+    }
+    if (!isValidContextTuningSnapshot(candidate)) return undefined
+    return Object.freeze(candidate)
+  } catch {
+    return undefined
+  }
+}
+
 export type EvolutionParam = string
 export type EvolutionSignal = Record<string, number>
 export type EvolutionAction = 'adjusted' | 'rolled_back' | 'stopped' | 'confirmation_rejected'
 export interface EvolutionRecord {
+  schemaVersion: 1
   namespace: EvolutionNamespace
   param: EvolutionParam
   before: number
@@ -26,10 +95,14 @@ export interface EvolutionRecord {
   signal: EvolutionSignal
   action: EvolutionAction
 }
+export type EvolutionRecordProvenance = 'legacy-v0' | 'v1'
+export interface EvolutionAuditRecord extends EvolutionRecord {
+  provenance: EvolutionRecordProvenance
+}
 export interface EvolutionPersistence {
-  current(namespace: EvolutionNamespace): Promise<Partial<Record<string, number>>>
+  current(namespace: EvolutionNamespace): Promise<unknown>
   append(record: EvolutionRecord): Promise<void>
-  audit?(namespace?: EvolutionNamespace): Promise<EvolutionRecord[]>
+  audit?(namespace?: EvolutionNamespace): Promise<EvolutionAuditRecord[]>
 }
 export interface EvolutionConfirmation {
   namespace: EvolutionNamespace
@@ -76,6 +149,20 @@ const clamp = (namespace: EvolutionNamespace, param: string, before: number, pro
   return namespace === 'tool-timeout' ? Math.min(300_000, Math.max(1_000, value)) : value
 }
 
+function clampContextValue(
+  param: ContextTunableParam,
+  value: number,
+  snapshot: Readonly<Record<ContextTunableParam, number>>,
+): number {
+  const bound = CONTEXT_TUNABLE_BOUNDS[param]
+  let min: number = bound.min
+  let max: number = bound.max
+  if (param === 'compaction_threshold') min = Math.max(min, snapshot.target_ratio + 0.1)
+  if (param === 'target_ratio') max = Math.min(max, snapshot.compaction_threshold - 0.1)
+  const bounded = Math.max(min, Math.min(max, value))
+  return bound.integer ? Math.round(bounded) : Number(bounded.toFixed(4))
+}
+
 export class EvolutionEngine {
   readonly #windows = new Map<EvolutionNamespace, EvolutionSignal[]>()
   readonly #last = new Map<string, EvolutionRecord>()
@@ -90,7 +177,6 @@ export class EvolutionEngine {
     options: EvolutionOptions = {},
   ) {
     this.#options = {
-      enabled: true,
       namespaces: ['context', 'router', 'retry', 'tool-timeout'],
       sampleWindow: 20,
       worsenStreakLimit: 3,
@@ -99,22 +185,20 @@ export class EvolutionEngine {
       toolTimeoutDefaults: {},
       now: () => new Date(),
       ...options,
+      // This is a runtime authority boundary, not merely a TypeScript convenience.
+      // Callers crossing JS/config/plugin boundaries must opt in with the literal boolean true.
+      enabled: options.enabled === true,
     }
   }
   isEnabled(namespace: EvolutionNamespace) {
-    return this.#options.enabled && this.#options.namespaces.includes(namespace)
+    return this.#options.enabled === true && this.#options.namespaces.includes(namespace)
   }
   async values(): Promise<Record<ContextTunableParam, number>>
   async values(namespace: EvolutionNamespace): Promise<Record<string, number>>
   async values(namespace: EvolutionNamespace = 'context'): Promise<Record<string, number>> {
     const defaults = this.#defaults(namespace)
-    if (!this.isEnabled(namespace)) return defaults
-    const persisted = Object.fromEntries(
-      Object.entries(await this.persistence.current(namespace)).filter(
-        (entry): entry is [string, number] => entry[1] !== undefined,
-      ),
-    )
-    return { ...defaults, ...persisted }
+    if (!this.isEnabled(namespace) || namespace !== 'context') return defaults
+    return projectContextTuningSnapshot(await this.persistence.current(namespace)) ?? defaults
   }
   async observe(
     namespace: EvolutionNamespace,
@@ -171,8 +255,14 @@ export class EvolutionEngine {
     const defaults = this.#defaults(namespace)
     const defaultValue = defaults[param]
     if (defaultValue === undefined) return
-    const before = (await this.values(namespace))[param] ?? defaultValue
-    const after = clamp(namespace, param, before, proposed)
+    const values = await this.values(namespace)
+    const before = values[param] ?? defaultValue
+    let after = clamp(namespace, param, before, proposed)
+    if (namespace === 'context' && isContextTunableParam(param)) {
+      after = clampContextValue(param, after, values as Record<ContextTunableParam, number>)
+      const candidate = { ...values, [param]: after } as Record<ContextTunableParam, number>
+      if (!isValidContextTuningSnapshot(candidate)) return
+    }
     if (after === before) return
     const deviationPct =
       defaultValue === 0 ? 0 : Math.abs(after - defaultValue) / Math.abs(defaultValue)
@@ -228,6 +318,7 @@ export class EvolutionEngine {
     const param = namespace === first ? String(second) : String(first)
     const worsened = Boolean(namespace === first ? third : second)
     const signal = (namespace === first ? fourth : third) as EvolutionSignal
+    if (!this.isEnabled(namespace) || !allowed(namespace, param)) return
     await this.#restore()
     const key = `${namespace}:${param}`
     const prior = this.#last.get(key)
@@ -286,6 +377,7 @@ export class EvolutionEngine {
     action: EvolutionAction,
   ): EvolutionRecord {
     return {
+      schemaVersion: 1,
       namespace,
       param,
       before,
@@ -300,6 +392,8 @@ export class EvolutionEngine {
     if (this.#restored || !this.persistence.audit) return
     const records = await this.persistence.audit()
     for (const record of records) {
+      // Bounds-unfrozen namespaces retain rule skeletons but receive no persisted authority.
+      if (record.namespace !== 'context') continue
       const key = `${record.namespace}:${record.param}`
       if (record.action === 'adjusted') this.#last.set(key, record)
       if (record.action === 'rolled_back') this.#worsen.set(key, (this.#worsen.get(key) ?? 0) + 1)
