@@ -23,6 +23,11 @@ export interface ConfigLayerOptions {
 }
 /** §8.3.1 数据流向门：附录 C.2 `projectOverride` 标注 + 通用 baseUrl/endpoint/api_key 模式。 */
 const forbidden = (key: string) => isProjectOverrideForbidden(key)
+/**
+ * 原型污染护栏：魔术 key segment 会让 assign 的游标落到 Object.prototype 并被写入
+ * （例如 `[evolution.__proto__] enabled = true`），一律拒绝而不是静默跳过。
+ */
+const forbiddenKeySegments: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 function flatten(
   input: Config,
   prefix = '',
@@ -37,6 +42,8 @@ function flatten(
 }
 function assign(out: Config, key: string, value: JsonValue) {
   const parts = key.split('.')
+  if (parts.some((part) => forbiddenKeySegments.has(part)))
+    throw new ApolloError('config_invalid', `forbidden config key segment in '${key}'`)
   let cursor = out
   for (const part of parts.slice(0, -1)) {
     const next = cursor[part]

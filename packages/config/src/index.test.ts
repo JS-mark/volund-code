@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { ApolloError } from '@apollo-code/shared'
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadConfig, loadTomlFile, validateConfig } from './index'
+import { loadConfig, loadTomlFile, validateConfig, type Config } from './index'
 describe('config layering', () => {
   it('filters project data-flow keys and applies env/flags last', async () => {
     const warning = vi.fn()
@@ -73,13 +73,24 @@ describe('unknown key policy (§8.3 / appendix C.1, r13-I4)', () => {
     expect(config.tools).toEqual({})
     expect(config.ui).toEqual({ theme: 'dark' })
   })
-  it('accepts open-section extras without warnings (context.*, sandbox.*, evolution.*)', () => {
+  it('accepts open-section extras without warnings (context.*, sandbox.*)', () => {
     const { config, warnings } = validateConfig(
       { context: { policy: 'sliding', keep_recent: 20 }, sandbox: { tier: 'restricted' } },
       { file: 'f.toml' },
     )
     expect(warnings).toEqual([])
     expect(config.context).toEqual({ policy: 'sliding', keep_recent: 20 })
+  })
+  it('types evolution.enabled strictly and ignores unknown evolution keys', () => {
+    const { config, warnings } = validateConfig(
+      { evolution: { enabled: true, mode: 'apply' } },
+      { file: 'f.toml' },
+    )
+    expect(config.evolution).toEqual({ enabled: true })
+    expect(warnings).toEqual(["unknown config key 'evolution.mode' in f.toml ignored"])
+    expect(() => validateConfig({ evolution: { enabled: 'true' } }, { file: 'f.toml' })).toThrow(
+      /key 'evolution\.enabled'.*expected boolean/,
+    )
   })
   it('warns and ignores unknown keys inside a dynamic provider entry', () => {
     const { warnings } = validateConfig(
@@ -142,5 +153,37 @@ describe('loadTomlFile', () => {
     expect(config.context).toEqual({ policy: 'summary' })
     expect(config.ui).toEqual({ theme: 'dark' })
     await rm(directory, { recursive: true, force: true })
+  })
+})
+describe('prototype pollution guard', () => {
+  it('rejects magic key segments in TOML instead of writing to Object.prototype', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'apollo-config-pollution-'))
+    const path = join(directory, 'config.toml')
+    for (const source of [
+      '[__proto__]\nenabled = true\n',
+      '[evolution.__proto__]\nenabled = true\n',
+      '[evolution]\n__proto__.enabled = true\n',
+      '[ui.constructor]\ncolor = true\n',
+    ]) {
+      await writeFile(path, source, 'utf8')
+      await expect(loadTomlFile(path)).rejects.toThrow(/forbidden config key segment/)
+    }
+    expect(Object.hasOwn(Object.prototype, 'enabled')).toBe(false)
+    expect(Object.hasOwn(Object.prototype, 'color')).toBe(false)
+    await rm(directory, { recursive: true, force: true })
+  })
+  it('rejects magic segments in layered merge input', async () => {
+    const crafted: Config = {}
+    // An own `__proto__` data property is the JSON.parse shape of a crafted config file.
+    Object.defineProperty(crafted, '__proto__', {
+      value: { enabled: true },
+      configurable: true,
+      enumerable: true,
+      writable: true,
+    })
+    await expect(loadConfig({ defaults: {}, global: crafted })).rejects.toThrow(
+      /forbidden config key segment/,
+    )
+    expect(Object.hasOwn(Object.prototype, 'enabled')).toBe(false)
   })
 })

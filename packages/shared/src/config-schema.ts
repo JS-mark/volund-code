@@ -10,8 +10,9 @@ import { z } from 'zod'
  * 未知 key 策略（§8.3 / C.1）：strict object 收集 `unrecognized_keys` →
  * warn + 忽略（向前兼容）；已知 key 类型错 → 启动 fail（文件 + key + 期望类型）。
  * `provider.<name>` / `models.aliases.<alias>` 等动态名走 catchall / record，
- * 其余"见 §5.5 / §8b.13 / §15"的开放段（sandbox / context 扩展 / evolution /
- * auth / preferences）接受任意 JSON 值，registry 以 `段.*` 通配登记。
+ * 其余"见 §5.5 / §8b.13"的开放段（sandbox / context 扩展 / auth /
+ * preferences）接受任意 JSON 值，registry 以 `段.*` 通配登记；evolution
+ * 是严格段，仅接受显式 boolean `enabled`，避免字符串或未知字段伪开启。
  */
 export type ProjectOverride = 'allowed' | 'forbidden'
 
@@ -57,8 +58,8 @@ export const configKeyRegistry = {
   'ui.color': 'allowed',
   'telemetry.sink': 'forbidden',
   'telemetry.otel.endpoint': 'forbidden',
-  // [evolution] enable / namespace 参数护栏（见 §15）：开放段
-  'evolution.*': 'allowed',
+  // [evolution] legacy compatibility switch（见 §15）：严格 boolean，缺省 off
+  'evolution.enabled': 'allowed',
   // [auth] 段全部（§8.3.1）
   'auth.*': 'forbidden',
   // 实现内建段：apps/cli 状态面板本地偏好（附录 C 已补录 outputStyle / language 两行，
@@ -171,7 +172,7 @@ export const ConfigSchema = z.strictObject({
       otel: z.strictObject({ endpoint: z.string().optional() }).optional(),
     })
     .optional(),
-  evolution: openSection.optional(),
+  evolution: z.strictObject({ enabled: z.boolean().optional() }).optional(),
   auth: openSection.optional(),
   preferences: openSection.optional(),
 })

@@ -70,10 +70,17 @@ describe('configKeyRegistry ↔ ConfigSchema consistency', () => {
         models: { aliases: { sonnet: { provider: 'anthropic', model: 'x' } } },
       }).success,
     ).toBe(true)
-    // open sections (sandbox / evolution / auth / preferences / context extras)
+    // open sections (sandbox / auth / preferences / context extras)
     expect(ConfigSchema.safeParse({ sandbox: { tier: 'restricted' } }).success).toBe(true)
     expect(ConfigSchema.safeParse({ evolution: { enabled: false } }).success).toBe(true)
     expect(ConfigSchema.safeParse({ context: { keep_recent: 20 } }).success).toBe(true)
+  })
+
+  it('keeps evolution strict and accepts only an optional boolean enabled switch', () => {
+    expect(ConfigSchema.safeParse({ evolution: {} }).success).toBe(true)
+    expect(ConfigSchema.safeParse({ evolution: { enabled: true } }).success).toBe(true)
+    expect(ConfigSchema.safeParse({ evolution: { enabled: 'true' } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ evolution: { mode: 'apply' } }).success).toBe(false)
   })
 })
 
@@ -85,6 +92,8 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(projectOverrideFor('telemetry.sink')).toBe('forbidden')
     expect(projectOverrideFor('telemetry.otel.endpoint')).toBe('forbidden')
     expect(projectOverrideFor('auth.enabled')).toBe('forbidden')
+    expect(projectOverrideFor('evolution.enabled')).toBe('allowed')
+    expect(projectOverrideFor('evolution.mode')).toBeUndefined()
     expect(projectOverrideFor('context.keep_recent')).toBe('allowed')
     expect(projectOverrideFor('totally.unknown')).toBeUndefined()
   })

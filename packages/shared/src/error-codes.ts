@@ -134,6 +134,15 @@ export const ErrorCodes = {
   pluginUiInvalid: 'plugin_ui_invalid',
   pluginUiPermissionRequired: 'plugin_ui_permission_required',
 
+  /* ── evolution 本地存储诊断码（packages/storage） ──────────────────── */
+  evolutionNamespaceApplyUnsupported: 'evolution_namespace_apply_unsupported',
+  evolutionRecordContinuity: 'evolution_record_continuity',
+  evolutionRecordCrossConstraint: 'evolution_record_cross_constraint',
+  evolutionRecordFutureSchema: 'evolution_record_future_schema',
+  evolutionRecordInvalid: 'evolution_record_invalid',
+  evolutionRecordLineTooLarge: 'evolution_record_line_too_large',
+  evolutionRecordTimeRegression: 'evolution_record_time_regression',
+
   /* ── memory 域（MemoryError，packages/storage + ui 面板） ─────────────── */
   memoryConflict: 'memory_conflict',
   memoryCorrupt: 'memory_corrupt',
