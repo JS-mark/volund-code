@@ -98,6 +98,27 @@ describe('EvolutionEngine', () => {
     expect(audit).not.toHaveBeenCalled()
     expect(append).not.toHaveBeenCalled()
   })
+  it('consumes audit history carrying T1b record identity without treating it as authority', async () => {
+    const store = persistence()
+    store.records.push({
+      schemaVersion: 1,
+      namespace: 'context',
+      param: 'target_ratio',
+      before: 0.6,
+      after: 0.55,
+      at: '2026-01-01T00:00:00.000Z',
+      reason: 'test',
+      signal: {},
+      action: 'stopped',
+      recordId: 'a'.repeat(32),
+      sequence: 7,
+    })
+    const engine = new EvolutionEngine(store, { enabled: true })
+    await expect(
+      engine.propose('target_ratio', 0.5, 'must stay frozen', {}),
+    ).resolves.toBeUndefined()
+    expect(store.records).toHaveLength(1)
+  })
   it.each(['true', 1, {}, undefined])(
     'does not treat non-boolean enabled value %j as authority',
     async (enabled) => {

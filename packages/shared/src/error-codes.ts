@@ -141,7 +141,12 @@ export const ErrorCodes = {
   evolutionRecordFutureSchema: 'evolution_record_future_schema',
   evolutionRecordInvalid: 'evolution_record_invalid',
   evolutionRecordLineTooLarge: 'evolution_record_line_too_large',
+  evolutionRecordSequenceRegression: 'evolution_record_sequence_regression',
   evolutionRecordTimeRegression: 'evolution_record_time_regression',
+  evolutionJournalRecoveryAborted: 'evolution_journal_recovery_aborted',
+  evolutionJournalRecoveryCompleted: 'evolution_journal_recovery_completed',
+  evolutionJournalRecoveryRequired: 'evolution_journal_recovery_required',
+  evolutionLockStolen: 'evolution_lock_stolen',
 
   /* ── memory 域（MemoryError，packages/storage + ui 面板） ─────────────── */
   memoryConflict: 'memory_conflict',

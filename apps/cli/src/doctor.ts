@@ -4,7 +4,7 @@ import { access } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { ApolloPorts, PluginAvailability } from './ports'
+import type { ApolloPorts, DoctorHealth, PluginAvailability } from './ports'
 
 const execFileAsync = promisify(execFile)
 const GH_VERSION_TIMEOUT_MS = 5000
@@ -68,13 +68,19 @@ export async function runDoctor(
   ports: ApolloPorts,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DoctorCheck[]> {
-  const [native, auth, config, telemetry, gh, plugin] = await Promise.all([
+  const [native, auth, config, telemetry, gh, plugin, evolution] = await Promise.all([
     ports.native.health(),
     ports.auth.health(),
     ports.config.health(cwd),
     ports.telemetry.health(),
     detectGhCli(env),
     ports.plugin?.availability(),
+    ports.evolution?.health?.().catch(
+      (error): DoctorHealth => ({
+        valid: false,
+        detail: `evolution health check failed: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+    ),
   ])
   let writable = true
   try {
@@ -102,6 +108,18 @@ export async function runDoctor(
     { name: 'native fs', ok: native.fs, detail: native.fs ? 'available' : 'native fs unavailable' },
     { name: 'auth', ok: auth.configured === true, detail: auth.detail },
     { name: 'config', ok: config.valid === true, detail: config.detail },
+    // §15.11 T1b: journal recovery is surfaced here but never fails doctor —
+    // tuning stays default-off and reads remain available.
+    ...(evolution
+      ? [
+          {
+            name: 'evolution tuning store',
+            ok: true,
+            ...(evolution.valid === false ? { warn: true } : {}),
+            detail: evolution.detail,
+          } satisfies DoctorCheck,
+        ]
+      : []),
     { name: 'cwd writable', ok: writable, detail: cwd },
     {
       detail: gh.installed ? `${gh.version} (${gh.path})` : GH_CLI_MISSING_HINT,

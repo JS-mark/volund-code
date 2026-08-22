@@ -1734,6 +1734,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
       rollback: (rollbackOptions) =>
         evolution.rollback(rollbackOptions.namespace, rollbackOptions.to),
+      health: async () => {
+        const result = await evolution.health()
+        return { valid: result.valid, detail: result.detail }
+      },
     },
     memory,
     memoryRecall,

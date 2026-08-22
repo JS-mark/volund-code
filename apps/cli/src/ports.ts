@@ -113,6 +113,8 @@ export interface EvolutionPort {
     namespace?: 'context' | 'router' | 'retry' | 'tool-timeout'
     to?: Date
   }): Promise<unknown[]>
+  /** §15.11 T1b: tuning journal health for `apollo doctor`. */
+  health?(): Promise<DoctorHealth>
 }
 export interface McpPort {
   list(): Promise<Array<{ name: string; transport: string }>>

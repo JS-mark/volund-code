@@ -6,7 +6,7 @@
 
 > **状态：EXPERIMENTAL / PARTIAL。** 本节只定义白名单内运行时数值参数的有界调优，不修改代码、测试、配置制品或发布产物。代码/制品变更属于 [§18 受控自我开发 / 变更流水线](./18-self-development.md)，当前尚未交付。
 >
-> **当前实现事实（T1a）**：`EvolutionEngine`、`EvolutionStore`、规则评估和 `apollo evolution show|rollback` 已存在；引擎与生产组装缺省关闭，只有严格 boolean `[evolution].enabled = true` 才会在创建 Runner 时读取通过 T1a strict decoder、context bounds 与整快照约束的 tuning。配置缺失或显式 `false` 时保持内置默认且不读取 tuning persistence；不可读、语法错误或类型错误按 §8.3/C.1 阻止 Runner 启动，同样不会读取 tuning。`observe()`、`validate()`、tuning Memory、Router/Retry/Tool-timeout 应用、确认 UI 和调优 telemetry 均未接入生产调用链，因此当前不是闭环。
+> **当前实现事实（T1b）**：`EvolutionEngine`、`EvolutionStore`、规则评估和 `apollo evolution show|rollback` 已存在；引擎与生产组装缺省关闭，只有严格 own-property boolean `[evolution].enabled = true` 才会在创建 Runner 时读取通过 strict decoder、context bounds 与整快照约束的 tuning。配置缺失或显式 `false` 时保持内置默认且不读取 tuning persistence；不可读、语法错误或类型错误按 §8.3/C.1 阻止 Runner 启动，同样不会读取 tuning。T1b 起，新写入记录为携带 `recordId` + per-namespace `sequence` 的 flat V2，双文件 append 由跨进程锁与 `.evolution-txn.json` journal 保护并在启动/读取时恢复；`apollo doctor` 增加 tuning journal 健康提示。`observe()`、`validate()`、tuning Memory、Router/Retry/Tool-timeout 应用、确认 UI 和调优 telemetry 均未接入生产调用链，因此当前仍不是闭环。
 
 ### 15.1 定义与命名边界
 
@@ -43,7 +43,7 @@
 | 静态 defaults / namespace / 参数 allowlist | **Implemented** | `packages/core/src/evolution-engine.ts` 定义 context/router/retry/tool-timeout defaults 和静态参数集合 |
 | 规则评估 | **Implemented, not observed in production** | `#evaluate()` 使用固定阈值规则；不是模型驱动、ML 或自主假设生成 |
 | 步长 clamp / 累计偏离确认接口 / worsen rollback | **Implemented as engine logic** | 只有调用 `propose()` / `validate()` 才生效；生产未注入确认 handler，也未调用验证 |
-| JSONL tuning store / audit / rollback | **T1a hardened, not evidence-grade** | 新写 flat `EvolutionRecordV1`；strict/bounded decoder、legacy-v0 provenance、validated rollback 已落地；namespace/audit 双文件仍非 crash-atomic，见 T1b |
+| JSONL tuning store / audit / rollback | **T1b hardened (journal-backed)** | 新写 flat V2（`recordId` + per-namespace `sequence`）；strict/bounded decoder、legacy-v0/v1 provenance、validated rollback、跨进程锁与 `.evolution-txn.json` crash recovery、doctor 提示已落地；文件**内容**每步 fsync，但新文件创建的跨断电持久性受 Node 无可移植目录 fsync 限制（Windows 必须如实披露，POSIX 可在部署层补加） |
 | Runner 读取 tuning | **Partial, explicit opt-in only** | 缺省不读取；只有 `[evolution].enabled = true` 才读取经整快照校验的 context `compaction_threshold`、`target_ratio`、`keep_recent`；`summary_keep_recent` 未传入 ContextPolicy；bounds 未冻结的其他 namespace 永远不读取持久值 |
 | Observation | **Not wired** | `EvolutionEngine.observe()` 无生产 caller，真实运行信号没有进入采样窗口 |
 | Validation | **Not wired** | `EvolutionEngine.validate()` 无生产 caller，生产不存在调参后的对照验证/自动回滚闭环 |
@@ -117,7 +117,9 @@ Router、Retry、Tool-timeout 尚无冻结的可信 bounds；其规则骨架可�
 
 读取边界采用 bounded streaming decoder：每行最多 16 KiB，reason 最多 1024 UTF-8 bytes，signal 最多 32 个固定格式 key、每个 key 最多 64 bytes，所有数值必须 finite 且在固定上限和 context bounds 内；unknown field/param、namespace 与文件不一致、坏 ISO time、accessor/Proxy、坏 action/signal 一律丢弃并只发固定诊断 code。普通 invalid item 不覆盖之前的合法值；future integer schema 使该 context namespace 的 `current/rollback` 整体 fail-closed，`null`/string version 也绝不降级为 legacy。
 
-无 `schemaVersion` 的 strict legacy-v0 记录可作为兼容 current/rollback 输入，但 audit 必须显式标 `provenance = legacy-v0`，且永远不能作为 T1/T2 evidence；新 append 不重写旧文件且只写 V1。T1a 的 V1 **没有** `recordId` 或可靠 sequence，namespace 与 `audit.jsonl` 两次 append 也没有跨进程锁/事务，因此不能声称 crash-atomic、全局有序或 evidence-grade。record identity、sequence、双文件原子可见性/恢复 journal 与 doctor/升级提示属于 T1b。
+无 `schemaVersion` 的 strict legacy-v0 记录与 `schemaVersion:1` 的 V1 记录可作为兼容 current/rollback 输入，但 audit 必须显式标 `provenance = legacy-v0 | v1`，且永远不能作为 T1/T2 evidence；新 append 一律写 flat V2（`{ schemaVersion: 2, recordId: <32 hex>, sequence, namespace, param, before, after, at, reason, signal, action }`），identity（`recordId` 为 16 随机字节的 hex，`sequence` 为 per-namespace 单调计数，从既有 V2 历史的最大值 +1）只在锁内由 store 分配，调用方携带的 identity 一律剥离重分配；namespace 文件内 V2 `sequence` 必须严格递增，回退记录按 `evolution_record_sequence_regression` 丢弃；future integer schema（>2）使该 context namespace 的 `current/rollback` 整体 fail-closed，`null`/string version 也绝不降级为 legacy。
+
+T1b 起双文件 append 采用受保护事务：写前先持久化 `.evolution-txn.json` journal（记录两文件的 pre-size 与 prefix SHA-256、exact record line 与 identity），状态机为 `PREPARED → NAMESPACE_DURABLE → BOTH_DURABLE`，每步 fsync，完成后删除 journal。任何读取或写入先做 recovery：`BOTH_DURABLE` 且两文件尾部逐字节等于 journal 记录的 exact line 时判定 committed（两文件都以 matching `recordId` 携带该记录才可见）；`PREPARED`/`NAMESPACE_DURABLE` 默认 abort——仅在多余字节确实是该事务 record line 的前缀时把两文件截断回 pre-size；任何无法证明的情形（prefix digest 不符、出现外来字节、journal 损坏）把 journal 置为 `RECOVERY_REQUIRED`：文件保持原样，所有 append/rollback 拒绝执行，直到人工移除或修复 `.evolution-txn.json`。并发 writer 由 `<root>/.evolution-lock.json` 跨进程互斥（持有者 pid 已死的 stale lock 可接管）；该锁是本地协调原语，不是安全边界。诚实边界：文件**内容**的每步 fsync 保证了上述恢复语义，但新文件**创建**（journal、lock、首个 JSONL）的跨断电持久性依赖目录 fsync，Node 无可移植 API，Windows 部署必须披露该限制；T1b 的 audit 数据可作本机诊断，用作 T1/T2 promotion evidence 仍需独立评审。
 
 仓库虽然已有未接线的 `TuningMemoryStore.write()`，但“把自然语言偏好/教训写入 Memory 再召回 prompt”会改变模型行为，不是白名单数值参数 tuning，**不属于 §15 的 Observe/Adjust/Validate pipeline 或交付阶段**。若未来需要该功能，必须在 §6.12 下另立产品、permission、sanitize、preWrite、prompt-injection 和用户审计契约；它不得作为 §15 的输入、输出、evidence 或启用前置，也永远不能授权工具、修改 §18 policy、提供 approval 或覆盖用户指令。当前生产既没有该写入 caller，也没有专用召回路径。
 
@@ -167,7 +169,7 @@ apollo evolution rollback [--namespace <name>] [--to <time>]
 
 1. **T0 — Truth/default（已交付 default-off 核心）**：engine/production 缺省 off，配置 schema/附录一致，回归测试证明 disabled 零 persistence read/write；文档不声称闭环。
 2. **T1a — Trusted context persistence（已交付）**：冻结 context bounds/cross constraint；core 对 untrusted snapshot 原子投影；storage V1/legacy strict decoder、future fail-closed、validated rollback；non-context persisted apply deny-only。
-3. **T1b — Evidence-grade persistence（未交付）**：recordId/sequence、跨进程 writer 协调、namespace/audit 原子可见性与 crash recovery journal、doctor/升级提示；完成前 T1a audit 不能作为 promotion evidence。
+3. **T1b — Evidence-grade persistence（已交付核心）**：recordId/sequence（flat V2）、跨进程 writer 锁、namespace/audit journal 恢复（abort 默认、`RECOVERY_REQUIRED` fail-closed、committed 需两文件 exact identity 证明）与 doctor/升级提示已落地并有 fault-injection / 双进程并发 / SIGKILL 测试；新文件创建的目录 fsync 限制如实披露。用作 T1/T2 promotion evidence 前仍需按 §10 独立评审。
 4. **T1 — Context shadow**：完整接入 context 四参数 observation，但只 shadow；同版本 baseline、信号去敏、窗口/规则/审计和 restart E2E 全绿。
 5. **T2 — Context apply opt-in**：用户按 namespace 显式启用；下一窗口 validation、inconclusive rollback、冻结和 UI/CLI 可见性全绿，独立安全评审通过。
 6. **T3 — Additional namespaces**：Router、Retry、Tool-timeout 每个单独做 threat/effect/budget evidence；不能因 context 通过而批量解锁。
@@ -188,6 +190,7 @@ apollo evolution rollback [--namespace <name>] [--to <time>]
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-08-22 | §15 v2.3 | T1b：flat V2 `recordId`/per-namespace `sequence`（锁内分配、严格递增）；跨进程 lock（stale 接管）；`.evolution-txn.json` journal `PREPARED→NAMESPACE_DURABLE→BOTH_DURABLE`，abort 默认、`RECOVERY_REQUIRED` fail-closed、committed 需双文件 exact identity 证明；doctor 提示；新文件创建的目录 fsync 限制披露。 |
 | 2026-08-21 | §15 v2.2 | T1a：冻结 context bounds/cross constraint；untrusted snapshot 整体投影；EvolutionRecordV1 + strict/bounded decoder、legacy provenance、future fail-closed、validated rollback；non-context persisted apply deny-only；明确 evidence-grade/双文件原子性留 T1b。 |
 | 2026-08-21 | §15 v2.1 | T0 default-off：engine 与 production 仅接受显式 boolean true；缺失/false 使用默认，坏配置/错类型停止 Runner，全部失败分支均不读 tuning；保留 show/rollback 维护面，observe/validate 仍未接线。 |
 | 2026-08-19 | §15 v2 | 重命名为 Adaptive Runtime Tuning；与 §18 代码/制品变更分离；按生产调用链标注 partial/unwired；明确当前规则驱动而非模型驱动；目标默认 off、先 shadow、apply 需 evidence gate；安全参数永久排除。 |
