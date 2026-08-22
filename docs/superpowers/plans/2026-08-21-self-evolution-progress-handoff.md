@@ -2,9 +2,9 @@
 
 > **用途**：给后续模型或工程师继续当前工作。本文记录的是当前分支的工程事实、未提交改动归属、已完成审查、下一步和不可跨越的安全边界。
 >
-> **更新时间**：2026-08-22（Asia/Shanghai）
+> **更新时间**：2026-08-22（Asia/Shanghai，第二轮：T1a/ABI/§20 已提交）
 >
-> **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
+> **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a、§20 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
 >
 > **模型切换**：可直接复制 [Model-Switch Continuation Prompt](./2026-08-22-model-switch-continuation-prompt.md) 给其他模型；切换回来时也以该提示词的“最短提示”恢复。
 
@@ -12,30 +12,28 @@
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
-- 本次交接内容基线 HEAD（不含本次提示词/进度文档更新提交）：`46898cbf831d583e8be7209361fcf4724b525419`
-- 实现基线 HEAD（不含本文自己的文档提交）：`33e5ce531bd6df0c73fdef3ab4c902e45f1dba06`
-- 实现基线短 SHA：`33e5ce5`
+- HEAD（本文提交前）：`3b0503dc5f757c6e9740e9eab807f063fb287a81`（§20 commit）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
+- 工作树：**当前完全干净**（`git status` 无条目）。此前的 T1a / ABI / §20 三组未提交候选已全部独立提交。
+- 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
-- 工作树为共享 dirty worktree；不能 reset、checkout、清理或覆盖不属于本任务的改动。
 
 最近已提交：
 
 ```text
+3b0503d docs(spec): add §20 self-owned harness chapter
+df4a2dd docs(spec): freeze ABI-00 capability contract V1
+6dd0b20 fix(core): default-off adaptive tuning with strict persistence boundary
+5e04cf4 docs(handoff): add model switch continuation prompt
 46898cb docs(brand): record identity and migration plan
 2450a95 docs(plan): record self-evolution handoff
 33e5ce5 fix(plugin): harden contained legacy state
-e220d08 fix(ci): select cli workspace by path
-9ccf9f1 fix(plugin): remove legacy authority bypass
-c3de176 fix(plugin): contain legacy production activation
-4ed57c7 docs(spec): define the plugin security kernel
-378c466 test(native-bridge): assert sandbox resolver kind
 ```
 
 ## 2. 已确认的产品/架构判断
 
 ### 2.1 当前项目是什么
 
-项目在工程类别上已经是一个可运行的自有 Agent Harness：Runner、session/event、prompt、tools、permission、context、storage、TUI/line/JSON driver、subagent 等基础组件已存在。
+项目在工程类别上已经是一个可运行的自有 Agent Harness：Runner、session/event、prompt、tools、permission、context、storage、TUI/line/JSON driver、subagent 等基础组件已存在；§20 已把 harness 确立为一等架构层（proposed / not shipped 的规范层冻结）。
 
 当前只能宣称：
 
@@ -43,8 +41,8 @@ c3de176 fix(plugin): contain legacy production activation
 
 当前不能宣称：
 
-- HarnessSpec-conformant；
-- self-hosted；
+- HarnessSpec-conformant（H1 未开始）；
+- self-hosted（H3a/H3b 未开始）；
 - plugin-native；
 - Rust-enforced capability runtime 已完成；
 - self-evolving / 自我开发闭环已完成。
@@ -65,172 +63,58 @@ c3de176 fix(plugin): contain legacy production activation
 
 ### 2.3 “自进化”的真实状态
 
-- §15 是白名单运行时数值调优，不改代码或制品。
+- §15 是白名单运行时数值调优，不改代码或制品。**T1a 已提交（6dd0b20）**：default-off、strict boolean opt-in、context 安全 envelope、strict V1/legacy decoder、non-context deny-only。
 - §18 才是候选代码/制品的受控自我开发流水线。
 - 当前 `EvolutionEngine.observe()`、`validate()`、`TuningMemoryStore.write()` 均无生产调用。
 - §18 的 SelfDev orchestrator、sealed candidate、base-owned checks、independent acceptance、human receipt、promotion transaction 均未实现。
 - 生产上不得开启或宣传“自我开发/闭环自进化”。
 - 第一条允许的 vertical slice 只能是 K3、deterministic、data-only、`effects: []`，最终止于本地 branch + Catalog `STAGED_DISABLED`；不得 adoption、enable、push、merge、publish 或 deploy。
 
-## 3. 已完成：P0 legacy plugin containment
+## 3. 已完成并独立验收（本轮新增提交）
 
-P0 kill switch 已提交并通过独立审查：
+### 3.1 P0 legacy plugin containment（既有基线）
 
-- `PluginManager.install()` deny-only；
-- `setEnabled(true)` deny-only；
-- stale approval 初始化时只投影为 disabled；
-- `PluginRuntime.loadEnabled()` 返回空；
-- `load()` 拒绝；
-- `active()` 返回空；
-- production activation 数必须继续为 0。
+`33e5ce5`：production activation deny-only；install/enable/load/active 继续 fail-closed。不得为了 demo 或 SelfDev 重开。
 
-不得为了演示或后续 SelfDev 开发而重开 legacy activation。只有新的 Catalog/ABI/Rust validation 路径完成并独立验收后，才能讨论另一个显式人工 enable gate。
+### 3.2 T1a tuning hardening — `6dd0b20`（已提交）
+
+- **Frozen candidate**：staged patch SHA-256 `ff2c6d52f17921e528866f98e47eb8e8a439427fb3a1646a3785d3c614619ae1`；verified candidate tree / commit tree `786f6ae86020235a3a9f5c7aaeb950f719a072ab`（commit tree 已核对相等）。
+- **范围**：16 个文件（14 tracked + `packages/config/src/index.ts` + `.changeset/safe-evolution-projection.md`）。
+- **内容**：engine/production default-off（仅字面 own-property boolean `true`）；非 ENOENT 配置错误阻止 Runner；`[evolution]` 严格 schema；context 冻结 bounds + 整快照 cross constraint 原子投影；EvolutionStore bounded strict JSONL decoder（V1 写入、legacy-v0 兼容 provenance、future schema fail-closed、固定诊断码、路径构造前验证）；non-context persisted apply/rollback deny-only。
+- **独立 reviewer（通用 agent，非 writer）**：R1 发现 1 Important（`__proto__` TOML 段经 `assign()` 写入 `Object.prototype` 可绕过 exact-boolean 门）→ 修复（parser 魔术段拒绝 + 门 own-property 守卫 + 回归测试）→ R2 全量重审 **0 Critical / 0 Important**（2 Minor 留存见 §9.4）。
+- **Binding gates（isolated clean candidate tree）**：core 61/61、storage 73+1 skipped、shared 100/100、config 14/14、CLI 137/137；全仓 `turbo run test --force` 51/51、`typecheck --force` 55/55；脚本组 64/64；`verify:config-docs`、`verify:error-codes`、docs build（typedoc+vitepress）、format、lint（0 errors）、`git diff --check` 全绿。
+- **环境归因**：首次把候选树放在 `/tmp` 导致 CLI/shared 测试因 `validateWorkspacePath` 拒绝 `/private/tmp` 而失败——纯候选树位置问题，移到 `/Users/mark/myself/code/apollo-code-t1a-verify` 后全绿；非产品缺陷。
+
+### 3.3 ABI-00 文档冻结 — `df4a2dd`（已提交）
+
+- **Frozen candidate**：staged ABI-only patch SHA-256 `f9b06a001ef5d78812af514606bf227534b4ec083136b1d70c203281863aa6ae`；verified candidate tree / commit tree `d3bb1aed8e1c0f3ab7b510807bfdbf426b4fdd29`（commit tree 已核对相等）。
+- **Staged blobs**：plan `4ca6d7c2…5528`、§18 `9a3ba6aa…96ef`、§19 `ad1700c8…46b3c`、§19a `b9cdf9e2…747e`、README `133c4d4a…18da`。
+- **范围**：恰好 5 个文件（M plan、M §18、M §19、A §19a、M README）。README/§19 为 partial-stage：全部 §20/Harness 及 §20 navigation hunks 被排除（staged diff 中 `§20`/`20-harness` 计数为 0）。
+- **两位独立 reviewer（均非 writer）**：
+  - byte/crypto/registry lane：R1 发现 1 Important（`sanitizedReasonEvidence.mediaRole:"sanitized-nonSECRET"` 与 `ClosedMediaRoleV1` 闭枚举冲突）→ 修复（字段改名 `evidenceKind` + `SanitizedEvidenceKindV1` 名义不相交声明）→ R2 **0C/0I**（1 Minor 暂缓，见 §9.4）。golden vector SHA-256 与 Ed25519 test vector 由 reviewer 独立重算验证通过。
+  - state/identity/recovery lane：R1 **0C/0I**（3 Minor，其中 mode 无命中拒绝、RESERVED 过期边两条已随修复轮关闭；RECONCILING 边集暂缓）→ R2 **0C/0I/0M**。
+- **Binding gates（isolated clean candidate tree）**：build 27/27、test 51/51、typecheck 55/55（全部 0 cached）、docs build、l1-docs+packlist 8/8、plugin-runtime 94/94、脚本组 64/64、lint 0 errors、format、`git diff --check`、stale-phrase 扫描（语义逐条核对）全绿。
+- 此前 ABI writer 报告的“完整 docs build 被 storage TypeDoc 错误阻止”在 isolated 树中不复现——是 shared moving worktree 的中间态，非候选内容问题。
+
+### 3.4 §20 Harness 章节 — `3b0503d`（已提交）
+
+- **Frozen candidate**：staged patch SHA-256 `cee98232b57f6f7e86c3b38a889d0de88599b9d9852b09c32370a90902d8bff9`；verified candidate tree / commit tree `5eed000befb4db385aedc8ae7dfbb50ce29f7b2d`。
+- **范围**：恰好 3 个文件（A `20-harness.md`、M README §20 hunks、M §19 §20 navigation 行）。
+- **审计阻断全部修复**：HarnessSpec 改 domain-separated canonical digest（禁裸 SHA-256）+ `harnessBuild`/`activeCapabilities` 绑定；H-1…H-14 改为验收宪法口径并登记 H-2/H-8/H-12/H-13 证据缺口；driver 表修正为真实 CLI（`apollo chat "<prompt>" --json` / `--no-tui`，无 `-p`，无 stdin 管道 prompt，headless 权限 fail-closed deny）；`packages/hooks`、`packages/memory-runtime` 拆当前路径（plugin-runtime/storage）与目标归属（含 HookRegistry 契约目标归 core、当前代码不存在的如实标注）；§16 降级为冻结基线表述；★ 降为职责级；H3 拆分为 H3a（human-directed）/H3b（§18 K3，止于本地 branch + STAGED_DISABLED）。
+- **独立 reviewer（非 writer）**：R1 **0C/0I**/1 Minor（driver 表状态列未对齐 §10/§16 词汇）→ 修复（改 `verified-local`（§16 基线））→ R2 **0C/0I/0M**。
+- **Binding gates**：build 27/27、test 51/51、typecheck 55/55、docs build、l1-docs+packlist 8/8、脚本组 56+8/64、lint 0 errors、format、`git diff --check` 全绿。
 
 ## 4. 正在进行的未提交工作
 
-### 4.1 §15 T0/T1a：default-off + strict tuning boundary
+无。工作树当前干净。
 
-目标：先关闭当前历史调优路径的 fail-open/不可信输入问题，不接通自动 `observe()` 或 `validate()`。
+## 5. §20 Harness 审计结论（已关闭）
 
-已经完成并经过第一轮测试的部分：
+原阻断（HarnessSpec digest、现状声明、driver、package ownership、H3a/H3b）已全部修复并随 `3b0503d` 提交。遗留非阻断 Notes：§20.7 的 domain prefix 是 §19a.3.2 两段式 domain 的缩写表述；D5 草案退出码 `3` 与当前 cli.ts 已有 `3` 用法需在 H2 冻结时对齐；`readStdin` 除 `--api-key-stdin` 外还供 `memory --body-stdin`。
 
-- `EvolutionEngine` 默认 `enabled=false`。
-- 运行时只接受字面 boolean `true`；string/number/object 等 truthy 值不是 authority。
-- disabled 时 `values/observe/propose/validate` 均为零 persistence I/O。
-- production 只在 `~/.apollo/config.toml` 显式 `[evolution] enabled = true` 时进入历史值读取路径。
-- config 缺失/false 使用内置默认。
-- TOML 语法错误、已知字段错类型、EACCES 等非 ENOENT 错误向上传播，在读取 tuning 前阻止 Runner 创建。
-- `[evolution]` config schema 已从开放段收窄为严格 `enabled?: boolean`。
-- `apollo evolution show|rollback` 仍是显式维护命令；它们不会开启自动调优。
+## 6. T1b：Tuning journal / crash recovery（下一个实现任务）
 
-第一轮独立审查结果曾为 `0 Critical / 4 Important / REQUEST_CHANGES`。四项均已由 writer 在冻结候选中处理，但尚未取得对最终 exact diff 的独立 PASS：
-
-1. Engine 曾把 truthy 非 boolean 当启用；已修。
-2. production 曾吞掉坏 config 后继续；已修为非 ENOENT 向上抛。
-3. 显式启用后曾原样信任 legacy JSONL；冻结候选已加入 Store + Engine 双层 strict validation。
-4. 公开默认行为变化缺独立 changeset；冻结候选已新增 changeset。
-
-当前 T1a writer 已停写并报告 frozen candidate：
-
-- focused tracked diff SHA-256：`452211bab71530bc6de45f12cad3bf64f580144dca79534c2194b2cac6a94dfd`；
-- changeset SHA-256：`d44b8a8a15da0d919d0af1981676310ed1e40c2ae348491b6b0e38a53a968cea`；
-- 未 stage、未 commit；最终独立复审前不能把它当作 accepted evidence。
-
-冻结候选合同：
-
-- Core 冻结 context 安全范围：
-  - `compaction_threshold`: `0.65..0.95`
-  - `target_ratio`: `0.45..0.75`
-  - `keep_recent`: integer `15..25`
-  - `summary_keep_recent`: integer `15..25`
-  - cross constraint：`target_ratio + 0.10 <= compaction_threshold`
-- `EvolutionEngine.values()` 把任意 `EvolutionPersistence` 当不可信输入：plain object、exact allowlist、finite、bounds、integer、whole-snapshot cross constraint；非法 resolved projection 整 namespace 回 defaults。
-- 当前只允许 context persistence apply。Router/Retry/动态 per-tool timeout bounds 未冻结，持久化 apply 和 rollback 必须 deny-only；只读 audit 可保留。
-- `EvolutionStore` 实现 bounded strict JSONL decoder：合法 legacy-v0 可作为 compatibility current source，但不能作为未来 T1/T2 evidence；新 append 写 flat V1 `schemaVersion:1`；future schema 不得降级解释。
-- invalid legacy 行忽略并保留前一合法值；future schema 使该 namespace 的 current/rollback fail-closed。
-- 固定 diagnostic code，不得包含原始 JSON、reason/signal 值、secret 或绝对路径。
-- T1a 不声称 namespace/audit 双写 crash-atomic，也不引入无跨进程锁保障的 global sequence。
-- 独立 changeset 已生成，覆盖 `@apollo-code/core`、`apollo-code`、`@apollo-code/shared`、`@apollo-code/config`、`@apollo-code/storage`；最终内容仍需随 focused diff 复审。
-
-T1a 当前可能涉及的文件：
-
-```text
-apps/cli/src/runtime.ts
-apps/cli/src/runtime.test.ts
-apps/docs/docs/reference/cli.md
-apps/docs/zh/docs/reference/cli.md
-docs/superpowers/specs/2026-07-31-apollo-code-design/15-self-evolution.md
-docs/superpowers/specs/2026-07-31-apollo-code-design/APPENDIX-C-config-schema.md
-packages/config/src/index.test.ts
-packages/core/src/evolution-engine.ts
-packages/core/src/evolution-engine.test.ts
-packages/shared/src/config-schema.ts
-packages/shared/src/config-schema.test.ts
-packages/shared/src/error-codes.ts
-packages/storage/src/evolution-store.ts
-packages/storage/src/evolution-store.test.ts
-.changeset/safe-evolution-projection.md
-```
-
-writer 报告的验证结果：core 61/61、storage 73 passed + 1 skipped、CLI 97/97、shared 100/100、config 12/12；全仓 typecheck 55/55、docs build、format、config-docs、error-codes、lint、`git diff --check` 通过。由于结果来自 shared dirty root，只能作为 diagnostic baseline。最终验收必须精确 stage T1a-only patch，冻结 cached patch + index tree SHA，在与 index tree 完全一致的 isolated clean candidate tree 中重跑风险相关门，并由独立 reviewer 对同一 patch/tree 达到 `0 Critical / 0 Important` 后才可提交。
-
-### 4.2 ABI-00 文档冻结
-
-ABI writer 已停写并报告 `READY_FIX3` writer snapshot；未 stage、未 commit。以下是停写时 full-worktree 五文件 SHA-256，用于检测漂移，不是最终 ABI-only staged patch 的验收身份：
-
-```text
-§18     bbc292f525a94a33360ea91c5db95b961dc9c39c0650018e1fbc3d9e17419a88
-§19a    a9accf44d22a1420a4e9478ab918199ddb154400f98d12746d5c63d085eabcdf
-§19     59f82dafec3c16fc005bd32e99d8331e169424913cea26bb3009256f6aac125d
-Plan    d3a6c02a79b1f81ba247276e0c1645766904c18dd17ae2f2468f93e9af7db158
-README  ccd162dcb88f0408326680249fec794674c56225be5d20403340c6f1eab48722
-```
-
-冻结候选覆盖：
-
-- Canonical JSON/domain/signature；
-- closed role/artifact DAG；
-- four-source promotion deadline；
-- SafeDisplay 与 secret operand binding；
-- Build/Executable exact identity；
-- content identity 与 authority generation；
-- Catalog revision/history；
-- VerificationSources/temporal context；
-- participant identity/role revocation；
-- AMBIGUOUS reconciliation 与 fresh lineage；
-- SelfDev PREPARED → independent AnchorStore ANCHORED/CANCELLED → idempotent FINALIZED；
-- TS/Rust shared corpus、caps、error ordering。
-
-ABI 文件归属：
-
-```text
-docs/superpowers/plans/2026-08-20-plugin-kernel-implementation.md
-docs/superpowers/specs/2026-07-31-apollo-code-design/18-self-development.md
-docs/superpowers/specs/2026-07-31-apollo-code-design/19-plugin-kernel.md
-docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md  # untracked candidate
-docs/superpowers/specs/2026-07-31-apollo-code-design/README.md                # 只能部分暂存 ABI hunks
-```
-
-writer 报告 `git diff --check`、Markdown links/fences、docs tests 7/7、direct VitePress、plugin-runtime 94/94、packlist fence 和 stale phrase checks 通过。完整 docs build 在共享 moving worktree 中被 `packages/storage/src/evolution-store.ts` 的 TypeDoc 类型错误阻止；这些 shared-root 结果都只是 diagnostic baseline，不能替代 ABI-only isolated candidate tree 的完整门禁。
-
-README 与 §19 含共享 §20 hunks。现在必须先 partial-stage 出唯一 ABI-only index candidate，排除 README §20 hunks与 §19 的 §20 navigation hunk；随后冻结 cached binary patch SHA-256 + 每个 staged blob SHA-256 + `git write-tree` index tree SHA，在与该 index 完全一致的 isolated clean candidate tree 跑 binding gates，再让两位独立 reviewer 审同一个 staged patch/tree：
-
-- byte/crypto/registry reviewer；
-- state machine/identity/recovery reviewer。
-
-只有两路都达到 `0 Critical / 0 Important`，且 commit 前 cached patch/index tree 未变，才能提交；提交后 commit tree 必须等于已验 candidate tree。任何重暂存/修订都会使原 PASS 失效，必须用新 hash 从头复审。上方 full-file snapshot 或 shared-root test 不能替代最终 staged ABI-only patch/tree PASS。
-
-### 4.3 共享但不属于当前 ABI/T1a 提交的文件
-
-以下内容是共享/另一路工作，绝对不能删除、reset、覆盖或混入当前提交：
-
-```text
-docs/superpowers/specs/2026-07-31-apollo-code-design/20-harness.md  # untracked
-docs/superpowers/specs/2026-07-31-apollo-code-design/README.md      # 含 §20 hunks
-```
-
-README 同时包含 ABI hunks 和 §20 hunks。ABI 提交必须 partial-stage，只暂存 §19/§19a/§18/plan 相关行；不得暂存 “自有 Harness”、§20 table/routing/cross-reference hunks。
-
-## 5. §20 Harness 审计结论（尚未修复/提交）
-
-`20-harness.md` 当前是 proposed/shared work，不能直接冻结。主要阻断：
-
-- HarnessSpec 对 prompt fragment 使用裸 SHA-256，存在低熵关联/字典 oracle，且没有绑定 exact executable/build/active capability/Catalog epochs。
-- H-1…H-14 被写成当前不变量，但当前 H-2/H-8/H-12/H-13 等并未满足；H0 不能只靠文档合入宣称完成。
-- driver 表事实错误：没有 `-p`，pipe chat 不支持；真实 headless 是 `apollo chat "<prompt>" --json`。
-- `packages/hooks`、`packages/memory-runtime` 当前不存在；必须拆 current path 与 target owner。
-- §16 是旧 SHA 的 historical baseline，不是 current unique authority。
-- package-wide `★` 与 plugin-first 冲突，应改成 responsibility-level matrix。
-- H3 必须拆：
-  - H3a human-directed dogfood；
-  - H3b §18 K3 controlled self-development。
-- §18 v1 禁止自动 push/merge/remote PR；H3 不得与其冲突。
-
-§20 必须以后单独修复、单独审查、单独提交。
-
-## 6. T1b：Tuning journal / crash recovery（T1a 之后）
-
-T1b 必须是独立提交，不能混入 T1a：
+T1b 必须是独立提交，从 T1a 已提交的 base 继续：
 
 - 跨进程 exclusive lock；
 - `.evolution-txn.json` journal；
@@ -244,32 +128,29 @@ T1b 必须是独立提交，不能混入 T1a：
 
 T1b 完成前，当前 JSONL 双写不能称为 crash-atomic 或 evidence-grade。
 
-## 7. 下一步执行顺序
+**T1b 第一条可执行命令**（先读 T1a 已提交的实现）：
 
-### 立即执行
+```bash
+git -C /Users/mark/myself/code/apollo-code show 6dd0b20 --stat && \
+sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution-store.ts
+```
 
-1. 主 agent 按 T1a focused diff SHA 检查 core/store decoder、安全 bounds、legacy/future schema、路径构造前验证、diagnostic 脱敏与 changeset。
-2. 精确 stage T1a 14 文件 + changeset，冻结 cached patch/index tree SHA；在等同 index 的 isolated clean candidate tree 重跑定向/全局相关门，并让独立 reviewer 对同一 patch/tree 达到 `0C/0I`。
-3. 确认 cached patch/index tree 未变后单独 commit，并验证 commit tree 等于已验 candidate tree；不得混入 ABI/§20，失败修复不得 amend。
-4. 核对 ABI writer full-file snapshot 后，精确 partial-stage ABI-only hunks，排除 README/§19 的全部 §20 hunks；冻结 cached binary patch、staged blob 与 index tree hashes。
-5. 在等同 index 的 isolated clean candidate tree 重跑 ABI stale phrase、link/fence/full docs build、plugin-runtime/packlist binding gates；shared-root 结果不绑定候选。
-6. 让 byte/crypto/registry 与 state/identity/recovery 两位 reviewer 对同一 staged patch/tree hash 复审；两路都必须 `0C/0I`。
-7. 再次确认 cached name-status/diff/check/hash 未变后单独 commit ABI-only patch，并验证 commit tree 等于已验 candidate tree；任何变化必须重新审，绝不混入 §20，失败修复不得 amend。
-8. 单独修复当前 blocked §20 Harness 文档，独立复审达到 `0C/0I` 后单独提交；不得混回 ABI。
-9. 并行完成 `BRAND-DISCOVERY/FREEZE`：只做全新候选、实时 clearance、用户选择和 canonical identity tuple；不得提前迁移 package/CLI/home/native/signing identity。
+## 7. 下一步执行顺序（更新）
 
-### 随后执行
-
-10. 实现 T1b journal/recovery，独立 fault-injection 验收并单独 commit。
-11. 实现私有 TypeScript/Rust contract packages 与同一 checked-in corpus/cross-language golden vectors。
-12. 关闭 P0 Rust reference monitor：最小 fs view、逐平台 sandbox feature（例如 Linux seccomp、macOS seatbelt、Windows AppContainer）；未取得同 SHA 证据的平台必须 downgrade/unavailable，同时关闭 origin-level network、resource limits、identity-pinned executable、credential/token 不外泄。
-13. 实现 Catalog CAT-01/02：closed-role artifact DAG、CEB/CAB、revision、reservation/fence、immutable identity/history。
-14. 只有 `CAT-02 + cleared canonical identity` 同时完成后，执行 `BRAND-MIGRATE`；随后在 branded exact SHA 完成 `BRAND-VERIFY` 和原 product/security/platform/supply-chain 重新签字。
-15. `BRAND-VERIFY` 通过后才接 ABI runtime production activation、typed brokers 和 universal registry。
-16. 实现 HarnessDefinition/RunBinding + driver conformance，并完成 H3a human-directed dogfood；H3a 不得冒充自我开发。
-17. 实现 SelfDev control plane、restricted Developer、base-owned checks、independent acceptance、human signed receipt、branch-only promotion。
-18. 第一条 K3 完整 proof 与 H3b controlled SelfDev dogfood 必须结束于本地 branch + Catalog `STAGED_DISABLED`，仍不得自动 adoption/enable。
-19. 完成全量 release evidence、prerelease/beta gate。
+1. ~~T1a 最终复审与独立提交~~ → **已完成（6dd0b20）**。
+2. ~~ABI-only staged patch + 双路 0C/0I + 独立提交~~ → **已完成（df4a2dd）**。
+3. ~~§20 Harness 修复 + 独立复审 + 独立提交~~ → **已完成（3b0503d）**。
+4. **T1b journal/recovery**（见 §6）。
+5. 品牌 discovery/freeze 可并行准备，但最终 identity tuple 由用户确认（硬门见 §8）；此时不得改 production identity。
+6. 实现私有 TypeScript/Rust contract packages + shared canonical/crypto/reject corpus（ABI-00 的实现阶段，输入是已冻结的 §19a）。
+7. 关闭 P0 Rust reference monitor：最小 fs view、逐平台真实 OS sandbox feature、origin-level network、resource limits、identity-pinned executable、secret/token 不外泄；未取证平台必须 downgrade/unavailable。
+8. 实现 CAT-01/02 closed-role evidence/Catalog primitives。
+9. cleared identity + CAT-02 后执行 BRAND-MIGRATE；在 branded exact SHA 执行 BRAND-VERIFY 并重新取得 product/security/platform/supply-chain 签字。
+10. BRAND-VERIFY 后接 ABI runtime activation、typed brokers 和 universal registry。
+11. 实现 HarnessDefinition/RunBinding + driver conformance（§20 H1/H2），然后完成 H3a human-directed dogfood；H3a 不能冒充 §18 自我开发。
+12. 实现 SelfDev control plane、restricted Developer、base-owned checks、独立验收、human receipt、branch-only promotion。
+13. 第一条 K3 完整 proof 与 H3b controlled SelfDev dogfood 只能结束于本地 branch + Catalog STAGED_DISABLED；不得自动 adoption/enable。
+14. 完成 full release evidence 后再进入 prerelease/beta 人工门。
 
 ## 8. 品牌与 logo 的硬门
 
@@ -281,112 +162,64 @@ T1b 完成前，当前 JSONL 双写不能称为 crash-atomic 或 evidence-grade�
 
 历史决策必须准确解释：用户曾在“AI + 安全”轮次选择 `Cereward AI`，但该名称随后触发先前 clearance 否决门并停止落库，状态为 `WITHDRAWN / DO NOT USE`。`Evalistry` 被用户后续的“名字不好”推翻，`Rigorbind` 也未通过 clearance，三者都不是当前候选。用户随后加入 Everything is Plugin + Sandbox + Rust，使品牌语义重新打开。主 Logo 工作方向是 **Controlled Port**：可替换 capability cell + 连续 sandbox/K0 boundary + single logical K0 authority chokepoint；成品仍待用户视觉确认，Rust-enforced 声明仍须逐平台、逐 surface 取证。
 
-但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Apollo`。进入品牌迁移前必须由用户确认：
-
-1. display name / short name；
-2. machine slug；
-3. canonical CLI 与 `apollo` alias 保留周期；
-4. npm root/package scope；
-5. home dir / env prefix / migration precedence；
-6. repo/docs origin；
-7. native/release identifiers；
-8. plugin schema/name prefix 与 legacy re-sign/re-auth；
-9. signing/security principal namespace；
-10. v1 wire/event/error/schema IDs 哪些永久冻结。
-
-品牌迁移禁止全局 search-replace。必须保留历史证据和 v1 protocol/event/error/schema/security constants，必要时使用 versioned compatibility layer。
+但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Apollo`。**等待用户确认的硬门**：全新名称更偏“可信边界”还是更偏“受控演进”？（推荐“可信边界”，把受控演进放入 tagline/feature narrative；不得复活旧候选。）
 
 ## 9. 验证证据与常用命令
 
-此前已通过的基线：
-
-- plugin-runtime targeted：94/94；
-- plugin-runtime typecheck；
-- packlist deny-only；
-- `cargo test --workspace`；
-- `pnpm test` 主体；
-- changeset release-plan test 因 sandbox 读取 `.git/worktrees` 单独提升权限后 2/2 通过。
-
-T0 第一版曾通过：
-
-- core 7 tests；
-- shared 8 tests；
-- config 12 tests；
-- runtime 56 tests；
-- CLI 41 tests；
-- 四包 typecheck；
-- `pnpm verify:config-docs`；
-- `pnpm format:check`；
-- `git diff --check`。
-
-注意：T1a 当前仍在修改 core/storage，因此上述 T0 数字不是最终 candidate 的验收结果，必须重跑。
-
-建议 T1a 完成后：
+### 9.1 本轮 binding-gate 命令容器（isolated clean candidate tree）
 
 ```bash
-pnpm --dir packages/core test
-pnpm --dir packages/storage test
-pnpm --dir packages/shared test
-pnpm --dir packages/config test
-pnpm --dir apps/cli test
+# 候选树构造（每次候选 frozen 后）
+git worktree add --detach <verify-path> HEAD
+git -C <verify-path> apply --index <frozen.patch>
+test "$(git -C <verify-path> write-tree)" = "<frozen index tree SHA>"
 
-pnpm --dir packages/core typecheck
-pnpm --dir packages/storage typecheck
-pnpm --dir packages/shared typecheck
-pnpm --dir packages/config typecheck
-pnpm --dir apps/cli typecheck
-
-pnpm verify:config-docs
-pnpm format:check
-pnpm lint
-git diff --check
-```
-
-最终 release candidate 仍需：
-
-```bash
-cargo test --workspace
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm format:check
-```
-
-## 10. ABI frozen-candidate stale scan
-
-ABI writer 停写后至少检查：
-
-```text
-policy absolute deadline
-上述五类 source
-current policy bytes
-只显示 opaque handle
-Manifest 256×3
-invocation 320 KiB
-其他role沿原同名purpose
-既有...purpose
-```
-
-其中某些短语可能出现在“明确禁止/不是第五来源”的正确上下文，不能只按命中数判断；必须逐条读语义。
-
-## 11. 暂存/提交纪律
-
-- 每个安全切片独立提交。
-- 不 stage 未审文件。
-- 每次 commit 前执行：
-
-```bash
-git diff --check
+# 门（在 <verify-path> 内）
+pnpm install --frozen-lockfile
+pnpm turbo run build --force        # 27 tasks
+pnpm turbo run test --force         # 51 tasks
+pnpm turbo run typecheck --force    # 55 tasks
+pnpm --dir apps/docs build          # typedoc + vitepress
+node --test scripts/*.test.mjs      # 14 个 script 测试文件，合计 64
+pnpm verify:config-docs && pnpm verify:error-codes
+pnpm format:check && pnpm lint      # lint 基线：536 warnings / 0 errors
 git diff --cached --check
-git diff --cached --name-only
-git diff --cached
 ```
 
-- README 必须 partial-stage。
-- `20-harness.md` 与 README §20 hunks 当前不得进入 ABI/T1a commit。
-- 不使用 `git reset --hard`、`git checkout --` 或 destructive cleanup。
-- 不 amend，不 push。
+注意：`/tmp` 下的候选树会被 `validateWorkspacePath` 拒绝（`invalid_workspace`）——候选树必须放在守卫接受的路径（如 `/Users/mark/myself/code/` 下）。
 
-## 12. 可对用户使用的诚实口径
+### 9.2 已通过的基线（历史）
 
-> 方向不需要推翻：项目已经有 functional agent-harness foundation，正在建设 plugin-first、Rust-enforced capability runtime 和 human-gated K3 self-development。当前生产自进化尚未实现，也不能开启；第一阶段只会交付经过独立验收、人工签收、最终保持 disabled 的本地候选。
+- plugin-runtime targeted：94/94；packlist deny-only；`cargo test --workspace`；`pnpm test` 主体。
+- changeset release-plan test 涉及 `.git/worktrees` 读取，在本环境已随当前 worktree 布局通过（脚本组 64/64 内含）。
+
+### 9.3 测试通过数（本轮 isolated 树，全部 0-cached 强制执行）
+
+| 候选 | 关键数字 |
+|---|---|
+| T1a（tree 786f6ae8） | core 61/61；storage 73+1 skipped；shared 100/100；config 14/14；CLI 137/137；turbo test 51/51；typecheck 55/55；scripts 64/64 |
+| ABI（tree d3bb1aed） | turbo test 51/51；typecheck 55/55；plugin-runtime 94/94；l1-docs+packlist 8/8；scripts 64/64 |
+| §20（tree 5eed000b） | turbo test 51/51；typecheck 55/55；l1-docs+packlist 8/8；scripts 56/56（另 8 条已随 l1-docs/packlist 单独跑） |
+
+### 9.4 留存 Minor / Note（不阻断，后续阶段吸收）
+
+- T1a M-1：`loadProductionContextTuning` 缺 EACCES 定向测试（代码路径已验证 rethrow）。
+- T1a M-2：decoder/projection 若干边角（non-plain prototype、symbol key、ISO 日历非法）有 probe 证据但无 staged 测试。
+- T1a N-1：`TuningMemoryStore.write/read` 把 `input.id` 直接 join 进路径（无生产调用方；未来接线前必须修）。
+- T1a N-2：engine `allowed()` 允许 `tool:*:timeout_ms`，store decode 拒绝——未来 T1+ 接线时对齐。
+- ABI M-3（lane A）：D/E/N 表缺 `InvocationDecisionProof` parent 行——由 registry 生成阶段用机器推导数字补齐，不用散文拍数。
+- ABI M2（lane B）：`RECONCILING` ledger 边集未显式画出——registry 阶段冻结边集。
+- §20 Notes：见 §5。
+
+## 10. 暂存/提交纪律（本轮已按此执行）
+
+- 每个安全切片独立提交；不 stage 未审文件。
+- 每次 commit 前执行 `git diff --cached --check`、`git diff --cached --name-status`、完整 cached diff 审读、frozen patch/index tree SHA 复核。
+- 共享 dirty worktree 上的测试只作 diagnostic；binding evidence 来自与 frozen index tree 完全一致的 isolated clean candidate tree（`git worktree` + `apply --index` + `write-tree` 相等证明）。
+- reviewer 与 writer 分离；发现 Critical/Important 回 writer 修复后以新 hash 从头复审。
+- commit 后 `git rev-parse HEAD^{tree}` 必须等于已验 candidate tree。
+- 不使用 `git reset --hard`、`git checkout --` 或 destructive cleanup；不 amend，不 push。
+
+## 11. 可对用户使用的诚实口径
+
+> 方向不需要推翻：项目已经有 functional agent-harness foundation；§15 T1a 的 default-off 与可信持久化边界、ABI-00 字节级合同冻结、§20 harness 架构层冻结均已提交并通过独立复审。当前生产自进化尚未实现，也不能开启；第一阶段只会交付经过独立验收、人工签收、最终保持 disabled 的本地候选。
