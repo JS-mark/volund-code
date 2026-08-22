@@ -27,6 +27,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 自适应调优    | [§15](./15-self-evolution.md)：规则驱动运行时参数 tuning；当前仅 partial/unwired，目标默认 off、先 shadow、apply 需 evidence gate                              |
 | 扩展/安全内核 | [§19](./19-plugin-kernel.md) + [§19a](./19a-capability-contract.md)：目标原则 **Everything extensible is a plugin; the security kernel is not**；single-registry raw-byte contract、signed output endorsement→CEB→CAB→独立 adoption/enable、InvocationDecisionProof → Grant → exact Broker token、Rust-owned OS brokers；当前约 30% / partial，P0-00 deny-only fence 已在 `33e5ce5` 独立 review 0C/0I 后保持关闭，其余 P0/ABI/CAT 未交付，Rust-enforced 仍是 target claim |
 | 受控自我开发  | [§18](./18-self-development.md) + §19/§19a：K3 CEB → signed human approval → PREPARED lock + independent AnchorStore ANCHORED → idempotent FINALIZED，再加 fenced Catalog/Git effects → `RELEASED_COMPLETED` history的只读 `STAGED_DISABLED` 投影；**proposed / not shipped** |
+| 自有 Harness    | [§20](./20-harness.md)：harness 作为一等架构层——四层边界、H-1…H-14 核心不变量（验收宪法，符合性另证）、一个核心 × N driver 契约（D1–D6）、HarnessSpec 行为版本快照、self-hosting 路线（H0–H2、H3a/H3b、H4）；**proposed / not shipped**，机制细则权威仍在 §2–§19 各章 |
 
 ---
 
@@ -60,6 +61,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 17  | Code Review 功能（r13 新增）                           | [`17-code-review.md`](./17-code-review.md)                         | ~130 |
 | 18  | 受控自我开发 / 变更流水线（proposed / not shipped）     | [`18-self-development.md`](./18-self-development.md)               | 动态 |
 | 19  | Plugin Kernel / Capability ABI v2（phase re-plan）      | [`19-plugin-kernel.md`](./19-plugin-kernel.md)                     | 动态 |
+| 20  | 自有 Harness（Self-owned Agent Harness）                | [`20-harness.md`](./20-harness.md)                                 | 动态 |
 
 ### 附属专题文档
 
@@ -91,7 +93,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 ## 阅读顺序建议
 
 - **想快速了解全貌** → 从 §1 → §2 → §10 走一遍。
-- **想理解运行时/内核** → §2 (Agent Loop) → §3 (Provider) → §4 (Tools) → §5 (Rust) → §19 (Plugin Kernel) → §19a (Capability Contract)。
+- **想理解运行时/内核** → §20 (Harness 总览与边界) → §2 (Agent Loop) → §3 (Provider) → §4 (Tools) → §5 (Rust) → §19 (Plugin Kernel) → §19a (Capability Contract)。
 - **想理解扩展生态** → §19（边界/ABI）→ §19a（byte contract）→ §6a → §6b → §6c → §11 (CLI)。
 - **想理解落地/交付** → §7 → §8 → §9 → §14。
 - **想参与共建** → §12（治理）→ §10（里程碑）。
@@ -107,6 +109,8 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 - **§4 Tool** 与 **§5 Rust 沙箱** 通过 §5.6 `native-bridge` 对接
 - **§5 Rust 沙箱** ↔ **[SANDBOX-COMPAT-r1](./SANDBOX-COMPAT-r1.md)** ↔ **§9.4 CI matrix** ↔ **§10 L1 闸门** ↔ **§14.3b Tier 披露** 形成沙箱一等公民闭环
 - **§19 Plugin Kernel** 是 §4/§5/§6 的新总约束：所有可扩展能力走 closed-role Capability ABI；**§19a** 以 single registry冻结 raw-byte canonical/domain/signature、signed output endorsement→CEB、Manifest embedded subdocs、protected authority refs/decision proof、三流 Catalog heads与 limits；K0 分为 TS control plane 与 Rust enforcement plane，handler 使用 InvocationGrant、具体 effect 使用 exact BrokerCallToken，workspace-fs/HTTP/process 由 Rust-owned broker 直接执行；sandbox/permission/verifier/catalog/mandatory security gates/human gate 都不是插件
+- **§20 自有 Harness** 是 §2/§3/§4/§5/§6/§8 的综合视图与边界冻结：harness 四层边界、H-1…H-14 核心不变量、driver 契约 D1–D6、HarnessSpec 行为快照；机制细则冲突时原章节赢（§20.11）
+- **§20.7 HarnessSpec** 的 digest 复用 §19a canonical/signature 约定，为 §16 能力验收、§18 eval 证据与 CI golden 回归提供统一归因锚点；`session.started` 新 payload 字段须先登记附录 D（r13-I8 流程）
 - **§6 Plugins** 描述当前 v1 surfaces，并与 **§4 Tool 注册**、**§8 Config**、**§11 CLI** 交叉；迁移到 Manifest/ABI v2 时以 §19 为权威
 - **§10 里程碑** 与各章节末尾的"里程碑"小节形成 vertical/horizontal 交叉视图
 - **§15 Adaptive Runtime Tuning** 只调白名单数值参数；**§18 Self-Development** 才涉及候选制品，且 SD4 前不得宣称可开启
