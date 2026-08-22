@@ -5,11 +5,14 @@
 > **更新时间**：2026-08-22（Asia/Shanghai）
 >
 > **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
+>
+> **模型切换**：可直接复制 [Model-Switch Continuation Prompt](./2026-08-22-model-switch-continuation-prompt.md) 给其他模型；切换回来时也以该提示词的“最短提示”恢复。
 
 ## 1. 当前仓库状态
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
+- 本次交接内容基线 HEAD（不含本次提示词/进度文档更新提交）：`46898cbf831d583e8be7209361fcf4724b525419`
 - 实现基线 HEAD（不含本文自己的文档提交）：`33e5ce531bd6df0c73fdef3ab4c902e45f1dba06`
 - 实现基线短 SHA：`33e5ce5`
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
@@ -18,6 +21,7 @@
 最近已提交：
 
 ```text
+46898cb docs(brand): record identity and migration plan
 2450a95 docs(plan): record self-evolution handoff
 33e5ce5 fix(plugin): harden contained legacy state
 e220d08 fix(ci): select cli workspace by path
@@ -148,11 +152,11 @@ packages/storage/src/evolution-store.test.ts
 .changeset/safe-evolution-projection.md
 ```
 
-writer 报告的验证结果：core 61/61、storage 73 passed + 1 skipped、CLI 97/97、shared 100/100、config 12/12；全仓 typecheck 55/55、docs build、format、config-docs、error-codes、lint、`git diff --check` 通过。主 agent 仍需核对 exact file set/diff hash，并由独立 reviewer 对同一冻结候选达到 `0 Critical / 0 Important` 后才可单独提交。
+writer 报告的验证结果：core 61/61、storage 73 passed + 1 skipped、CLI 97/97、shared 100/100、config 12/12；全仓 typecheck 55/55、docs build、format、config-docs、error-codes、lint、`git diff --check` 通过。由于结果来自 shared dirty root，只能作为 diagnostic baseline。最终验收必须精确 stage T1a-only patch，冻结 cached patch + index tree SHA，在与 index tree 完全一致的 isolated clean candidate tree 中重跑风险相关门，并由独立 reviewer 对同一 patch/tree 达到 `0 Critical / 0 Important` 后才可提交。
 
 ### 4.2 ABI-00 文档冻结
 
-ABI writer 已停写并报告 `READY_FIX3` frozen candidate；未 stage、未 commit。五文件 SHA-256：
+ABI writer 已停写并报告 `READY_FIX3` writer snapshot；未 stage、未 commit。以下是停写时 full-worktree 五文件 SHA-256，用于检测漂移，不是最终 ABI-only staged patch 的验收身份：
 
 ```text
 §18     bbc292f525a94a33360ea91c5db95b961dc9c39c0650018e1fbc3d9e17419a88
@@ -187,14 +191,14 @@ docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md 
 docs/superpowers/specs/2026-07-31-apollo-code-design/README.md                # 只能部分暂存 ABI hunks
 ```
 
-writer 报告 `git diff --check`、Markdown links/fences、docs tests 7/7、direct VitePress、plugin-runtime 94/94、packlist fence 和 stale phrase checks 通过。完整 docs build 在共享 moving worktree 中被 `packages/storage/src/evolution-store.ts` 的 TypeDoc 类型错误阻止；需要在 T1a 候选稳定后重跑并归因，不能把 direct VitePress 通过替代完整门禁。
+writer 报告 `git diff --check`、Markdown links/fences、docs tests 7/7、direct VitePress、plugin-runtime 94/94、packlist fence 和 stale phrase checks 通过。完整 docs build 在共享 moving worktree 中被 `packages/storage/src/evolution-store.ts` 的 TypeDoc 类型错误阻止；这些 shared-root 结果都只是 diagnostic baseline，不能替代 ABI-only isolated candidate tree 的完整门禁。
 
-现在必须让两位独立 reviewer 分别按上述同一组哈希复审：
+README 与 §19 含共享 §20 hunks。现在必须先 partial-stage 出唯一 ABI-only index candidate，排除 README §20 hunks与 §19 的 §20 navigation hunk；随后冻结 cached binary patch SHA-256 + 每个 staged blob SHA-256 + `git write-tree` index tree SHA，在与该 index 完全一致的 isolated clean candidate tree 跑 binding gates，再让两位独立 reviewer 审同一个 staged patch/tree：
 
 - byte/crypto/registry reviewer；
 - state machine/identity/recovery reviewer。
 
-只有两路都达到 `0 Critical / 0 Important` 才能暂存和提交。
+只有两路都达到 `0 Critical / 0 Important`，且 commit 前 cached patch/index tree 未变，才能提交；提交后 commit tree 必须等于已验 candidate tree。任何重暂存/修订都会使原 PASS 失效，必须用新 hash 从头复审。上方 full-file snapshot 或 shared-root test 不能替代最终 staged ABI-only patch/tree PASS。
 
 ### 4.3 共享但不属于当前 ABI/T1a 提交的文件
 
@@ -245,25 +249,27 @@ T1b 完成前，当前 JSONL 双写不能称为 crash-atomic 或 evidence-grade�
 ### 立即执行
 
 1. 主 agent 按 T1a focused diff SHA 检查 core/store decoder、安全 bounds、legacy/future schema、路径构造前验证、diagnostic 脱敏与 changeset。
-2. 在冻结 T1a 候选上重跑定向 tests/typecheck/config-docs/format/diff-check，并让独立 reviewer 达到 `0C/0I`。
-3. 只暂存 T1a 精确文件与独立 changeset，检查 cached diff/name list，单独 commit；不得混入 ABI/§20。
-4. 对上述 ABI 五文件 exact SHA 恢复 byte/crypto/registry 与 state/identity/recovery 两位 reviewer；两路都必须 `0C/0I`。
-5. 重跑 ABI stale phrase、link/fence/full docs build、plugin-runtime/packlist tests；TypeDoc 红项必须在稳定 worktree 中关闭或证明属于已修复的 T1a moving-state。
-6. ABI 只暂存 §18/§19/§19a/plan 与 README ABI hunks，检查 cached diff 后单独 commit；排除 §20 hunks。
-7. 并行完成 `BRAND-DISCOVERY/FREEZE`：只做全新候选、实时 clearance、用户选择和 canonical identity tuple；不得提前迁移 package/CLI/home/native/signing identity。
+2. 精确 stage T1a 14 文件 + changeset，冻结 cached patch/index tree SHA；在等同 index 的 isolated clean candidate tree 重跑定向/全局相关门，并让独立 reviewer 对同一 patch/tree 达到 `0C/0I`。
+3. 确认 cached patch/index tree 未变后单独 commit，并验证 commit tree 等于已验 candidate tree；不得混入 ABI/§20，失败修复不得 amend。
+4. 核对 ABI writer full-file snapshot 后，精确 partial-stage ABI-only hunks，排除 README/§19 的全部 §20 hunks；冻结 cached binary patch、staged blob 与 index tree hashes。
+5. 在等同 index 的 isolated clean candidate tree 重跑 ABI stale phrase、link/fence/full docs build、plugin-runtime/packlist binding gates；shared-root 结果不绑定候选。
+6. 让 byte/crypto/registry 与 state/identity/recovery 两位 reviewer 对同一 staged patch/tree hash 复审；两路都必须 `0C/0I`。
+7. 再次确认 cached name-status/diff/check/hash 未变后单独 commit ABI-only patch，并验证 commit tree 等于已验 candidate tree；任何变化必须重新审，绝不混入 §20，失败修复不得 amend。
+8. 单独修复当前 blocked §20 Harness 文档，独立复审达到 `0C/0I` 后单独提交；不得混回 ABI。
+9. 并行完成 `BRAND-DISCOVERY/FREEZE`：只做全新候选、实时 clearance、用户选择和 canonical identity tuple；不得提前迁移 package/CLI/home/native/signing identity。
 
 ### 随后执行
 
-8. 实现 T1b journal/recovery，独立 fault-injection 验收并单独 commit。
-9. 实现私有 TypeScript/Rust contract packages 与同一 checked-in corpus/cross-language golden vectors。
-10. 关闭 P0 Rust reference monitor：最小 fs view、真实 seccomp、origin-level network、resource limits、identity-pinned executable、credential/token 不外泄。
-11. 实现 Catalog CAT-01/02：closed-role artifact DAG、CEB/CAB、revision、reservation/fence、immutable identity/history。
-12. 只有 `CAT-02 + cleared canonical identity` 同时完成后，执行 `BRAND-MIGRATE`；随后在 branded exact SHA 完成 `BRAND-VERIFY` 和原 product/security/platform/supply-chain 重新签字。
-13. `BRAND-VERIFY` 通过后才接 ABI runtime production activation、typed brokers 和 universal registry。
-14. 实现 SelfDev control plane、restricted Developer、base-owned checks、independent acceptance、human signed receipt、branch-only promotion。
-15. 第一条完整 proof 必须结束于 `STAGED_DISABLED`，仍不得自动 adoption/enable。
-16. 完成 HarnessDefinition/RunBinding、driver conformance 和 H3b self-host evidence。
-17. 完成全量 release evidence、prerelease/beta gate。
+10. 实现 T1b journal/recovery，独立 fault-injection 验收并单独 commit。
+11. 实现私有 TypeScript/Rust contract packages 与同一 checked-in corpus/cross-language golden vectors。
+12. 关闭 P0 Rust reference monitor：最小 fs view、逐平台 sandbox feature（例如 Linux seccomp、macOS seatbelt、Windows AppContainer）；未取得同 SHA 证据的平台必须 downgrade/unavailable，同时关闭 origin-level network、resource limits、identity-pinned executable、credential/token 不外泄。
+13. 实现 Catalog CAT-01/02：closed-role artifact DAG、CEB/CAB、revision、reservation/fence、immutable identity/history。
+14. 只有 `CAT-02 + cleared canonical identity` 同时完成后，执行 `BRAND-MIGRATE`；随后在 branded exact SHA 完成 `BRAND-VERIFY` 和原 product/security/platform/supply-chain 重新签字。
+15. `BRAND-VERIFY` 通过后才接 ABI runtime production activation、typed brokers 和 universal registry。
+16. 实现 HarnessDefinition/RunBinding + driver conformance，并完成 H3a human-directed dogfood；H3a 不得冒充自我开发。
+17. 实现 SelfDev control plane、restricted Developer、base-owned checks、independent acceptance、human signed receipt、branch-only promotion。
+18. 第一条 K3 完整 proof 与 H3b controlled SelfDev dogfood 必须结束于本地 branch + Catalog `STAGED_DISABLED`，仍不得自动 adoption/enable。
+19. 完成全量 release evidence、prerelease/beta gate。
 
 ## 8. 品牌与 logo 的硬门
 
