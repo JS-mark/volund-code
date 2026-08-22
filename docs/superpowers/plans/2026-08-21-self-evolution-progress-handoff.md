@@ -12,7 +12,7 @@
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
-- HEAD（本文提交前）：`3b0503dc5f757c6e9740e9eab807f063fb287a81`（§20 commit）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
+- HEAD（本文提交前）：`5c85d825a10119aeac573e06c6a28007f4884ae0`（T1b commit）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
 - 工作树：**当前完全干净**（`git status` 无条目）。此前的 T1a / ABI / §20 三组未提交候选已全部独立提交。
 - 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
@@ -20,6 +20,7 @@
 最近已提交：
 
 ```text
+5c85d82 feat(storage): journal-backed tuning store with record identity
 3b0503d docs(spec): add §20 self-owned harness chapter
 df4a2dd docs(spec): freeze ABI-00 capability contract V1
 6dd0b20 fix(core): default-off adaptive tuning with strict persistence boundary
@@ -104,15 +105,26 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 - **独立 reviewer（非 writer）**：R1 **0C/0I**/1 Minor（driver 表状态列未对齐 §10/§16 词汇）→ 修复（改 `verified-local`（§16 基线））→ R2 **0C/0I/0M**。
 - **Binding gates**：build 27/27、test 51/51、typecheck 55/55、docs build、l1-docs+packlist 8/8、脚本组 56+8/64、lint 0 errors、format、`git diff --check` 全绿。
 
-## 4. 正在进行的未提交工作
+## 4. 已完成：T1b tuning journal / crash recovery — `5c85d82`
+
+- **Frozen candidate**：staged patch SHA-256 `ab15bf66846906ef186c62743808fcd9a483a1797a7701b75b017f0c79d09e03`；verified candidate tree / commit tree `0d17b93d5425f599dccbc6856a29ffdab2c07ac1`（commit tree 已核对相等）。
+- **范围**：11 个文件（storage 实现+测试、core 类型+测试、shared error-codes、cli ports/runtime/doctor/测试、§15 v2.3、changeset）。
+- **内容**：flat V2 wire 记录（`recordId` 32-hex + per-namespace 单调 `sequence`，锁内分配、调用方 identity 一律剥离）；`.evolution-lock.json` 跨进程锁（O_EXCL + pid 存活检查，仅 demonstrably-dead 可接管）；`.evolution-txn.json` journal（PREPARED→NAMESPACE_DURABLE→BOTH_DURABLE，逐步 fsync）；恢复语义：BOTH_DURABLE 仅在两文件尾部逐字节等于 journal 行时 commit，PREPARED/NAMESPACE_DURABLE 默认在 prefix digest 验证后截断回 pre-size，无法证明→RECOVERY_REQUIRED（拒绝一切 mutation，doctor warn-only 提示，人工移除后恢复）；TuningMemoryStore id 先验证后拼路径；storage 源保持 Node strip-types 可加载（无 parameter properties）。
+- **独立 reviewer（非 writer）**：一轮 **0 Critical / 0 Important** / 3 Minor（两偷锁者残窗-文献化 best-effort、4 条 crafted-state 测试缺口、doctor 行无 CLI 测试）；reviewer 另做了 12 轮真实 SIGKILL 崩溃窗口枚举与双 store/双进程并发 probe，全部恢复为字节一致状态。
+- **Binding gates（isolated tree 0d17b93d）**：build 27/27、test 51/51、typecheck 55/55（0 cached）；脚本组 64/64；docs build；storage 85+1 skipped、cli 138、core 62；lint 0 errors（546 warnings = 基线 536 + 10 条测试 JSON.parse 断言告警）；format、diff --check 全绿。
+- **诚实边界**：文件内容 fsync；新文件创建的跨断电持久性受无可移植目录 fsync 限制（Windows 披露）；锁是协调原语非安全边界；audit 数据在 T1/T2 promotion evidence 使用前仍需独立评审。
+
+## 5. 正在进行的未提交工作
 
 无。工作树当前干净。
 
-## 5. §20 Harness 审计结论（已关闭）
+## 6. §20 Harness 审计结论（已关闭）
 
 原阻断（HarnessSpec digest、现状声明、driver、package ownership、H3a/H3b）已全部修复并随 `3b0503d` 提交。遗留非阻断 Notes：§20.7 的 domain prefix 是 §19a.3.2 两段式 domain 的缩写表述；D5 草案退出码 `3` 与当前 cli.ts 已有 `3` 用法需在 H2 冻结时对齐；`readStdin` 除 `--api-key-stdin` 外还供 `memory --body-stdin`。
 
-## 6. T1b：Tuning journal / crash recovery（下一个实现任务）
+## 7. 下一实现任务：ABI-00 contract packages
+
+按实施计划 §6（ABI-00-01）：新建 private `packages/capability-contract`（pure schema/canonical/crypto/verifier-only，含 `authority` 子路径不进 root barrel），以已冻结的 §19a 为 normative 输入，实现 bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + 共享 golden/reject corpus（含 large-recipes）；registry 阶段需补齐两个暂缓 Minor：D/E/N 表 `InvocationDecisionProof` 行的机器推导数字、`RECONCILING` ledger 边集。P0-00 fence 保持关闭；production runtime/native/CLI import = 0。完成后再进入 P0 Rust reference monitor。
 
 T1b 必须是独立提交，从 T1a 已提交的 base 继续：
 
@@ -135,14 +147,14 @@ git -C /Users/mark/myself/code/apollo-code show 6dd0b20 --stat && \
 sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution-store.ts
 ```
 
-## 7. 下一步执行顺序（更新）
+## 8. 下一步执行顺序（更新）
 
 1. ~~T1a 最终复审与独立提交~~ → **已完成（6dd0b20）**。
 2. ~~ABI-only staged patch + 双路 0C/0I + 独立提交~~ → **已完成（df4a2dd）**。
 3. ~~§20 Harness 修复 + 独立复审 + 独立提交~~ → **已完成（3b0503d）**。
-4. **T1b journal/recovery**（见 §6）。
-5. 品牌 discovery/freeze 可并行准备，但最终 identity tuple 由用户确认（硬门见 §8）；此时不得改 production identity。
-6. 实现私有 TypeScript/Rust contract packages + shared canonical/crypto/reject corpus（ABI-00 的实现阶段，输入是已冻结的 §19a）。
+4. ~~T1b journal/recovery~~ → **已完成（5c85d82）**。
+5. 品牌 discovery/freeze 可并行准备，但最终 identity tuple 由用户确认（硬门见 §9）；此时不得改 production identity。
+6. **实现私有 TypeScript/Rust contract packages + shared canonical/crypto/reject corpus**（ABI-00 实现阶段，见 §7；输入是已冻结的 §19a）。
 7. 关闭 P0 Rust reference monitor：最小 fs view、逐平台真实 OS sandbox feature、origin-level network、resource limits、identity-pinned executable、secret/token 不外泄；未取证平台必须 downgrade/unavailable。
 8. 实现 CAT-01/02 closed-role evidence/Catalog primitives。
 9. cleared identity + CAT-02 后执行 BRAND-MIGRATE；在 branded exact SHA 执行 BRAND-VERIFY 并重新取得 product/security/platform/supply-chain 签字。
@@ -152,7 +164,7 @@ sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution
 13. 第一条 K3 完整 proof 与 H3b controlled SelfDev dogfood 只能结束于本地 branch + Catalog STAGED_DISABLED；不得自动 adoption/enable。
 14. 完成 full release evidence 后再进入 prerelease/beta 人工门。
 
-## 8. 品牌与 logo 的硬门
+## 9. 品牌与 logo 的硬门
 
 完整品牌决策、视觉语义、identity tuple、迁移顺序和验收门见：
 
@@ -164,7 +176,7 @@ sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution
 
 但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Apollo`。**等待用户确认的硬门**：全新名称更偏“可信边界”还是更偏“受控演进”？（推荐“可信边界”，把受控演进放入 tagline/feature narrative；不得复活旧候选。）
 
-## 9. 验证证据与常用命令
+## 10. 验证证据与常用命令
 
 ### 9.1 本轮 binding-gate 命令容器（isolated clean candidate tree）
 
@@ -200,6 +212,7 @@ git diff --cached --check
 | T1a（tree 786f6ae8） | core 61/61；storage 73+1 skipped；shared 100/100；config 14/14；CLI 137/137；turbo test 51/51；typecheck 55/55；scripts 64/64 |
 | ABI（tree d3bb1aed） | turbo test 51/51；typecheck 55/55；plugin-runtime 94/94；l1-docs+packlist 8/8；scripts 64/64 |
 | §20（tree 5eed000b） | turbo test 51/51；typecheck 55/55；l1-docs+packlist 8/8；scripts 56/56（另 8 条已随 l1-docs/packlist 单独跑） |
+| T1b（tree 0d17b93d） | build 27/27；test 51/51；typecheck 55/55；scripts 64/64；storage 85+1 skipped；cli 138；core 62；lint 0 errors/546 warnings |
 
 ### 9.4 留存 Minor / Note（不阻断，后续阶段吸收）
 
@@ -209,9 +222,12 @@ git diff --cached --check
 - T1a N-2：engine `allowed()` 允许 `tool:*:timeout_ms`，store decode 拒绝——未来 T1+ 接线时对齐。
 - ABI M-3（lane A）：D/E/N 表缺 `InvocationDecisionProof` parent 行——由 registry 生成阶段用机器推导数字补齐，不用散文拍数。
 - ABI M2（lane B）：`RECONCILING` ledger 边集未显式画出——registry 阶段冻结边集。
-- §20 Notes：见 §5。
+- T1b M-1：偷锁者残窗（先读存活后 rename 的抢占交错）——文献化 best-effort 锁语义内，结局 fail-safe。
+- T1b M-2：4 条 crafted-state 测试缺口（错误 prefix digest、sizeBefore>实际、BOTH_DURABLE 单文件缺失、live-holder 超时）——reviewer probe 验证行为正确。
+- T1b M-3：doctor evolution 行的 CLI 级测试缺失（storage 级 health() 已测）。
+- §20 Notes：见 §6。
 
-## 10. 暂存/提交纪律（本轮已按此执行）
+## 11. 暂存/提交纪律（本轮已按此执行）
 
 - 每个安全切片独立提交；不 stage 未审文件。
 - 每次 commit 前执行 `git diff --cached --check`、`git diff --cached --name-status`、完整 cached diff 审读、frozen patch/index tree SHA 复核。
@@ -220,6 +236,6 @@ git diff --cached --check
 - commit 后 `git rev-parse HEAD^{tree}` 必须等于已验 candidate tree。
 - 不使用 `git reset --hard`、`git checkout --` 或 destructive cleanup；不 amend，不 push。
 
-## 11. 可对用户使用的诚实口径
+## 12. 可对用户使用的诚实口径
 
-> 方向不需要推翻：项目已经有 functional agent-harness foundation；§15 T1a 的 default-off 与可信持久化边界、ABI-00 字节级合同冻结、§20 harness 架构层冻结均已提交并通过独立复审。当前生产自进化尚未实现，也不能开启；第一阶段只会交付经过独立验收、人工签收、最终保持 disabled 的本地候选。
+> 方向不需要推翻：项目已经有 functional agent-harness foundation；§15 T1a/T1b 的 default-off 与 journal 化可信持久化、ABI-00 字节级合同冻结、§20 harness 架构层冻结均已提交并通过独立复审。当前生产自进化尚未实现，也不能开启；第一阶段只会交付经过独立验收、人工签收、最终保持 disabled 的本地候选。

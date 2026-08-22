@@ -33,9 +33,9 @@
 
 - cwd: /Users/mark/myself/code/apollo-code
 - branch: codex/self-evolution
-- snapshot base HEAD before this prompt update: 3b0503dc5f757c6e9740e9eab807f063fb287a81
-- snapshot base summary: 3b0503d docs(spec): add §20 self-owned harness chapter
-- 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 3b0503d 当成永远不变的 current HEAD。
+- snapshot base HEAD before this prompt update: 5c85d825a10119aeac573e06c6a28007f4884ae0
+- snapshot base summary: 5c85d82 feat(storage): journal-backed tuning store with record identity
+- 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 5c85d82 当成永远不变的 current HEAD。
 - 工作树在快照时是干净的；若发现 dirty 文件，先判定归属（可能是用户或其它任务线的改动），禁止 reset、checkout、clean、stash、覆盖或删除未归属改动。
 - 未获明确授权时禁止 amend、push、merge、tag、publish、deploy 或创建远端 PR。
 
@@ -61,7 +61,8 @@
 - 2450a95 / 46898cb / 5e04cf4：handoff、品牌计划、continuation prompt 基线。
 - 6dd0b20：§15 T1a tuning hardening 已提交（tree 786f6ae86020235a3a9f5c7aaeb950f719a072ab）。default-off + strict own-property boolean opt-in + context 冻结 bounds/整快照投影 + bounded strict V1/legacy JSONL decoder + non-context deny-only + TOML 原型污染段拒绝。独立 reviewer 两轮，终局 0 Critical / 0 Important。
 - df4a2dd：ABI-00 文档冻结已提交（tree d3bb1aed8e1c0f3ab7b510807bfdbf426b4fdd29）。§19a Capability Contract V1（canonical JSON/domain/strict Ed25519/closed-role DAG/anchored SelfDev transitions/Catalog 三头/receipts 分离/limits/corpus 合同）+ §18/§19/plan/README 对齐。byte/crypto/registry 与 state/identity/recovery 两路独立 review 均 0C/0I。
-- 3b0503d：§20 自有 Harness 章节已提交（tree 5eed000befb4db385aedc8ae7dfbb50ce29f7b2d）。审计阻断（HarnessSpec digest、不变量现状口径、driver 事实、ownership 当前/目标拆分、§16 基线表述、H3a/H3b 拆分）全部修复，独立 review 0C/0I/0M。
+- 3b0503d：§20 自有 Harness 章节已提交（tree 5eed000b…）。审计阻断全部修复，独立 review 0C/0I/0M。
+- 5c85d82：§15 T1b tuning journal/crash recovery 已提交（tree 0d17b93d…）。flat V2 recordId/sequence、跨进程锁、`.evolution-txn.json` journal（abort 默认 / BOTH_DURABLE 双文件字节证明 commit / RECOVERY_REQUIRED fail-closed）、doctor warn-only 提示；独立 review 0C/0I/3M（含 12 轮真实 SIGKILL 枚举）。诚实边界：新文件创建无目录 fsync（Windows 披露）、锁非安全边界、audit 仍非 promotion evidence。（tree 5eed000befb4db385aedc8ae7dfbb50ce29f7b2d）。审计阻断（HarnessSpec digest、不变量现状口径、driver 事实、ownership 当前/目标拆分、§16 基线表述、H3a/H3b 拆分）全部修复，独立 review 0C/0I/0M。
 - 以上全部为“文档/合同/边界”级交付；ABI runtime、Catalog、SelfDev control plane 仍未实现，不得宣传为 shipped。
 
 【验证纪律（已在本轮三次候选上执行，继续沿用）】
@@ -75,13 +76,10 @@
 
 【下一步严格顺序】
 
-1. **T1b：tuning journal / crash recovery**（独立提交，不接生产 observe/validate）：
-   - 跨进程 exclusive lock；`.evolution-txn.json` journal；namespace/audit 两文件 pre-size + prefix digest；PREPARED → NAMESPACE_DURABLE → BOTH_DURABLE；partial/torn write 默认 abort 回 pre-size；无法证明时 `RECOVERY_REQUIRED` 禁止 append；committed visibility 必须由两文件 exact matching record identity 证明；crash/fault-injection、双 child process 并发、SIGKILL/restart 测试；Windows directory fsync 限制诚实披露。
-   - 完成前 T1a 的双写不得称 crash-atomic / evidence-grade。
-   - 第一条命令：`git -C /Users/mark/myself/code/apollo-code show 6dd0b20 --stat && sed -n 1,120p packages/storage/src/evolution-store.ts`
-   - 顺带可吸收的已知 Minor（见 handoff §9.4）：EACCES 定向测试、decoder 边角 staged 测试、`TuningMemoryStore` 的 id 路径 join（接线前必修）、engine `tool:*:timeout_ms` 与 store decode 的不对称。
-2. 品牌 discovery/freeze 可并行准备（只读命名/clearance/视觉探索）；最终 identity 由用户确认；不得改 production identity。
-3. 实现私有 TypeScript/Rust contract packages + shared canonical/crypto/reject corpus（ABI-00 实现阶段；§19a 是已冻结的 normative 输入；registry 生成时补齐暂缓项：D/E/N 表 InvocationDecisionProof 行、RECONCILING 边集）。
+1. **ABI-00 contract packages**：新建 private `packages/capability-contract`（§19a 为 normative 输入；pure verifier-only；`authority` 子路径不进 root barrel；production import=0；P0-00 fence 保持关闭）。registry 阶段补齐暂缓 Minor：D/E/N 表 InvocationDecisionProof 行、RECONCILING 边集。第一条命令：`sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md && git log --oneline -5`。随后进入 P0 Rust reference monitor（计划 §7）。
+2. 品牌 discovery/freeze 并行准备（只读）；最终 identity 是用户硬门。
+3. ~~T1b~~ 已完成（5c85d82）。历史任务卡（不再执行）：
+   - 已按合同完成并提交（5c85d82）；EACCES/decoder 边角/TuningMemoryStore id join 等 T1a Minor 已随该提交吸收。
 4. 关闭 P0 Rust reference monitor：最小 fs view、逐平台真实 OS sandbox feature、origin-level network、resource limits、identity-pinned executable、secret/token 不外泄；未取证平台必须 downgrade/unavailable。
 5. 实现 CAT-01/02 closed-role evidence/Catalog primitives。
 6. cleared identity + CAT-02 后执行 BRAND-MIGRATE；在 branded exact SHA 执行 BRAND-VERIFY 并重新取得 product/security/platform/supply-chain 签字。
@@ -125,7 +123,7 @@
 
 更新后将 handoff 与 continuation prompt 精确 stage 到同一个独立 docs(progress) commit；提交前检查 cached name-status/diff/check，不能混入实现或其它内容。若因权限或冲突不能提交，必须报告两个未提交路径、hash 和原因，不能假装已持久化。
 
-现在开始：先只读核对 HEAD/status 和两份 handoff；然后从 T1b 继续。除非发现 hash 漂移、安全矛盾或必须的人类决策，否则继续推进，不要停在总结。
+现在开始：先只读核对 HEAD/status 和两份 handoff；然后从 ABI-00 contract packages 继续。除非发现 hash 漂移、安全矛盾或必须的人类决策，否则继续推进，不要停在总结。
 ```
 
 ## 返回本模型时的最短提示
