@@ -94,8 +94,15 @@ export interface EvolutionRecord {
   reason: string
   signal: EvolutionSignal
   action: EvolutionAction
+  /**
+   * T1b record identity assigned by EvolutionStore at append time (wire
+   * `schemaVersion: 2`); callers never supply it.
+   */
+  recordId?: string
+  /** Per-namespace monotonic counter assigned together with `recordId`. */
+  sequence?: number
 }
-export type EvolutionRecordProvenance = 'legacy-v0' | 'v1'
+export type EvolutionRecordProvenance = 'legacy-v0' | 'v1' | 'v2'
 export interface EvolutionAuditRecord extends EvolutionRecord {
   provenance: EvolutionRecordProvenance
 }

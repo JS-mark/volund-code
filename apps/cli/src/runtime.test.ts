@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
@@ -1225,6 +1225,31 @@ describe('production evolution configuration', () => {
     expect(persistence.append).not.toHaveBeenCalled()
     expect(persistence.audit).not.toHaveBeenCalled()
   })
+
+  // Non-ENOENT I/O failures must stop Runner construction too (§8.3/C.1); chmod
+  // semantics are POSIX-only.
+  it.skipIf(process.platform === 'win32')(
+    'rejects an unreadable config before reading tuning persistence',
+    async () => {
+      const root = await mkdtemp(join(process.cwd(), '.evolution-unreadable-config-'))
+      fixtures.push(root)
+      const path = join(root, 'config.toml')
+      await writeFile(path, '[evolution]\nenabled = true\n', 'utf8')
+      await chmod(path, 0o000)
+      const persistence = {
+        current: vi.fn(async () => ({ target_ratio: 0.5 })),
+        append: vi.fn(async () => undefined),
+        audit: vi.fn(async () => []),
+      }
+
+      await expect(
+        loadProductionContextTuning({ home: root, persistence, logger: { warn: vi.fn() } }),
+      ).rejects.toThrow(/EACCES|permission/)
+      expect(persistence.current).not.toHaveBeenCalled()
+      expect(persistence.append).not.toHaveBeenCalled()
+      expect(persistence.audit).not.toHaveBeenCalled()
+    },
+  )
 
   it('reads and applies persisted context tuning only for explicit boolean true', async () => {
     const root = await mkdtemp(join(process.cwd(), '.evolution-explicit-on-'))
