@@ -2,7 +2,7 @@
 
 > **用途**：把下方整段提示词复制到另一个模型，让它在同一仓库继续安全推进，并持续维护可返回的工程状态。
 >
-> **快照时间**：2026-08-22（Asia/Shanghai，第二轮：T1a/ABI-00/§20 已提交）
+> **快照时间**：2026-08-23（Asia/Shanghai，第三轮：§21 spec / ABI-00 bootstrap 已提交）
 >
 > **重要**：这是一份续跑提示词，不是规范权威。每次启动先以 `git status`、exact hash、测试和仓库文件刷新事实。
 
@@ -33,9 +33,9 @@
 
 - cwd: /Users/mark/myself/code/apollo-code
 - branch: codex/self-evolution
-- snapshot base HEAD before this prompt update: 5c85d825a10119aeac573e06c6a28007f4884ae0
-- snapshot base summary: 5c85d82 feat(storage): journal-backed tuning store with record identity
-- 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 5c85d82 当成永远不变的 current HEAD。
+- snapshot base HEAD before this prompt update: 2ab8aee（ABI-00 bootstrap commit，tree 5cd8c5b77d269f6ee0748ee58d491a354f94e450）
+- snapshot base summary: 2ab8aee feat(capability-contract): ABI-00 bootstrap primitives (verifier-only)
+- 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 2ab8aee 当成永远不变的 current HEAD。
 - 工作树在快照时是干净的；若发现 dirty 文件，先判定归属（可能是用户或其它任务线的改动），禁止 reset、checkout、clean、stash、覆盖或删除未归属改动。
 - 未获明确授权时禁止 amend、push、merge、tag、publish、deploy 或创建远端 PR。
 
@@ -62,7 +62,9 @@
 - 6dd0b20：§15 T1a tuning hardening 已提交（tree 786f6ae86020235a3a9f5c7aaeb950f719a072ab）。default-off + strict own-property boolean opt-in + context 冻结 bounds/整快照投影 + bounded strict V1/legacy JSONL decoder + non-context deny-only + TOML 原型污染段拒绝。独立 reviewer 两轮，终局 0 Critical / 0 Important。
 - df4a2dd：ABI-00 文档冻结已提交（tree d3bb1aed8e1c0f3ab7b510807bfdbf426b4fdd29）。§19a Capability Contract V1（canonical JSON/domain/strict Ed25519/closed-role DAG/anchored SelfDev transitions/Catalog 三头/receipts 分离/limits/corpus 合同）+ §18/§19/plan/README 对齐。byte/crypto/registry 与 state/identity/recovery 两路独立 review 均 0C/0I。
 - 3b0503d：§20 自有 Harness 章节已提交（tree 5eed000b…）。审计阻断全部修复，独立 review 0C/0I/0M。
-- 5c85d82：§15 T1b tuning journal/crash recovery 已提交（tree 0d17b93d…）。flat V2 recordId/sequence、跨进程锁、`.evolution-txn.json` journal（abort 默认 / BOTH_DURABLE 双文件字节证明 commit / RECOVERY_REQUIRED fail-closed）、doctor warn-only 提示；独立 review 0C/0I/3M（含 12 轮真实 SIGKILL 枚举）。诚实边界：新文件创建无目录 fsync（Windows 披露）、锁非安全边界、audit 仍非 promotion evidence。（tree 5eed000befb4db385aedc8ae7dfbb50ce29f7b2d）。审计阻断（HarnessSpec digest、不变量现状口径、driver 事实、ownership 当前/目标拆分、§16 基线表述、H3a/H3b 拆分）全部修复，独立 review 0C/0I/0M。
+- 5c85d82：§15 T1b tuning journal/crash recovery 已提交（tree 0d17b93d…）。
+- 1932fd7 / 9931122 / 15d6e5d / 9875de1：§21 动态反思 + /status（token 计量与 prompt 缓存状态）设计切片及配套 config key / 事件 schema / 计数测试的门禁修复（§21 为 proposed / not shipped；事件集 19→25；`/status` 定义落在 §11.3.14/§7.10）。
+- 2ab8aee：ABI-00 bootstrap contract package 已提交（tree 5cd8c5b7…）：private `packages/capability-contract`（canonical JSON V1 迭代 parser、domain digest、strict Ed25519 verify-only、authority detached envelope、34 条 corpus + 生成器、fence）。独立 reviewer 四轮：R1 0C/3I → R2 0C/3I → R3 0C/1I → R4 0C/0I；binding gates 全绿（build 28/test 52/typecheck 57/scripts 69，0 cached）。P0-00 fence 保持关闭，production import = 0（dependents 扫描常态化）。flat V2 recordId/sequence、跨进程锁、`.evolution-txn.json` journal（abort 默认 / BOTH_DURABLE 双文件字节证明 commit / RECOVERY_REQUIRED fail-closed）、doctor warn-only 提示；独立 review 0C/0I/3M（含 12 轮真实 SIGKILL 枚举）。诚实边界：新文件创建无目录 fsync（Windows 披露）、锁非安全边界、audit 仍非 promotion evidence。（tree 5eed000befb4db385aedc8ae7dfbb50ce29f7b2d）。审计阻断（HarnessSpec digest、不变量现状口径、driver 事实、ownership 当前/目标拆分、§16 基线表述、H3a/H3b 拆分）全部修复，独立 review 0C/0I/0M。
 - 以上全部为“文档/合同/边界”级交付；ABI runtime、Catalog、SelfDev control plane 仍未实现，不得宣传为 shipped。
 
 【验证纪律（已在本轮三次候选上执行，继续沿用）】
@@ -76,7 +78,7 @@
 
 【下一步严格顺序】
 
-1. **ABI-00 contract packages**：新建 private `packages/capability-contract`（§19a 为 normative 输入；pure verifier-only；`authority` 子路径不进 root barrel；production import=0；P0-00 fence 保持关闭）。registry 阶段补齐暂缓 Minor：D/E/N 表 InvocationDecisionProof 行、RECONCILING 边集。第一条命令：`sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md && git log --oneline -5`。随后进入 P0 Rust reference monitor（计划 §7）。
+1. ~~ABI-00 bootstrap contract package~~ 已完成（2ab8aee，R4 0C/0I）。**下一步：ABI-00 registry/generator 阶段**——bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus，输入是已冻结的 §19a 与 2ab8aee 的 bootstrap 原语。补齐暂缓/登记 Minor：D/E/N 表 InvocationDecisionProof parent 行（机器推导）、RECONCILING ledger 边集、packlist test 构件排除、corpus metadata expectedRole 对齐、duplicate offset 语义说明。第一条命令：`git show 2ab8aee --stat && sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md`。随后进入 P0 Rust reference monitor。
 2. 品牌 discovery/freeze 并行准备（只读）；最终 identity 是用户硬门。
 3. ~~T1b~~ 已完成（5c85d82）。历史任务卡（不再执行）：
    - 已按合同完成并提交（5c85d82）；EACCES/decoder 边角/TuningMemoryStore id join 等 T1a Minor 已随该提交吸收。
