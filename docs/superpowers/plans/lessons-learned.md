@@ -63,3 +63,45 @@
 - 根因：平台专属二进制的测试没有 `it.skipIf(process.platform === 'win32')` 守卫；守卫粒度必须到「用例级」而非 describe 级（同一 describe 里可能混着 win32 必跑用例）。
 - 规则：① 测试里 spawn 平台二进制（/bin/*、pwsh、sandbox bin）→ 用例级 `itUnix`/`itWin` 守卫，且反向平台的对应用例必须存在（不是全跳）；② 主会话核验 PR 时把「ts matrix 三平台」当作预期失败面预判（LL-6 补充）；③ GitHub action 下载 429 限流失败（checkout/tar.gz 下载失败）判 infra flake 直接 rerun，不计入修复项。
 - 状态：active
+
+### LL-9 暂存区有切片时，`git commit` 会吞并整个 index——提交前必须核对 name-status
+- 类别：流程缺口｜日期：2026-08-23｜来源：self-evolution 线 ABI-00 切片（两次误并入）
+- 问题：`git add <docs> && git commit` 在 index 已含上一会话 staged 的 ABI-00 切片时，把 59 个文件整体裹进了一个 docs commit；同一错误连续发生两次。
+- 根因：`git commit` 提交的是**整个 index** 而非"我刚 add 的东西"；切片并存的工作树里 index 是共享状态。
+- 规则：① 任何 commit 前必跑 `git diff --cached --name-status` 核对文件集；② index 里有他人/他线 staged 内容时，用 `git commit -- <paths>`（pathspec 只提交指定路径的工作树状态）或先 `git restore --staged` 隔离；③ 误并入后的修复是 `git reset --soft HEAD~1`（index/worktree 无损），禁 `--hard`。
+- 状态：active
+
+### LL-10 管道会吞掉 exit code：`cmd 2>&1 | tail` 能把红灯门禁打印成全绿
+- 类别：验证陷阱｜日期：2026-08-23｜来源：ABI-00 隔离树门禁误判
+- 问题：`pnpm turbo run test --force 2>&1 | tail -3` 的 exit code 是 `tail` 的（恒 0），core 测试实际红了却打印出 ALL_GATES_GREEN；同一形态还有 `failing_cmd | grep pattern && next`（grep 命中即 0）。
+- 根因：管道序列的退出码默认取最后一节；门禁证据链里任何一节被管道截断，失败就被静默吞掉。
+- 规则：① 门禁命令禁止接 `| tail/grep/head` 后直接采信——写日志文件再 `echo "gate:$?"` 显式取证（或 `set -o pipefail`）；② 报告门禁结果必须引用真实 exit code，不引用终端观感；③ CI 日志里的 `Failed:` 字样优先于本地摘要。
+- 状态：active
+
+### LL-11 spec 表格变更会触发 doc↔code 同步门禁，必须同轮改实现侧 registry
+- 类别：流程缺口｜日期：2026-08-23｜来源：§21 spec 切片连破三闸
+- 问题：附录 C 加了 `[reflection]` 行 → `verify:config-docs` 红（configKeyRegistry 缺 key）；§2.3/附录 D 加了 6 个事件 → `verify-event-schemas` 红（缺 schema 文件 + 计数 19）；core 事件计数测试硬编码 19 跟着红。一个纯文档切片连破三个实现侧门禁。
+- 根因：本仓库把 spec 表当作代码 registry 的镜像源（r13-I4 / 附录 D.1 的 CI 强制），文档与实现是双向校验的同一契约。
+- 规则：① 改附录 C/§2.3 事件表/附录 D 时，同轮必须改 `packages/shared` 对应 registry/schema/计数常量；② 自查命令：`pnpm verify:config-docs && pnpm verify:error-codes && node --test scripts/*.test.mjs`；③ spec-only 提交前也要跑全量 test 链（turbo test 含根校验任务）。
+- 状态：active
+
+### LL-12 monorepo 里下游包读的是 dist 旧产物——改了上游 src 先重建再诊断
+- 类别：环境陷阱｜日期：2026-08-23｜来源：shared 事件枚举改动后 core 测试"反向"失败
+- 问题：改了 `shared/src` 的事件枚举后 core 测试报 `expected 19 got 25` 的反向失败（期望新值、拿到旧值），看似测试写错，实为 core 解析的是 shared 的 **stale dist**。
+- 根因：直接 `pnpm --filter <下游包> test` 不走 turbo 依赖序，上游包不会自动重建。
+- 规则：① 跨包改动后用 `pnpm turbo run test`（turbo 按依赖拓扑先 build）或直接 `pnpm --filter <上游包> build` 再测下游；② 诊断"方向颠倒"的断言失败（expected 新值 got 旧值）时先怀疑 stale dist，不怀疑测试。
+- 状态：active
+
+### LL-13 Windows 上 `O_NOFOLLOW` 是 no-op：symlink 拒绝必须用可移植的 lstat 预检
+- 类别：平台差异｜日期：2026-08-23｜来源：PR #127 ts (windows-2022) 红灯
+- 问题：plugin-runtime 遗留态文件的 symlink 拒绝依赖 `open(O_NOFOLLOW)` 抛 ELOOP，macOS/Linux 正常，Windows 上该 flag 被静默忽略 → symlink 被跟随、`init()` 放行，测试报"resolved instead of rejecting"。
+- 根因：`O_NOFOLLOW`/`O_SYMLINK` 类 flag 的语义是平台子集，Windows libuv 不实现；安全边界不能用平台子集 flag 表达。
+- 规则：① 凡"拒绝 symlink/特殊文件"的安全检查，必须用 `lstat().isSymbolicLink()` 等可移植原语先行判定，平台 flag 只作 defense-in-depth；② CI Windows 失败的失败形态若是"该拒未拒"，优先排查平台 no-op flag；③ 新增平台相关 flag 时在同行注释标注各平台语义差异（LL-8 的代码侧对应物）。
+- 状态：active
+
+### LL-14 GitHub 网络抖动：api.github.com 与 git 传输可用性不同步，重试要带退避和真实 exit code
+- 类别：环境陷阱｜日期：2026-08-23｜来源：self-evolution 线 push/fetch 间歇失败
+- 问题：`git fetch/push` 对 github.com 反复 timeout/connection reset，但 `gh pr create`（走 api.github.com）同时可用；一次 push 重试循环因 `| tail -1 && break`（LL-10 同族）第一次失败就误退出。
+- 根因：git 传输（ssh:22/443、https:443 github.com）与 REST API（api.github.com）是不同入口，封锁/抖动不同步。
+- 规则：① `git fetch` 挂了时用 `gh api repos/<owner>/<repo>/branches/<name>` 验证远端 SHA 新鲜度，本地 `origin/main` 可能已是新的；② push 重试循环必须判断 git 真实 exit code（写日志再查），禁管道；③ 间歇性失败按 20-30s 退避重试 3-5 次再上报。
+- 状态：active
