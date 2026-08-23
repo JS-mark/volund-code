@@ -67,32 +67,3 @@ export class CapabilityContractError extends Error {
     this.name = 'CapabilityContractError'
   }
 }
-
-/**
- * Pick the reported error for one phase: the smallest byte offset wins; when
- * no offset exists, the smallest canonical field-path UTF-8 bytes win
- * (§19a.2.4). Never returns the raw bytes or values of the document.
- */
-export function firstDetail(
-  details: readonly ContractErrorDetail[],
-): ContractErrorDetail | undefined {
-  let best: ContractErrorDetail | undefined
-  for (const detail of details) {
-    if (best === undefined) {
-      best = detail
-      continue
-    }
-    const aOffset = best.byteOffset ?? Number.POSITIVE_INFINITY
-    const bOffset = detail.byteOffset ?? Number.POSITIVE_INFINITY
-    if (bOffset < aOffset) {
-      best = detail
-      continue
-    }
-    if (bOffset === aOffset) {
-      const aPath = best.fieldPath ?? '\uffff'
-      const bPath = detail.fieldPath ?? '\uffff'
-      if (Buffer.compare(Buffer.from(bPath, 'utf8'), Buffer.from(aPath, 'utf8')) < 0) best = detail
-    }
-  }
-  return best
-}
