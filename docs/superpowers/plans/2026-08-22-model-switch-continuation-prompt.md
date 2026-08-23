@@ -2,7 +2,7 @@
 
 > **用途**：把下方整段提示词复制到另一个模型，让它在同一仓库继续安全推进，并持续维护可返回的工程状态。
 >
-> **快照时间**：2026-08-23（Asia/Shanghai，第三轮：§21 spec / ABI-00 bootstrap 已提交）
+> **快照时间**：2026-08-23（Asia/Shanghai，第四轮：ABI-00 bootstrap 应用户决定从发布分支移除）
 >
 > **重要**：这是一份续跑提示词，不是规范权威。每次启动先以 `git status`、exact hash、测试和仓库文件刷新事实。
 
@@ -33,8 +33,7 @@
 
 - cwd: /Users/mark/myself/code/apollo-code
 - branch: codex/self-evolution
-- snapshot base HEAD before this prompt update: 2ab8aee（ABI-00 bootstrap commit，tree 5cd8c5b77d269f6ee0748ee58d491a354f94e450）
-- snapshot base summary: 2ab8aee feat(capability-contract): ABI-00 bootstrap primitives (verifier-only)
+- snapshot base：分支已 rebase 到 origin/main（37e4f14）并为 PR #127；`packages/capability-contract` 已应用户决定移除（32ef709），工作保留于历史与本地分支 `abi00-bootstrap-backup`
 - 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 2ab8aee 当成永远不变的 current HEAD。
 - 工作树在快照时是干净的；若发现 dirty 文件，先判定归属（可能是用户或其它任务线的改动），禁止 reset、checkout、clean、stash、覆盖或删除未归属改动。
 - 未获明确授权时禁止 amend、push、merge、tag、publish、deploy 或创建远端 PR。
@@ -78,7 +77,7 @@
 
 【下一步严格顺序】
 
-1. ~~ABI-00 bootstrap contract package~~ 已完成（2ab8aee，R4 0C/0I）。**下一步：ABI-00 registry/generator 阶段**——bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus，输入是已冻结的 §19a 与 2ab8aee 的 bootstrap 原语。补齐暂缓/登记 Minor：D/E/N 表 InvocationDecisionProof parent 行（机器推导）、RECONCILING ledger 边集、packlist test 构件排除、corpus metadata expectedRole 对齐、duplicate offset 语义说明。第一条命令：`git show 2ab8aee --stat && sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md`。随后进入 P0 Rust reference monitor。
+1. ~~ABI-00 bootstrap contract package~~ 已完成并经 R4 0C/0I，但 2026-08-23 用户决定从发布分支移除（32ef709）；恢复起点 = 本地分支 `abi00-bootstrap-backup`。**registry 阶段暂停，等用户重决策**。若恢复，下一步：ABI-00 registry/generator 阶段——bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus，输入是已冻结的 §19a 与 2ab8aee 的 bootstrap 原语。补齐暂缓/登记 Minor：D/E/N 表 InvocationDecisionProof parent 行（机器推导）、RECONCILING ledger 边集、packlist test 构件排除、corpus metadata expectedRole 对齐、duplicate offset 语义说明。第一条命令：`git show 2ab8aee --stat && sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md`。随后进入 P0 Rust reference monitor。
 2. 品牌 discovery/freeze 并行准备（只读）；最终 identity 是用户硬门。
 3. ~~T1b~~ 已完成（5c85d82）。历史任务卡（不再执行）：
    - 已按合同完成并提交（5c85d82）；EACCES/decoder 边角/TuningMemoryStore id join 等 T1a Minor 已随该提交吸收。
