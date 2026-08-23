@@ -5,6 +5,12 @@ import type { EventName } from './envelope'
 import { eventEnvelopeSchema } from './envelope'
 import { errorRaisedPayloadSchema } from './error-raised'
 import { messageAppendedPayloadSchema } from './message-appended'
+import { reflectionCompletedPayloadSchema } from './reflection-completed'
+import { reflectionFailedPayloadSchema } from './reflection-failed'
+import { reflectionPromotedPayloadSchema } from './reflection-promoted'
+import { reflectionScheduledPayloadSchema } from './reflection-scheduled'
+import { reflectionSkippedPayloadSchema } from './reflection-skipped'
+import { reflectionStartedPayloadSchema } from './reflection-started'
 import { routerSwitchedPayloadSchema } from './router-switched'
 import { sessionEndedPayloadSchema } from './session-ended'
 import { sessionResumedPayloadSchema } from './session-resumed'
@@ -23,7 +29,7 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 /**
- * 附录 D.2 十九事件 → per-event payload schema 汇总（事件名 → schema）。
+ * 附录 D.2 二十五事件 → per-event payload schema 汇总（事件名 → schema）。
  * replay / §8.2 迁移 / --json 外部消费以本 map + eventEnvelopeFor 为稳定契约。
  */
 export const EVENT_SCHEMAS = {
@@ -46,6 +52,12 @@ export const EVENT_SCHEMAS = {
   'context.compacted': contextCompactedPayloadSchema,
   'router.switched': routerSwitchedPayloadSchema,
   'error.raised': errorRaisedPayloadSchema,
+  'reflection.scheduled': reflectionScheduledPayloadSchema,
+  'reflection.started': reflectionStartedPayloadSchema,
+  'reflection.completed': reflectionCompletedPayloadSchema,
+  'reflection.failed': reflectionFailedPayloadSchema,
+  'reflection.skipped': reflectionSkippedPayloadSchema,
+  'reflection.promoted': reflectionPromotedPayloadSchema,
 } as const satisfies Record<EventName, z.ZodType>
 
 export type EventSchemas = typeof EVENT_SCHEMAS

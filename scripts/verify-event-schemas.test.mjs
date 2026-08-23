@@ -127,7 +127,7 @@ void test('repository: every §2.3 event has a schema file and a registry entry 
     readFile(resolve(root, EVENT_SCHEMAS_DIR, 'index.ts'), 'utf8'),
   ])
   const specEventNames = parseEventNames(markdown)
-  assert.equal(specEventNames.length, 19, '§2.3 event table must stay at the 19 registered events')
+  assert.equal(specEventNames.length, 25, '§2.3 event table must stay at the 25 registered events')
   assert.deepEqual(
     auditEventSchemas({
       specEventNames,
