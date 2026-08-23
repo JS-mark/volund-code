@@ -60,6 +60,18 @@ export const configKeyRegistry = {
   'telemetry.otel.endpoint': 'forbidden',
   // [evolution] legacy compatibility switch（见 §15）：严格 boolean，缺省 off
   'evolution.enabled': 'allowed',
+  // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
+  'reflection.enabled': 'allowed',
+  'reflection.triggers.on_error': 'allowed',
+  'reflection.triggers.on_compact': 'allowed',
+  'reflection.triggers.every_n_turns': 'allowed',
+  'reflection.cooldown_seconds': 'allowed',
+  'reflection.model_role': 'allowed',
+  'reflection.run_budget': 'allowed',
+  'reflection.session_token_budget': 'allowed',
+  'reflection.persist': 'allowed',
+  'reflection.inject_max_lessons': 'allowed',
+  'reflection.inject_max_bytes': 'allowed',
   // [auth] 段全部（§8.3.1）
   'auth.*': 'forbidden',
   // 实现内建段：apps/cli 状态面板本地偏好（附录 C 已补录 outputStyle / language 两行，
@@ -173,6 +185,32 @@ export const ConfigSchema = z.strictObject({
     })
     .optional(),
   evolution: z.strictObject({ enabled: z.boolean().optional() }).optional(),
+  // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地
+  reflection: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      triggers: z
+        .strictObject({
+          on_error: z.boolean().optional(),
+          on_compact: z.boolean().optional(),
+          every_n_turns: z.number().int().optional(),
+        })
+        .optional(),
+      cooldown_seconds: z.number().int().optional(),
+      model_role: z.string().optional(),
+      run_budget: z
+        .strictObject({
+          costUSDMax: z.number().optional(),
+          tokenMax: z.number().optional(),
+          timeMsMax: z.number().optional(),
+        })
+        .optional(),
+      session_token_budget: z.number().int().optional(),
+      persist: z.enum(['manual', 'auto', 'off']).optional(),
+      inject_max_lessons: z.number().int().optional(),
+      inject_max_bytes: z.number().int().optional(),
+    })
+    .optional(),
   auth: openSection.optional(),
   preferences: openSection.optional(),
 })
