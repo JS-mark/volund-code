@@ -2,7 +2,7 @@
 
 > **用途**：给后续模型或工程师继续当前工作。本文记录的是当前分支的工程事实、未提交改动归属、已完成审查、下一步和不可跨越的安全边界。
 >
-> **更新时间**：2026-08-23（Asia/Shanghai，第三轮：§21 spec / config·event 门禁修复 / ABI-00 bootstrap 已提交）
+> **更新时间**：2026-08-23（Asia/Shanghai，第四轮：ABI-00 bootstrap 应用户决定从发布分支移除，工作保留于历史与备份分支）
 >
 > **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a、§20 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
 >
@@ -12,7 +12,9 @@
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
-- HEAD：rebase 后远端同步。分支已于 2026-08-23 rebase 到 `origin/main`（`37e4f14`）并推送为 PR #127（https://github.com/JS-mark/apollo-code/pull/127）；rebase 后 ABI-00 bootstrap = `99c651e`、docs(progress) = `1bd1254`。**注意**：R1–R4 独立复审与隔离树门禁的 frozen 证据绑定的是 rebase 前 tree（`5cd8c5b7…` / patch `e9e447ed…`）；rebase 后内容等价（docs 三条与 main 重复被跳过），并在主树重跑 install/build/test/typecheck/scripts/双 verify/format 全绿（非隔离树口径，如实标注）。
+- HEAD：PR #127（https://github.com/JS-mark/apollo-code/pull/127）远端同步，CI 26 pass / 2 skip / 0 fail，mergeable CLEAN。
+- **2026-08-23 用户决定：`packages/capability-contract`（ABI-00 bootstrap）从发布分支移除**（`32ef709` revert，含 .gitattributes/catalog/lockfile 回退）。工作未丢失：历史提交 `99c651e`（bootstrap）+ `1c0b3cf`（死导出清理）+ 本地分支 `abi00-bootstrap-backup`；R1–R4 独立复审（终局 0C/0I）与 frozen 证据（patch `e9e447ed…`、tree `5cd8c5b7…`）仍然有效，恢复时以 `abi00-bootstrap-backup` 为起点。移除后门禁全绿：test 51/51（包任务消失回到基线）、lint 546 回基线。
+- 另：本轮修复 PR 首个 CI 红灯——Windows 上 `O_NOFOLLOW` 为 no-op 导致 legacy 态 symlink 未拒（`0af243f` 改为可移植 lstat 预检）。
 - 工作树：ABI-00 切片提交后**完全干净**（rebase + push 后仍干净）。验证用 worktree `apollo-code-abi00-verify` 已创建、使用并在提交后移除。遗留：`apollo-code-abiimpl-verify`（更早会话的 detached worktree，内容已全部进入 ABI-00 提交）待用户确认后清理。
 - 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
@@ -131,9 +133,9 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 
 原阻断（HarnessSpec digest、现状声明、driver、package ownership、H3a/H3b）已全部修复并随 `3b0503d` 提交。遗留非阻断 Notes：§20.7 的 domain prefix 是 §19a.3.2 两段式 domain 的缩写表述；D5 草案退出码 `3` 与当前 cli.ts 已有 `3` 用法需在 H2 冻结时对齐；`readStdin` 除 `--api-key-stdin` 外还供 `memory --body-stdin`。
 
-## 7. 下一实现任务：ABI-00 registry / generator 阶段
+## 7. 下一实现任务：ABI-00 registry / generator 阶段（暂停，等用户重决策）
 
-~~ABI-00-01 bootstrap primitives~~ 已完成（`2ab8aee`，R4 0C/0I）。继续按实施计划 §6 推进 **registry 阶段**：以已冻结的 §19a 为 normative 输入，实现 bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus。registry 阶段需补齐暂缓/新登记 Minor：
+~~ABI-00-01 bootstrap primitives~~ 已完成并经 R4 0C/0I，但**应 2026-08-23 用户决定从发布分支移除**（见 §1）。恢复路径：`git checkout abi00-bootstrap-backup -- packages/capability-contract` + 恢复 `.gitattributes` 两行 + catalog `'@noble/curves': 1.9.7` + `pnpm install` 重生 lockfile。在用户重新批准前，registry 阶段不动工；P0-00 fence 状态不变（本来就无 production import）。若恢复，继续按实施计划 §6 推进 **registry 阶段**：以已冻结的 §19a 为 normative 输入，实现 bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus。registry 阶段需补齐暂缓/新登记 Minor：
 
 - ABI M-3（lane A）：D/E/N 表 `InvocationDecisionProof` parent 行——机器推导数字补齐。
 - ABI M2（lane B）：`RECONCILING` ledger 边集冻结。
