@@ -4,7 +4,7 @@
 
 # 附录 D · 事件 payload 字段表（r13-I8 新增）
 
-§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（19 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
+§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（25 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
 
 ## D.1 实现约定
 
@@ -13,7 +13,7 @@
 - **CI 强制**：§2.3 事件表新增行而无对应 schema 文件 → fail；schema 字段与本表 diff 非空 → fail。
 - 大 payload（附件二进制）不进事件，只传引用（§2.3 订阅原则）。
 
-## D.2 字段表（19 事件）
+## D.2 字段表（25 事件）
 
 | 事件 | payload 字段（★必选 / ?可选） | 备注 / 来源 |
 |---|---|---|
@@ -36,6 +36,12 @@
 | `context.compacted` | ★`before` ★`after`（token 数） ?`strategy` ?`removedMessageIds` | |
 | `router.switched` | ★`from` ?`to` ★`reason` | |
 | `error.raised` | ★`code`（附录 B） ?`category` ?`context`（Record） | code 必须来自错误码 registry |
+| `reflection.scheduled` | ★`trigger`（`on_error` \| `on_compact` \| `every_n_turns` \| `manual`） ★`turnId` | §21.3/§21.5 |
+| `reflection.started` | ★`runId` ★`trigger` ?`model` | §21.4 |
+| `reflection.completed` | ★`runId` ★`usage`（Usage） ★`lessonCount` ★`durationMs` | lesson 正文不进事件（§21.7-2） |
+| `reflection.failed` | ★`runId` ★`code`（附录 B 扩展，如 `reflection_output_invalid`） | §21.4 |
+| `reflection.skipped` | ★`reason`（`budget_exhausted` \| `disabled` \| `no_new_content` \| `preempted` \| `duplicate` \| `cooldown`） | §21.3/§21.5 |
+| `reflection.promoted` | ★`lessonId` ★`memoryId` ★`scope`（`global` \| `project`） | §21.7-3 |
 
 ## D.3 subagent 冒泡规则
 

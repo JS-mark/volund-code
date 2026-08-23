@@ -62,6 +62,7 @@ Apollo Code 是 claude-code 的开源平行实现：**多模型后端的终端 A
 | 18  | 受控自我开发 / 变更流水线（proposed / not shipped）     | [`18-self-development.md`](./18-self-development.md)               | 动态 |
 | 19  | Plugin Kernel / Capability ABI v2（phase re-plan）      | [`19-plugin-kernel.md`](./19-plugin-kernel.md)                     | 动态 |
 | 20  | 自有 Harness（Self-owned Agent Harness）                | [`20-harness.md`](./20-harness.md)                                 | 动态 |
+| 21  | 动态反思（Dynamic Reflection，K1 builtin 插件，proposed） | [`21-dynamic-reflection.md`](./21-dynamic-reflection.md)           | 新增 |
 
 ### 附属专题文档
 

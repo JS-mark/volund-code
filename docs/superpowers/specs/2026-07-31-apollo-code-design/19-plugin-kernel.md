@@ -41,10 +41,10 @@
 | `command` | CLI/TUI command contribution | 命名冲突、交互身份、危险操作确认 |
 | `memory-adapter` | recall/index/import/export | secret guard、scope policy、provenance 与删除语义 |
 | `skill-source` | Skill discovery/activation | trust domain、自动激活 policy、prompt 包裹 |
-| `subagent-profile` | 专用 agent role/profile | budget、depth/concurrency、principal isolation |
+| `subagent-profile` | 专用 agent role/profile（含 §21 reflector 的受控 dispatch） | budget、depth/concurrency、principal isolation、dispatch 预算求交与 per-session 硬顶 |
 | `context-policy` | compaction/selection strategy | hard token ceiling、不可丢弃的安全消息 |
 | `evaluator` | deterministic grader/holdout adapter | suite registry、evidence binding、verdict reducer |
-| `ui-surface` | status/只读 panel 数据 | 允许的 surface、纯数据渲染、control-character guard |
+| `ui-surface` | status/只读 panel 数据（含 `/status` section，§11.3.14） | 允许的 surface、纯数据渲染、control-character guard |
 | `protocol-adapter` | MCP 等外部能力协议 | endpoint trust、auth、namespace 和 contribution conversion |
 | `observability-sink` | local telemetry、显式 opt-in OTel adapter | secret redaction、consent/egress policy、事件 schema 与本地审计底账 |
 
@@ -398,6 +398,7 @@ Fault matrix覆盖PREPARED/OPEN/checkpoint/ANCHORED/FINALIZED每个crash/respons
 - §6a/§6b 描述当前 v1 plugin surfaces；Capability ABI v2 以本节为架构权威，legacy 只作迁移输入。
 - [§19a Capability Contract V1](./19a-capability-contract.md) 是 ABI-00 的 byte-level 权威：single registry、canonical/domain/strict signature、closed role/cardinality、signed output endorsement、embedded schemas/唯一 K3 plan、CEB/CAB/三流 Catalog heads/receipts、protected authority lineage/carriers、limits与 cross-language corpus以该附录为准。
 - §15 仍只负责白名单参数 tuning，不能创建 bundle 或 catalog event。
+- [§21](./21-dynamic-reflection.md) 定义动态反思：K1 builtin bundle 只经 §19.1.1 公开 surface 组合而成（subagent-profile 受控 dispatch、hook 触发、prompt-source 注入、memory-adapter 提升、command、ui-surface），是"everything extensible is a plugin"的第一个 K1 级自证用例；其运行所需的 `apollo.agents.run` / `apollo.jobs.schedule` / `apollo.ui.status.registerSection` v1 bridge 扩展见 §6.4.1a，内核保留职责以 §19.1.1 为准。
 - §18 负责 Self-Development control plane；本节负责候选 capability 类型、K3 限制和 `STAGED_DISABLED` 终点。实施阶段中 CAT-02 只交付 transaction/storage/verifier primitives与fixtures，SDP-03才是这些 primitives 的首个 production SelfDev wiring；两者不得重复宣称 Completion/reservation/run 协议所有权。
 - 实施顺序与 phase gate 见 [Plugin Kernel 实施计划](../../plans/2026-08-20-plugin-kernel-implementation.md)。
 
@@ -407,6 +408,7 @@ Fault matrix覆盖PREPARED/OPEN/checkpoint/ANCHORED/FINALIZED每个crash/respons
 
 | 日期 | 变更 |
 |---|---|
+| 2026-08-23 | §19.1.1 surface 表登记 §21 动态反思（subagent-profile 受控 dispatch 含 per-session 预算硬顶、ui-surface 含 `/status` section）；§19.13 增加 §21 交叉引用 |
 | 2026-08-21 | ABI-00 review draft：§19a增加 single machine registry、strict crypto、signed output endorsement、唯一 K3 plan、multiline/secret carriers、protected decision/authority refs、三流 Catalog heads、exact broker/Git contracts与可构造 limits/corpus；P0-00仍关闭 |
 | 2026-08-21 | FIX2：关闭 UI/mapping backedge；冻结完整 K3 identity commitments、ExecutableBinding/process identity、exact effect set、AMBIGUOUS terminal、Git base equality、monotonic capabilityRevision/release/SemVer、双 traversal depth与 branded exact-SHA reverify |
 | 2026-08-20 | FIX1：修正 detached digest DAG、legacy activation、fixed no-network host、K0/Rust 双平面、immutable origin/lifecycle、双 effect promotion、阶段顺序与品牌 claim gate |

@@ -286,7 +286,7 @@ export interface RouterContext {
 
 export interface RouterHint {
   explicitModel?: string // 用户输入 `@gpt-4 ...` 时提取
-  role?: 'planner' | 'coder' | 'reviewer' | 'chat' // hooks/plugins 可以塞角色暗示
+  role?: 'planner' | 'coder' | 'reviewer' | 'chat' | 'reflection' // hooks/plugins 可以塞角色暗示；'reflection' 为 §21 动态反思（2026-08-23 新增），RoleRouter 未配置该 role 的候选链时回落当前会话模型（合法降级，非错误）
   costPreference?: 'cheap' | 'balanced' | 'quality'
 }
 

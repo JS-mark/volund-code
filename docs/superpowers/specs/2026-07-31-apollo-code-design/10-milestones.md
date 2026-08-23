@@ -40,7 +40,7 @@ Platform matrix, security evidence, native binaries, signing, notarization, chan
 
 ### R6 — isolated advanced and conditional capabilities
 
-Semantic/cost routing, provider signing, plugin registry, auto-update, team memory, advanced evolution, and other v2 work require their own product/security decisions. They do not block earlier stages unless explicitly included in that release scope.
+Semantic/cost routing, provider signing, plugin registry, auto-update, team memory, advanced evolution, dynamic reflection (§21), and other v2 work require their own product/security decisions. They do not block earlier stages unless explicitly included in that release scope.
 
 ## Stage migration
 
