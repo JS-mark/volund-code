@@ -100,17 +100,19 @@ describe('parse admission phases', () => {
 })
 
 describe('first-error tie-breaking', () => {
-  it('prefers the smallest byte offset within one phase', async () => {
-    const { firstDetail } = await import('./errors')
-    expect(firstDetail([{ code: 'contract.value-domain', byteOffset: 9 }])).toMatchObject({
-      byteOffset: 9,
-    })
-    expect(
-      firstDetail([
-        { code: 'contract.value-domain', byteOffset: 20 },
-        { code: 'contract.value-domain', byteOffset: 5 },
-      ]),
-    ).toMatchObject({ byteOffset: 5 })
+  const expectFirstError = (text: string, code: string, byteOffset: number) => {
+    try {
+      parse(utf8(text))
+      expect.fail(`expected ${code}`)
+    } catch (error) {
+      expect(error).toBeInstanceOf(CapabilityContractError)
+      expect((error as CapabilityContractError).detail).toMatchObject({ code, byteOffset })
+    }
+  }
+  it('prefers the smallest byte offset within one phase', () => {
+    // Two value-domain findings: the first (smallest offset) is reported.
+    expectFirstError('{"a":1.5,"b":2.5}', 'contract.value-domain', 5)
+    expectFirstError('{"a":1,"a":2,"b":1,"b":2}', 'contract.duplicate-key', 12)
   })
 })
 

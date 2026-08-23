@@ -659,8 +659,3 @@ export function parseCanonicalJson(
     throw new CapabilityContractError({ code: 'contract.schema-invalid', fieldPath: '' })
   return { canonicalBytes, value }
 }
-
-/** Convenience for programmatic callers: encode + digest-ready canonical bytes. */
-export function canonicalHex(value: unknown): string {
-  return Buffer.from(encodeCanonical(value)).toString('hex')
-}

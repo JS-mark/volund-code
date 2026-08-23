@@ -12,7 +12,6 @@ export {
   CAPABILITY_ADMISSION_ERROR_CODE,
   PARSE_PHASES,
   CapabilityContractError,
-  firstDetail,
 } from './errors'
 export type {
   CapabilityAdmissionErrorCodeV1,
@@ -20,20 +19,14 @@ export type {
   ContractErrorDetail,
 } from './errors'
 
-export { canonicalHex, encodeCanonical, parseCanonicalJson, validateUtf8 } from './canonical'
+export { encodeCanonical, parseCanonicalJson, validateUtf8 } from './canonical'
 export type { CanonicalParseLimits, CanonicalParseResult } from './canonical'
 
 export {
-  BOOTSTRAP_CANONICAL_ROLES,
-  base64UrlLength,
   canonicalPayloadDigest,
-  canonicalValueDigest,
   decodeBase64UrlStrict,
   domainSeparatedBytes,
   encodeBase64Url,
-  isBootstrapCanonicalRole,
-  isLowerHex64,
-  rawContentDigest,
 } from './digest'
 export type {
   CanonicalPayloadDigestV1,
