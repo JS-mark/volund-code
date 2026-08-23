@@ -2,7 +2,7 @@
 
 > **用途**：给后续模型或工程师继续当前工作。本文记录的是当前分支的工程事实、未提交改动归属、已完成审查、下一步和不可跨越的安全边界。
 >
-> **更新时间**：2026-08-22（Asia/Shanghai，第二轮：T1a/ABI/§20 已提交）
+> **更新时间**：2026-08-23（Asia/Shanghai，第三轮：§21 spec / config·event 门禁修复 / ABI-00 bootstrap 已提交）
 >
 > **注意**：本文是进度/交接记录，不替代 §15、§18、§19、§19a、§20 的规范权威。切换模型后先重读本文，再以 `git status`、exact SHA 和测试结果刷新事实。
 >
@@ -12,22 +12,22 @@
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
-- HEAD（本文提交前）：`5c85d825a10119aeac573e06c6a28007f4884ae0`（T1b commit）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
-- 工作树：**当前完全干净**（`git status` 无条目）。此前的 T1a / ABI / §20 三组未提交候选已全部独立提交。
+- HEAD（本文提交前）：`2ab8aee`（ABI-00 bootstrap commit，tree `5cd8c5b77d269f6ee0748ee58d491a354f94e450`）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
+- 工作树：ABI-00 切片提交后**完全干净**。验证用 worktree `apollo-code-abi00-verify` 已创建、使用并在提交后移除。
 - 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
 
 最近已提交：
 
 ```text
+2ab8aee feat(capability-contract): ABI-00 bootstrap primitives (verifier-only)
+9875de1 test(core): bump event set count to 25 for §21 reflection events
+15d6e5d feat(shared): register §21 reflection event schemas (D.1 gate)
+9931122 fix(shared): register [reflection] config keys for §21 (r13-I4 gate)
+1932fd7 docs(spec): add §21 dynamic reflection and /status token/cache design
 5c85d82 feat(storage): journal-backed tuning store with record identity
 3b0503d docs(spec): add §20 self-owned harness chapter
 df4a2dd docs(spec): freeze ABI-00 capability contract V1
-6dd0b20 fix(core): default-off adaptive tuning with strict persistence boundary
-5e04cf4 docs(handoff): add model switch continuation prompt
-46898cb docs(brand): record identity and migration plan
-2450a95 docs(plan): record self-evolution handoff
-33e5ce5 fix(plugin): harden contained legacy state
 ```
 
 ## 2. 已确认的产品/架构判断
@@ -114,6 +114,15 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 - **Binding gates（isolated tree 0d17b93d）**：build 27/27、test 51/51、typecheck 55/55（0 cached）；脚本组 64/64；docs build；storage 85+1 skipped、cli 138、core 62；lint 0 errors（546 warnings = 基线 536 + 10 条测试 JSON.parse 断言告警）；format、diff --check 全绿。
 - **诚实边界**：文件内容 fsync；新文件创建的跨断电持久性受无可移植目录 fsync 限制（Windows 披露）；锁是协调原语非安全边界；audit 数据在 T1/T2 promotion evidence 使用前仍需独立评审。
 
+## 4b. 已完成：ABI-00 bootstrap contract package — `2ab8aee`（已提交）
+
+- **Frozen candidate**：staged patch SHA-256 `e9e447ede5a287b45f0acc09867d9162a1c9bde973f31a95e54890664b595e4d`；verified candidate tree `5cd8c5b77d269f6ee0748ee58d491a354f94e450`（`git rev-parse HEAD^{tree}` 已核对相等）。
+- **范围**：恰好 52 个文件（private 包 `packages/capability-contract` 全部 + `.gitattributes` fixtures 二进制标记 + `pnpm-workspace.yaml` catalog 锁 `@noble/curves@1.9.7` + `pnpm-lock.yaml`）。production import = 0，P0-00 fence 保持关闭。
+- **内容**：Canonical JSON V1（迭代 frame-stack parser，深度计数器 ≤32，O(1) finding 簿记单次报告时换算 byteOffset，严格 UTF-8/数字文法/值域/duplicate/canonical 逐字节相等，§19a.2.4 phase vector）；domain-separated digest + strict base64url + nominal typed digests；ContractStrictPureEd25519V1 verify-only（canonicality/identity/small-order/torsion/S∈[0,L)、零标量守卫、never-throw）；authority detached envelope（exact 5-key set、shape→role→crypto）；34 条共享 small corpus + 确定性生成器（reviewer 独立从零复现逐字节相等）；fence 测试（barrel/exports/private/deps + 全 workspace dependents 扫描）。
+- **独立 reviewer（通用 agent，非 writer，四轮）**：R1 0C/3I（深度 RangeError DoS、`__proto__` 吞键、fence 缺 dependents 扫描）→ 修复 → R2 0C/3I（错误簿记 O(n²) DoS、`-01` 误报 value-domain、`{"a":}` 误报 noncanonical-bytes）→ 修复 → R3 0C/1I（S=0 时 noble multiply throw 穿透）→ 修复 → **R4 0C/0I**（含 55 万例 JSON.parse 基线穷举零分歧、41+ 条 Ed25519 strict 探针、OpenSSL/纯 Python 独立验签、golden digest 独立重算）。
+- **Binding gates（isolated tree 5cd8c5b7，全部 0-cached 强制执行）**：build 28/28、test 52/52、typecheck 57/57、docs build、scripts 69/69、verify:config-docs、verify:error-codes、format、lint 0 errors（571 warnings = 基线 536 + 本包 35 条测试/生成器风格告警）、`git diff --cached --check`。
+- **本轮前置提交（§21 设计线）**：`1932fd7` docs(spec) §21 动态反思 + /status token/cache 设计；`9931122` config key 登记（r13-I4 门禁修复）；`15d6e5d` reflection 事件 schema 登记（D.1 门禁修复，19→25）；`9875de1` core 事件计数测试对齐。
+
 ## 5. 正在进行的未提交工作
 
 无。工作树当前干净。
@@ -122,9 +131,15 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 
 原阻断（HarnessSpec digest、现状声明、driver、package ownership、H3a/H3b）已全部修复并随 `3b0503d` 提交。遗留非阻断 Notes：§20.7 的 domain prefix 是 §19a.3.2 两段式 domain 的缩写表述；D5 草案退出码 `3` 与当前 cli.ts 已有 `3` 用法需在 H2 冻结时对齐；`readStdin` 除 `--api-key-stdin` 外还供 `memory --body-stdin`。
 
-## 7. 下一实现任务：ABI-00 contract packages
+## 7. 下一实现任务：ABI-00 registry / generator 阶段
 
-按实施计划 §6（ABI-00-01）：新建 private `packages/capability-contract`（pure schema/canonical/crypto/verifier-only，含 `authority` 子路径不进 root barrel），以已冻结的 §19a 为 normative 输入，实现 bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + 共享 golden/reject corpus（含 large-recipes）；registry 阶段需补齐两个暂缓 Minor：D/E/N 表 `InvocationDecisionProof` 行的机器推导数字、`RECONCILING` ledger 边集。P0-00 fence 保持关闭；production runtime/native/CLI import = 0。完成后再进入 P0 Rust reference monitor。
+~~ABI-00-01 bootstrap primitives~~ 已完成（`2ab8aee`，R4 0C/0I）。继续按实施计划 §6 推进 **registry 阶段**：以已冻结的 §19a 为 normative 输入，实现 bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus。registry 阶段需补齐暂缓/新登记 Minor：
+
+- ABI M-3（lane A）：D/E/N 表 `InvocationDecisionProof` parent 行——机器推导数字补齐。
+- ABI M2（lane B）：`RECONCILING` ledger 边集冻结。
+- ABI-00 R3/R4 登记：packlist 含编译后 test 构件（private=true 不可发布；build tsconfig 排除 `*.test.ts` 时处理）；duplicate byteOffset 记在 member value 之后的语义说明；corpus reject 记录 `expectedRole:null` 与 §19a.14 metadata schema 的张力（`SmallCaseMetadataV1` 将其声明为非空——生成器/registry 阶段对齐）；`firstDetail` 暂未被 parser 复用（registry 生成代码使用）。
+
+P0-00 fence 保持关闭；production runtime/native/CLI import = 0（fence.test.ts dependents 扫描已常态化把守）。完成后进入 P0 Rust reference monitor。
 
 T1b 必须是独立提交，从 T1a 已提交的 base 继续：
 
@@ -153,8 +168,9 @@ sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution
 2. ~~ABI-only staged patch + 双路 0C/0I + 独立提交~~ → **已完成（df4a2dd）**。
 3. ~~§20 Harness 修复 + 独立复审 + 独立提交~~ → **已完成（3b0503d）**。
 4. ~~T1b journal/recovery~~ → **已完成（5c85d82）**。
+4b. ~~ABI-00 bootstrap contract package（canonical/digest/signature/authority + 34-case corpus）~~ → **已完成（2ab8aee，R1→R4 独立复审终局 0C/0I）**；§21 动态反思 + /status 设计切片已提交（1932fd7，含 config/event 门禁修复 9931122/15d6e5d/9875de1）。
 5. 品牌 discovery/freeze 可并行准备，但最终 identity tuple 由用户确认（硬门见 §9）；此时不得改 production identity。
-6. **实现私有 TypeScript/Rust contract packages + shared canonical/crypto/reject corpus**（ABI-00 实现阶段，见 §7；输入是已冻结的 §19a）。
+6. **ABI-00 registry/generator 阶段**（bootstrap 已完成，见 §7）：single versioned registry + TS/Rust 生成器 + large-recipe corpus + 上列 Minor 收口。
 7. 关闭 P0 Rust reference monitor：最小 fs view、逐平台真实 OS sandbox feature、origin-level network、resource limits、identity-pinned executable、secret/token 不外泄；未取证平台必须 downgrade/unavailable。
 8. 实现 CAT-01/02 closed-role evidence/Catalog primitives。
 9. cleared identity + CAT-02 后执行 BRAND-MIGRATE；在 branded exact SHA 执行 BRAND-VERIFY 并重新取得 product/security/platform/supply-chain 签字。
@@ -213,6 +229,7 @@ git diff --cached --check
 | ABI（tree d3bb1aed） | turbo test 51/51；typecheck 55/55；plugin-runtime 94/94；l1-docs+packlist 8/8；scripts 64/64 |
 | §20（tree 5eed000b） | turbo test 51/51；typecheck 55/55；l1-docs+packlist 8/8；scripts 56/56（另 8 条已随 l1-docs/packlist 单独跑） |
 | T1b（tree 0d17b93d） | build 27/27；test 51/51；typecheck 55/55；scripts 64/64；storage 85+1 skipped；cli 138；core 62；lint 0 errors/546 warnings |
+| ABI-00 bootstrap（tree 5cd8c5b7） | build 28/28；test 52/52；typecheck 57/57；scripts 69/69；包内 70/70；lint 0 errors/571 warnings；verify:config-docs/verify:error-codes 全绿 |
 
 ### 9.4 留存 Minor / Note（不阻断，后续阶段吸收）
 
@@ -226,6 +243,7 @@ git diff --cached --check
 - T1b M-2：4 条 crafted-state 测试缺口（错误 prefix digest、sizeBefore>实际、BOTH_DURABLE 单文件缺失、live-holder 超时）——reviewer probe 验证行为正确。
 - T1b M-3：doctor evolution 行的 CLI 级测试缺失（storage 级 health() 已测）。
 - §20 Notes：见 §6。
+- ABI-00 bootstrap（2ab8aee）留存：packlist 含编译后 test 构件；duplicate byteOffset 记在 member value 之后；corpus reject 记录 `expectedRole:null` 与 §19a.14 metadata schema 张力；`firstDetail` 待 registry 复用；authority envelope 对 Proxy/throwing-getter exotic 对象可抛（超出 untrusted-bytes 威胁模型，envelope 源自 canonical parse 的 null-proto 平面对象）。全部归 registry 阶段吸收。
 
 ## 11. 暂存/提交纪律（本轮已按此执行）
 
