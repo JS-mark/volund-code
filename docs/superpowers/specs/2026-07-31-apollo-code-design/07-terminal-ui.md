@@ -218,9 +218,9 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 ### 7.8 里程碑
 
 - **L1（MVP）**：完整消息渲染 + 流式 + 权限弹窗 + slash 命令 + `@` **统一 picker**（alias 置顶 + model/file 两类候选，r9 优化）
-- **L2**：`@` file 分支 + 附件粘贴（路径 / 拖拽）+ 图像 preview（终端支持 sixel/kitty 时）+ 剪贴板图片二进制粘贴
+- **L2**：`@` file 分支 + 附件粘贴（路径 / 拖拽）+ 图像 preview（终端支持 sixel/kitty 时）+ 剪贴板图片二进制粘贴 + `/status` 状态面板（§7.10，随 §11.3.14）
 - **L3**：`#sess_<id>` 跨会话引用 + `SessionContextReader` + `--json` 结构化输出模式
-- **L4**：主题定制 + 插件 UI 扩展点（状态栏 item） + `@skill` / `@memory` 等额外前缀能力
+- **L4**：主题定制 + 插件 UI 扩展点（状态栏 item + `/status` 插件 section，§6.4.1a） + `@skill` / `@memory` 等额外前缀能力
 
 ### 7.9 readline → Ink TUI 迁移契约（L1 补充）
 
@@ -365,3 +365,27 @@ node apps/cli/dist/apollo.js chat
 - `/help` 有候选/展示；`/exit` 干净退出。
 - ↑/↓ 可浏览历史。
 - `--json` 无 Ink/ANSI；`--no-tui` 不启动 Ink。
+
+### 7.10 /status 状态面板（2026-08-23 新增）
+
+`/status` 打开的模态面板（交互模型同 `/context` 面板）：数据契约与 section 清单以 [§11.3.14](./11-cli-commands.md#11314-status2026-08-23-新增) 为准，本节只定义渲染与交互。
+
+**组件与数据流**：
+
+- 组件 `<StatusPanel>` 挂在 `<App>` 顶层（与 PermissionPrompt 同层），打开时独占焦点；数据来自 §11.3.14 的 K0 数据组装层（`buildStatusView(session, router, registry, ...)`），**UI 不直接读** SessionState / Router 内部。
+- 面板内容 = core section（§11.3.14 表）+ 插件贡献 section（§6.4.1a `ui.status.registerSection`）。插件 section 的值在渲染前过 control-character guard（剥 ANSI/C0/bidi），单 section 超 20 行截断并标注 `… (truncated)`；插件 section 渲染返回 `null` 或插件 disabled 时整区不渲染。
+- 渲染形态：两列 `label: value` 表；token 计数右对齐千分位；`n/a` / `unavailable` 用 dim 色，不用红色（不是错误，是诚实缺数据，§11.3.14 诚实显示规则）。
+
+**交互**：
+
+| 按键 | 行为 |
+|---|---|
+| `q` / `Esc` | 关闭面板 |
+| `r` | 重新取数刷新（无自动轮询，避免长会话里定时读大状态） |
+| `j`/`k` / ↑/↓ | 滚动（内容超屏时） |
+
+**边界**：
+
+- 面板**只读**；改配置走 `/model`、`/reflect on|off`、`apollo config` 等各自入口。
+- 打开面板期间主 loop 继续运行（反思 job、后台 shell 不暂停）；面板数据是打开/`r` 时刻的快照，不声称实时。
+- 面板渲染抛错（含插件 section 抛错）→ 该 section 替换为一行 `section error: <name>`，不 crash TUI（§7.9 边界语义）；core section 抛错同样降级，禁止整个面板白屏。

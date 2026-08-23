@@ -237,6 +237,75 @@ export interface ApolloBridge {
 
 **Disposable 契约**：所有 `register/on` 返回 `Disposable`，`deactivate` 时必须调 `dispose()`，`plugin-runtime` 会兜底 dispose 所有插件持有的注册。
 
+#### 6.4.1a 受控 agent dispatch / 后台 job / 状态面板贡献（v1 扩展，L4）
+
+三个新 bridge 命名空间，为 §21 动态反思等"需要一次受控模型推理 / 长任务 / 状态展示"的插件补全 surface。共同原则：**插件永远只声明意图，K0 保留执行权**——预算求交、调度时机、模型路由、渲染边界全部在 K0 侧强制（§19.1.1 各 surface 的内核保留职责不变）。
+
+```ts
+export interface ApolloBridge {
+  // ... §6.4.1 既有命名空间不变 ...
+
+  //-------- ★ 受控 agent dispatch（subagent-profile surface 的运行时 API）--------
+  agents: {
+    /**
+     * 请求 K0 Runner 以声明的 subagent-profile 跑一次有界 agent run。
+     * 不是 provider 直调（§6.4.1 non-goals 不变）：模型调用由 K0 Runner 经 Router 发出。
+     * manifest 必须声明 `permissions.agents.run = true`。
+     * K0 强制：budget = 请求值 ∩ profile 上限 ∩ 调用方 session 硬顶；depth+1 隔离（§2.7 全规则）；
+     * tools 白名单取 profile 声明（v1 reflector 恒为 []）；usage 打调用方归因标记。
+     */
+    run(spec: {
+      profileId: string                 // 必须是本 bundle manifest 声明的 subagent-profile
+      input: {
+        turns?: number                  // 给 K0 的构造提示：取最近 N 个 turn（默认 10）
+        includeThinking?: boolean       // 默认 false
+        promptPrefix?: string           // ≤ 2 KiB；仅作任务说明，与 K0 构造的 transcript digest 拼接
+      }
+      budget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }  // 只能收窄
+      role?: string                     // 默认 'reflection'；未知 role 回落当前会话模型（§3.9）
+    }): Promise<AgentRunResult>         // { runId, output: string, usage: Usage, stopReason }
+  }
+
+  //-------- ★ 后台 job 调度（hook 5s 同步语义之外的长任务通道，§2.6）--------
+  jobs: {
+    /**
+     * 注册一个 idle-only job。K0 调度器：Runner idle 时才执行（无活动 turn / 无流式 / 无进行中 job）；
+     * per-plugin single-flight，同名 job 合并；新 turn.started 抢占（AbortSignal）；job 超时 90s。
+     * 无 manifest 门槛；配额 K0 强制：队列深 ≤ 8/plugin，超即拒（schedule reject）。
+     */
+    schedule(spec: {
+      name: string
+      when: 'idle'                      // v1 只有 idle
+      run: (ctx: { signal: AbortSignal }) => Promise<void>
+    }): Disposable
+  }
+
+  //-------- ★ /status 面板 section 贡献（ui-surface surface 的运行时 API）--------
+  ui: {
+    // ... §6.4.1 既有 confirm/prompt/pick/notify 不变 ...
+    /**
+     * 向 /status 面板贡献一个只读 section（§11.3.14 数据契约、§7.10 渲染）。
+     * 纯数据渲染：返回值只允许 string/number/boolean；K0 做 control-character guard；
+     * 单 section ≤ 20 行；面板打开时与各事件后重取。manifest 必须声明 `permissions.ui.status = true`。
+     */
+    status: {
+      registerSection(spec: {
+        id: string                      // 面板内唯一；冲突拒绝
+        title: string
+        render(): { rows: [string, string | number | boolean][] } | null  // null = 本 session 不渲染
+      }): Disposable
+    }
+  }
+}
+```
+
+**边界**：
+
+- `agents.run` 的返回文本是**模型生成的不可信内容**：消费方（含 §21 的 JSON 契约校验）必须自行校验，K0 不保证其结构。
+- `jobs` 不是通用 worker 池：`run` 里仍只能调 bridge API，受全部既有权限约束；job 不得阻塞等待用户输入（非 TTY 下降级语义同 §6.4.1 `ui`）。
+- `ui.status.registerSection` 不能注入交互组件、不能渲染 ANSI escape、不能读写其他 section；K0 渲染器把值当纯文本。
+- 三个 API 在 ABI v2（§19.6）下的对应 surface：`subagent-profile` / `hook` 调度语义 / `ui-surface`；v1 声明缺失对应 permission 时调用直接 reject（deny-by-default）。
+
 #### 6.4.2 完整插件示例
 
 ```js

@@ -34,6 +34,7 @@ apollo context <show|diff|keep|unkeep|compact|policy>   # r10 新增，详见 §
 apollo evolution <show|rollback|enable|disable>         # r10 新增，详见 §11.3.13 + §15
 apollo review [--base <ref>|--staged|--pr <n>|--range <a>..<b>]  # r13 新增，详见 §17
 apollo doctor                 # 全局诊断（native / auth / permission / 各 provider 连通性）
+apollo status [--json]        # 会话/用量/缓存状态总览（2026-08-23 新增，详见 §11.3.14）
 apollo telemetry <status|export|clear>
 apollo completion <bash|zsh|fish>   # 生成 shell 补全脚本
 apollo version
@@ -43,7 +44,7 @@ apollo help [command]
 # apollo update                # 自升级
 ```
 
-**顶层命令数**：MVP (L1-L4) 共 **21 个**顶层入口（r10：+ `context` + `evolution`；r13：+ `review`；默认 REPL / chat / login / logout / config / history / resume / restore / model / plugin / skill / mcp / hook / memory / context / evolution / review / doctor / telemetry / completion / version + help 元命令）；`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13、`review` 在 §17 完整定义，此处仅作交叉索引。
+**顶层命令数**：MVP (L1-L4) 共 **22 个**顶层入口（r10：+ `context` + `evolution`；r13：+ `review`；2026-08-23：+ `status`；默认 REPL / chat / login / logout / config / history / resume / restore / model / plugin / skill / mcp / hook / memory / context / evolution / review / status / doctor / telemetry / completion / version + help 元命令）；`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13、`review` 在 §17 完整定义，此处仅作交叉索引。
 
 ### 11.3 命令详细定义
 
@@ -312,6 +313,38 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 - `rollback --to <timestamp>` 把指定 namespace 的所有参数还原到该时间点的值（读 `tuning/<ns>.jsonl` 找最近 ≤ timestamp 的每参数值）
 - `disable` 后参数立即回内置默认（非保留当前值），防"关闭后仍被旧调参影响"
 
+#### 11.3.14 status（2026-08-23 新增）
+
+> 会话 / 模型 / 上下文 / **token 计量** / **prompt 缓存状态**的总览入口。TUI 面板渲染与按键见 §7.10；插件贡献的只读 section 走 §6.4.1a `ui.status.registerSection`（ui-surface，§19.1.1）。
+
+```
+apollo status [--json]                    # 查询类命令（§11.1：--json 输出单个 JSON payload）
+```
+
+**数据源（全部 K0/core 持有，不依赖插件）**：SessionState 累计 usage（`turn.completed` 累计，含 `reflection: true` 归因标记，§21.4）、Router pricing 表（§3.3）、最近一次 ProviderRequest 的 `cache` 快照与 `ProviderCapabilities.cache`（§3.2 / §3.3）、ContextPolicy 估算（§8b）、hook/plugin/skill 注册表。
+
+**section 清单与字段**（面板与 `--json` 共用同一数据组装层，字段名一致）：
+
+| Section | 行 |
+|---|---|
+| Session | session id / cwd / 模型（`provider:model`，含 alias 来源）/ 运行时长 / turn 数 |
+| Context | 当前 token 估算占用 / `max_tokens` / 距压缩阈值 / 策略（同 `apollo context show` 摘要） |
+| Usage & Cost | 累计 input / output token；累计 costUSD（pricing 已知时）；last-turn input / output；per-provider 分行；**reflection 归因用量单独一行**（主会话消耗与反思消耗分离，§21.4） |
+| Prompt Cache | provider cache 能力（`none` / `ephemeral` / `persistent`）；当前生效策略 + TTL（来源标注：`request.cache` 通用抽象 / `rawMeta` 覆盖 / provider 自动，§3.4）；累计 cacheRead / cacheWrite token；last-turn cacheRead / cacheWrite；命中率 = `cacheRead ÷ (cacheRead + input)`（分母为 0 时显示 `—`）；估算节省 = `cacheRead × (inputPerM − cacheReadPerM)`（pricing 缺任一值时显示 `n/a`） |
+| Tools & Permissions | 已注册 tool 数 / 本会话白名单命中数 / pending 权限请求数 |
+| Plugins & Skills | enabled 插件数 / active skill 列表 |
+| Memory | pinned 条数 / 本 session recall 次数（§6.12.11 事件计数） |
+| Reflection | **条件渲染**：仅 §21 插件 enabled 时由 ui-surface 贡献（enabled 状态 / 各 trigger / session 预算 consumed·remaining / 最近一次 run / pending job）；插件 disabled 时整区不渲染 |
+
+**诚实显示（强制）**：
+
+- provider 不支持 cache（`capabilities.cache === 'none'`）→ Prompt Cache 区首行 `unavailable (provider)`，其余行 `n/a`，**禁止**用 0 冒充。
+- provider 不上报 `cacheRead` / `cacheWrite` → 对应行 `n/a`；命中率只对已知字段求和。
+- pricing 缺失 → costUSD 与"估算节省"显示 `n/a`，不得借用其他 provider 的价格估算。
+- `--json` payload 同规则：未知字段**省略**（不是 `0`），payload 带 `version: 1`。
+
+**边界**：`status` 是只读命令，不写任何状态；非 TTY 且无 `--json` 时按查询类命令输出纯文本表格（无 ANSI 控制符）；面板打开期间不自动轮询，手动 `r` 刷新（§7.10）。
+
 ### 11.4 交互 REPL 内 slash 命令
 
 进入交互模式后，用户可用 `/` 前缀触发命令，等价于 CLI 部分子命令但**作用于当前 session**：
@@ -333,6 +366,8 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 | `/undo` | — | 撤销最后一次 tool 执行（若有 backup；选点规则见 §8.6.2） |
 | `/shells` | — | **r13 新增**：列出后台 shell（shellId / 命令 / 运行时长 / 输出预览），可选中 kill |
 | `/review [flags 子集]` | `apollo review` | **r13 新增**：对当前 working tree 跑 code review（详见 §17） |
+| `/status` | `apollo status` | **2026-08-23 新增**：打开状态面板（token 计量 + prompt 缓存状态等，§11.3.14 / §7.10） |
+| `/reflect …` | — | **2026-08-23 新增**：动态反思（`now`/`on`/`off`/`list`/`show`/`save`/`rm`/`clear`，§21.8）；仅 `apollo.core.reflection` enabled 时可用，否则提示 not available（§7.9 边界语义） |
 | 用户自定义 | 插件 `apollo.commands.register` | |
 
 ### 11.5 输入前缀（非 slash）
@@ -371,7 +406,7 @@ apollo evolution dashboard                # L4: 参数随时间变化曲线
 ### 11.7 里程碑
 
 - **L1（MVP）**：`chat` / `login` / `logout` / `config` / `history list-show` / `doctor`（L1 项） / `hook list`（builtin only） / `version` / `help` + 交互 REPL 内基础 slash
-- **L2**：`history search-export-import` / `resume` / `restore` / `model` / `completion` / **`context *`（r10，随 §8b.13）** / **`evolution show/rollback`（r10，随 §15）** / **`review`（r13，本地 diff 模式 + `/review`，随 §17）** + TUI `/context` 面板
+- **L2**：`history search-export-import` / `resume` / `restore` / `model` / `completion` / **`context *`（r10，随 §8b.13）** / **`evolution show/rollback`（r10，随 §15）** / **`review`（r13，本地 diff 模式 + `/review`，随 §17）** / **`status` + `/status` 面板（2026-08-23，§11.3.14）** + TUI `/context` 面板
 - **L3**：`plugin *` / `skill *` / `mcp *` / `hook test` / `telemetry *` / doctor 加 plugin/mcp 段 / **`evolution enable/disable`（r10）** / **`review --pr` 模式 + 分片（r13，随 §17）**
-- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康 / **`review` CI gate 文档模板 + reviewer 角色路由（r13，随 §17）**
+- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康 / **`review` CI gate 文档模板 + reviewer 角色路由（r13，随 §17）** / **`/reflect` 族 + §21 反思 bundle（2026-08-23，随 §6.4.1a bridge 扩展与 RoleRouter 同批）**
 - **v2（不进 L1-L4）**：`apollo update`（自升级 + 签名校验，需要发布渠道成熟）

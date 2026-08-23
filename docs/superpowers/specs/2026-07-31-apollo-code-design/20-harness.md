@@ -1,4 +1,4 @@
-> ↩ [返回索引 (README)](./README.md) · ← [上一章: §19 Plugin Kernel](./19-plugin-kernel.md)
+> ↩ [返回索引 (README)](./README.md) · ← [上一章: §19 Plugin Kernel](./19-plugin-kernel.md) · [下一章: §21 动态反思](./21-dynamic-reflection.md) →
 
 ---
 

@@ -134,6 +134,12 @@ Turn = {
 | `router.switched`       | Router 切换 provider                      | ui / telemetry                                |
 | `error.raised`          | 任何异常                                  | ui / telemetry / hooks                        |
 | `session.resumed`       | storage.loadSession 恢复（§8.2 W10，冷启动不发，恢复时替代 session.started） | ui / telemetry / hooks   |
+| `reflection.scheduled`  | 反思 trigger 命中并入队（§21.3/§21.5）       | ui / storage / telemetry                |
+| `reflection.started`    | reflector run 开始（§21.4）                  | ui / storage / telemetry                |
+| `reflection.completed`  | 反思输出校验通过并入库（§21.4/§21.6）        | ui / storage / telemetry                |
+| `reflection.failed`     | 反思模型错误/输出非法/超时（§21.4）          | ui / storage / telemetry                |
+| `reflection.skipped`    | 预算耗尽/抢占/无新内容/disabled（§21.3）     | ui / storage / telemetry                |
+| `reflection.promoted`   | lesson 提升写入长期 Memory 成功（§21.7）     | ui / storage / telemetry                |
 
 **订阅原则**：
 
@@ -340,6 +346,7 @@ async parallelInvoke(toolUses, turnAbortSignal):
   - 域顺序固定为 builtin → project → plugin → user；因此后置非 builtin rewrite 不获得“已被 builtin 扫描”的 attestation，也不会在本 P0 中回流复扫。需要最终态安全证明的受限 profile 必须禁用这些后置 rewrite，或另设 base-owned terminal validator，不能把本尺寸闸误称为全 pipeline 最终验证。
   - `preToolUse` 的上述 veto 发生在 permission/native invoke 前；`postToolUse` 的 veto 只能封锁/替换将要返回的结果，tool 副作用已经发生，日志和 UI 不得声称已回滚。
 - Hook 抛异常默认**不阻断主流程**（记录到 telemetry），可配置 fail-hard（builtin 域安全 hook 的异常语义同超时：fail-closed）。
+- ★ **hook 必须轻量（2026-08-23 钉死）**：hook handler 内**禁止**发起模型调用、重计算或任何可能超过 5s 超时的工作；此类长任务必须经 `apollo.jobs.schedule` 的空闲调度执行（§6.4.1a / §21.5）。hook 只发信号（如"调度一次反思"），不在 pipeline 内干活。
 - 强制点：core 单测 ×2——builtin 域 hook 卡 6s → 当前 tool 被阻断；plugin 域 hook 卡 6s → 放行 + warning。
 - ★ **r9 新增 `ctx.kv` 命名空间隔离**：每个 hook handler 的 `ctx.kv` 按 (event 类型 + 来源 plugin/project/user + toolUseId) 命名空间隔离。同一 hook 点的串行 pipeline 内，前者 handler 写入的 kv 后者可读（pipeline 共享）；`parallelInvoke` 的不同 tool_use 之间 kv 不共享（避免竞态）。详见 §6.4.1 `apollo.hook.kv`。
 

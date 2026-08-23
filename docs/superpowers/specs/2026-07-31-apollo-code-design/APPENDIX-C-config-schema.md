@@ -45,6 +45,15 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[telemetry]` | `sink` | `"local" \| "otel"`，默认 `local` | §8.7 | **forbidden**（§8.3.1） |
 | `[telemetry.otel]` | `endpoint` | string | §8.7 | **forbidden**（§8.3.1） |
 | `[evolution]` | `enabled` | bool，默认 `false`；仅显式 `true` 应用已有 context tuning，不开启 observe/validate | §15 | allowed |
+| `[reflection]` | `enabled` | bool，默认 `true` | §21.3 | allowed |
+| `[reflection]` | `triggers.on_error` / `triggers.on_compact` | bool，默认 `true` / `false` | §21.3 | allowed |
+| `[reflection]` | `triggers.every_n_turns` | int，默认 `0`（关；>0 如 `5` 开启定期反思） | §21.3 | allowed |
+| `[reflection]` | `cooldown_seconds` | int，默认 `60`（自动 trigger 最小间隔） | §21.3 | allowed |
+| `[reflection]` | `model_role` | string，默认 `"reflection"`；未配置该 role 时回落当前会话模型 | §21.4 | allowed |
+| `[reflection]` | `run_budget` | `{ costUSDMax, tokenMax, timeMsMax }`，默认 `$0.05 / 16k / 60s`；K0 与 session 硬顶求交 | §21.4 | allowed |
+| `[reflection]` | `session_token_budget` | int，默认 `50000`；K0 强制硬顶，插件请求只能收窄 | §21.3 | allowed |
+| `[reflection]` | `persist` | `"manual" \| "auto" \| "off"`，默认 `"manual"` | §21.7 | allowed |
+| `[reflection]` | `inject_max_lessons` / `inject_max_bytes` | int，默认 `3` / `2048` | §21.6 | allowed |
 | `[auth]` | （全部） | — | §8.4 | **forbidden**（§8.3.1） |
 
 ## C.3 全量示例（节选拼合，键值以 C.2 为准）
