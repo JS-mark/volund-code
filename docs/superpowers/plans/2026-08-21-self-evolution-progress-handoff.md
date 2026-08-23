@@ -12,8 +12,8 @@
 
 - 工作目录：`/Users/mark/myself/code/apollo-code`
 - 分支：`codex/self-evolution`
-- HEAD（本文提交前）：`2ab8aee`（ABI-00 bootstrap commit，tree `5cd8c5b77d269f6ee0748ee58d491a354f94e450`）；本文与 continuation prompt 的更新是其后的独立 docs(progress) commit。
-- 工作树：ABI-00 切片提交后**完全干净**。验证用 worktree `apollo-code-abi00-verify` 已创建、使用并在提交后移除。
+- HEAD：rebase 后远端同步。分支已于 2026-08-23 rebase 到 `origin/main`（`37e4f14`）并推送为 PR #127（https://github.com/JS-mark/apollo-code/pull/127）；rebase 后 ABI-00 bootstrap = `99c651e`、docs(progress) = `1bd1254`。**注意**：R1–R4 独立复审与隔离树门禁的 frozen 证据绑定的是 rebase 前 tree（`5cd8c5b7…` / patch `e9e447ed…`）；rebase 后内容等价（docs 三条与 main 重复被跳过），并在主树重跑 install/build/test/typecheck/scripts/双 verify/format 全绿（非隔离树口径，如实标注）。
+- 工作树：ABI-00 切片提交后**完全干净**（rebase + push 后仍干净）。验证用 worktree `apollo-code-abi00-verify` 已创建、使用并在提交后移除。遗留：`apollo-code-abiimpl-verify`（更早会话的 detached worktree，内容已全部进入 ABI-00 提交）待用户确认后清理。
 - 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
 
