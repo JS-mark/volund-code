@@ -244,6 +244,13 @@ function ownApproval(
   return Object.hasOwn(approvals, name) ? approvals[name] : undefined
 }
 async function readBoundedRegularFile(path: string, maxBytes: number): Promise<string> {
+  // O_NOFOLLOW is a no-op on Windows (the symlink is followed silently), so
+  // the rejection must be portable: an explicit lstat check rejects symlinks
+  // on every platform before the open. Missing file → fall through to open,
+  // which reports ENOENT exactly as before.
+  const linkStat = await lstat(path).catch(() => undefined)
+  if (linkStat?.isSymbolicLink())
+    throw new PluginError('plugin_legacy_activation_unavailable', 'legacy plugin state rejected')
   const handle = await open(
     path,
     fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
