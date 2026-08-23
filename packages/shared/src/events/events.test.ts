@@ -23,9 +23,9 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 describe('EVENT_SCHEMAS registry (附录 D.2)', () => {
-  it('registers exactly the 19 §2.3 event names', () => {
+  it('registers exactly the 25 §2.3 event names', () => {
     expect(Object.keys(EVENT_SCHEMAS).sort()).toEqual([...EVENT_NAMES].sort())
-    expect(EVENT_NAMES).toHaveLength(19)
+    expect(EVENT_NAMES).toHaveLength(25)
   })
 
   it('pairs every envelope type with its payload contract via eventEnvelopeFor', () => {
@@ -403,6 +403,17 @@ function payloadFixture(name: (typeof EVENT_NAMES)[number]): unknown {
     'context.compacted': { before: 10, after: 5 },
     'router.switched': { from: 'openai', reason: 'error' },
     'error.raised': { code: 'unknown' },
+    'reflection.scheduled': { trigger: 'on_error', turnId: 't1' },
+    'reflection.started': { runId: 'r1', trigger: 'on_error' },
+    'reflection.completed': {
+      runId: 'r1',
+      usage: { input: 1, output: 1 },
+      lessonCount: 1,
+      durationMs: 10,
+    },
+    'reflection.failed': { runId: 'r1', code: 'reflection_output_invalid' },
+    'reflection.skipped': { reason: 'budget_exhausted' },
+    'reflection.promoted': { lessonId: 'l1', memoryId: 'm1', scope: 'project' },
   } as const
   return fixtures[name]
 }
