@@ -6,7 +6,7 @@ import { EventBus, eventTypes, idempotentSubscriber } from './event-bus'
 describe('EventBus', () => {
   it('exposes the appendix D event set (single source: EVENT_NAMES)', () => {
     expect(eventTypes).toBe(EVENT_NAMES)
-    expect(eventTypes).toHaveLength(19)
+    expect(eventTypes).toHaveLength(25)
   })
   it('emits ordered UUIDv7 events', async () => {
     const bus = new EventBus()
