@@ -1524,9 +1524,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const authSection = userConfig.auth
     const skipAuth = Boolean(
       authSection &&
-        typeof authSection === 'object' &&
-        !Array.isArray(authSection) &&
-        authSection.skipAuth === true,
+      typeof authSection === 'object' &&
+      !Array.isArray(authSection) &&
+      authSection.skipAuth === true,
     )
     const providerSection = userConfig.provider
     const anthropicEntry =
@@ -1891,7 +1891,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           (await readAuthSection()).skipAuth === true
             ? ' (note: auth.skipAuth=true in config; the stored credential stays unused until it is removed)'
             : ''
-        return { detail: `${input.provider} credential stored in encrypted credential store${skipNote}` }
+        return {
+          detail: `${input.provider} credential stored in encrypted credential store${skipNote}`,
+        }
       },
       async logout(provider) {
         await auth.logout(provider)

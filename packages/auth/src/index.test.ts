@@ -21,11 +21,12 @@ describe('AuthManager', () => {
     expect(await store.get('x')).toBeUndefined()
   })
   it('resolves the config layer after env without leaking payload', async () => {
-    const emit = vi.fn(async (_name: string, _source: string, _payload: Record<string, unknown>) => {}),
+    const emit = vi.fn(
+        async (_name: string, _source: string, _payload: Record<string, unknown>) => {},
+      ),
       auth = new AuthManager({
         env: {},
-        configKeys: async (provider) =>
-          provider === 'anthropic' ? 'config-secret' : undefined,
+        configKeys: async (provider) => (provider === 'anthropic' ? 'config-secret' : undefined),
         telemetry: { emit },
       })
     expect(await auth.getCredential('anthropic')).toBe('config-secret')
@@ -34,7 +35,9 @@ describe('AuthManager', () => {
     expect(JSON.stringify(emit.mock.calls)).not.toContain('config-secret')
   })
   it('reports every layer tried when the config layer also misses', async () => {
-    const emit = vi.fn(async (_name: string, _source: string, _payload: Record<string, unknown>) => {}),
+    const emit = vi.fn(
+        async (_name: string, _source: string, _payload: Record<string, unknown>) => {},
+      ),
       auth = new AuthManager({
         env: {},
         configKeys: async () => undefined,
