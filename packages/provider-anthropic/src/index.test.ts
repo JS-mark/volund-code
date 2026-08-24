@@ -118,4 +118,20 @@ describe('Anthropic adapter', () => {
       body: { system: 'composed' },
     })
   })
+  it('omits the x-api-key header when the credential port resolves undefined (skipAuth)', async () => {
+    const request = vi.fn(async (_input) => ({
+      status: 200,
+      body: chunks([new TextEncoder().encode('event: message_stop\ndata: {}\n\n')]),
+    }))
+    const client = new AnthropicClient({
+      credentials: { getCredential: async () => undefined },
+      http: { request },
+    })
+    await collect(
+      client.stream({ model: 'm', system: 'composed', messages: [] }, new AbortController().signal),
+    )
+    const headers = request.mock.calls[0]?.[0].headers as Record<string, string>
+    expect(headers).not.toHaveProperty('x-api-key')
+    expect(headers['anthropic-version']).toBe('2023-06-01')
+  })
 })

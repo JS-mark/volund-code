@@ -1467,7 +1467,33 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     passphrase,
     join(home, 'auth.state.json'),
   )
-  const auth = new AuthManager({ encrypted, env: process.env, telemetry })
+  /**
+   * 用户级 config.toml 的 [auth] 段（§8.4 Layer 4 / skipAuth）。
+   * 项目级 config 到不了这里：§8.3.1 数据流向门把整段标为 forbidden。
+   */
+  const readAuthSection = async (): Promise<Record<string, JsonValue>> => {
+    let config: Record<string, JsonValue>
+    try {
+      config = await loadTomlFile(join(home, 'config.toml'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      throw error
+    }
+    const section = config.auth
+    return section && typeof section === 'object' && !Array.isArray(section)
+      ? (section as Record<string, JsonValue>)
+      : {}
+  }
+  const auth = new AuthManager({
+    encrypted,
+    env: process.env,
+    telemetry,
+    configKeys: async (provider) => {
+      const value = (await readAuthSection())[`${provider}_api_key`]
+      return typeof value === 'string' && value ? value : undefined
+    },
+  })
+  let skipAuthEmitted = false
   const http = new NodeHttpPort()
   const permissionPolicy = new ProductionPermissionSessionPolicy()
   let interactivePermissionPrompt:
@@ -1492,6 +1518,25 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       persistence: evolution,
       logger,
     })
+    // [auth] skipAuth = true（§8.4）：完全跳过凭据解析，请求不带 x-api-key
+    // （企业网关 / 本地代理等带外认证场景）。设了就不再触碰任何 credential 层，
+    // 也不会触发 enc 文件 passphrase 提示。
+    const authSection = userConfig.auth
+    const skipAuth = Boolean(
+      authSection &&
+        typeof authSection === 'object' &&
+        !Array.isArray(authSection) &&
+        authSection.skipAuth === true,
+    )
+    const providerSection = userConfig.provider
+    const anthropicEntry =
+      providerSection && typeof providerSection === 'object' && !Array.isArray(providerSection)
+        ? providerSection.anthropic
+        : undefined
+    const configuredBaseUrl =
+      anthropicEntry && typeof anthropicEntry === 'object' && !Array.isArray(anthropicEntry)
+        ? anthropicEntry.baseUrl
+        : undefined
     const contextPolicy = new SlidingWindowPolicy({
       compactionThreshold: tuned.compaction_threshold,
       targetRatio: tuned.target_ratio,
@@ -1523,6 +1568,17 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const anthropic = new AnthropicClient({
       credentials: {
         async getCredential() {
+          if (skipAuth) {
+            if (!skipAuthEmitted) {
+              skipAuthEmitted = true
+              await telemetry.emit(
+                'auth.credential.skipped',
+                'auth',
+                sanitize({ provider: 'anthropic', source: 'auth.skipAuth' }),
+              )
+            }
+            return undefined
+          }
           const value = await auth.getCredential('anthropic')
           if (!value) throw new Error('Anthropic credential unavailable')
           return value
@@ -1530,6 +1586,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
       http,
       attachments,
+      ...(typeof configuredBaseUrl === 'string' && configuredBaseUrl
+        ? { baseUrl: configuredBaseUrl }
+        : {}),
     })
     const client = {
       ...anthropic,
@@ -1806,6 +1865,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
     auth: {
       async health() {
+        if ((await readAuthSection()).skipAuth === true)
+          return {
+            configured: true,
+            detail: 'anthropic credential skipped by config (auth.skipAuth)',
+          }
         const configured = Boolean(await auth.getCredential('anthropic'))
         return {
           configured,
@@ -1823,7 +1887,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           (value) => verifyAnthropicCredential(http, value),
           { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
         )
-        return { detail: `${input.provider} credential stored in encrypted credential store` }
+        const skipNote =
+          (await readAuthSection()).skipAuth === true
+            ? ' (note: auth.skipAuth=true in config; the stored credential stays unused until it is removed)'
+            : ''
+        return { detail: `${input.provider} credential stored in encrypted credential store${skipNote}` }
       },
       async logout(provider) {
         await auth.logout(provider)
@@ -1953,6 +2021,12 @@ async function runtimeStatusData(
     !Array.isArray(config.preferences)
       ? (config.preferences as Record<string, JsonValue>)
       : {}
+  const authSection =
+    config.auth && typeof config.auth === 'object' && !Array.isArray(config.auth)
+      ? (config.auth as Record<string, JsonValue>)
+      : undefined
+  const authMethod =
+    authSection?.skipAuth === true ? 'skipped (auth.skipAuth)' : 'credential store (value hidden)'
   const model =
     typeof preferences.model === 'string'
       ? preferences.model
@@ -2006,7 +2080,7 @@ async function runtimeStatusData(
       { label: 'Version', value: options.identity.version },
       { label: 'Session ID', value: input.sessionId ?? 'not available' },
       { label: 'cwd', value: input.cwd },
-      { label: 'Auth method', value: 'credential store (value hidden)' },
+      { label: 'Auth method', value: authMethod },
       { label: 'Model', value: model },
       { label: 'Lite model', value: 'not available' },
       { label: 'Reasoning model', value: 'not available' },
@@ -2023,7 +2097,7 @@ async function runtimeStatusData(
     ],
     config: [
       ...editable,
-      readonly('authMethod', 'Auth method', 'credential store (value hidden)'),
+      readonly('authMethod', 'Auth method', authMethod),
       readonly('sessionId', 'Session ID', input.sessionId ?? 'not available'),
       readonly('enterprisePolicies', 'Enterprise managed policies', 'not available'),
       readonly('trustAllDirectory', 'Trust all Directory', 'read-only'),

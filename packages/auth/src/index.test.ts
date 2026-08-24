@@ -20,4 +20,28 @@ describe('AuthManager', () => {
     await expect(auth.login('x', 'secret', async () => false)).rejects.toThrow()
     expect(await store.get('x')).toBeUndefined()
   })
+  it('resolves the config layer after env without leaking payload', async () => {
+    const emit = vi.fn(async (_name: string, _source: string, _payload: Record<string, unknown>) => {}),
+      auth = new AuthManager({
+        env: {},
+        configKeys: async (provider) =>
+          provider === 'anthropic' ? 'config-secret' : undefined,
+        telemetry: { emit },
+      })
+    expect(await auth.getCredential('anthropic')).toBe('config-secret')
+    const resolved = emit.mock.calls.find(([name]) => name === 'auth.credential.resolved')
+    expect(resolved?.[2]).toMatchObject({ provider: 'anthropic', layer: 4, cache_hit: false })
+    expect(JSON.stringify(emit.mock.calls)).not.toContain('config-secret')
+  })
+  it('reports every layer tried when the config layer also misses', async () => {
+    const emit = vi.fn(async (_name: string, _source: string, _payload: Record<string, unknown>) => {}),
+      auth = new AuthManager({
+        env: {},
+        configKeys: async () => undefined,
+        telemetry: { emit },
+      })
+    expect(await auth.getCredential('anthropic')).toBeUndefined()
+    const miss = emit.mock.calls.find(([name]) => name === 'auth.credential.miss')
+    expect(miss?.[2]).toMatchObject({ provider: 'anthropic', layers_tried: [1, 2, 3, 4] })
+  })
 })

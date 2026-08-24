@@ -82,6 +82,15 @@ describe('configKeyRegistry ↔ ConfigSchema consistency', () => {
     expect(ConfigSchema.safeParse({ evolution: { enabled: 'true' } }).success).toBe(false)
     expect(ConfigSchema.safeParse({ evolution: { mode: 'apply' } }).success).toBe(false)
   })
+
+  it('recognizes the explicit auth keys and fails on wrong types (§8.4)', () => {
+    expect(ConfigSchema.safeParse({ auth: { skipAuth: true } }).success).toBe(true)
+    expect(ConfigSchema.safeParse({ auth: { anthropic_api_key: 'sk' } }).success).toBe(true)
+    expect(ConfigSchema.safeParse({ auth: { skipAuth: 'yes' } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ auth: { anthropic_api_key: 42 } }).success).toBe(false)
+    // 开放段语义不变：其余 auth.* key 仍接受任意 JSON 值
+    expect(ConfigSchema.safeParse({ auth: { future_key: { nested: true } } }).success).toBe(true)
+  })
 })
 
 describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
@@ -92,6 +101,8 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(projectOverrideFor('telemetry.sink')).toBe('forbidden')
     expect(projectOverrideFor('telemetry.otel.endpoint')).toBe('forbidden')
     expect(projectOverrideFor('auth.enabled')).toBe('forbidden')
+    expect(projectOverrideFor('auth.skipAuth')).toBe('forbidden')
+    expect(projectOverrideFor('auth.anthropic_api_key')).toBe('forbidden')
     expect(projectOverrideFor('evolution.enabled')).toBe('allowed')
     expect(projectOverrideFor('evolution.mode')).toBeUndefined()
     expect(projectOverrideFor('context.keep_recent')).toBe('allowed')
@@ -107,6 +118,8 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(isProjectOverrideForbidden('plugin.custom.baseUrl')).toBe(true)
     expect(isProjectOverrideForbidden('memory.paths.endpoint')).toBe(true)
     expect(isProjectOverrideForbidden('provider.anthropic.my_api_key')).toBe(true)
+    expect(isProjectOverrideForbidden('auth.skipAuth')).toBe(true)
+    expect(isProjectOverrideForbidden('auth.anthropic_api_key')).toBe(true)
     expect(isProjectOverrideForbidden('tools.ignore_dirs')).toBe(false)
   })
 })

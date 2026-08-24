@@ -11,7 +11,8 @@ import type {
 } from '@apollo-code/provider-kit'
 
 export interface CredentialPort {
-  getCredential(providerId: 'anthropic'): Promise<string>
+  /** undefined = 调用方显式跳过认证（`[auth] skipAuth`，§8.4）：请求不带 x-api-key。 */
+  getCredential(providerId: 'anthropic'): Promise<string | undefined>
 }
 export interface HttpRequest {
   url: string
@@ -297,7 +298,7 @@ export class AnthropicClient implements ProviderClient {
       url: `${this.options.baseUrl ?? 'https://api.anthropic.com'}/v1/messages`,
       method: 'POST',
       headers: {
-        'x-api-key': credential,
+        ...(credential === undefined ? {} : { 'x-api-key': credential }),
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
