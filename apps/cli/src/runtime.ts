@@ -10,6 +10,8 @@ import {
   rename,
   writeFile,
 } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
+import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -727,25 +729,113 @@ function serializeHistory(records: readonly { at: string; input: string }[]): st
   return records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : '')
 }
 
+function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {  // §4.6 强制路由：provider.anthropic.baseUrl 可能指向 http:// 网关（本地代理/自建网关，
+  // 见 851f62e），按协议在 node:http / node:https 间分流，与 web-fetch.ts 范式一致。
+  const transport = url.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise((resolve, reject) => {
+    const req = transport(
+      url,
+      { method: input.method, headers: input.headers, signal: input.signal },
+      (response) => {
+        const headers = Object.fromEntries(
+          Object.entries(response.headers).flatMap(([key, value]) =>
+            value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]],
+          ),
+        )
+        resolve({ status: response.statusCode ?? 0, headers, body: response })
+      },
+    )
+    req.once('error', reject)
+    req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+  })
+}
+
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  NGHTTP2_CANCEL,
+} = http2Constants
+
+// https:// 走 HTTP/2：企业网关（AWS ALB + APISIX）对 HTTP/1.1 的 SSE 整批缓冲、
+// 对 HTTP/2 逐帧下发（实测同请求 h1 单 blob vs h2 渐进 2s+），h1 下 TUI 无流式效果。
+export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse> {
+  return new Promise((resolve, reject) => {
+    const session = http2Connect(url.origin)
+    let responded = false
+    session.once('error', (cause) => {
+      if (!responded) {
+        session.destroy()
+        reject(cause)
+      }
+    })
+    const stream = session.request({
+      [HTTP2_HEADER_METHOD]: input.method,
+      [HTTP2_HEADER_PATH]: `${url.pathname}${url.search}`,
+      // http2 禁传连接级 header；:authority 由 session 权威值自动生成。
+      ...Object.fromEntries(
+        Object.entries(input.headers).filter(
+          ([key]) => !H2_FORBIDDEN_HEADERS.has(key.toLowerCase()),
+        ),
+      ),
+    })
+    const onAbort = () => stream.close(NGHTTP2_CANCEL)
+    if (input.signal.aborted) onAbort()
+    else input.signal.addEventListener('abort', onAbort, { once: true })
+    stream.once('error', (cause) => {
+      if (!responded) {
+        responded = true
+        input.signal.removeEventListener('abort', onAbort)
+        session.destroy()
+        reject(cause)
+      }
+    })
+    stream.once('response', (headers) => {
+      responded = true
+      const flat: Record<string, string> = {}
+      for (const [key, value] of Object.entries(headers)) {
+        if (key.startsWith(':') || value === undefined) continue
+        flat[key] = Array.isArray(value) ? value.join(',') : value
+      }
+      const body = (async function* () {
+        try {
+          for await (const chunk of stream) yield Buffer.from(chunk)
+        } finally {
+          input.signal.removeEventListener('abort', onAbort)
+          session.close()
+        }
+      })()
+      resolve({
+        status: Number(headers[HTTP2_HEADER_STATUS] ?? 0),
+        headers: flat,
+        body,
+      })
+    })
+    stream.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+  })
+}
+const H2_FORBIDDEN_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-connection',
+  'transfer-encoding',
+  'upgrade',
+  'host',
+])
+
 export class NodeHttpPort implements HttpPort {
   async request(input: HttpRequest): Promise<HttpResponse> {
     const url = new URL(input.url)
-    return new Promise((resolve, reject) => {
-      const req = httpsRequest(
-        url,
-        { method: input.method, headers: input.headers, signal: input.signal },
-        (response) => {
-          const headers = Object.fromEntries(
-            Object.entries(response.headers).flatMap(([key, value]) =>
-              value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]],
-            ),
-          )
-          resolve({ status: response.statusCode ?? 0, headers, body: response })
-        },
-      )
-      req.once('error', reject)
-      req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
-    })
+    if (url.protocol !== 'https:') return requestHttp1(url, input)
+    try {
+      return await requestHttp2(url, input)
+    } catch (cause) {
+      // h2 协商失败（ALPN 未选 h2 / 对端不支持）→ 回退 HTTP/1.1：功能正确性优先于流式。
+      // 只发生在收到响应头之前（requestHttp2 此后只 resolve 不 reject），重发 POST 安全。
+      // 调用方主动 abort 不在此列——原样抛出。
+      if (input.signal.aborted) throw cause
+      return requestHttp1(url, input)
+    }
   }
 }
 
@@ -753,7 +843,7 @@ async function promptLine(question: string): Promise<string> {
   return (await promptLineMaybe(question)) ?? ''
 }
 function isInteractiveTerminal(): boolean {
-  return Boolean(stdin.isTTY && stdout.isTTY)
+  return (stdin.isTTY && stdout.isTTY)
 }
 async function promptLineMaybe(question: string): Promise<string | undefined> {
   if (!isInteractiveTerminal()) return undefined

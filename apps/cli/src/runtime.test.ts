@@ -1,3 +1,4 @@
+import { createServer, type Server } from 'node:http'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -17,12 +18,14 @@ import {
   buildStatusViewModel,
   createPluginMemoryHost,
   createProductionPorts,
+  NodeHttpPort,
   ProductionPermissionSessionPolicy,
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   loadProductionContextTuning,
   registerRuntimeMemoryPrompts,
+  requestHttp2,
   requestPermission,
   RuntimeSessionPort,
 } from './runtime'
@@ -1519,6 +1522,82 @@ describe('status configuration adapter', () => {
     })
     const status = await ports.config.status?.({ cwd: root })
     expect(status?.status.find((row) => row.label === 'Model')?.value).toBe('aws/claude-sonnet-4-5')
+  })
+
+  it('NodeHttpPort routes http:// URLs via node:http instead of throwing Protocol not supported', async () => {
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    const port = typeof address === 'object' && address ? address.port : 0
+    try {
+      const http = new NodeHttpPort()
+      const response = await http.request({
+        url: `http://127.0.0.1:${port}/`,
+        method: 'GET',
+        headers: {},
+        body: undefined,
+        signal: AbortSignal.timeout(2000),
+      })
+      expect(response.status).toBe(200)
+      const chunks: Buffer[] = []
+      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ok: true })
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it('requestHttp2 delivers SSE chunks progressively instead of one buffered blob', async () => {
+    // 回归：企业网关（ALB + APISIX）对 HTTP/1.1 的 SSE 整批缓冲、HTTP/2 逐帧下发。
+    // h2 传输必须保留上游的分块节奏（本地 h2c server 间隔写入，客户端应分多次、
+    // 跨时间窗收到），而不是聚成单块。
+    const { createServer: createH2Server } = await import('node:http2')
+    type ServerHttp2Stream = import('node:http2').ServerHttp2Stream
+    const delays: number[] = []
+    const server = createH2Server()
+    server.on('stream', (stream: ServerHttp2Stream) => {
+      stream.respond({ ':status': 200, 'content-type': 'text/event-stream' })
+      const startedAt = performance.now()
+      let index = 0
+      const timer = setInterval(() => {
+        stream.write(`event: message\ndata: {"n":${index}}\n\n`)
+        delays.push(performance.now() - startedAt)
+        index += 1
+        if (index === 3) {
+          clearInterval(timer)
+          stream.end()
+        }
+      }, 25)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    const port = typeof address === 'object' && address ? address.port : 0
+    try {
+      const response = await requestHttp2(new URL(`http://127.0.0.1:${port}/v1/messages`), {
+        url: `http://127.0.0.1:${port}/v1/messages`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: { stream: true },
+        signal: AbortSignal.timeout(3000),
+      })
+      expect(response.status).toBe(200)
+      const arrivals: number[] = []
+      const startedAt = performance.now()
+      const texts: string[] = []
+      for await (const chunk of response.body) {
+        arrivals.push(performance.now() - startedAt)
+        texts.push(Buffer.from(chunk).toString('utf8'))
+      }
+      expect(texts.join('')).toContain('"n":2')
+      // 渐进性：至少 3 次到达，且首尾到达间隔覆盖写入间隔（非一次性 blob）
+      expect(arrivals.length).toBeGreaterThanOrEqual(3)
+      expect(arrivals.at(-1)! - arrivals[0]!).toBeGreaterThanOrEqual(40)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 
   it('exposes one production memory service and reloads its durable state', async () => {
