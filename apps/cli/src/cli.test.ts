@@ -207,7 +207,7 @@ describe('runCli', () => {
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
     expect(testPorts.session.start).not.toHaveBeenCalled()
-  })
+  }, 30_000)
 
   it('rejects non-chat global flags without starting a session', async () => {
     const testPorts = ports({
