@@ -11,6 +11,11 @@ export interface AuthOptions {
   keychain?: CredentialStore
   encrypted?: CredentialStore
   env?: NodeJS.ProcessEnv
+  /**
+   * Layer 4（§8.4）：用户级 config.toml 的 `[auth] <provider>_api_key` 显式 opt-in。
+   * 由组装层注入（auth 包不读 TOML）；项目级 config 由 §8.3.1 数据流向门禁止。
+   */
+  configKeys?: (provider: string) => Promise<string | undefined>
   telemetry: AuthTelemetry
 }
 const envName = (provider: string) =>
@@ -68,7 +73,21 @@ export class AuthManager {
       })
       return value
     }
-    await this.event('auth.credential.miss', { provider, layers_tried: [1, 2, 3] })
+    const fromConfig = await this.options.configKeys?.(provider)
+    if (fromConfig) {
+      this.#cache.set(provider, fromConfig)
+      await this.event('auth.credential.resolved', {
+        provider,
+        layer: 4,
+        cache_hit: false,
+        duration_ms: Date.now() - start,
+      })
+      return fromConfig
+    }
+    await this.event('auth.credential.miss', {
+      provider,
+      layers_tried: this.options.configKeys ? [1, 2, 3, 4] : [1, 2, 3],
+    })
     return undefined
   }
   async login(

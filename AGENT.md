@@ -124,7 +124,7 @@ apps/cli   ← 唯一 "什么都知道" 的组装层
 ### 4.6 认证与网络
 
 - 所有 provider **禁止**直接读环境变量或从 config 明文取 key，必须通过 `packages/auth` 的 `getCredential(providerId)`。
-- Auth 实现三级 fallback：**OS keychain → 加密文件（AES-256-GCM，主密码派生）→ 环境变量**。
+- Auth 实现四级 fallback：**OS keychain → 加密文件（AES-256-GCM，主密码派生）→ 环境变量 → 用户级 config `[auth] <provider>_api_key`**（显式 opt-in 明文 key；项目级 config forbidden）。`[auth] skipAuth = true`（仅用户级 config）完全跳过凭据解析，请求不带凭据头（企业网关/本地代理场景，配合 `provider.<name>.baseUrl`）。
 - `apollo login <provider>` 遵循 **verify-first-store-second**：先调 provider 的最小验证接口（如 `/v1/models`），2xx + body schema 合法**才**写 auth；4xx / 5xx **不落盘**。`--skip-verify` 需 `--dangerous`。
 - MCP transport 凭据也走 auth，`mcp.toml` 里只留 `keyref://mcp.<name>.<field>` 占位；发现老配置里的明文凭据必须一次性迁移。
 - 所有 HTTPS 请求**必须**通过 `packages/http-kit` 提供的 fetch，不允许直接用 `undici` / global fetch。理由：统一 proxy / CA / retry / tracing / rate limit。

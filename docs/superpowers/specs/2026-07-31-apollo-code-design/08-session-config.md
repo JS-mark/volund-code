@@ -242,11 +242,14 @@ credentials 本身在 keychain（不进 config），但 **provider endpoint 重�
 
 ### 8.4 Credentials：多层 fallback（auth 包）
 
-- Layer 1：**OS keychain**（macOS Keychain / Windows Credential Manager / Linux libsecret）—— 首选
+- Layer 1：**OS keychain**（macOS Keychain / Windows Credential Manager / Linux libSecret）—— 首选
 - Layer 2：**加密文件** `credentials.enc`（用户设 passphrase 派生 key，AES-256-GCM）—— keychain 不可用时
-- Layer 3：**env 变量** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / ...—— 最后 fallback
+- Layer 3：**env 变量** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / ...
+- Layer 4：**用户级 config** `~/.apollo/config.toml` 的 `[auth] <provider>_api_key`（显式 opt-in 明文 key，如 `anthropic_api_key`；项目级 forbidden，§8.3.1）—— 最后 fallback
 
 `auth.getCredential(provider)` 按顺序尝试，第一个命中即返回。
+
+**`[auth] skipAuth = true`**（仅用户级 config，项目级 forbidden，§8.3.1）：**完全跳过**凭据解析——provider 请求**不带**凭据头发出（企业网关 / 本地代理等带外认证场景，通常配合 `provider.<name>.baseUrl`）。设了即不再触碰任何 credential 层（含 Layer 4，也不触发 enc 文件 passphrase 提示）；`apollo login` 仍可落盘凭据，但会提示"skipAuth 期间该凭据不生效"。进程首次跳过发 `auth.credential.skipped`。
 
 #### 8.4.0a ★ Layer 2 加密文件的安全加固（REVIEW-r6 P1-5）
 
@@ -291,7 +294,7 @@ interface Auth {
 - `auth.revoked` `{ provider, reason: 'user_logout'|'refresh_failed'|'leak_suspected' }`
 
 **特别注意**：
-- credentials **绝对不能**明文进 `config.toml` / `sessions/*.jsonl` / `telemetry/*`
+- credentials **绝对不能**明文进 `sessions/*.jsonl` / `telemetry/*`；`config.toml` 的唯一例外是 §8.4 Layer 4 用户显式 opt-in 写入的 `[auth] <provider>_api_key`（仅用户级 config，项目级 forbidden，建议文件权限 0600）
 - 日志脱敏（`packages/shared` 的 `sanitize()` 函数）在 sink 前统一过滤
 
 #### 8.4.1 auth 事件谱（本地 telemetry，为后期统计预留）
@@ -309,8 +312,9 @@ interface Auth {
 | `auth.login.failed` | 任何登录失败 → 拒绝落盘 | `provider`, `stage`（`input` / `verify` / `store`）, `error_class`, `duration_ms` | 错因诊断 |
 | `auth.login.cancelled` | 用户 Ctrl+C 中断 | `provider`, `stage` | 放弃率 |
 | `auth.logout.completed` | `apollo logout` 完成 | `provider`, `sinks_cleared`（数组，非明文） | 流失统计 |
-| `auth.credential.resolved` | `getCredential(p)` 命中 | `provider`, `layer`（1/2/3）, `cache_hit`（bool）, `duration_ms` | fallback 使用分布 |
-| `auth.credential.miss` | 三层都没命中 | `provider`, `layers_tried`（数组） | 用户"login 前跑命令"的比例 |
+| `auth.credential.resolved` | `getCredential(p)` 命中 | `provider`, `layer`（1/2/3/4）, `cache_hit`（bool）, `duration_ms` | fallback 使用分布 |
+| `auth.credential.miss` | 所有层都没命中 | `provider`, `layers_tried`（数组） | 用户"login 前跑命令"的比例 |
+| `auth.credential.skipped` | `[auth] skipAuth=true` 跳过凭据解析（每进程首次） | `provider`, `source`（`auth.skipAuth`） | skipAuth 采用度 |
 | `auth.keychain.error` | OS keychain 报错（锁定/无权/损坏） | `platform`, `error_class`, `fallback_to` | keychain 稳定性 |
 | `auth.encfile.unlock_prompted` | 需要用户输入 passphrase 解锁 enc_file | `provider` | UX 摩擦点 |
 | `auth.encfile.unlock_result` | passphrase 校验结果 | `outcome`（`ok` / `bad_passphrase`）, `attempts` | 加密文件的可用性 |

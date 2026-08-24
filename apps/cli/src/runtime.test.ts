@@ -1394,6 +1394,52 @@ describe('status configuration adapter', () => {
     }
   })
 
+  it('resolves the anthropic credential from the user config layer (§8.4 Layer 4)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.auth-config-layer-'))
+    fixtures.push(root)
+    const previous = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    try {
+      await writeFile(join(root, 'config.toml'), '[auth]\nanthropic_api_key = "config-layer"\n')
+      const ports = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      await expect(ports.auth.health()).resolves.toEqual({
+        configured: true,
+        detail: 'anthropic credential available',
+      })
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
+  it('reflects auth.skipAuth in health and the status panel without touching credential stores', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.auth-skip-'))
+    fixtures.push(root)
+    const previous = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    try {
+      await writeFile(join(root, 'config.toml'), '[auth]\nskipAuth = true\n')
+      const ports = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      await expect(ports.auth.health()).resolves.toEqual({
+        configured: true,
+        detail: 'anthropic credential skipped by config (auth.skipAuth)',
+      })
+      const status = await ports.config.status?.({ cwd: root })
+      expect(status?.status.find((row) => row.label === 'Auth method')?.value).toBe(
+        'skipped (auth.skipAuth)',
+      )
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)

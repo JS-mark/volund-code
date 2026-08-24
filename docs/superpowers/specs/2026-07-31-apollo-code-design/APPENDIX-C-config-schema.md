@@ -54,6 +54,8 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[reflection]` | `session_token_budget` | int，默认 `50000`；K0 强制硬顶，插件请求只能收窄 | §21.3 | allowed |
 | `[reflection]` | `persist` | `"manual" \| "auto" \| "off"`，默认 `"manual"` | §21.7 | allowed |
 | `[reflection]` | `inject_max_lessons` / `inject_max_bytes` | int，默认 `3` / `2048` | §21.6 | allowed |
+| `[auth]` | `skipAuth` | bool，默认 `false`；`true` 时完全跳过凭据解析、请求不带凭据头（企业网关/本地代理，配合 `provider.<name>.baseUrl`） | §8.4 | **forbidden**（§8.3.1） |
+| `[auth]` | `anthropic_api_key` | string?（Layer 4 明文 key，显式 opt-in，建议文件权限 0600） | §8.4 | **forbidden**（§8.3.1） |
 | `[auth]` | （全部） | — | §8.4 | **forbidden**（§8.3.1） |
 
 ## C.3 全量示例（节选拼合，键值以 C.2 为准）
@@ -68,6 +70,10 @@ model = "claude-sonnet-4-5"
 
 [router]
 type = "single"
+
+[auth]
+# skipAuth = true              # 完全跳过凭据解析（企业网关/本地代理，§8.4）
+# anthropic_api_key = "..."    # Layer 4 明文 key（显式 opt-in，建议 0600）
 
 [models.aliases]
 sonnet = { provider = "anthropic", model = "claude-sonnet-4-5" }

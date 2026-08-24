@@ -72,7 +72,10 @@ export const configKeyRegistry = {
   'reflection.persist': 'allowed',
   'reflection.inject_max_lessons': 'allowed',
   'reflection.inject_max_bytes': 'allowed',
-  // [auth] 段全部（§8.3.1）
+  // [auth] 段（§8.3.1）：skipAuth / <provider>_api_key 为显式登记的已知 key（类型错 → fail），
+  // 其余 key 走开放段通配；整段一律禁止项目级覆盖（凭据只能来自用户级 config）
+  'auth.skipAuth': 'forbidden',
+  'auth.anthropic_api_key': 'forbidden',
   'auth.*': 'forbidden',
   // 实现内建段：apps/cli 状态面板本地偏好（附录 C 已补录 outputStyle / language 两行，
   // 整段开放 JSON 值，registry 以 preferences.* 通配登记）
@@ -211,6 +214,14 @@ export const ConfigSchema = z.strictObject({
       inject_max_bytes: z.number().int().optional(),
     })
     .optional(),
-  auth: openSection.optional(),
+  // [auth] 开放段，但 skipAuth / <provider>_api_key 是显式已知 key（§8.4）：
+  // 类型错按 C.1 启动 fail；其余 key 仍走 catchall 开放段
+  auth: z
+    .strictObject({
+      skipAuth: z.boolean().optional(),
+      anthropic_api_key: z.string().optional(),
+    })
+    .catchall(z.json())
+    .optional(),
   preferences: openSection.optional(),
 })
