@@ -304,6 +304,49 @@ describe('renderInteractiveApp', () => {
     )
   })
 
+  it('does not override the configured model when the user never opened the picker', async () => {
+    // 回归：modelPicker 的展示默认值（硬编码 anthropic/claude-sonnet-4-20250514）曾被
+    // 当作 explicitModel 随每次 submit 发给 router，把 [provider.anthropic] model
+    // 配置整个盖掉（企业网关因此 400）。未显式选择时 submit 不得携带 model。
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted = vi.fn()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        modelPicker: {
+          currentModelId: 'anthropic/claude-sonnet-4-20250514',
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-20250514',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-20250514',
+              label: 'Claude Sonnet 4',
+            },
+          ],
+        },
+        onSubmit: submitted,
+        welcome: welcomeFixture(),
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('hello')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    app.unmount()
+    await app.waitUntilExit()
+
+    expect(submitted).toHaveBeenCalledWith('hello', undefined)
+  })
+
   it('renders the static Ink shell and stream updates', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
@@ -346,6 +389,18 @@ describe('renderInteractiveApp', () => {
       payload: { messageId: 'm-1' },
       sessionId: 'session-1234567890',
       type: 'stream.completed',
+      version: 1,
+    })
+    // 附录 D.2 真实时序（runner.ts）：stream.completed 后紧跟 message.appended，
+    // 定稿 entry 由 message.appended 落 transcript。
+    await events.emit({
+      payload: {
+        messageId: 'm-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'pong' }],
+      },
+      sessionId: 'session-1234567890',
+      type: 'message.appended',
       version: 1,
     })
     await app.waitUntilRenderFlush()
@@ -565,6 +620,48 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('─')
     expect(stdout.output).not.toMatch(/[┌┐└┘│]/)
     expect(stdout.output).toContain('Enter send / Shift+Enter newline')
+  })
+
+  it('blinks the entry cursor while idle', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 100
+    const input = render(
+      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 100 }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(stdout.output).toContain('> ▌Ask Apollo')
+    expect(stdout.output).toContain('>  Ask Apollo')
+  })
+
+  it('keeps the cursor visible at the end of typed input', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const input = render(createElement(InputBox, { terminalColumns: 100 }), {
+      debug: true,
+      interactive: true,
+      patchConsole: false,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+    })
+
+    stdin.write('hello')
+    await input.waitUntilRenderFlush()
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(stdout.output).toContain('> hello▌')
   })
 
   it('renders the session search as an input band with a placeholder', async () => {

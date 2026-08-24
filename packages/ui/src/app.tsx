@@ -146,6 +146,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
   const [activeModelId, setActiveModelId] = useState(options.modelPicker?.currentModelId ?? '')
+  // 仅当用户在 /model picker 里显式选择后才携带 model 覆盖提交；
+  // 否则留 undefined，让 router 用 [provider.*] 配置解析模型（picker 展示值只是显示）。
+  const [modelOverride, setModelOverride] = useState<string>()
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
@@ -482,7 +485,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             statusLevel: 'warning',
           }))
         }
-        await activeOnSubmit?.(input, submitOptions(currentModelId))
+        await activeOnSubmit?.(input, submitOptions(modelOverride ?? ''))
       }}
     />
   )
@@ -539,6 +542,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               if (!model || model.disabled) return
               setCurrentModelId(model.id)
               setActiveModelId(model.id)
+              setModelOverride(model.id)
               setModelPickerOpen(false)
               await options.onModelSelect?.(`${model.provider}/${model.model}`)
               appendSystemMessage(setState, `Model set to ${model.label}`)
@@ -730,17 +734,9 @@ export function applyInteractiveEvent(
   }
 
   if (event.type === 'stream.completed') {
-    if (!state.pendingAssistantText) return { ...state, status: 'ready', statusLevel: 'muted' }
-    return {
-      ...state,
-      pendingAssistantText: '',
-      status: 'ready',
-      statusLevel: 'muted',
-      transcript: [
-        ...state.transcript,
-        { id: event.id, role: 'assistant', text: state.pendingAssistantText },
-      ],
-    }
+    // 附录 D.2 时序：runner 对每个 assistant step 先 stream.completed 再 message.appended。
+    // 定稿 entry 只由 message.appended 落 transcript；这里若也追加，同一条回复会渲染两遍。
+    return { ...state, pendingAssistantText: '', status: 'ready', statusLevel: 'muted' }
   }
 
   if (event.type === 'turn.aborted') {

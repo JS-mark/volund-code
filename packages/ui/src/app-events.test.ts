@@ -16,6 +16,35 @@ function event(type: CoreEvent['type'], payload: CoreEvent['payload']): CoreEven
   return { id: `e-${type}`, type, version: 1, sessionId: 's', payload, at: 0 }
 }
 
+describe('applyInteractiveEvent transcript dedup', () => {
+  it('renders one assistant entry per turn even though stream.completed precedes message.appended', () => {
+    // 回归：runner 对每个 assistant step 先 emit stream.completed 再 emit message.appended
+    // （runner.ts 附录 D.2 时序），两者都曾往 transcript 追加同文本 entry → 回复渲染两遍。
+    // 定稿只由 message.appended 落 transcript，stream.completed 只清 streaming 暂存。
+    let state = applyInteractiveEvent(baseState, event('stream.started', { messageId: 'm-1' }))
+    state = applyInteractiveEvent(
+      state,
+      event('stream.delta', { messageId: 'm-1', kind: 'text', fragment: '你好' }),
+    )
+    state = applyInteractiveEvent(
+      state,
+      event('stream.delta', { messageId: 'm-1', kind: 'text', fragment: '，世界' }),
+    )
+    state = applyInteractiveEvent(state, event('stream.completed', { messageId: 'm-1' }))
+    state = applyInteractiveEvent(
+      state,
+      event('message.appended', {
+        messageId: 'm-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: '你好，世界' }],
+      }),
+    )
+    expect(state.transcript.filter((entry) => entry.role === 'assistant')).toHaveLength(1)
+    expect(state.transcript[0]).toMatchObject({ role: 'assistant', text: '你好，世界' })
+    expect(state.pendingAssistantText).toBe('')
+  })
+})
+
 describe('applyInteractiveEvent error visibility', () => {
   it('shows code and context message for error.raised', () => {
     const state = applyInteractiveEvent(

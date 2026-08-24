@@ -40,10 +40,24 @@ function event(partial: Partial<CoreEvent> & { type: CoreEvent['type'] }): CoreE
 
 describe('B7 truncation continuation marker (r13-G5)', () => {
   it('turn.completed with max_tokens marks the last assistant transcript entry', () => {
+    // 附录 D.2 真实时序（runner.ts）：stream.completed 后紧跟 message.appended，
+    // 定稿 entry 由 message.appended 落 transcript。
     let state = { ...baseState, pendingAssistantText: 'half an answer' }
     state = applyInteractiveEvent(
       state,
       event({ type: 'stream.completed', turnId: 't1', payload: { messageId: 'm1' } }),
+    )
+    state = applyInteractiveEvent(
+      state,
+      event({
+        type: 'message.appended',
+        turnId: 't1',
+        payload: {
+          messageId: 'm1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'half an answer' }],
+        },
+      }),
     )
     expect(state.transcript).toHaveLength(1)
     expect(state.transcript[0]?.truncated).toBeUndefined()
@@ -68,6 +82,18 @@ describe('B7 truncation continuation marker (r13-G5)', () => {
     state = applyInteractiveEvent(
       state,
       event({ type: 'stream.completed', turnId: 't1', payload: { messageId: 'm1' } }),
+    )
+    state = applyInteractiveEvent(
+      state,
+      event({
+        type: 'message.appended',
+        turnId: 't1',
+        payload: {
+          messageId: 'm1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'full answer' }],
+        },
+      }),
     )
     state = applyInteractiveEvent(
       state,
