@@ -664,6 +664,48 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> hello▌')
   })
 
+  it('blinks the entry cursor while idle', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 100
+    const input = render(
+      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 100 }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(stdout.output).toContain('> ▌Ask Apollo')
+    expect(stdout.output).toContain('>  Ask Apollo')
+  })
+
+  it('keeps the cursor visible at the end of typed input', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const input = render(createElement(InputBox, { terminalColumns: 100 }), {
+      debug: true,
+      interactive: true,
+      patchConsole: false,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+    })
+
+    stdin.write('hello')
+    await input.waitUntilRenderFlush()
+    input.unmount()
+    await input.waitUntilExit()
+
+    expect(stdout.output).toContain('> hello▌')
+  })
+
   it('renders the session search as an input band with a placeholder', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()

@@ -22,12 +22,23 @@ export function InputBox({
   slashCommands = [],
   terminalColumns = 80,
 }: InputBoxProps) {
+  const [cursorVisible, setCursorVisible] = useState(true)
   const [draftBeforeHistory, setDraftBeforeHistory] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [slashSuggestionIndex, setSlashSuggestionIndex] = useState(0)
   const [value, setValue] = useState(initialValue)
   const suggestions = slashSuggestions(value, slashCommands)
   const showShortcutHint = terminalColumns >= 100
+
+  useEffect(() => {
+    if (disabled) return undefined
+    const timer = setInterval(() => setCursorVisible((visible) => !visible), 500)
+    return () => clearInterval(timer)
+  }, [disabled])
+
+  useEffect(() => {
+    setCursorVisible(true)
+  }, [value])
 
   useEffect(() => {
     if (suggestions.length === 0) {
@@ -126,10 +137,13 @@ export function InputBox({
           <Box flexShrink={1}>
             <Text color={disabled ? 'gray' : 'green'}>{'> '}</Text>
             {value ? (
-              <Text>{value}</Text>
+              <>
+                <Text>{value}</Text>
+                <Text color={disabled ? 'gray' : 'cyan'}>{cursorVisible ? '▌' : ' '}</Text>
+              </>
             ) : (
               <>
-                <Text color={disabled ? 'gray' : 'cyan'}>▌</Text>
+                <Text color={disabled ? 'gray' : 'cyan'}>{cursorVisible ? '▌' : ' '}</Text>
                 <Text color="gray">{placeholder}</Text>
               </>
             )}
