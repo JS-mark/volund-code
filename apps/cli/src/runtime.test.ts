@@ -1481,6 +1481,46 @@ describe('status configuration adapter', () => {
     }
   })
 
+  it('flags a config key that stays ignored while skipAuth=true', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.auth-conflict-'))
+    fixtures.push(root)
+    const previous = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    try {
+      await writeFile(
+        join(root, 'config.toml'),
+        '[auth]\nskipAuth = true\nanthropic_api_key = "config-layer"\n',
+      )
+      const ports = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      await expect(ports.auth.health()).resolves.toEqual({
+        configured: true,
+        detail:
+          'anthropic credential skipped by config (auth.skipAuth); auth.anthropic_api_key is set but ignored while skipAuth=true',
+      })
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
+  it('resolves the displayed model from provider.<name>.model config (§8.3)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.auth-model-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[provider.anthropic]\nmodel = "aws/claude-sonnet-4-5"\nbaseUrl = "https://gateway.example"\n',
+    )
+    const ports = createProductionPorts({
+      apolloHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    const status = await ports.config.status?.({ cwd: root })
+    expect(status?.status.find((row) => row.label === 'Model')?.value).toBe('aws/claude-sonnet-4-5')
+  })
+
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)

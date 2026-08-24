@@ -1484,6 +1484,26 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       ? (section as Record<string, JsonValue>)
       : {}
   }
+  /** login 的 verify 请求要打向配置的网关（§8.3 provider.<name>.baseUrl），否则网关 key 在官方端点上必然 4xx。 */
+  const readAnthropicBaseUrl = async (): Promise<string | undefined> => {
+    let config: Record<string, JsonValue>
+    try {
+      config = await loadTomlFile(join(home, 'config.toml'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
+    const provider = config.provider
+    const entry =
+      provider && typeof provider === 'object' && !Array.isArray(provider)
+        ? (provider as Record<string, JsonValue>).anthropic
+        : undefined
+    const baseUrl =
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry as Record<string, JsonValue>).baseUrl
+        : undefined
+    return typeof baseUrl === 'string' && baseUrl ? baseUrl : undefined
+  }
   const auth = new AuthManager({
     encrypted,
     env: process.env,
@@ -1537,6 +1557,24 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       anthropicEntry && typeof anthropicEntry === 'object' && !Array.isArray(anthropicEntry)
         ? anthropicEntry.baseUrl
         : undefined
+    // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'）
+    // → provider.anthropic.model（静态配置）→ 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
+    const preferencesSection = userConfig.preferences
+    const preferencesModel =
+      preferencesSection &&
+      typeof preferencesSection === 'object' &&
+      !Array.isArray(preferencesSection) &&
+      typeof preferencesSection.model === 'string'
+        ? preferencesSection.model.replace(/^anthropic\//, '')
+        : undefined
+    const providerModel =
+      anthropicEntry &&
+      typeof anthropicEntry === 'object' &&
+      !Array.isArray(anthropicEntry) &&
+      typeof anthropicEntry.model === 'string'
+        ? anthropicEntry.model
+        : undefined
+    const configuredModel = preferencesModel ?? providerModel
     const contextPolicy = new SlidingWindowPolicy({
       compactionThreshold: tuned.compaction_threshold,
       targetRatio: tuned.target_ratio,
@@ -1611,7 +1649,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     )
     let router: RouterPolicy = new SingleProviderRouter(
       client,
-      options.model ?? 'claude-sonnet-4-20250514',
+      options.model ?? configuredModel ?? 'claude-sonnet-4-20250514',
       undefined,
       providers,
     )
@@ -1865,11 +1903,15 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
     auth: {
       async health() {
-        if ((await readAuthSection()).skipAuth === true)
+        const section = await readAuthSection()
+        if (section.skipAuth === true) {
+          const keyIgnored =
+            typeof section.anthropic_api_key === 'string' && section.anthropic_api_key !== ''
           return {
             configured: true,
-            detail: 'anthropic credential skipped by config (auth.skipAuth)',
+            detail: `anthropic credential skipped by config (auth.skipAuth)${keyIgnored ? '; auth.anthropic_api_key is set but ignored while skipAuth=true' : ''}`,
           }
+        }
         const configured = Boolean(await auth.getCredential('anthropic'))
         return {
           configured,
@@ -1895,10 +1937,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
         const credential = input.credential ?? (await promptSecret('Anthropic API key: ')).trim()
         if (!credential) throw new Error('Credential input was cancelled')
+        const verifyBaseUrl = await readAnthropicBaseUrl()
         await auth.login(
           input.provider,
           credential,
-          (value) => verifyAnthropicCredential(http, value),
+          (value) => verifyAnthropicCredential(http, value, undefined, verifyBaseUrl),
           { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
         )
         const skipNote =
@@ -2043,10 +2086,22 @@ async function runtimeStatusData(
       : undefined
   const authMethod =
     authSection?.skipAuth === true ? 'skipped (auth.skipAuth)' : 'credential store (value hidden)'
+  const providerSection =
+    config.provider && typeof config.provider === 'object' && !Array.isArray(config.provider)
+      ? (config.provider as Record<string, JsonValue>)
+      : undefined
+  const anthropicEntry =
+    providerSection?.anthropic &&
+    typeof providerSection.anthropic === 'object' &&
+    !Array.isArray(providerSection.anthropic)
+      ? (providerSection.anthropic as Record<string, JsonValue>)
+      : undefined
+  const providerModel = typeof anthropicEntry?.model === 'string' ? anthropicEntry.model : undefined
   const model =
-    typeof preferences.model === 'string'
-      ? preferences.model
-      : (options.model ?? 'claude-sonnet-4-20250514')
+    options.model ??
+    (typeof preferences.model === 'string' ? preferences.model : undefined) ??
+    providerModel ??
+    'claude-sonnet-4-20250514'
   const editable: StatusConfigItem[] = [
     preference('language', 'Language', preferences.language ?? 'system', 'string'),
     preference('model', 'Model', model, 'string'),
