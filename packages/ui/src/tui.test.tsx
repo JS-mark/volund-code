@@ -1110,11 +1110,72 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('Permission required: Bash')
+    // Multiple pending requests render as a tab strip: one tab per request,
+    // first tab focused with its (escaped) details shown.
+    expect(stdout.output).toContain('Permission required')
+    expect(stdout.output).toContain('1:Bash')
+    expect(stdout.output).toContain('2:Write')
     expect(stdout.output).toContain('touch x\\u{202E}')
     expect(stdout.output).not.toContain(rawCommand)
     expect(permissions.requests()[0]).toEqual(rawRequest)
-    expect(stdout.output).toContain('1 queued')
+  })
+
+  it('switches permission request tabs and confirms options per tab', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const first = permissions.request({
+      display: { approvable: true, spec: '{"bash":{"command":"make build"}}', toolName: 'Bash' },
+      attempt: 1,
+      id: 'permission-tab-1',
+      input: { command: 'make build' },
+      spec: { bash: { command: 'make build' } },
+      toolName: 'Bash',
+    })
+    const second = permissions.request({
+      display: { approvable: true, spec: '{"fs":{"write":["dist/out.js"]}}', toolName: 'Write' },
+      attempt: 1,
+      id: 'permission-tab-2',
+      input: {},
+      spec: { fs: { write: ['dist/out.js'] } },
+      toolName: 'Write',
+    })
+    const app = renderInteractiveApp(
+      { cwd: '/repo', permissions },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('1:Bash')
+    expect(stdout.output).toContain('2:Write')
+    expect(stdout.output).toContain('make build')
+
+    // → switches to the second tab; its details replace the first request's.
+    stdin.write('\u001B[C')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('dist/out.js')
+
+    // ↑/↓ pick "Allow for this session", Enter confirms — and only this tab's
+    // request settles; the other stays pending.
+    stdin.write('\u001B[B')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await expect(second).resolves.toEqual({ kind: 'allow-session' })
+    expect(permissions.requests().map((request) => request.id)).toEqual(['permission-tab-1'])
+
+    // Focus advanced to the remaining tab; esc denies it.
+    stdin.write('\u001B')
+    await expect(first).resolves.toEqual({ kind: 'deny' })
+    expect(permissions.requests()).toEqual([])
+
+    await app.unmount()
+    await app.waitUntilExit()
   })
 
   it('renders sensitive permission details as deny-only and ignores approval keys', async () => {
@@ -1150,7 +1211,7 @@ describe('renderInteractiveApp', () => {
 
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('[sensitive permission details hidden - deny only]')
-    expect(stdout.output).not.toContain('allow once')
+    expect(stdout.output).not.toContain('Allow once')
     stdin.write('a')
     await app.waitUntilRenderFlush()
     expect(settled).toBe(false)
