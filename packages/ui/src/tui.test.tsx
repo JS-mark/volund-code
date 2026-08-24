@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { runSlashCommand, type SlashCommand } from './app'
 import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
+import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { SelectList } from './components/SelectList'
 import { SessionPicker } from './components/SessionPicker'
 import { StatusPanel } from './components/StatusPanel'
@@ -927,6 +928,35 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
 
     expect(stdout.output).toContain('ab')
+  })
+
+  it('renders conversation entries as marker + text, without YOU/APOLLO labels', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const transcript = render(
+      createElement(ScrollableTranscript, {
+        entries: [
+          { id: 'u1', role: 'user' as const, text: 'fix the flaky test' },
+          { id: 'a1', role: 'assistant' as const, text: 'looking at the spec now' },
+        ],
+      }),
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await transcript.waitUntilRenderFlush()
+    transcript.unmount()
+    await transcript.waitUntilExit()
+
+    expect(stdout.output).toContain('> fix the flaky test')
+    expect(stdout.output).toContain('⏺ looking at the spec now')
+    expect(stdout.output).not.toContain('YOU')
+    expect(stdout.output).not.toContain('APOLLO')
   })
 
   it('renders queued permission prompts', async () => {
