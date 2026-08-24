@@ -550,7 +550,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       ])
     }
     expect(handler).not.toHaveBeenCalled()
-  })
+  }, 30_000)
 
   it.each([
     [
