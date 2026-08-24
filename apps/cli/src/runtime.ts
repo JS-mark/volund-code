@@ -1879,6 +1879,20 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
       async login(input) {
+        const section = await readAuthSection()
+        // §8.4：skipAuth / config Layer 4 已覆盖时，交互登录是 no-op——
+        // 不弹输入、不发 verify；显式 --api-key-stdin 仍可落盘
+        if (input.credential === undefined) {
+          if (section.skipAuth === true)
+            return {
+              detail: `${input.provider} authentication is skipped by config (auth.skipAuth=true); nothing to store`,
+            }
+          const configured = section[`${input.provider}_api_key`]
+          if (typeof configured === 'string' && configured)
+            return {
+              detail: `${input.provider} credential already provided by config (auth.${input.provider}_api_key); login is unnecessary`,
+            }
+        }
         const credential = input.credential ?? (await promptSecret('Anthropic API key: ')).trim()
         if (!credential) throw new Error('Credential input was cancelled')
         await auth.login(
@@ -1888,7 +1902,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
         )
         const skipNote =
-          (await readAuthSection()).skipAuth === true
+          section.skipAuth === true
             ? ' (note: auth.skipAuth=true in config; the stored credential stays unused until it is removed)'
             : ''
         return {

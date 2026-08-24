@@ -249,7 +249,7 @@ credentials 本身在 keychain（不进 config），但 **provider endpoint 重�
 
 `auth.getCredential(provider)` 按顺序尝试，第一个命中即返回。
 
-**`[auth] skipAuth = true`**（仅用户级 config，项目级 forbidden，§8.3.1）：**完全跳过**凭据解析——provider 请求**不带**凭据头发出（企业网关 / 本地代理等带外认证场景，通常配合 `provider.<name>.baseUrl`）。设了即不再触碰任何 credential 层（含 Layer 4，也不触发 enc 文件 passphrase 提示）；`apollo login` 仍可落盘凭据，但会提示"skipAuth 期间该凭据不生效"。进程首次跳过发 `auth.credential.skipped`。
+**`[auth] skipAuth = true`**（仅用户级 config，项目级 forbidden，§8.3.1）：**完全跳过**凭据解析——provider 请求**不带**凭据头发出（企业网关 / 本地代理等带外认证场景，通常配合 `provider.<name>.baseUrl`）。设了即不再触碰任何 credential 层（含 Layer 4，也不触发 enc 文件 passphrase 提示）；此时交互式 `apollo login` 是 no-op（提示现状并退出），仅显式 `--api-key-stdin` 可落盘凭据（附"skipAuth 期间不生效"提示）。进程首次跳过发 `auth.credential.skipped`。
 
 #### 8.4.0a ★ Layer 2 加密文件的安全加固（REVIEW-r6 P1-5）
 
