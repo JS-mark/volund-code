@@ -511,6 +511,9 @@ export class RuntimeSessionPort implements SessionPort {
       ) => {
         this.onPermissionPromptHandler?.(handler)
       },
+      interrupt: async () => {
+        this.#runner?.interrupt()
+      },
       submit: async (prompt: string, submitOptions?: SubmitOptions) => {
         await this.#runner!.run(
           prompt,

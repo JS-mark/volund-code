@@ -908,26 +908,26 @@ describe('renderInteractiveApp', () => {
       version: 1,
     })
     await events.emit({
-      payload: { messageId: 'm-1', kind: 'text', fragment: 'a' },
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'q' },
       sessionId: 'session-1',
       type: 'stream.delta',
       version: 1,
     })
     await events.emit({
-      payload: { messageId: 'm-1', kind: 'text', fragment: 'b' },
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'z' },
       sessionId: 'session-1',
       type: 'stream.delta',
       version: 1,
     })
     await app.waitUntilRenderFlush()
-    expect(stdout.output).not.toContain('ab')
+    expect(stdout.output).not.toContain('qz')
 
     await new Promise((resolve) => setTimeout(resolve, 40))
     await app.waitUntilRenderFlush()
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('ab')
+    expect(stdout.output).toContain('qz')
   })
 
   it('renders conversation entries as marker + text, without YOU/APOLLO labels', async () => {
@@ -957,6 +957,109 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('⏺ looking at the spec now')
     expect(stdout.output).not.toContain('YOU')
     expect(stdout.output).not.toContain('APOLLO')
+  })
+
+  it('shows a live streaming status with phase, token estimate, and esc hint', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        sessionId: 'session-1',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    // Let the event-subscription effect commit before emitting.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1',
+      type: 'stream.started',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('waiting for model')
+    expect(stdout.output).toContain('↑ 0 tokens')
+    expect(stdout.output).toContain('esc to interrupt')
+    expect(stdout.output).toContain('Tip:')
+
+    await events.emit({
+      payload: { messageId: 'm-1', kind: 'text', fragment: 'abcd' },
+      sessionId: 'session-1',
+      type: 'stream.delta',
+      version: 1,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('streaming')
+    expect(stdout.output).toContain('↑ 1 tokens')
+  })
+
+  it('pressing esc during a turn interrupts it via onInterrupt', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const interrupt = vi.fn()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onInterrupt: interrupt,
+        sessionId: 'session-1',
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1',
+      type: 'stream.started',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    // The StreamingStatus input subscription commits after the render flush.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    stdin.write('\u001B')
+    await vi.waitFor(() => expect(interrupt).toHaveBeenCalledTimes(1))
+
+    // After the turn ends, esc is inert again.
+    await events.emit({
+      payload: { turnId: 't-1', reason: 'user_interrupt' },
+      sessionId: 'session-1',
+      type: 'turn.aborted',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    stdin.write('\u001B')
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(interrupt).toHaveBeenCalledTimes(1)
+
+    await app.unmount()
+    await app.waitUntilExit()
   })
 
   it('renders queued permission prompts', async () => {

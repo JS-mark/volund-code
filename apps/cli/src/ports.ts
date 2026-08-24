@@ -59,6 +59,8 @@ export interface InteractiveSession {
   cwd?: string
   transcript?: readonly TranscriptEntry[]
   getStatus?(): Promise<StatusViewModel>
+  /** Interrupts the in-flight turn (esc in the TUI). Optional: esc stays inert without it. */
+  interrupt?(): Promise<void>
   setPermissionPromptHandler?(
     handler:
       | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)

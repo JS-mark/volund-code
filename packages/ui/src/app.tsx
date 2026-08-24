@@ -11,6 +11,7 @@ import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { SessionPicker } from './components/SessionPicker'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
+import { StreamingStatus, type StreamingPhase } from './components/StreamingStatus'
 import { TopBar } from './components/TopBar'
 import { WelcomeScreen } from './components/welcome/WelcomeScreen'
 import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
@@ -81,6 +82,8 @@ export interface ResumedInteractiveSession {
   events?: EventBus
   id: string
   onExit(): Promise<void> | void
+  /** esc-to-interrupt for the resumed session; omit to leave esc inert. */
+  onInterrupt?(): Promise<void> | void
   onSubmit(input: string, options?: SubmitOptions): Promise<void> | void
   transcript?: readonly TranscriptEntry[]
 }
@@ -99,6 +102,8 @@ export interface InteractiveAppOptions {
   modelPicker?: ModelPickerState
   noColor?: boolean
   onExit?: () => Promise<void> | void
+  /** esc-to-interrupt while a turn streams/runs; omit to leave esc inert. */
+  onInterrupt?: () => Promise<void> | void
   onModelSelect?: (model: string) => Promise<void> | void
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
@@ -161,6 +166,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const activeEvents = activeSession?.events ?? options.events
   const activeCwd = activeSession?.cwd ?? options.cwd
   const activeOnExit = activeSession?.onExit ?? options.onExit
+  const activeOnInterrupt = activeSession?.onInterrupt ?? options.onInterrupt
   const activeOnSubmit = activeSession?.onSubmit ?? options.onSubmit
 
   const flushPendingToTranscript = useCallback(
@@ -496,6 +502,31 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     </StatusLine>
   )
 
+  // While a turn is in flight (statusLevel 'active': streaming or tool running),
+  // the plain StatusLine is replaced by a live spinner with elapsed time, token
+  // estimate, and esc-to-interrupt hint. Suppressed while a permission prompt
+  // is open so esc unambiguously means "deny" there.
+  const turnInFlight = state.statusLevel === 'active' && permissionRequests.length === 0
+  const toolName = state.status.startsWith('running ')
+    ? state.status.slice('running '.length)
+    : undefined
+  const streamPhase: StreamingPhase = toolName
+    ? 'tool'
+    : state.pendingAssistantText
+      ? 'streaming'
+      : 'waiting'
+  const turnStatus = turnInFlight ? (
+    <StreamingStatus
+      active
+      {...(activeOnInterrupt ? { onInterrupt: activeOnInterrupt } : {})}
+      {...(toolName ? { phaseDetail: toolName } : {})}
+      phase={streamPhase}
+      streamedChars={state.pendingAssistantText.length}
+    />
+  ) : (
+    bottomStatus
+  )
+
   return (
     <Box flexDirection="column">
       {showWelcome && welcome ? (
@@ -512,7 +543,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           {options.permissions ? (
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
           ) : null}
-          {bottomStatus}
+          {turnStatus}
           {commandInput}
         </>
       )}

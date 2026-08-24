@@ -692,6 +692,9 @@ export async function runCli(
           : {}),
         noColor,
         onExit: interactive.end,
+        ...(interactive.interrupt
+          ? { onInterrupt: () => interactive.interrupt!() }
+          : {}),
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(effectiveModelId, configuredModel),
         permissions,
@@ -711,6 +714,9 @@ export async function runCli(
                     events: resumed.events,
                     id: resumed.id,
                     onExit: resumed.end,
+                    ...(resumed.interrupt
+                      ? { onInterrupt: () => resumed.interrupt!() }
+                      : {}),
                     onSubmit: resumed.submit,
                     ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
                   }
