@@ -744,6 +744,10 @@ export function applyInteractiveEvent(
   }
 
   if (event.type === 'turn.aborted') {
+    // reason=error 时 error.raised 刚把状态置成具体错误（含 message）；
+    // 别把诊断信息覆盖成泛泛的 'turn aborted'
+    if (payloadField(event.payload, 'reason') === 'error' && state.statusLevel === 'error')
+      return state
     return { ...state, status: 'turn aborted', statusLevel: 'warning' }
   }
 
@@ -783,10 +787,13 @@ export function applyInteractiveEvent(
   }
 
   if (event.type === 'error.raised') {
-    // 附录 D.2 error.raised：★code（附录 B） ?context——状态行优先展示 code。
+    // 附录 D.2 error.raised：★code（附录 B） ?context——状态行 code 优先，附 context.message
+    // （如 'runner_error: Anthropic request failed (401)'），否则用户只看到 turn aborted。
+    const code = payloadField(event.payload, 'code') || payloadText(event.payload) || 'error'
+    const contextMessage = payloadContextMessage(event.payload)
     return {
       ...state,
-      status: payloadField(event.payload, 'code') || payloadText(event.payload) || 'error',
+      status: contextMessage ? `${code}: ${contextMessage}` : code,
       statusLevel: 'error',
     }
   }
@@ -802,6 +809,15 @@ function payloadField(payload: CoreEvent['payload'], key: string): string | unde
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
   const value = (payload as Record<string, unknown>)[key]
   return typeof value === 'string' ? value : undefined
+}
+
+/** error.raised 的 ?context.message（附录 D.2）：仅接受字符串，其余形态不展示。 */
+function payloadContextMessage(payload: CoreEvent['payload']): string | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  const context = (payload as Record<string, unknown>).context
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
+  const message = (context as Record<string, unknown>).message
+  return typeof message === 'string' && message ? message : undefined
 }
 
 function payloadText(payload: CoreEvent['payload']): string {
