@@ -190,6 +190,8 @@ max_tokens = 180000
 
 **schema**：用 zod 描述（`packages/shared/config-schema.ts`），启动时校验，友好报错。
 
+**模型解析顺序**（Router 实际使用的 model）：`options.model`（调用方显式覆盖）→ `preferences.model`（状态面板选择，id 形如 `anthropic/<model>`，入 Router 前剥前缀）→ `provider.<name>.model`（静态配置）→ 内置默认。`provider.<name>.baseUrl` 同段生效，决定请求与 `apollo login` verify 的打向（网关场景两者通常一起配）。
+
 **★ r13-I4：未知 key 策略与全量 schema**：
 
 - **未知 key → warn + 忽略**（顶层未知 section 与已知 section 内未知 key 均如此；向前兼容——新版本 apollo 的 config 在旧版本上不炸）。警告带 key 全名与所在文件，防"打错段名静默失效"（如把 `[context]` 写成 `[contex]`）。
@@ -249,7 +251,7 @@ credentials 本身在 keychain（不进 config），但 **provider endpoint 重�
 
 `auth.getCredential(provider)` 按顺序尝试，第一个命中即返回。
 
-**`[auth] skipAuth = true`**（仅用户级 config，项目级 forbidden，§8.3.1）：**完全跳过**凭据解析——provider 请求**不带**凭据头发出（企业网关 / 本地代理等带外认证场景，通常配合 `provider.<name>.baseUrl`）。设了即不再触碰任何 credential 层（含 Layer 4，也不触发 enc 文件 passphrase 提示）；此时交互式 `apollo login` 是 no-op（提示现状并退出），仅显式 `--api-key-stdin` 可落盘凭据（附"skipAuth 期间不生效"提示）。进程首次跳过发 `auth.credential.skipped`。
+**`[auth] skipAuth = true`**（仅用户级 config，项目级 forbidden，§8.3.1）：**完全跳过**凭据解析——provider 请求**不带**凭据头发出（企业网关 / 本地代理等带外认证场景，通常配合 `provider.<name>.baseUrl`）。设了即不再触碰任何 credential 层（含 Layer 4，也不触发 enc 文件 passphrase 提示）；此时交互式 `apollo login` 是 no-op（提示现状并退出），仅显式 `--api-key-stdin` 可落盘凭据（附"skipAuth 期间不生效"提示）。与同段 `<provider>_api_key` 并存时 **skipAuth 优先、key 不生效**（`apollo doctor` 的 auth 检查会指出该冲突），二者应二选一。进程首次跳过发 `auth.credential.skipped`。
 
 #### 8.4.0a ★ Layer 2 加密文件的安全加固（REVIEW-r6 P1-5）
 
