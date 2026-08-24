@@ -700,6 +700,69 @@ describe('runCli', () => {
     expect(waitUntilExit).toHaveBeenCalledOnce()
   })
 
+  it('shows the configured provider model in the picker and welcome instead of the hardcoded default', async () => {
+    // 回归（851f62e 的 UI 侧缺口）：picker/welcome 曾写死 anthropic/claude-sonnet-4-20250514，
+    // 与 [provider.anthropic] model 实际生效值脱节（企业网关自定义模型时 UI 显示撒谎）。
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const testPorts = ports({
+      config: {
+        health: vi.fn(async () => ({ valid: true, detail: 'valid' })),
+        status: vi.fn(async () => ({
+          settings: [],
+          config: [],
+          status: [
+            { label: 'Auth method', value: 'credential store (value hidden)' },
+            { label: 'Model', value: 'weibo/glm-5.2' },
+          ],
+        })),
+      },
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: {
+        renderInteractiveApp: vi.fn(() => ({
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          waitUntilExit: vi.fn(async () => {}),
+          waitUntilRenderFlush: vi.fn(async () => {}),
+        })),
+      },
+    })
+
+    const result = await runCli(['chat'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '' })
+    expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelPicker: expect.objectContaining({
+          currentModelId: 'anthropic/weibo/glm-5.2',
+          models: expect.arrayContaining([
+            expect.objectContaining({ id: 'anthropic/weibo/glm-5.2' }),
+          ]),
+        }),
+        welcome: expect.objectContaining({
+          model: expect.objectContaining({ model: 'weibo/glm-5.2', source: 'config' }),
+        }),
+      }),
+    )
+  })
+
   it('does not register permission prompts in yolo TUI mode', async () => {
     const interactive = {
       id: 'session-1',

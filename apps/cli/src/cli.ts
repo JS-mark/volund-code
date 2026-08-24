@@ -13,6 +13,7 @@ import type {
   DangerousMode,
   SandboxDisclosure,
   StatusPanelData,
+  WelcomeModelStatus,
   WelcomePanelData,
   WelcomeSandboxStatus,
 } from '@apollo-code/ui'
@@ -644,6 +645,21 @@ export async function runCli(
       const permissionsBypassed = Boolean(args.yolo || args.dangerouslySkipPermissions)
       const statusText = (tier: string) =>
         `sandbox ${tier}${permissionsBypassed ? '; permissions bypassed' : ''}`
+      // 模型展示对齐 §8.3 实际生效值：status 端口的 Model 行已按
+      // options.model → preferences.model → provider.anthropic.model 收口。
+      // picker/welcome 不再写死 defaultInteractiveModel（否则企业网关自定义模型时
+      // UI 显示与实际发送的模型脱节）。
+      const resolvedStatusPanel = ports.config.status
+        ? await ports.config.status({ cwd, sessionId: interactive.id })
+        : undefined
+      const configuredModel = resolvedStatusPanel?.status.find(
+        (row) => row.label === 'Model',
+      )?.value
+      const effectiveModelId = configuredModel
+        ? configuredModel.startsWith('anthropic/')
+          ? configuredModel
+          : `anthropic/${configuredModel}`
+        : defaultInteractiveModel
       const welcome = await buildWelcomePanelData({
         cwd,
         dangerousPermissions: permissionsBypassed,
@@ -651,6 +667,16 @@ export async function runCli(
         sandbox: { status: 'probing' },
         sessionId: interactive.id,
         trustLabel,
+        ...(configuredModel
+          ? {
+              model: {
+                status: 'available' as const,
+                provider: 'anthropic',
+                model: configuredModel.replace(/^anthropic\//, ''),
+                source: 'config' as const,
+              },
+            }
+          : {}),
       })
       const app = ports.ui!.renderInteractiveApp({
         cwd,
@@ -667,7 +693,7 @@ export async function runCli(
         noColor,
         onExit: interactive.end,
         onSubmit: interactive.submit,
-        modelPicker: buildModelPicker(defaultInteractiveModel),
+        modelPicker: buildModelPicker(effectiveModelId, configuredModel),
         permissions,
         sandboxProbe: () =>
           probePromise.then((probe) => ({
@@ -695,9 +721,7 @@ export async function runCli(
         sessionId: interactive.id,
         status: statusText('probing'),
         welcome,
-        statusPanel: ports.config.status
-          ? await ports.config.status({ cwd, sessionId: interactive.id })
-          : statusPanelFromWelcome(welcome),
+        statusPanel: resolvedStatusPanel ?? statusPanelFromWelcome(welcome),
         ...(ports.config.updatePreference
           ? {
               statusPanelController: {
@@ -742,6 +766,7 @@ async function buildWelcomePanelData(input: {
   sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel: string
+  model?: WelcomeModelStatus & { status: 'available' }
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
@@ -750,7 +775,7 @@ async function buildWelcomePanelData(input: {
     sessionId: input.sessionId,
     trustLabel: input.trustLabel,
     cwd: input.cwd,
-    model: {
+    model: input.model ?? {
       status: 'available',
       provider: 'anthropic',
       model: defaultInteractiveModel.split('/').slice(1).join('/'),
@@ -773,27 +798,40 @@ async function buildWelcomePanelData(input: {
   }
 }
 
-function buildModelPicker(currentModelId: string) {
-  return {
-    currentModelId,
-    models: [
-      {
-        id: 'anthropic/claude-sonnet-4-20250514',
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        label: 'Claude Sonnet 4',
-        description: 'Current default coding model',
-      },
-      {
-        id: 'anthropic/claude-opus-4-20250514',
-        provider: 'anthropic',
-        model: 'claude-opus-4-20250514',
-        label: 'Claude Opus 4',
-        description: 'Unavailable until enabled in router config',
-        disabled: true,
-      },
-    ],
-  }
+function buildModelPicker(currentModelId: string, configuredModel?: string) {
+  const builtins = [
+    {
+      id: 'anthropic/claude-sonnet-4-20250514',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      label: 'Claude Sonnet 4',
+      description: 'Current default coding model',
+    },
+    {
+      id: 'anthropic/claude-opus-4-20250514',
+      provider: 'anthropic',
+      model: 'claude-opus-4-20250514',
+      label: 'Claude Opus 4',
+      description: 'Unavailable until enabled in router config',
+      disabled: true,
+    },
+  ]
+  // 配置生效的模型（如企业网关的 weibo/glm-5.2） prepend 进候选，
+  // 让用户在 picker 里能切回配置值；与内置候选同 id 时不重复插入。
+  const bare = configuredModel?.replace(/^anthropic\//, '')
+  const extra =
+    configuredModel && !builtins.some((item) => item.id === currentModelId)
+      ? [
+          {
+            id: currentModelId,
+            provider: 'anthropic',
+            model: bare ?? configuredModel,
+            label: bare ?? configuredModel,
+            description: 'Configured via provider.anthropic.model',
+          },
+        ]
+      : []
+  return { currentModelId, models: [...extra, ...builtins] }
 }
 
 async function welcomeConfig(ports: ApolloPorts, cwd: string): Promise<WelcomePanelData['config']> {
