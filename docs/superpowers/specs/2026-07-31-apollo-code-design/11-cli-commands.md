@@ -105,7 +105,10 @@ apollo login [provider]
   # 引导流程：显示 OAuth URL 或让用户粘贴 API key
   # ★ 顺序：读取 key → 调 provider 的最小验证请求（如 anthropic /v1/models）
   #    → 只有 2xx 且返回 body schema 合法才写 auth；4xx/5xx 直接报错不落盘
-  # 存到 auth（macOS Keychain / Linux libsecret / Windows Credential Manager；缺失时 fallback 加密文件；--api-key-stdin 场景下 env-only 也允许）
+  # 存到 auth（macOS Keychain / Linux libSecret / Windows Credential Manager；缺失时 fallback 加密文件；--api-key-stdin 场景下 env-only 也允许）
+  # ★ no-op 短路（§8.4）：[auth] skipAuth=true 或 [auth] <provider>_api_key 已配置时，
+  #    交互式 login 直接提示现状并退出（不弹输入、不发 verify）；
+  #    显式 --api-key-stdin 传入仍可落盘（skipAuth 期间该凭据不生效，会附提示）
   Flags:
     --api-key <key>              # 非交互，从 stdin 或 flag 传入（脚本用）
     --api-key-stdin              # 从 stdin 读，避免 shell history 泄漏

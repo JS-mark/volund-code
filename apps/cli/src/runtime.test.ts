@@ -1440,6 +1440,47 @@ describe('status configuration adapter', () => {
     }
   })
 
+  it('makes interactive login a no-op when skipAuth or a config key already covers it', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.auth-login-skip-'))
+    fixtures.push(root)
+    const previous = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    try {
+      // The non-TTY test env would throw 'Credential input was cancelled' if the
+      // early return did not fire — resolving at all proves the short-circuit.
+      await writeFile(join(root, 'config.toml'), '[auth]\nskipAuth = true\n')
+      const skipped = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      await expect(
+        skipped.auth.login({
+          provider: 'anthropic',
+          flow: 'api-key',
+          dangerouslySkipVerify: false,
+        }),
+      ).resolves.toEqual({
+        detail:
+          'anthropic authentication is skipped by config (auth.skipAuth=true); nothing to store',
+      })
+
+      await writeFile(join(root, 'config.toml'), '[auth]\nanthropic_api_key = "config-layer"\n')
+      const keyed = createProductionPorts({
+        apolloHome: root,
+        identity: { version: '1.2.3-test' },
+      })
+      await expect(
+        keyed.auth.login({ provider: 'anthropic', flow: 'api-key', dangerouslySkipVerify: false }),
+      ).resolves.toEqual({
+        detail:
+          'anthropic credential already provided by config (auth.anthropic_api_key); login is unnecessary',
+      })
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)
