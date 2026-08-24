@@ -101,6 +101,49 @@ describe('Anthropic adapter', () => {
     expect(mapAnthropicError(429).retryable).toBe(true)
     expect(mapAnthropicError(500).category).toBe('server')
   })
+  it('surfaces the upstream error body message on non-2xx instead of a generic status', async () => {
+    const request = vi.fn(async (_input) => ({
+      status: 400,
+      body: chunks([
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: 'error',
+            error: { type: 'error', message: "模型路径格式不正确，应为 'req_type/model_id' 格式" },
+          }),
+        ),
+      ]),
+    }))
+    const client = new AnthropicClient({
+      credentials: { getCredential: async () => 'secret' },
+      http: { request },
+    })
+    await expect(
+      collect(
+        client.stream(
+          { model: 'claude-sonnet-4-20250514', system: 's', messages: [] },
+          new AbortController().signal,
+        ),
+      ),
+    ).rejects.toThrow('模型路径格式不正确')
+  })
+  it('falls back to the generic status message when the error body is not JSON', async () => {
+    const request = vi.fn(async (_input) => ({
+      status: 400,
+      body: chunks([new TextEncoder().encode('Bad Request')]),
+    }))
+    const client = new AnthropicClient({
+      credentials: { getCredential: async () => 'secret' },
+      http: { request },
+    })
+    await expect(
+      collect(
+        client.stream(
+          { model: 'm', system: 's', messages: [] },
+          new AbortController().signal,
+        ),
+      ),
+    ).rejects.toThrow('Anthropic request failed (400)')
+  })
   it('passes credentials, system, and AbortSignal through injected ports', async () => {
     const signal = new AbortController().signal
     const request = vi.fn(async (_input) => ({

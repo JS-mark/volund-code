@@ -45,6 +45,37 @@ async function readJson(body: AsyncIterable<Uint8Array>): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
+// 非 2xx 错误体提取：网关（企业代理 / api.anthropic.com）通常在 body 里给出真实原因
+// （如 "模型路径格式不正确"），丢弃它用户只能看到 'Anthropic request failed (400)'。
+// 上限 64KiB 兜底，非 JSON / 无 error 字段返回 undefined 走通用消息。
+async function readErrorBody(
+  body: AsyncIterable<Uint8Array>,
+): Promise<{ error?: { type?: string; message?: string } } | undefined> {
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for await (const chunk of body) {
+    total += chunk.byteLength
+    if (total > 65_536) return undefined
+    chunks.push(chunk)
+  }
+  try {
+    const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (typeof value !== 'object' || value === null) return undefined
+    const error: unknown = Reflect.get(value, 'error')
+    if (typeof error !== 'object' || error === null) return undefined
+    const type: unknown = Reflect.get(error, 'type')
+    const message: unknown = Reflect.get(error, 'message')
+    return {
+      error: {
+        ...(typeof type === 'string' ? { type } : {}),
+        ...(typeof message === 'string' ? { message } : {}),
+      },
+    }
+  } catch {
+    return undefined
+  }
+}
+
 export async function verifyAnthropicCredential(
   http: HttpPort,
   credential: string,
@@ -63,6 +94,7 @@ export async function verifyAnthropicCredential(
   return (
     typeof value === 'object' &&
     value !== null &&
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     Array.isArray((value as Record<string, unknown>).data)
   )
 }
@@ -291,7 +323,7 @@ export async function* parseAnthropicSse(
 export class AnthropicClient implements ProviderClient {
   readonly name = 'anthropic'
   readonly capabilities = anthropicCapabilities
-  constructor(private readonly options: AnthropicClientOptions) {}
+  constructor(private readonly options: AnthropicClientOptions) { }
   async *stream(request: ProviderRequest, signal: AbortSignal): AsyncIterable<ProviderChunk> {
     const credential = await this.options.credentials.getCredential('anthropic')
     const response = await this.options.http.request({
@@ -319,10 +351,10 @@ export class AnthropicClient implements ProviderClient {
     if (response.status < 200 || response.status >= 300)
       throw mapAnthropicError(
         response.status,
-        undefined,
+        await readErrorBody(response.body),
         Number(response.headers?.['retry-after-ms']) || undefined,
       )
     yield* parseAnthropicSse(response.body, signal)
   }
-  async dispose(): Promise<void> {}
+  async dispose(): Promise<void> { }
 }
