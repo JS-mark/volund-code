@@ -1338,6 +1338,49 @@ describe('production evolution configuration', () => {
   })
 })
 
+describe('production [env] config application (§8.3)', () => {
+  it('writes the [env] section into process.env, overriding existing values', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.env-config-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[env]\nAPOLLO_TEST_ENV_SET = "from-config"\nAPOLLO_TEST_ENV_OVERRIDE = "config-wins"\n',
+    )
+    const previousSet = process.env.APOLLO_TEST_ENV_SET
+    const previousOverride = process.env.APOLLO_TEST_ENV_OVERRIDE
+    process.env.APOLLO_TEST_ENV_OVERRIDE = 'ambient'
+    try {
+      const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+      await ports.config.applyEnv?.()
+      expect(process.env.APOLLO_TEST_ENV_SET).toBe('from-config')
+      // 「重置」语义：同名环境变量以 config 值为准
+      expect(process.env.APOLLO_TEST_ENV_OVERRIDE).toBe('config-wins')
+    } finally {
+      if (previousSet === undefined) delete process.env.APOLLO_TEST_ENV_SET
+      else process.env.APOLLO_TEST_ENV_SET = previousSet
+      if (previousOverride === undefined) delete process.env.APOLLO_TEST_ENV_OVERRIDE
+      else process.env.APOLLO_TEST_ENV_OVERRIDE = previousOverride
+    }
+  })
+
+  it('is a no-op when the user config is missing or has no [env] section', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.env-config-absent-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    await expect(ports.config.applyEnv?.()).resolves.toBeUndefined()
+    await writeFile(join(root, 'config.toml'), '[ui]\ntheme = "auto"\n')
+    await expect(ports.config.applyEnv?.()).resolves.toBeUndefined()
+  })
+
+  it('fails startup-closed when an [env] value is not a string (C.1)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.env-config-invalid-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), '[env]\nPORT = 8080\n')
+    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    await expect(ports.config.applyEnv?.()).rejects.toMatchObject({ code: 'config_invalid' })
+  })
+})
+
 describe('status configuration adapter', () => {
   it('injects pinned project memory through the production composition helper', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-prompt-composition-'))

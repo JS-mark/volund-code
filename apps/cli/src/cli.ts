@@ -481,6 +481,18 @@ export async function runCli(
       stdout,
       stderr: `${subcommand} integration port is not connected in the L1 shell.`,
     }
+  // [env] 段（§8.3 / 附录 C）：会话级环境变量在信任门与 native probes 之前写入
+  // process.env，之后 spawn 的子进程（native worker / 插件宿主 / MCP stdio）都能
+  // 继承到配置值。管理类子命令（doctor/status/...）已在上方 dispatch 走掉、不经
+  // 此处，因此 [env] 类型错时 apollo doctor 仍可用于诊断（C.1：类型错启动 fail）。
+  try {
+    await ports.config.applyEnv?.()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return jsonMode
+      ? jsonFailure(message, 1, 'config_invalid')
+      : { exitCode: 1, stdout, stderr: message }
+  }
   const rawPrompt =
     subcommand === 'chat' ? args._.slice(1).join(' ') : resumeSelection ? '' : args._.join(' ')
   const prompt = rawPrompt || undefined

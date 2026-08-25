@@ -30,6 +30,7 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[tools]` | `windows_shell` | string?（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `pass_through_env` | string[]，默认 `[]`（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `ignore_dirs` | string[]，默认 `[".git","node_modules","target","dist"]`（r13-D1） | §4.3.3 | allowed |
+| `[env]` | `<NAME>` | string，默认无；启动时写入 `process.env` 的会话级环境变量（MCP / 插件宿主等子进程随之继承）。进沙箱需配合 `[tools] pass_through_env` 白名单（env_clear 模型，r13-I11）；`*_api_key` 结尾的名字按 §8.3.1 通用模式禁止项目级覆盖 | §8.3 | allowed |
 | `[context]` | `policy` | `"sliding" \| "summary" \| "semantic"`，L1 默认 `sliding` | §8b | allowed |
 | `[context]` | `max_tokens` | int，默认 180000 | §8.3 / §8b | allowed |
 | `[context]` | `keep` / `unkeep` 等 pinned 参数 | 见 §8b.13 | §8b | allowed |
@@ -91,8 +92,14 @@ tokenMax = 200000
 timeMsMax = 600000
 
 [tools]
-pass_through_env = []            # r13-I11：env 继承白名单（PATH/HOME/LANG/TZ 之外）
+pass_through_env = ["NO_PROXY"]  # r13-I11：env 继承白名单（PATH/HOME/LANG/TZ 之外）；
+                                 # 白名单内的名字才注入沙箱，值可来自下方 [env] 段
 ignore_dirs = [".git", "node_modules", "target", "dist"]
+
+[env]
+# 会话级环境变量：启动时写入 process.env，之后 spawn 的子进程（MCP stdio /
+# 插件宿主 / native worker）随之继承；沙箱内 Bash 只额外接受白名单名字
+NO_PROXY = "localhost,127.0.0.1"
 
 [context]
 policy = "sliding"

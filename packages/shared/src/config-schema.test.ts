@@ -91,6 +91,16 @@ describe('configKeyRegistry ↔ ConfigSchema consistency', () => {
     // 开放段语义不变：其余 auth.* key 仍接受任意 JSON 值
     expect(ConfigSchema.safeParse({ auth: { future_key: { nested: true } } }).success).toBe(true)
   })
+
+  it('accepts [env] as a string record and fails on non-string values (C.1)', () => {
+    expect(ConfigSchema.safeParse({ env: { NO_PROXY: 'localhost', EMPTY_OK: '' } }).success).toBe(
+      true,
+    )
+    // 环境变量只能是字符串：数字 / 布尔 / 嵌套对象都是类型错 → 启动 fail
+    expect(ConfigSchema.safeParse({ env: { PORT: 8080 } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ env: { FLAG: true } }).success).toBe(false)
+    expect(ConfigSchema.safeParse({ env: { NESTED: { a: 'b' } } }).success).toBe(false)
+  })
 })
 
 describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
@@ -121,5 +131,12 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(isProjectOverrideForbidden('auth.skipAuth')).toBe(true)
     expect(isProjectOverrideForbidden('auth.anthropic_api_key')).toBe(true)
     expect(isProjectOverrideForbidden('tools.ignore_dirs')).toBe(false)
+  })
+
+  it('allows project-level [env] but keeps credential-shaped names forbidden', () => {
+    expect(projectOverrideFor('env.NO_PROXY')).toBe('allowed')
+    expect(isProjectOverrideForbidden('env.NO_PROXY')).toBe(false)
+    // §8.3.1 通用模式：*_api_key 结尾的名字只能来自用户级 config
+    expect(isProjectOverrideForbidden('env.MY_SERVICE_API_KEY')).toBe(true)
   })
 })

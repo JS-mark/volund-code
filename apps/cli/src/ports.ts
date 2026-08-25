@@ -174,6 +174,11 @@ export interface ApolloPorts {
   }
   config: {
     health(cwd: string): Promise<DoctorHealth>
+    /**
+     * [env] 段（§8.3）：会话启动时把用户级 config 的显式环境变量写入
+     * process.env。进入 agent 会话路径前调用一次；类型错按 C.1 抛 config_invalid。
+     */
+    applyEnv?(): Promise<void>
     status?(input: { cwd: string; sessionId?: string }): Promise<StatusPanelData>
     updatePreference?(
       id: string,

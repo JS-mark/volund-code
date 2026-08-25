@@ -40,6 +40,7 @@ import type {
   SessionState,
 } from '@apollo-code/core'
 import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
+import type { SandboxTier } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
 import {
@@ -89,7 +90,7 @@ import {
   TelemetryStore,
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
-import type { ToolContext } from '@apollo-code/tool-kit'
+import type { NativeBridge, ToolContext } from '@apollo-code/tool-kit'
 import { builtinTools, ToolExecutor } from '@apollo-code/tools'
 import type { ToolHookDispatcher } from '@apollo-code/tools'
 import {
@@ -1517,6 +1518,40 @@ export async function loadProductionContextTuning(options: {
   }
 }
 
+/**
+ * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
+ * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
+ * 值可含 [env] 段写入 process.env 的配置）透传进 apollo-sandbox——Rust 侧
+ * env_clear 后只注入 permissions.env.read 白名单内的名字，宿主其余环境不进沙箱。
+ * `env` 绝不与宿主全量环境合并（tool-kit NativeBridge 契约）。
+ */
+export function createSandboxNativeBridge(options: {
+  readonly cwd: () => string
+  readonly onViolation: (input: { tier: SandboxTier; reason: string }) => Promise<void>
+}): NativeBridge {
+  return {
+    async execute(command, args, signal, env) {
+      const cwd = options.cwd()
+      const result = await execSandbox(
+        {
+          command: [command, ...args].join(' '),
+          cwd,
+          permissions: {
+            fs: { read: [cwd], write: [cwd] },
+            net: false,
+            env: { read: Object.keys(env ?? {}) },
+          },
+          ...(env ? { env } : {}),
+        },
+        signal,
+      )
+      for (const reason of result.sandbox_violations)
+        await options.onViolation({ tier: result.sandbox_tier, reason })
+      return result.stdout
+    },
+  }
+}
+
 export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
   const backups = new BackupStore(join(home, 'backups'))
@@ -1754,9 +1789,29 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       routerConfig.type === 'role'
     )
       router = new RoleRouter(providers, parseRoleRouterConfig(routerConfig))
+    // [tools] 段（§4.3.1 / r13-I11）在这里接线进 Bash 工具：shell 固定逻辑与
+    // env 继承白名单；缺省时 BashTool 走内置默认（Unix /bin/bash；PATH/HOME/LANG/TZ）。
+    const toolsSection = userConfig.tools
+    const toolsConfig =
+      toolsSection && typeof toolsSection === 'object' && !Array.isArray(toolsSection)
+        ? (toolsSection as Record<string, JsonValue>)
+        : {}
+    const windowsShell =
+      typeof toolsConfig.windows_shell === 'string' && toolsConfig.windows_shell
+        ? toolsConfig.windows_shell
+        : undefined
+    const passThroughEnv = Array.isArray(toolsConfig.pass_through_env)
+      ? toolsConfig.pass_through_env.filter(
+          (name): name is string => typeof name === 'string' && name !== '',
+        )
+      : undefined
     const registry = new ToolRegistry()
     for (const tool of builtinTools({
       backups,
+      bash: {
+        ...(windowsShell ? { windowsShell } : {}),
+        ...(passThroughEnv ? { passThroughEnv } : {}),
+      },
       task: {
         dispatcher,
         parent: (signal) => ({
@@ -1796,32 +1851,18 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
     })
     let runner: Runner
-    const native = {
-      async execute(command: string, args: string[], signal: AbortSignal) {
-        const result = await execSandbox(
-          {
-            command: [command, ...args].join(' '),
-            cwd: runner.state.cwd,
-            permissions: {
-              fs: { read: [runner.state.cwd], write: [runner.state.cwd] },
-              net: false,
-              env: { read: [] },
-            },
-          },
-          signal,
-        )
-        for (const reason of result.sandbox_violations) {
-          await telemetry.violation({
-            mechanism: 'apollo-sandbox',
-            tier: result.sandbox_tier,
-            operation: 'sandbox-exec',
-            decision: 'deny',
-            reason,
-          })
-        }
-        return result.stdout
+    const native = createSandboxNativeBridge({
+      cwd: () => runner.state.cwd,
+      onViolation: async ({ tier, reason }) => {
+        await telemetry.violation({
+          mechanism: 'apollo-sandbox',
+          tier,
+          operation: 'sandbox-exec',
+          decision: 'deny',
+          reason,
+        })
       },
-    }
+    })
     const executor = permissionChain.bindExecutor((signal) => ({
       abortSignal: signal,
       session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
@@ -2055,6 +2096,28 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
     },
     config: {
+      /**
+       * [env] 段（§8.3 / 附录 C）：会话启动时把用户级 config.toml 的显式环境变量
+       * 写入 process.env——之后 spawn 的子进程（native worker / 插件宿主 / MCP
+       * stdio）随之继承；沙箱内 Bash 走 env_clear 白名单模型，仅 [tools]
+       * pass_through_env 列出的名字进入（值可来自这里写入的 process.env）。
+       * 缺文件是 no-op；类型错按 C.1 传播 config_invalid（启动 fail）。
+       */
+      async applyEnv() {
+        let config: Record<string, JsonValue>
+        try {
+          config = await loadTomlFile(join(home, 'config.toml'), {
+            onWarning: (message) => logger.warn(message),
+          })
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+          throw error
+        }
+        const section = config.env
+        if (!section || typeof section !== 'object' || Array.isArray(section)) return
+        for (const [key, value] of Object.entries(section))
+          if (typeof value === 'string') process.env[key] = value
+      },
       async health(cwd) {
         try {
           const warnings: string[] = []

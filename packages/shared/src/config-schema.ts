@@ -41,6 +41,9 @@ export const configKeyRegistry = {
   'tools.windows_shell': 'allowed',
   'tools.pass_through_env': 'allowed',
   'tools.ignore_dirs': 'allowed',
+  // [env] 段：启动时写入 process.env 的键值对；`*_api_key` 结尾的名字被
+  // §8.3.1 通用模式自动拦截（项目级 forbidden）
+  'env.*': 'allowed',
   'context.policy': 'allowed',
   'context.max_tokens': 'allowed',
   // keep / unkeep 等 §8b.13 pinned 参数：开放段通配
@@ -155,6 +158,12 @@ export const ConfigSchema = z.strictObject({
       ignore_dirs: z.array(z.string()).optional(),
     })
     .optional(),
+  // [env] 段：启动时写入 process.env 的显式环境变量（值必须是字符串）。
+  // 主进程与之后 spawn 的子进程（MCP stdio / 插件宿主 / native worker）随之继承；
+  // 沙箱内 Bash 走 env_clear 白名单模型（r13-I11），仅 [tools] pass_through_env
+  // 列出的名字进入沙箱，值可来自本段。注意 `*_api_key` 结尾的名字按 §8.3.1
+  // 通用模式自动禁止项目级覆盖。
+  env: z.record(z.string(), z.string()).optional(),
   // keep / unkeep 等 §8b.13 pinned 参数走 catchall（开放段，registry 以 context.* 登记）
   context: z
     .strictObject({
