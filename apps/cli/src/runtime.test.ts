@@ -1,5 +1,15 @@
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
@@ -144,6 +154,35 @@ describe('RuntimeSessionPort', () => {
 
     expect(interactive.id).toBe(id)
     expect(await readFile(join(root, `${id}.jsonl`), 'utf8')).toContain('after resume')
+  })
+
+  it('preserves markdown block structure in the resumed transcript', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const first = new RuntimeSessionPort(root, fakeFactory())
+    const { id } = await first.start({ cwd: process.cwd(), prompt: 'before resume' })
+    // 追加一条带多行 markdown 的 assistant 事件，模拟真实会话落盘内容。
+    const markdown = '## 标题\n\n- 第一项\n- 第二项\n\n```ts\nconst a = 1\n```'
+    await appendFile(
+      join(root, `${id}.jsonl`),
+      `${JSON.stringify({
+        id: 'evt-assistant-1',
+        type: 'message.appended',
+        sessionId: id,
+        at: new Date().toISOString(),
+        payload: {
+          messageId: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: markdown }],
+        },
+      })}\n`,
+    )
+
+    const second = new RuntimeSessionPort(root, fakeFactory())
+    const interactive = await second.resumeInteractive(id)
+
+    const entry = interactive.transcript?.find((item) => item.id === 'assistant-1')
+    expect(entry?.text).toBe(markdown)
   })
 
   it('keeps the current session active when a resumed runner cannot be constructed', async () => {

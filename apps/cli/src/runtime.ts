@@ -494,7 +494,7 @@ export class RuntimeSessionPort implements SessionPort {
       cwd: this.#runner!.state.cwd,
       events: this.#events!,
       transcript: this.#runner!.state.messages.flatMap((message) => {
-        const text = messageText(message.content)
+        const text = messageFullText(message.content)
         if (
           !text ||
           (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
@@ -654,12 +654,25 @@ export class RuntimeSessionPort implements SessionPort {
   }
 }
 
+/** 会话选择器的单行摘要：折叠所有空白，保证标题不折行。 */
 function messageText(content: SessionState['messages'][number]['content']): string {
   return content
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join(' ')
     .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * resume transcript 的全保真提取：markdown 的块级结构（标题/列表/表格/代码块）
+ * 全靠换行界定，折叠空白会把整段塌成一行流水文本。
+ */
+function messageFullText(content: SessionState['messages'][number]['content']): string {
+  return content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
     .trim()
 }
 

@@ -20,7 +20,9 @@
     "@apollo-code/core": "workspace:*",
     "@types/react": "catalog:",
     "ink": "catalog:",
-    "react": "catalog:"
+    "marked": "^18.0.10",
+    "react": "catalog:",
+    "string-width": "^8.2.2"
   },
   "devDependencies": {
     "@types/node": "catalog:",

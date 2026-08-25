@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 
 import type { TranscriptEntry } from '../app'
+import { MarkdownText } from './MarkdownText'
 
 export interface MessageBlockProps {
   entry: TranscriptEntry
@@ -24,7 +25,7 @@ export function MessageBlock({ entry }: MessageBlockProps) {
         </Box>
         <Box flexDirection="column" flexGrow={1}>
           {entry.role === 'assistant' ? (
-            <Text wrap="wrap">{entry.text}</Text>
+            <MarkdownText>{entry.text}</MarkdownText>
           ) : (
             <Text color="gray" wrap="wrap">
               {entry.text}
