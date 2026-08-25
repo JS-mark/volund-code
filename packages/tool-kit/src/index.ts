@@ -36,6 +36,13 @@ export interface ToolResultMeta {
   bytesWritten?: number
   filesTouched?: string[]
   costImpact?: 'safe' | 'moderate' | 'high'
+  /**
+   * File-mutating tools report unified-diff-style line counts so the runner can
+   * surface them on `tool.completed` (?linesAdded/?linesRemoved，附录 D.2) and the
+   * /status Usage tab can total code changes per session.
+   */
+  linesAdded?: number
+  linesRemoved?: number
 }
 export interface ToolResult {
   content: ContentPart[]

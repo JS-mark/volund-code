@@ -110,6 +110,28 @@ const changedSinceReadError = (path: string) =>
 const changedAfterWriteError = (path: string) =>
   `file ${path} changed after write (concurrent modification); edit rolled back, re-Read`
 
+/**
+ * Multiset line diff between two file contents: a line occurring m times before
+ * and n times after contributes max(0, n-m) additions / max(0, m-n) removals.
+ * O(n), deterministic, and never inflates full-file rewrites the way naive
+ * old/new line counts would; pure line reordering counts as no change.
+ */
+export function diffLineCounts(
+  before: string,
+  after: string,
+): { linesAdded: number; linesRemoved: number } {
+  if (before === after) return { linesAdded: 0, linesRemoved: 0 }
+  const counts = new Map<string, number>()
+  for (const line of before.split('\n')) counts.set(line, (counts.get(line) ?? 0) - 1)
+  for (const line of after.split('\n')) counts.set(line, (counts.get(line) ?? 0) + 1)
+  let linesAdded = 0
+  let linesRemoved = 0
+  for (const delta of counts.values())
+    if (delta > 0) linesAdded += delta
+    else linesRemoved -= delta
+  return { linesAdded, linesRemoved }
+}
+
 async function mutateFiles(
   sessionId: string,
   updates: Array<{ path: string; content: string; expect?: FileSnapshot }>,
@@ -245,11 +267,18 @@ export class WriteTool implements Tool<{ path: string; content: string }> {
     const s = Date.now()
     try {
       const p = await safeMutationPath(c.session.cwd, i.path)
+      let before = ''
+      try {
+        before = await readFile(p, 'utf8')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
       await mutateFiles(c.session.id, [{ path: p, content: i.content }], this.backups)
       return result('File written', {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(i.content),
         filesTouched: [p],
+        ...diffLineCounts(before, i.content),
       })
     } catch (e) {
       return failure(e, s)
@@ -298,6 +327,7 @@ export class EditTool implements Tool<EditInput> {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(next),
         filesTouched: [p],
+        ...diffLineCounts(old, next),
       })
     } catch (e) {
       return failure(e, s)
@@ -343,11 +373,13 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         grouped.set(path, [...(grouped.get(path) ?? []), edit])
       }
       const updates: Array<{ path: string; content: string; expect: FileSnapshot }> = []
+      const beforeContents = new Map<string, string>()
       for (const [path, edits] of grouped) {
         const before = await snapshotOf(path)
         let content = await readFile(path, 'utf8')
         if (!sameSnapshot(before, await snapshotOf(path)))
           throw new Error(changedSinceReadError(path))
+        beforeContents.set(path, content)
         for (const edit of edits) {
           if (edit.new_string === edit.old_string)
             throw new Error(noOpEditError(relative(context.session.cwd, path)))
@@ -360,10 +392,19 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         updates.push({ path, content, expect: before })
       }
       await mutateFiles(context.session.id, updates, this.backups)
+      let linesAdded = 0
+      let linesRemoved = 0
+      for (const update of updates) {
+        const delta = diffLineCounts(beforeContents.get(update.path) ?? '', update.content)
+        linesAdded += delta.linesAdded
+        linesRemoved += delta.linesRemoved
+      }
       return result(`Edited ${updates.length} file(s)`, {
         durationMs: Date.now() - started,
         bytesWritten: updates.reduce((sum, update) => sum + Buffer.byteLength(update.content), 0),
         filesTouched: updates.map((update) => update.path),
+        linesAdded,
+        linesRemoved,
       })
     } catch (error) {
       return failure(error, started)

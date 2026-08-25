@@ -228,3 +228,65 @@ describe('Edit contract (spec §4.3.2, r13-J3)', () => {
     expect(await readFile(resolve(cwd, 'b.txt'), 'utf8')).toBe('beta beta')
   })
 })
+
+describe('line-change reporting (tool.completed ?linesAdded/?linesRemoved)', () => {
+  it('diffLineCounts: multiset line diff, no inflation on rewrite or reorder', async () => {
+    const { diffLineCounts } = await import('./index')
+    expect(diffLineCounts('', '')).toEqual({ linesAdded: 0, linesRemoved: 0 })
+    expect(diffLineCounts('a\nb\nc', 'a\nb\nc')).toEqual({ linesAdded: 0, linesRemoved: 0 })
+    expect(diffLineCounts('a\nb\nc', 'a\nx\nc')).toEqual({ linesAdded: 1, linesRemoved: 1 })
+    expect(diffLineCounts('a\nb', 'a\nb\nc\nd')).toEqual({ linesAdded: 2, linesRemoved: 0 })
+    // 纯重排不算变更
+    expect(diffLineCounts('a\nb', 'b\na')).toEqual({ linesAdded: 0, linesRemoved: 0 })
+  })
+
+  it('Edit reports replaced line counts in result meta', async () => {
+    const cwd = await fixture()
+    await writeFile(resolve(cwd, 'lines.txt'), 'one\ntwo\nthree\n')
+    const result = await new EditTool().invoke(
+      { path: 'lines.txt', old_string: 'two', new_string: '2\n2.5' },
+      context(cwd),
+    )
+    expect(result.isError).toBeUndefined()
+    // 'two' 移除；'2' 与 '2.5' 新增（多重集行 diff）
+    expect(result.meta?.linesAdded).toBe(2)
+    expect(result.meta?.linesRemoved).toBe(1)
+  })
+
+  it('Write reports full content for new files and diff for overwrites', async () => {
+    const { WriteTool } = await import('./index')
+    const cwd = await fixture()
+    const created = await new WriteTool().invoke(
+      { path: 'new.txt', content: 'a\nb\nc\n' },
+      context(cwd),
+    )
+    expect(created.meta?.linesAdded).toBe(3)
+    expect(created.meta?.linesRemoved).toBe(0)
+    const overwritten = await new WriteTool().invoke(
+      { path: 'new.txt', content: 'a\nx\nc\nd\n' },
+      context(cwd),
+    )
+    expect(overwritten.meta?.linesAdded).toBe(2)
+    expect(overwritten.meta?.linesRemoved).toBe(1)
+  })
+
+  it('MultiEdit sums line counts across files', async () => {
+    const cwd = await fixture()
+    await writeFile(resolve(cwd, 'a.txt'), 'alpha\nshared\n')
+    await writeFile(resolve(cwd, 'b.txt'), 'beta\nshared\n')
+    const result = await new MultiEditTool().invoke(
+      {
+        edits: [
+          { path: 'a.txt', old_string: 'alpha', new_string: 'A1\nA2' },
+          { path: 'b.txt', old_string: 'beta', new_string: 'B1\nB2\nB3' },
+        ],
+      },
+      context(cwd),
+    )
+    expect(result.isError).toBeUndefined()
+    // a.txt: 'alpha'→'A1\nA2'（+2/-1）；b.txt: 'beta'→'B1\nB2\nB3'（+3/-1）
+    expect(result.meta?.linesAdded).toBe(5)
+    expect(result.meta?.linesRemoved).toBe(2)
+    expect(result.meta?.filesTouched).toHaveLength(2)
+  })
+})

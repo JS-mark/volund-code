@@ -30,7 +30,7 @@
 | `tool.requested` | ★`toolUseId` ★`tool` ★`input` | §8.2 样例 |
 | `tool.permission_asked` | ★`toolUseId` ★`tool` ★`spec`（PermissionSpec 摘要） | |
 | `tool.started` | ★`toolUseId` ★`tool` | |
-| `tool.completed` | ★`toolUseId` ★`tool` ★`isError` ?`durationMs` ?`blocked` ?`blockedBy`（`hook`） | hooks(PostToolUse) 触发点 |
+| `tool.completed` | ★`toolUseId` ★`tool` ★`isError` ?`durationMs` ?`linesAdded` ?`linesRemoved` ?`blocked` ?`blockedBy`（`hook`） | hooks(PostToolUse) 触发点；行级变更量供 /status Usage 聚合 |
 | `shell.background_started` | ★`shellId` ★`command` ★`cwd` | r13-G2 新增 |
 | `shell.background_exited` | ★`shellId` ★`exitCode` ?`reason`（`exit` \| `killed` \| `session_ended`） ?`droppedBytes` | r13-G2 新增；droppedBytes = 环形缓冲丢弃量 |
 | `context.compacted` | ★`before` ★`after`（token 数） ?`strategy` ?`removedMessageIds` | |

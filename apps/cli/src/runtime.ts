@@ -1844,6 +1844,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           toolUseId: use.id,
           content: result.content,
           ...(result.isError === undefined ? {} : { isError: result.isError }),
+          ...(result.meta?.linesAdded === undefined ? {} : { linesAdded: result.meta.linesAdded }),
+          ...(result.meta?.linesRemoved === undefined
+            ? {}
+            : { linesRemoved: result.meta.linesRemoved }),
         }
       },
     }

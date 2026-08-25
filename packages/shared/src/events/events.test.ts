@@ -291,6 +291,27 @@ describe('per-event payload schemas', () => {
     ).toBe(false)
   })
 
+  it('tool.completed: optional linesAdded/linesRemoved for file-mutating tools', () => {
+    expect(
+      toolCompletedPayloadSchema.parse({
+        toolUseId: 'tu1',
+        tool: 'Edit',
+        isError: false,
+        durationMs: 12,
+        linesAdded: 5,
+        linesRemoved: 3,
+      }),
+    ).toMatchObject({ linesAdded: 5, linesRemoved: 3 })
+    expect(
+      toolCompletedPayloadSchema.safeParse({
+        toolUseId: 'tu1',
+        tool: 'Edit',
+        isError: false,
+        linesAdded: -1,
+      }).success,
+    ).toBe(false)
+  })
+
   it('shell.background_started / background_exited (r13-G2)', () => {
     expect(
       shellBackgroundStartedPayloadSchema.parse({

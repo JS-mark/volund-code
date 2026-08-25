@@ -23,6 +23,9 @@ export interface ToolExecution {
   content: ContentPart[]
   isError?: boolean
   durationMs?: number
+  /** 附录 D.2 tool.completed ?linesAdded/?linesRemoved：文件改写工具上报的行级变更量。 */
+  linesAdded?: number
+  linesRemoved?: number
 }
 export interface RunnerToolPort {
   schemas(provider: ProviderClient): ToolSchema[]
@@ -438,6 +441,8 @@ export class Runner {
             tool: toolNames.get(result.toolUseId) ?? result.toolName ?? 'unknown',
             isError: result.isError ?? false,
             ...(result.durationMs === undefined ? {} : { durationMs: result.durationMs }),
+            ...(result.linesAdded === undefined ? {} : { linesAdded: result.linesAdded }),
+            ...(result.linesRemoved === undefined ? {} : { linesRemoved: result.linesRemoved }),
           })
           await this.emit('message.appended', turnId, {
             messageId: message.id,
