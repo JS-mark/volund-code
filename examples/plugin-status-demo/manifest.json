@@ -1,0 +1,10 @@
+{
+  "name": "apollo-plugin-status-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "apollo": "^0.1.0" },
+  "permissions": {
+    "apollo": ["ui.status", "session.read", "log.write"]
+  }
+}

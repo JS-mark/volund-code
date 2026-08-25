@@ -90,6 +90,41 @@ export interface PluginUiContribution {
   priority?: number
 }
 
+// ---------------------------------------------------------------------------
+// PLUGIN-STATUS-UI-r1 §S3.2：/status 面板贡献的声明式体例。纯数据契约——
+// 描述符必须 JSON 可序列化，渲染权永远在 K0；插件自渲染是永久 non-goal。
+// ---------------------------------------------------------------------------
+
+export type PluginStatusTabBody =
+  | {
+      kind: 'rows'
+      sections: readonly {
+        title?: string
+        rows: readonly (readonly [string, string | number | boolean])[]
+      }[]
+    }
+  | { kind: 'heatmap'; heatmap: { start: string; days: readonly number[] }; legend?: string }
+  | { kind: 'table'; columns: readonly string[]; rows: readonly (readonly string[])[] }
+
+export interface PluginStatusTabSpec {
+  /** 全局唯一；内核保留 id（settings/status/config/usage/stats）冲突即拒绝。 */
+  id: string
+  /** ≤ 12 字符（TabBar 单格宽度预算）。 */
+  label: string
+  /** 面板打开 / 用户按 r 时由 K0 回调；返回 null = 本次不渲染。 */
+  render(): PluginStatusTabBody | null | Promise<PluginStatusTabBody | null>
+}
+
+export interface PluginStatusSectionSpec {
+  /** 插件内唯一；section 追加到内置 status 页签末尾。 */
+  id: string
+  title: string
+  render():
+    | { rows: readonly (readonly [string, string | number | boolean])[] }
+    | null
+    | Promise<{ rows: readonly (readonly [string, string | number | boolean])[] } | null>
+}
+
 export interface PluginManifest {
   kind?: 'plugin' | 'provider'
   name: `apollo-plugin-${string}`
@@ -252,6 +287,14 @@ export interface ApolloBridge {
     ): Promise<string | null>
     pick<T>(options: readonly T[], settings?: { label: (value: T) => string }): Promise<T | null>
     notify(message: string, level?: 'info' | 'warn' | 'error'): void
+    /**
+     * /status 面板贡献（PLUGIN-STATUS-UI-r1）。需要 manifest
+     * `permissions.apollo` 包含 `'ui.status'`（deny-by-default）。
+     */
+    readonly status: {
+      registerTab(spec: PluginStatusTabSpec): Disposable
+      registerSection(spec: PluginStatusSectionSpec): Disposable
+    }
   }
   readonly storage: {
     get<T = unknown>(key: string): Promise<T | undefined>

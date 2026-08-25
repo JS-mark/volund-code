@@ -98,7 +98,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('sandbox full')
   })
 
-  it('renders and switches all three status tabs at narrow width', async () => {
+  it('renders and switches all five status tabs at narrow width', async () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 42
     const stdin = new MemoryReadStream()
@@ -129,12 +129,173 @@ describe('renderInteractiveApp', () => {
     await panel.waitUntilRenderFlush()
     expect(stdout.output).toContain('> /status')
     expect(stdout.output).toContain('Version')
-    stdin.write('\u001B[C')
+    stdin.write('\u001B[C') // → Config
     await panel.waitUntilRenderFlush()
     expect(stdout.output).toContain('Notifications')
-    stdin.write('\u001B[C')
+    stdin.write('\u001B[C') // → Usage
+    await panel.waitUntilRenderFlush()
+    // 42 列宽下不可用提示会折行，断言折行点之前的前缀
+    expect(stdout.output).toContain('Usage data is not available')
+    stdin.write('\u001B[C') // → Stats
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('No session history found')
+    stdin.write('\u001B[C') // → Settings（环绕）
     await panel.waitUntilRenderFlush()
     expect(stdout.output).toContain('Language')
+    panel.unmount()
+    await panel.waitUntilExit()
+  })
+
+  it('renders the Usage tab with session cost, durations, code changes and tokens', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const panel = render(
+      createElement(StatusPanel, {
+        data: {
+          settings: [],
+          status: [{ label: 'Version', value: '1.0.0' }],
+          config: [],
+          usage: {
+            costUSD: 0.0123,
+            apiDurationMs: 37_000,
+            wallDurationMs: 3 * 3_600_000 + 12 * 60_000,
+            linesAdded: 12,
+            linesRemoved: 4,
+            tokens: { input: 2100, output: 1500, cacheRead: 0, cacheWrite: 300 },
+          },
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[C') // → Config
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[C') // → Usage
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('$0.0123')
+    expect(stdout.output).toContain('37s')
+    expect(stdout.output).toContain('3h 12m')
+    expect(stdout.output).toContain('12 lines added, 4 lines removed')
+    // 80 列下整行会 truncate-end，断言可见前缀
+    expect(stdout.output).toContain('2.1k input, 1.5k output')
+    panel.unmount()
+    await panel.waitUntilExit()
+  })
+
+  it('renders the Stats tab: heatmap, range cycling and the Models subview', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 100
+    const stdin = new MemoryReadStream()
+    const range = (tokens: number, model: string) => ({
+      totalTokens: tokens,
+      sessions: 2,
+      activeDays: 3,
+      rangeDays: 30,
+      favoriteModel: model,
+      mostActiveDay: 'Mar 3',
+      longestSessionMs: 3_600_000,
+      longestStreakDays: 3,
+      currentStreakDays: 1,
+      models: [{ model, tokens, share: 1 }],
+    })
+    const panel = render(
+      createElement(StatusPanel, {
+        data: {
+          settings: [],
+          status: [{ label: 'Version', value: '1.0.0' }],
+          config: [],
+          stats: {
+            heatmap: { start: '2026-08-23', days: [0, 5, 10] },
+            ranges: {
+              all: { ...range(1_100_000_000, 'kimi-k2.5'), rangeDays: 213 },
+              '7d': range(2_000, 'kimi-k2.5'),
+              '30d': range(30_000, 'claude-sonnet-4'),
+            },
+          },
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await panel.waitUntilRenderFlush()
+    // → Config → Usage → Stats（逐次 flush：连发转义序列会被 ink 合并成一次输入）
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Overview')
+    expect(stdout.output).toContain('Less')
+    expect(stdout.output).toContain('More')
+    expect(stdout.output).toContain('All time')
+    expect(stdout.output).toContain('kimi-k2.5')
+    expect(stdout.output).toContain('1.1b')
+    expect(stdout.output).toContain('Anna Karenina')
+    stdin.write('r') // → Last 7 days
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Last 7 days')
+    stdin.write('r')
+    stdin.write('r') // → 回到 All time
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[B') // ↓ → Models 子视图
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('100%')
+    panel.unmount()
+    await panel.waitUntilExit()
+  })
+
+  it('refreshes panel data on mount when the controller provides refresh', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const stale = {
+      settings: [] as const,
+      status: [{ label: 'Version', value: '1.0.0' }],
+      config: [] as const,
+    }
+    const fresh = {
+      ...stale,
+      usage: {
+        costUSD: 1,
+        apiDurationMs: 0,
+        wallDurationMs: 60_000,
+        linesAdded: 0,
+        linesRemoved: 0,
+        tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      },
+    }
+    const refresh = vi.fn(async () => fresh)
+    const panel = render(
+      createElement(StatusPanel, {
+        data: stale,
+        controller: { update: vi.fn(), refresh },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await panel.waitUntilRenderFlush()
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    stdin.write('\u001B[C')
+    await panel.waitUntilRenderFlush()
+    stdin.write('\u001B[C') // → Usage
+    await panel.waitUntilRenderFlush()
+    await vi.waitFor(() => expect(stdout.output).toContain('$1.00'))
     panel.unmount()
     await panel.waitUntilExit()
   })
@@ -1372,92 +1533,173 @@ describe('renderInteractiveApp', () => {
 
     expect(cancelled).toHaveBeenCalledOnce()
   })
-})
 
-function modelPickerFixture() {
-  return {
-    currentModelId: 'anthropic/sonnet',
-    models: [
-      {
-        id: 'anthropic/sonnet',
-        provider: 'anthropic',
-        model: 'sonnet',
-        label: 'Sonnet',
-        description: 'Current',
-      },
-      {
-        id: 'anthropic/opus',
-        provider: 'anthropic',
-        model: 'opus',
-        label: 'Opus',
-        description: 'Unavailable',
-        disabled: true,
-      },
-      {
-        id: 'openai/gpt-5',
-        provider: 'openai',
-        model: 'gpt-5',
-        label: 'GPT-5',
-        description: 'Available fallback',
-      },
-    ],
-  }
-}
-
-function twoModelPickerFixture() {
-  return {
-    currentModelId: 'anthropic/sonnet',
-    models: [
-      {
-        id: 'anthropic/sonnet',
-        provider: 'anthropic',
-        model: 'sonnet',
-        label: 'Sonnet',
-        description: 'Current',
-      },
-      {
-        id: 'anthropic/opus',
-        provider: 'anthropic',
-        model: 'opus',
-        label: 'Opus',
-        description: 'Unavailable',
-        disabled: true,
-      },
-    ],
-  }
-}
-
-function welcomeFixture(): WelcomePanelData {
-  return {
-    version: '0.0.0-test',
-    sessionId: 'session-1234567890',
-    cwd: '/repo',
-    model: {
-      status: 'unknown',
-      reason: { code: 'runtime_resolved', message: 'runtime resolved' },
-    },
-    sandbox: {
-      status: 'available',
-      tier: 'partial',
-      mechanism: 'apollo-sandbox',
-      filesystem: 'isolated',
-      network: 'unavailable',
-    },
-    permission: { mode: 'ask', dangerous: false, source: 'default' },
-    config: {
-      effectiveSources: ['defaults', 'user'],
-      user: { status: 'available', path: 'user config', trusted: true },
-      project: { status: 'disabled' },
-    },
-    mcp: {
-      status: 'available',
-      connected: 1,
-      total: 2,
-      servers: [
-        { name: 'git', status: 'connected' },
-        { name: 'docs', status: 'failed' },
+  function modelPickerFixture() {
+    return {
+      currentModelId: 'anthropic/sonnet',
+      models: [
+        {
+          id: 'anthropic/sonnet',
+          provider: 'anthropic',
+          model: 'sonnet',
+          label: 'Sonnet',
+          description: 'Current',
+        },
+        {
+          id: 'anthropic/opus',
+          provider: 'anthropic',
+          model: 'opus',
+          label: 'Opus',
+          description: 'Unavailable',
+          disabled: true,
+        },
+        {
+          id: 'openai/gpt-5',
+          provider: 'openai',
+          model: 'gpt-5',
+          label: 'GPT-5',
+          description: 'Available fallback',
+        },
       ],
-    },
-    history: { status: 'available', path: 'history', entries: 0, maxEntries: 1000 },
+    }
   }
-}
+
+  function twoModelPickerFixture() {
+    return {
+      currentModelId: 'anthropic/sonnet',
+      models: [
+        {
+          id: 'anthropic/sonnet',
+          provider: 'anthropic',
+          model: 'sonnet',
+          label: 'Sonnet',
+          description: 'Current',
+        },
+        {
+          id: 'anthropic/opus',
+          provider: 'anthropic',
+          model: 'opus',
+          label: 'Opus',
+          description: 'Unavailable',
+          disabled: true,
+        },
+      ],
+    }
+  }
+
+  function welcomeFixture(): WelcomePanelData {
+    return {
+      version: '0.0.0-test',
+      sessionId: 'session-1234567890',
+      cwd: '/repo',
+      model: {
+        status: 'unknown',
+        reason: { code: 'runtime_resolved', message: 'runtime resolved' },
+      },
+      sandbox: {
+        status: 'available',
+        tier: 'partial',
+        mechanism: 'apollo-sandbox',
+        filesystem: 'isolated',
+        network: 'unavailable',
+      },
+      permission: { mode: 'ask', dangerous: false, source: 'default' },
+      config: {
+        effectiveSources: ['defaults', 'user'],
+        user: { status: 'available', path: 'user config', trusted: true },
+        project: { status: 'disabled' },
+      },
+      mcp: {
+        status: 'available',
+        connected: 1,
+        total: 2,
+        servers: [
+          { name: 'git', status: 'connected' },
+          { name: 'docs', status: 'failed' },
+        ],
+      },
+      history: { status: 'available', path: 'history', entries: 0, maxEntries: 1000 },
+    }
+  }
+
+  it('renders plugin-contributed contract tabs (rows/table/heatmap) and error placeholders', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 100
+    const stdin = new MemoryReadStream()
+    const panel = render(
+      createElement(StatusPanel, {
+        data: {
+          settings: [],
+          status: [{ label: 'Version', value: '1.0.0' }],
+          config: [],
+          pluginTabs: [
+            {
+              schemaVersion: 1,
+              id: 'demo-rows',
+              label: 'Test',
+              body: {
+                kind: 'rows',
+                sections: [{ title: 'Demo section', rows: [['Engine', 'kimi-k2.5']] }],
+              },
+            },
+            {
+              schemaVersion: 1,
+              id: 'demo-table',
+              label: 'Grid',
+              body: { kind: 'table', columns: ['Day', 'Events'], rows: [['2026-08-25', '7']] },
+            },
+            {
+              schemaVersion: 1,
+              id: 'demo-heat',
+              label: 'Pulse',
+              body: {
+                kind: 'heatmap',
+                heatmap: { start: '2026-08-23', days: [1, 2, 3] },
+              },
+            },
+            // 凭据模式命中 → 降级为 section error 占位
+            {
+              schemaVersion: 1,
+              id: 'demo-leak',
+              label: 'Leak',
+              body: {
+                kind: 'rows',
+                sections: [{ rows: [['note', 'api_key = sk-live']] }],
+              },
+            },
+          ],
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await panel.waitUntilRenderFlush()
+    // 页签栏出现全部四个插件页签
+    for (const label of ['Test', 'Grid', 'Pulse', 'Leak']) expect(stdout.output).toContain(label)
+    // → Config → Usage → Stats → Test
+    for (let i = 0; i < 4; i += 1) {
+      stdin.write('\u001B[C')
+      await panel.waitUntilRenderFlush()
+    }
+    expect(stdout.output).toContain('Demo section')
+    expect(stdout.output).toContain('kimi-k2.5')
+    stdin.write('\u001B[C') // → Grid
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Events')
+    expect(stdout.output).toContain('2026-08-25')
+    stdin.write('\u001B[C') // → Pulse
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Less')
+    stdin.write('\u001B[C') // → Leak（降级行）
+    await panel.waitUntilRenderFlush()
+    expect(stdout.output).toContain('section error: Leak')
+    expect(stdout.output).not.toContain('sk-live')
+    panel.unmount()
+    await panel.waitUntilExit()
+  })
+})

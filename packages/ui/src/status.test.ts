@@ -212,3 +212,160 @@ function minimalView(overrides: Partial<StatusViewModel> = {}): StatusViewModel 
     ...overrides,
   }
 }
+
+describe('status usage/stats formatting helpers', () => {
+  it('formatCompactCount compacts with k/m/b and trims trailing .0', async () => {
+    const { formatCompactCount } = await import('./status')
+    expect(formatCompactCount(0)).toBe('0')
+    expect(formatCompactCount(999)).toBe('999')
+    expect(formatCompactCount(2100)).toBe('2.1k')
+    expect(formatCompactCount(2000)).toBe('2k')
+    expect(formatCompactCount(1_100_000)).toBe('1.1m')
+    expect(formatCompactCount(1_100_000_000)).toBe('1.1b')
+    expect(formatCompactCount(250_000_000)).toBe('250m')
+  })
+
+  it('formatDurationMs picks the largest two units', async () => {
+    const { formatDurationMs } = await import('./status')
+    expect(formatDurationMs(0)).toBe('0s')
+    expect(formatDurationMs(37_000)).toBe('37s')
+    expect(formatDurationMs(3 * 60_000 + 12_000)).toBe('3m 12s')
+    expect(formatDurationMs(18 * 3_600_000 + 5 * 60_000)).toBe('18h 5m')
+    expect(formatDurationMs((13 * 24 + 18) * 3_600_000 + 5 * 60_000)).toBe('13d 18h 5m')
+  })
+
+  it('formatCostUSD keeps four decimals under one dollar', async () => {
+    const { formatCostUSD } = await import('./status')
+    expect(formatCostUSD(0)).toBe('$0.0000')
+    expect(formatCostUSD(0.0123)).toBe('$0.0123')
+    expect(formatCostUSD(42.5)).toBe('$42.50')
+  })
+
+  it('heatmapLevel buckets by quartile of the max day', async () => {
+    const { heatmapLevel } = await import('./status')
+    expect(heatmapLevel(0, 100)).toBe(0)
+    expect(heatmapLevel(5, 100)).toBe(1)
+    expect(heatmapLevel(25, 100)).toBe(1)
+    expect(heatmapLevel(50, 100)).toBe(2)
+    expect(heatmapLevel(75, 100)).toBe(3)
+    expect(heatmapLevel(100, 100)).toBe(4)
+    expect(heatmapLevel(3, 0)).toBe(0)
+  })
+
+  it('formatShortDay renders YYYY-MM-DD as a short month label', async () => {
+    const { formatShortDay } = await import('./status')
+    expect(formatShortDay('2026-03-03')).toBe('Mar 3')
+    expect(formatShortDay('2026-12-31')).toBe('Dec 31')
+    expect(formatShortDay('bogus')).toBe('bogus')
+  })
+
+  it('annaKareninaLine only appears once total tokens pass one novel', async () => {
+    const { annaKareninaLine, ANNA_KARENINA_TOKENS } = await import('./status')
+    expect(annaKareninaLine(ANNA_KARENINA_TOKENS - 1)).toBeUndefined()
+    expect(annaKareninaLine(ANNA_KARENINA_TOKENS)).toContain('~1x')
+    expect(annaKareninaLine(ANNA_KARENINA_TOKENS * 2311)).toBe(
+      "You've used ~2311x more tokens than Anna Karenina",
+    )
+  })
+})
+
+describe('sanitizePluginTabs (PLUGIN-STATUS-UI-r1 §S3.3)', () => {
+  const rowsTab = (id: string, label: string, rows: [string, string | number | boolean][]) => ({
+    schemaVersion: 1 as const,
+    id,
+    label,
+    body: { kind: 'rows' as const, sections: [{ title: 'S', rows }] },
+  })
+
+  it('passes a clean rows tab through, stripping control characters', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const [tab] = sanitizePluginTabs([
+      rowsTab('demo', 'Demo', [
+        ['engine', 'kimi\u001B[31m-x'],
+        ['events', 42],
+      ]),
+    ])
+    expect(tab && 'error' in tab).toBe(false)
+    if (tab && !('error' in tab) && tab.body.kind === 'rows') {
+      expect(tab.body.sections[0]?.rows).toEqual([
+        ['engine', 'kimi-x'],
+        ['events', '42'],
+      ])
+    }
+  })
+
+  it('rejects reserved and duplicate ids with an error placeholder', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const tabs = sanitizePluginTabs([
+      rowsTab('status', 'Mine', [['a', 'b']]),
+      rowsTab('demo', 'One', [['a', 'b']]),
+      rowsTab('demo', 'Two', [['a', 'b']]),
+    ])
+    expect(tabs.map((tab) => ('error' in tab ? `error:${tab.id}` : tab.id))).toEqual([
+      'error:status',
+      'demo',
+      'error:demo',
+    ])
+  })
+
+  it('rejects the whole descriptor when any value hits the credential pattern', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const [tab] = sanitizePluginTabs([rowsTab('demo', 'Demo', [['note', 'api_key = sk-1']])])
+    expect(tab && 'error' in tab).toBe(true)
+  })
+
+  it('truncates oversized sections and marks the truncation', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const rows: [string, string][] = Array.from({ length: 25 }, (_, i) => [`k${i}`, `v${i}`])
+    const [tab] = sanitizePluginTabs([rowsTab('demo', 'Demo', rows)])
+    if (tab && !('error' in tab) && tab.body.kind === 'rows') {
+      const out = tab.body.sections[0]!.rows
+      expect(out).toHaveLength(20)
+      expect(out[19]![1]).toContain('… (truncated)')
+    } else {
+      throw new Error('expected rows tab')
+    }
+  })
+
+  it('validates heatmap start and coerces day counts', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const [bad] = sanitizePluginTabs([
+      { id: 'h1', label: 'Pulse', body: { kind: 'heatmap', heatmap: { start: 'Aug', days: [] } } },
+    ])
+    expect(bad && 'error' in bad).toBe(true)
+    const [good] = sanitizePluginTabs([
+      {
+        id: 'h2',
+        label: 'Pulse',
+        body: { kind: 'heatmap', heatmap: { start: '2026-08-23', days: [1, -2, 3.7, Number.NaN] } },
+      },
+    ])
+    if (good && !('error' in good) && good.body.kind === 'heatmap') {
+      expect(good.body.heatmap.days).toEqual([1, 0, 3, 0])
+    } else {
+      throw new Error('expected heatmap tab')
+    }
+  })
+
+  it('caps tables at 4 columns and 20 rows', async () => {
+    const { sanitizePluginTabs } = await import('./status')
+    const [tab] = sanitizePluginTabs([
+      {
+        id: 't1',
+        label: 'Grid',
+        body: {
+          kind: 'table',
+          columns: ['a', 'b', 'c', 'd', 'e'],
+          rows: Array.from({ length: 25 }, (_, i) => [`r${i}`, '1', '2', '3', '4']),
+        },
+      },
+    ])
+    if (tab && !('error' in tab) && tab.body.kind === 'table') {
+      expect(tab.body.columns).toEqual(['a', 'b', 'c', 'd'])
+      expect(tab.body.rows).toHaveLength(20)
+      expect(tab.body.rows[0]).toEqual(['r0', '1', '2', '3'])
+    } else {
+      throw new Error('expected table tab')
+    }
+  })
+})

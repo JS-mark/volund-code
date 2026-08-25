@@ -140,6 +140,20 @@ export interface PluginPort {
     compatibility: PluginCompatibilityDiagnostic
   }>
 }
+/**
+ * PLUGIN-STATUS-UI-r1 dev 装载端口：约定目录 ~/.apollo/plugins-dev/<name>/ 自动发现 +
+ * APOLLO_DEV_PLUGINS 额外路径，经沙箱宿主（apollo-sandbox --run-plugin）激活；
+ * 与冻结中的 legacy Catalog 安装路径（~/.apollo/plugins）完全隔离。
+ * 生产 Catalog 路径重开后此端口退役。
+ */
+export interface PluginDevPort {
+  activateLocal(dir: string): Promise<{ name: string; statusTabs: number }>
+  loadDevPlugins(extraDirs?: readonly string[]): Promise<{
+    loaded: { name: string; statusTabs: number }[]
+    failed: { dir: string; error: string }[]
+  }>
+  deactivateAll(): Promise<void>
+}
 export interface PluginCompatibilityDiagnostic {
   status: 'compatible' | 'incompatible' | 'invalid'
   detail: string
@@ -179,7 +193,15 @@ export interface ApolloPorts {
      * process.env。进入 agent 会话路径前调用一次；类型错按 C.1 抛 config_invalid。
      */
     applyEnv?(): Promise<void>
-    status?(input: { cwd: string; sessionId?: string }): Promise<StatusPanelData>
+    /**
+     * includeStats：/status 面板打开时（refresh）才传 true——stats 需要全量扫描
+     * sessions 目录，REPL 启动快照不付这个成本。usage（当前会话）始终附带。
+     */
+    status?(input: {
+      cwd: string
+      sessionId?: string
+      includeStats?: boolean
+    }): Promise<StatusPanelData>
     updatePreference?(
       id: string,
       value: StatusValue,
@@ -211,6 +233,7 @@ export interface ApolloPorts {
   memoryTransfer?: MemoryTransferService
   mcp?: McpPort
   plugin?: PluginPort
+  pluginDev?: PluginDevPort
   ui?: UiPort
 }
 export function unavailablePorts(): ApolloPorts {

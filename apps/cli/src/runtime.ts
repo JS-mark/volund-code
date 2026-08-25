@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   realpath,
   rename,
   writeFile,
@@ -14,7 +15,7 @@ import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
@@ -47,8 +48,10 @@ import {
   LEGACY_PLUGIN_UNAVAILABLE,
   PluginError,
   PluginManager,
+  activateLocalPlugin,
   satisfies,
 } from '@apollo-code/plugin-runtime'
+import type { ActivatedLocalPlugin, StatusTabContribution } from '@apollo-code/plugin-runtime'
 import type { HookPipelineSignal } from '@apollo-code/plugin-runtime'
 import type { PluginMemoryScope } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
@@ -106,6 +109,7 @@ import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
   SandboxDisclosure,
+  PluginStatusTab,
   StatusSetting,
   StatusSource,
   StatusViewModel,
@@ -117,6 +121,12 @@ import type {
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
+import {
+  buildStatsData,
+  buildUsageData,
+  scanSessionFile,
+  scanSessionsDir,
+} from './commands/status/stats'
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import type {
@@ -746,7 +756,8 @@ function serializeHistory(records: readonly { at: string; input: string }[]): st
   return records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : '')
 }
 
-function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {  // §4.6 强制路由：provider.anthropic.baseUrl 可能指向 http:// 网关（本地代理/自建网关，
+function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {
+  // §4.6 强制路由：provider.anthropic.baseUrl 可能指向 http:// 网关（本地代理/自建网关，
   // 见 851f62e），按协议在 node:http / node:https 间分流，与 web-fetch.ts 范式一致。
   const transport = url.protocol === 'https:' ? httpsRequest : httpRequest
   return new Promise((resolve, reject) => {
@@ -767,12 +778,8 @@ function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {  //
   })
 }
 
-const {
-  HTTP2_HEADER_METHOD,
-  HTTP2_HEADER_PATH,
-  HTTP2_HEADER_STATUS,
-  NGHTTP2_CANCEL,
-} = http2Constants
+const { HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, NGHTTP2_CANCEL } =
+  http2Constants
 
 // https:// 走 HTTP/2：企业网关（AWS ALB + APISIX）对 HTTP/1.1 的 SSE 整批缓冲、
 // 对 HTTP/2 逐帧下发（实测同请求 h1 单 blob vs h2 渐进 2s+），h1 下 TUI 无流式效果。
@@ -860,7 +867,7 @@ async function promptLine(question: string): Promise<string> {
   return (await promptLineMaybe(question)) ?? ''
 }
 function isInteractiveTerminal(): boolean {
-  return (stdin.isTTY && stdout.isTTY)
+  return stdin.isTTY && stdout.isTTY
 }
 async function promptLineMaybe(question: string): Promise<string | undefined> {
   if (!isInteractiveTerminal()) return undefined
@@ -1581,6 +1588,90 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
   const pluginsReady = plugins.init()
   void pluginsReady.catch(() => undefined)
+  // PLUGIN-STATUS-UI-r1 插件路径（dev 装载，APOLLO_DEV_PLUGINS 门控）：本地插件经
+  // apollo-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
+  // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
+  // 与冻结中的 legacy Catalog 安装路径（LEGACY_PLUGIN_UNAVAILABLE）无关。
+  const devPluginTabs: StatusTabContribution[] = []
+  const devPluginHandles: ActivatedLocalPlugin[] = []
+  // 插件 render 回调里 apollo.session.getUsage() 读到的值：最近一次 /status 组装的
+  // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
+  let lastSessionUsage: StatusPanelData['usage']
+  const devPluginHub = {
+    get tabs(): readonly StatusTabContribution[] {
+      return devPluginTabs
+    },
+    onUsage(usage: StatusPanelData['usage']): void {
+      lastSessionUsage = usage
+    },
+  }
+  // dev 插件装载端口（PLUGIN-STATUS-UI-r1）：正式约定目录 ~/.apollo/plugins-dev/<name>/
+  // 自动发现（含 manifest.json 的子目录才激活，单个失败不阻塞启动）；
+  // APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的额外路径。
+  // 数据目录在 ~/.apollo/plugins-dev-data/<name>/，与插件代码目录分离（沙箱内代码只读）。
+  // 与冻结中的 legacy Catalog 安装路径（~/.apollo/plugins）完全隔离。
+  const pluginDev = {
+    async activateLocal(dir: string) {
+      const activated = await activateLocalPlugin({
+        dir: resolve(dir),
+        apolloVersion: options.identity.version,
+        dataDirRoot: join(home, 'plugins-dev-data'),
+        services: {
+          log: (level, message) => void telemetry.emit('plugin.log', 'plugin', { level, message }),
+          getSessionUsage: () =>
+            lastSessionUsage
+              ? {
+                  inputTokens: lastSessionUsage.tokens.input,
+                  outputTokens: lastSessionUsage.tokens.output,
+                  cost: lastSessionUsage.costUSD,
+                }
+              : null,
+        },
+      })
+      devPluginHandles.push(activated)
+      devPluginTabs.push(...activated.statusTabs)
+      return { name: activated.manifest.name, statusTabs: activated.statusTabs.length }
+    },
+    async loadDevPlugins(extraDirs: readonly string[] = []) {
+      const loaded: { name: string; statusTabs: number }[] = []
+      const failed: { dir: string; error: string }[] = []
+      const candidates: string[] = []
+      // 约定目录：plugins-dev 下每个含 manifest.json 的子目录
+      try {
+        for (const entry of await readdir(join(home, 'plugins-dev'), { withFileTypes: true }))
+          if (entry.isDirectory() || entry.isSymbolicLink())
+            candidates.push(join(home, 'plugins-dev', entry.name))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      candidates.push(...extraDirs)
+      for (const candidate of candidates) {
+        try {
+          await access(join(candidate, 'manifest.json'))
+        } catch {
+          continue // 无 manifest 的目录不视为插件
+        }
+        try {
+          loaded.push(await this.activateLocal(candidate))
+        } catch (error) {
+          failed.push({
+            dir: candidate,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          void telemetry.emit('plugin.dev_load_failed', 'plugin', {
+            dir: basename(candidate),
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      return { loaded, failed }
+    },
+    async deactivateAll() {
+      await Promise.allSettled(devPluginHandles.map((handle) => handle.deactivate()))
+      devPluginHandles.length = 0
+      devPluginTabs.length = 0
+    },
+  }
   let memory: MemoryService
   let memoryRecall: DefaultMemoryRecallService
   let memoryTransfer: MemoryTransferService
@@ -2041,6 +2132,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
     },
+    pluginDev,
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
       summary: () => telemetryStore.summary(),
@@ -2153,10 +2245,15 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
       async status(input) {
-        return runtimeStatusData(home, options, input)
+        return runtimeStatusData(home, options, input, devPluginHub)
       },
       async updatePreference(id, value, input) {
-        const data = await runtimeStatusData(home, options, input)
+        const data = await runtimeStatusData(
+          home,
+          options,
+          { ...input, includeStats: true },
+          devPluginHub,
+        )
         const item = data.config.find((candidate) => candidate.id === id)
         if (!item) throw new Error(`Unknown configuration item: ${id}`)
         validateStatusConfigValue(item, value)
@@ -2177,7 +2274,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         const temporary = `${path}.${process.pid}.tmp`
         await writeFile(temporary, serializeConfig(config), { encoding: 'utf8', mode: 0o600 })
         await rename(temporary, path)
-        return runtimeStatusData(home, options, input)
+        return runtimeStatusData(home, options, { ...input, includeStats: true }, devPluginHub)
       },
     },
     native: {
@@ -2239,7 +2336,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
 async function runtimeStatusData(
   home: string,
   options: ProductionOptions,
-  input: { cwd: string; sessionId?: string },
+  input: { cwd: string; sessionId?: string; includeStats?: boolean },
+  devPlugin?: {
+    tabs: readonly StatusTabContribution[]
+    onUsage?: (usage: StatusPanelData['usage']) => void
+  },
 ): Promise<StatusPanelData> {
   let config: Record<string, JsonValue> = {}
   try {
@@ -2313,6 +2414,53 @@ async function runtimeStatusData(
     editable: false,
     readonlyReason: 'Security state cannot be changed here',
   })
+  // Usage（当前会话）与 Stats（全历史）从 sessions 事件日志聚合；
+  // 扫描失败只意味着页签显示不可用，绝不让 /status 本身失败。
+  const sessionsDir = join(home, 'sessions')
+  let usage: StatusPanelData['usage']
+  let sessionScan: Awaited<ReturnType<typeof scanSessionFile>> | undefined
+  if (input.sessionId && sessionIdPattern.test(input.sessionId)) {
+    try {
+      sessionScan = await scanSessionFile(
+        join(sessionsDir, `${input.sessionId}.jsonl`),
+        input.sessionId,
+      )
+      usage = buildUsageData(sessionScan, Date.now())
+    } catch {
+      usage = undefined
+    }
+  }
+  let stats: StatusPanelData['stats']
+  if (input.includeStats) {
+    try {
+      stats = buildStatsData(await scanSessionsDir(sessionsDir), Date.now())
+    } catch {
+      stats = undefined
+    }
+  }
+  // PLUGIN-STATUS-UI-r1：插件页签的 render 在此经桥回调取值（面板打开 / 刷新时）。
+  // render 失败 → error 占位行（§S3.4 降级语义）；返回 null → 本次不渲染。
+  let pluginTabs: StatusPanelData['pluginTabs']
+  if (devPlugin && devPlugin.tabs.length > 0) {
+    devPlugin.onUsage?.(usage)
+    const rendered = await Promise.all(
+      devPlugin.tabs.map(async (tab) => {
+        try {
+          const body = await tab.render()
+          if (!body || typeof body !== 'object') return null
+          return {
+            schemaVersion: 1 as const,
+            id: tab.id,
+            label: tab.label,
+            body: body as PluginStatusTab['body'],
+          }
+        } catch {
+          return { id: tab.id, label: tab.label, error: true as const }
+        }
+      }),
+    )
+    pluginTabs = rendered.filter((tab): tab is NonNullable<typeof tab> => tab !== null)
+  }
   return {
     settings: [
       { label: 'Language', value: String(preferences.language ?? 'system') },
@@ -2349,6 +2497,9 @@ async function runtimeStatusData(
       readonly('filesystemPermissions', 'Filesystem permissions', 'read-only'),
       readonly('externalAccounts', 'External account connections', 'not available'),
     ],
+    ...(usage ? { usage } : {}),
+    ...(stats ? { stats } : {}),
+    ...(pluginTabs ? { pluginTabs } : {}),
   }
 }
 

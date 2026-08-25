@@ -651,6 +651,17 @@ export async function runCli(
       const interactive = resumeSelection
         ? await ports.session.resumeInteractive!(resumeSelection.id)
         : await ports.session.startInteractive!({ cwd })
+      // PLUGIN-STATUS-UI-r1 dev 装载：自动发现 ~/.apollo/plugins-dev/<name>/，
+      // 外加 APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 的仓库内开发路径。单个失败不阻塞 REPL。
+      if (ports.pluginDev) {
+        const extraDirs = (process.env.APOLLO_DEV_PLUGINS ?? '')
+          .split(',')
+          .map((dir) => dir.trim())
+          .filter(Boolean)
+        const { failed } = await ports.pluginDev.loadDevPlugins(extraDirs)
+        for (const failure of failed)
+          stderr += `Dev plugin ${failure.dir} failed to activate: ${failure.error}\n`
+      }
       const permissions = new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
@@ -704,9 +715,7 @@ export async function runCli(
           : {}),
         noColor,
         onExit: interactive.end,
-        ...(interactive.interrupt
-          ? { onInterrupt: () => interactive.interrupt!() }
-          : {}),
+        ...(interactive.interrupt ? { onInterrupt: () => interactive.interrupt!() } : {}),
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(effectiveModelId, configuredModel),
         permissions,
@@ -726,9 +735,7 @@ export async function runCli(
                     events: resumed.events,
                     id: resumed.id,
                     onExit: resumed.end,
-                    ...(resumed.interrupt
-                      ? { onInterrupt: () => resumed.interrupt!() }
-                      : {}),
+                    ...(resumed.interrupt ? { onInterrupt: () => resumed.interrupt!() } : {}),
                     onSubmit: resumed.submit,
                     ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
                   }
@@ -745,6 +752,17 @@ export async function runCli(
               statusPanelController: {
                 update: (id: string, value: import('@apollo-code/ui').StatusValue) =>
                   ports.config.updatePreference!(id, value, { cwd, sessionId: interactive.id }),
+                // /status 打开时刷新：Usage/Stats 显示打开时刻的用量而不是启动快照。
+                ...(ports.config.status
+                  ? {
+                      refresh: () =>
+                        ports.config.status!({
+                          cwd,
+                          sessionId: interactive.id,
+                          includeStats: true,
+                        }),
+                    }
+                  : {}),
               },
             }
           : {}),

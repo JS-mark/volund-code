@@ -239,6 +239,8 @@ export interface ApolloBridge {
 
 #### 6.4.1a 受控 agent dispatch / 后台 job / 状态面板贡献（v1 扩展，L4）
 
+> `ui.status` 状态面板贡献的完整契约（含 tab 级页签、sanitize 规则、落地门禁）已由 [PLUGIN-STATUS-UI-r1](./PLUGIN-STATUS-UI-r1.md) 收回并取代本节的草拟段落。
+
 三个新 bridge 命名空间，为 §21 动态反思等"需要一次受控模型推理 / 长任务 / 状态展示"的插件补全 surface。共同原则：**插件永远只声明意图，K0 保留执行权**——预算求交、调度时机、模型路由、渲染边界全部在 K0 侧强制（§19.1.1 各 surface 的内核保留职责不变）。
 
 ```ts

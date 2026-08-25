@@ -411,6 +411,9 @@ export function sandboxProfile(
   const homebrew = /^(.+)\/Cellar\/node\//.exec(process.execPath)?.[1]
   if (process.platform === 'darwin' && homebrew)
     runtimeRoots.push(join(homebrew, 'Cellar'), join(homebrew, 'etc', 'openssl@3'))
+  // darwin 上 Node 启动必读系统 OpenSSL 配置（nvm/官方 pkg 布局都会读）；
+  // 沙箱 profile 必须放行，否则插件宿主进程起不来。
+  if (process.platform === 'darwin') runtimeRoots.push('/System/Library/OpenSSL')
   return {
     fs: {
       read: [
@@ -774,7 +777,7 @@ export class BufferedProviderStream {
   }
 }
 
-const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
+export const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
   'tools.register': 'tools.register',
   'tools.unregister': 'tools.register',
   'hooks.on': 'hooks.on',
@@ -787,6 +790,8 @@ const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
   'prompt.contribute': 'prompt.contribute',
   'prompt.revoke': 'prompt.contribute',
   'session.read': 'session.read',
+  'session.getUsage': 'session.read',
+  'session.getMessages': 'session.read',
   'session.on': 'session.read',
   'fs.readFile': 'fs.read',
   'fs.exists': 'fs.read',
@@ -799,6 +804,8 @@ const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
   'ui.prompt': 'ui.prompt',
   'ui.pick': 'ui.pick',
   'ui.notify': 'ui.notify',
+  'ui.status.registerTab': 'ui.status',
+  'ui.status.registerSection': 'ui.status',
   'storage.get': 'storage.read',
   'storage.set': 'storage.write',
   'storage.delete': 'storage.write',
@@ -811,6 +818,10 @@ const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freeze({
   'memory.export': 'memory.export',
   'config.get': 'config.read',
   'log.write': 'log.write',
+  'log.debug': 'log.write',
+  'log.info': 'log.write',
+  'log.warn': 'log.write',
+  'log.error': 'log.write',
 })
 
 export interface BridgeSessionSnapshot {
@@ -821,7 +832,11 @@ export interface BridgeSessionSnapshot {
 }
 export interface BridgeHost {
   readonly session: BridgeSessionSnapshot
-  register(kind: 'tool' | 'command' | 'prompt' | 'ui', value: unknown, plugin: string): Disposable
+  register(
+    kind: 'tool' | 'command' | 'prompt' | 'ui' | 'statusTab' | 'statusSection',
+    value: unknown,
+    plugin: string,
+  ): Disposable
   fs: {
     readFile(path: string, encoding?: string): Promise<string | Uint8Array>
     writeFile(path: string, data: string | Uint8Array): Promise<void>
@@ -1246,7 +1261,11 @@ export class BridgeRuntime {
       this.#disposables.set(manifest.name, set)
       return disposable
     }
-    const register = (kind: 'tool' | 'command' | 'prompt', value: unknown, method: string) => {
+    const register = (
+      kind: 'tool' | 'command' | 'prompt' | 'statusTab' | 'statusSection',
+      value: unknown,
+      method: string,
+    ) => {
       check(method)
       return track(this.host.register(kind, value, manifest.name))
     }
@@ -1423,6 +1442,12 @@ export class BridgeRuntime {
         notify: (message, level) => {
           check('ui.notify')
           this.host.ui('notify', { message, level })
+        },
+        // PLUGIN-STATUS-UI-r1：/status 页签/section 贡献。spec 里的 render 函数
+        // 不跨 host.register 序列化——宿主实现自行决定如何持有/调用它。
+        status: {
+          registerTab: (spec) => register('statusTab', spec, 'ui.status.registerTab'),
+          registerSection: (spec) => register('statusSection', spec, 'ui.status.registerSection'),
         },
       },
       storage: {
@@ -1852,3 +1877,6 @@ export function createToolHookDispatcher(
     })
   }
 }
+
+export * from './bridge-server'
+export * from './local-plugin'
