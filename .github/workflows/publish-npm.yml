@@ -1,0 +1,74 @@
+name: Publish npm binary packages
+
+# 手动触发（L2 门禁：不发布自动化，见 docs/releases/L2-RELEASE-CHECKLIST.md）。
+# 输入一个已带 GitHub Release 资产的 v* tag：本流程把 Release 里的 sidecar
+# 二进制（校验 sha256 后）与 bun 单文件 CLI 重新组装成 7 个平台包 + 薄壳 meta
+# 包，带 provenance 发到 npm。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已发布 GitHub Release 的 tag（如 v0.2.0）'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm --provenance（§9.5 供应链 S2）
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.6'
+      - name: Require npm token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -z "$NODE_AUTH_TOKEN" ]]; then
+            echo 'NPM_TOKEN secret is not configured; cannot publish.' >&2
+            exit 1
+          fi
+      - name: Tag must match apps/cli version
+        run: |
+          package_version=$(node -p "require('./apps/cli/package.json').version")
+          if [[ "v$package_version" != '${{ inputs.tag }}' ]]; then
+            echo "tag ${{ inputs.tag }} does not match apps/cli version $package_version" >&2
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build --filter=apollo-code...
+      - name: Download and verify native sidecar assets from the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download '${{ inputs.tag }}' --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets --clobber \
+            --pattern 'apollo-sandbox-*' --pattern 'apollo-search-*' --pattern 'apollo-fs-*' \
+            --pattern 'checksums.sha256'
+          (cd release-assets && sha256sum -c checksums.sha256 --ignore-missing)
+      # 产出 7 个 target（win32-arm64-msvc 无 bun 目标自动跳过）+ npm staging。
+      - run: node scripts/build-all-standalone.mjs release-assets
+      - run: node scripts/pack-standalone-npm.mjs
+      - name: Publish platform packages, then the meta shell
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for dir in dist/npm/apollo-code-*/; do
+            npm publish "$dir" --provenance --access public
+          done
+          npm publish dist/npm/apollo-code --provenance --access public

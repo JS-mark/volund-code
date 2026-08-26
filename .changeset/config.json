@@ -6,6 +6,9 @@
   "fixed": [],
   "ignore": ["@apollo-code/docs", "@apollo-code/provider-contract-tests"],
   "linked": [],
-  "privatePackages": { "version": false, "tag": false },
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
   "updateInternalDependencies": "patch"
 }

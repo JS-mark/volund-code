@@ -16,7 +16,7 @@ nativeProbes.registerSources({
   },
 })
 
-export { resolveBinary, resolveBinaryDetailed } from './resolver'
+export { resolveBinary, resolveBinaryDetailed, standaloneArtifactDir } from './resolver'
 export type { BinaryKind, NativeResolution } from './resolver'
 export { execSandbox, probeSandbox, startPluginHost } from './sandbox'
 export { computeDiff, countTokens, readLarge } from './fs'

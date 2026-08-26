@@ -110,6 +110,9 @@ importers:
       '@apollo-code/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@apollo-code/mcp-client':
+        specifier: workspace:*
+        version: link:../../packages/mcp-client
       '@apollo-code/native-bridge':
         specifier: workspace:*
         version: link:../../packages/native-bridge

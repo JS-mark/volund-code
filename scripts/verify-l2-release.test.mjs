@@ -63,3 +63,30 @@ void test('release automation versions through Changesets without bypassing exte
   assert.match(checklist, /Apple notarization.*BLOCKED/i)
   assert.doesNotMatch(checklist, /Production Authenticode[^\n]*PASS/i)
 })
+
+void test('npm binary publish stays manual, provenance-signed, and verifies before repack', async () => {
+  const workflow = await read('.github/workflows/publish-npm.yml')
+  // 仅手动 dispatch：自动 publish 仍被 L2 外部门禁（签名/公证）阻断。
+  assert.match(workflow, /workflow_dispatch/)
+  assert.doesNotMatch(workflow, /\n\s*push:/)
+  // npm provenance（§9.5 供应链 S2）。
+  assert.match(workflow, /id-token: write/)
+  assert.match(workflow, /--provenance --access public/)
+  // tag 必须与 apps/cli 版本一致，防止错版本发包。
+  assert.match(workflow, /Tag must match apps\/cli version/)
+  // 先校验 Release 资产 sha256，再重组装、再发布；平台包先于 meta 包。
+  assert.ok(workflow.indexOf('sha256sum -c') < workflow.indexOf('pack-standalone-npm'))
+  assert.ok(workflow.indexOf('pack-standalone-npm') < workflow.indexOf('npm publish'))
+  assert.ok(
+    workflow.indexOf('for dir in dist/npm/apollo-code-*/') <
+      workflow.indexOf('npm publish dist/npm/apollo-code'),
+  )
+})
+
+void test('native workflow assembles standalone archives and attaches them to the Release', async () => {
+  const workflow = await read('.github/workflows/native.yml')
+  assert.match(workflow, /oven-sh\/setup-bun@v2/)
+  assert.match(workflow, /build-all-standalone\.mjs release-assets/)
+  assert.match(workflow, /name: standalone-archives/)
+  assert.match(workflow, /gh release upload "\$GITHUB_REF_NAME" standalone-assets\/\*/)
+})

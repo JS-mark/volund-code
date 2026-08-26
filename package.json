@@ -21,11 +21,12 @@
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && pnpm --filter apollo-code build && node --test scripts/build-standalone.test.mjs scripts/generate-channel-manifests.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/l1-local-e2e.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-config-docs.test.mjs scripts/verify-error-codes.test.mjs scripts/verify-event-schemas.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-plugin-runtime-packlist.test.mjs scripts/verify-update-manifest.test.mjs scripts/verify-windows-release-evidence.test.mjs",
+    "test": "turbo run test && pnpm --filter apollo-code build && node --test scripts/build-standalone.test.mjs scripts/generate-channel-manifests.test.mjs scripts/generate-l4-evidence-matrix.test.mjs scripts/l1-local-e2e.test.mjs scripts/pack-standalone-npm.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-config-docs.test.mjs scripts/verify-error-codes.test.mjs scripts/verify-event-schemas.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-plugin-runtime-packlist.test.mjs scripts/verify-update-manifest.test.mjs scripts/verify-windows-release-evidence.test.mjs",
     "test:l1-local-e2e": "pnpm --filter apollo-code build && node --test scripts/l1-local-e2e.test.mjs",
     "typecheck": "turbo run typecheck",
     "verify:config-docs": "node scripts/verify-config-docs.mjs",
-    "verify:error-codes": "node scripts/verify-error-codes.mjs"
+    "verify:error-codes": "node scripts/verify-error-codes.mjs",
+    "pack:standalone": "node scripts/pack-standalone-npm.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",

@@ -5,13 +5,35 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { packageTriple, releaseAssetName, resolveBinary, resolveBinaryDetailed } from './resolver'
+import {
+  packageTriple,
+  releaseAssetName,
+  resolveBinary,
+  resolveBinaryDetailed,
+  standaloneArtifactDir,
+} from './resolver'
 
 const originalEnvironment = { ...process.env }
 
 afterEach(() => {
   process.env = { ...originalEnvironment }
   vi.unstubAllGlobals()
+})
+
+describe('standaloneArtifactDir', () => {
+  it('resolves next to the bundle under a normal node run', () => {
+    expect(standaloneArtifactDir('file:///opt/apollo/dist/apollo.js', '/usr/local/bin/node')).toBe(
+      '/opt/apollo/dist',
+    )
+  })
+
+  it('falls back to the executable directory inside a bun-compiled binary', () => {
+    // bun --compile embeds modules under the virtual /$bunfs/ root; the real
+    // on-disk anchor next to the artifact is the executable itself.
+    expect(standaloneArtifactDir('file:///$bunfs/root/apollo', '/opt/apollo/apollo')).toBe(
+      '/opt/apollo',
+    )
+  })
 })
 
 describe('packageTriple', () => {

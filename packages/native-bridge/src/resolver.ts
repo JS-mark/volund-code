@@ -43,6 +43,16 @@ export function releaseAssetName(kind: BinaryKind, triple: string): string {
   return `apollo-${kind}-${triple}${triple.startsWith('win32-') ? '.exe' : ''}`
 }
 
+/**
+ * standalone 产物目录。常规 node 运行取 import.meta.url 旁（dist 单文件布局）；
+ * bun --compile 后模块内嵌在虚拟 /$bunfs/ 路径下，磁盘上唯一真实锚点是
+ * 可执行文件自身（process.execPath），native/ 与 plugins/ 随它分发。
+ */
+export function standaloneArtifactDir(importMetaUrl: string, execPath: string): string {
+  if (importMetaUrl.includes('/$bunfs/')) return dirname(execPath)
+  return dirname(fileURLToPath(importMetaUrl))
+}
+
 function checksumFor(manifest: string, assetName: string): string | null {
   for (const line of manifest.split('\n')) {
     const match = /^([a-f\d]{64})\s+\*?(.+)$/.exec(line.trim())
@@ -68,7 +78,7 @@ async function verifiedPath(path: string, expected: string): Promise<boolean> {
 async function bundledBinary(kind: BinaryKind, triple: string): Promise<string | null> {
   const root =
     process.env.APOLLO_STANDALONE_ASSET_DIR ??
-    join(dirname(fileURLToPath(import.meta.url)), 'native')
+    join(standaloneArtifactDir(import.meta.url, process.execPath), 'native')
   const manifestPath = join(root, 'manifest.json')
   try {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
