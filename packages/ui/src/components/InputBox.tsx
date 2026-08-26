@@ -152,15 +152,31 @@ export function InputBox({
         </Box>
         {suggestions.length > 0 ? (
           <Box flexDirection="column" marginLeft={2} marginTop={1}>
-            {suggestions.map((command, index) => {
-              const active = index === slashSuggestionIndex
-              return (
-                <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
-                  {active ? '> ' : '  '}/{command.name} {command.description}
-                  {command.available === false ? ' (not available)' : ''}
-                </Text>
+            {/*
+              高度预算 10 行，但完整候选可能更多（内置 10 个 + 插件命令）：
+              渲染跟随选中项的滚动窗口，方向键在完整列表上循环。
+            */}
+            {suggestions
+              .map((command, index) => ({ command, index }))
+              .slice(
+                Math.min(
+                  Math.max(0, slashSuggestionIndex - (SLASH_SUGGESTION_WINDOW - 1)),
+                  Math.max(0, suggestions.length - SLASH_SUGGESTION_WINDOW),
+                ),
+                Math.min(
+                  Math.max(0, slashSuggestionIndex - (SLASH_SUGGESTION_WINDOW - 1)),
+                  Math.max(0, suggestions.length - SLASH_SUGGESTION_WINDOW),
+                ) + SLASH_SUGGESTION_WINDOW,
               )
-            })}
+              .map(({ command, index }) => {
+                const active = index === slashSuggestionIndex
+                return (
+                  <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
+                    {active ? '> ' : '  '}/{command.name} {command.description}
+                    {command.available === false ? ' (not available)' : ''}
+                  </Text>
+                )
+              })}
           </Box>
         ) : null}
       </Box>
@@ -168,8 +184,11 @@ export function InputBox({
   )
 }
 
+const SLASH_SUGGESTION_WINDOW = 10
+
 function slashSuggestions(value: string, commands: readonly SlashCommand[]) {
   if (!value.startsWith('/') || value.includes(' ')) return []
   const prefix = value.slice(1).toLowerCase()
-  return commands.filter((command) => command.name.toLowerCase().startsWith(prefix)).slice(0, 10)
+  // 不在此处截断：完整候选交给渲染侧按选中项滚动（slice 会把插件命令挡在窗外）。
+  return commands.filter((command) => command.name.toLowerCase().startsWith(prefix))
 }

@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 
 import type { TranscriptEntry } from '../app'
+import { collapseSkillInvocation } from '../skills-panel'
 import { MarkdownText } from './MarkdownText'
 
 export interface MessageBlockProps {
@@ -12,9 +13,14 @@ export interface MessageBlockProps {
  * in the style of modern agent TUIs. `>` echoes user input (matching the input
  * prompt glyph), `⏺` marks assistant output, `·` marks system notes — no
  * YOU/APOLLO headers or boxes.
+ *
+ * §S3.3a：`/skill-name` 一次性调用的用户消息是 `<skill>` 全文（模型需要），
+ * transcript 里折叠成一行摘要 + 行数提示，不刷屏。
  */
 export function MessageBlock({ entry }: MessageBlockProps) {
   const marker = roleMarker(entry.role)
+  const collapsed =
+    entry.role === 'user' ? collapseSkillInvocation(entry.text) : undefined
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -24,7 +30,16 @@ export function MessageBlock({ entry }: MessageBlockProps) {
           </Text>
         </Box>
         <Box flexDirection="column" flexGrow={1}>
-          {entry.role === 'assistant' ? (
+          {collapsed ? (
+            <Box flexDirection="column">
+              <Text color="green" wrap="truncate">
+                skill {collapsed.name} invoked{collapsed.task ? ` · ${collapsed.task}` : ''}
+              </Text>
+              <Text color="gray">
+                ({collapsed.lines} lines of skill instructions attached; sent to the model in full)
+              </Text>
+            </Box>
+          ) : entry.role === 'assistant' ? (
             <MarkdownText>{entry.text}</MarkdownText>
           ) : (
             <Text color="gray" wrap="wrap">

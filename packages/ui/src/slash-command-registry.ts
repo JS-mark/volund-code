@@ -1,7 +1,8 @@
 import type { SlashCommand } from './app'
 
 export interface SlashCommandSource {
-  kind: 'builtin' | 'plugin' | 'test'
+  /** builtin = 内置命令；skill = SKILL.md 贡献的同名命令（SKILLS-MCPS-r1 §S3.3a）。 */
+  kind: 'builtin' | 'plugin' | 'skill' | 'test'
   plugin?: string
 }
 
@@ -26,6 +27,11 @@ export const BUILTIN_SLASH_COMMAND_NAMES = Object.freeze([
   'memory',
   'resume',
   'model',
+  // SKILLS-MCPS-r1：/skills 与 /mcp（业界单数惯例）为内置保留名；
+  // /skill（activate|deactivate|show 动词式入口，§11.4）同样保留
+  'skills',
+  'mcp',
+  'skill',
 ])
 const builtinNames = new Set<string>(BUILTIN_SLASH_COMMAND_NAMES)
 
@@ -75,6 +81,9 @@ export class MutableSlashCommandRegistry implements SlashCommandRegistry {
     return Object.freeze(
       [...this.#commands.values()].toSorted(
         (left, right) =>
+          // order 是显式排序键（升序，浮在最前）；未设置的保持源优先级
+          //（builtin 在前）+ 字母序的既有行为。
+          (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER) ||
           Number(right.source.kind === 'builtin') - Number(left.source.kind === 'builtin') ||
           left.name.localeCompare(right.name),
       ),

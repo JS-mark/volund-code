@@ -20,6 +20,27 @@ describe('MutableSlashCommandRegistry', () => {
     expect(normalizeSlashCommandName('///MODEL')).toBe('model')
   })
 
+  it('floats ordered commands above the unordered tail (order is the primary key)', () => {
+    const registry = new MutableSlashCommandRegistry()
+    registry.register(command('zulu'), { kind: 'plugin', plugin: 'apollo-plugin-z' })
+    registry.register(command('alpha'), { kind: 'plugin', plugin: 'apollo-plugin-a' })
+    registry.register({ ...command('plugins'), order: 5 }, {
+      kind: 'plugin',
+      plugin: 'apollo-plugin-manager',
+    })
+    registry.register({ ...command('env'), order: -1 }, {
+      kind: 'plugin',
+      plugin: 'apollo-plugin-env',
+    })
+
+    expect(registry.snapshot().map(({ name }) => name)).toEqual([
+      'env',
+      'plugins',
+      'alpha',
+      'zulu',
+    ])
+  })
+
   it('rejects invalid names, aliases and conflicts including builtin aliases', () => {
     const registry = new MutableSlashCommandRegistry()
     registry.register(command('help', ['h']), { kind: 'builtin' })

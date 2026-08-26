@@ -5,7 +5,7 @@ import { render } from 'ink'
 import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { runSlashCommand, type SlashCommand } from './app'
+import { runSlashCommand, sortSlashCommands, type SlashCommand } from './app'
 import { InputBox } from './components/InputBox'
 import { ModelPicker } from './components/ModelPicker'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
@@ -759,6 +759,110 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toEqual(['/model'])
   })
 
+  it('scrolls the suggestion window so commands beyond the first 10 stay reachable', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    // 内置命令恰好约 10 个：插件贡献的命令（如 /env）会排在第 11 位，
+    // 旧的 slice(0, 10) 会让它永远不进列表——这里锁定滚动窗口行为。
+    const commands = Array.from({ length: 12 }, (_, index) => ({
+      name: `cmd${String(index).padStart(2, '0')}`,
+      description: `command ${index}`,
+      run: () => {},
+    }))
+    const input = render(
+      createElement(InputBox, {
+        initialValue: '/',
+        onSubmit: () => {},
+        slashCommands: commands,
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('/cmd00')
+    expect(stdout.output).toContain('/cmd09')
+    expect(stdout.output).not.toContain('/cmd10')
+
+    for (let index = 0; index < 10; index += 1) stdin.write('\u001B[B')
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('> /cmd10 command 10')
+
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('opens a searchable list picker for commands returning a list view', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        slashCommands: [
+          {
+            name: 'env',
+            description: 'Show env',
+            run: () => ({
+              kind: 'list' as const,
+              title: 'Environment — [env]',
+              entries: [
+                {
+                  id: 'NO_PROXY',
+                  label: 'NO_PROXY',
+                  value: 'localhost,127.0.0.1',
+                  status: 'effective · sandbox: passed through',
+                  detail: 'NO_PROXY = "localhost,127.0.0.1"\nstatus: effective',
+                },
+                {
+                  id: 'HTTP_PROXY',
+                  label: 'HTTP_PROXY',
+                  value: 'http://127.0.0.1:7890',
+                  status: 'effective · sandbox: withheld',
+                },
+              ],
+            }),
+          },
+        ],
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    // 输入 /env → 建议列表选中 → 回车执行 → 打开列表面板
+    stdin.write('/env')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Environment — [env]')
+    expect(stdout.output).toContain('NO_PROXY')
+    expect(stdout.output).toContain('HTTP_PROXY')
+
+    // 搜索过滤：只剩 no_proxy 一条
+    stdin.write('no')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('› NO_PROXY')
+
+    // 回车选中 → 面板关闭，detail 全文进 transcript
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('NO_PROXY = "localhost,127.0.0.1"')
+    expect(stdout.output).toContain('status: effective')
+
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders an open-ended command band with placeholder and a visible entry cursor', async () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 100
@@ -1036,11 +1140,239 @@ describe('renderInteractiveApp', () => {
       },
     ]
 
-    await expect(runSlashCommand('/context', commands)).resolves.toBe(
-      '/context is not available in this build/session',
+    await expect(runSlashCommand('/context', commands)).resolves.toEqual({
+      kind: 'message',
+      text: '/context is not available in this build/session',
+      level: 'warning',
+    })
+    await expect(runSlashCommand('/missing', commands)).resolves.toEqual({
+      kind: 'message',
+      text: 'Unknown slash command: /missing',
+      level: 'warning',
+    })
+  })
+
+  it('treats a string returned from run() as info-level transcript output', async () => {
+    const commands: SlashCommand[] = [
+      { name: 'env', description: 'Show env', run: () => 'NO_PROXY = localhost (effective)' },
+      {
+        name: 'boom',
+        description: 'Fails',
+        run: () => {
+          throw new Error('broken')
+        },
+      },
+      { name: 'silent', description: 'No output', run: () => {} },
+    ]
+
+    await expect(runSlashCommand('/env', commands)).resolves.toEqual({
+      kind: 'message',
+      text: 'NO_PROXY = localhost (effective)',
+      level: 'info',
+    })
+    await expect(runSlashCommand('/boom', commands)).resolves.toEqual({
+      kind: 'message',
+      text: 'broken',
+      level: 'error',
+    })
+    await expect(runSlashCommand('/silent', commands)).resolves.toBeUndefined()
+  })
+
+  it('sorts slash commands by optional order while keeping the unsorted tail stable', () => {
+    const command = (name: string, order?: number): SlashCommand => ({
+      name,
+      description: name,
+      ...(order !== undefined ? { order } : {}),
+      run: () => {},
+    })
+    // 设置 order 的按升序浮到前面；未设置的保持在传入顺序（现状行为不变）
+    expect(
+      sortSlashCommands([
+        command('help'),
+        command('env'),
+        command('plugins', 10),
+        command('model', -1),
+        command('memory'),
+      ]).map((item) => item.name),
+    ).toEqual(['model', 'plugins', 'help', 'env', 'memory'])
+  })
+
+  it('interleaves ordered plugin commands between the numbered builtin band', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        // 内置号段：undo=40、status=50 —— order 45 应落在两者之间
+        slashCommands: [
+          { name: 'midway', order: 45, description: 'Interleaves', run: () => {} },
+        ],
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
     )
-    await expect(runSlashCommand('/missing', commands)).resolves.toBe(
-      'Unknown slash command: /missing',
+    await app.waitUntilRenderFlush()
+    stdin.write('/')
+    await app.waitUntilRenderFlush()
+    const frame = stdout.output
+    const undo = frame.lastIndexOf('/undo')
+    const midway = frame.lastIndexOf('/midway')
+    const status = frame.lastIndexOf('/status')
+    expect(undo).toBeGreaterThan(-1)
+    expect(midway).toBeGreaterThan(undo)
+    expect(status).toBeGreaterThan(midway)
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('passes through a list view returned from run() and drops malformed ones', async () => {
+    const view = {
+      kind: 'list' as const,
+      title: 'Environment',
+      entries: [{ id: 'NO_PROXY', label: 'NO_PROXY', value: 'localhost' }],
+    }
+    const commands: SlashCommand[] = [
+      { name: 'env', description: 'Show env', run: () => view },
+      { name: 'bad', description: 'Malformed', run: () => ({ kind: 'list' }) as never },
+    ]
+
+    await expect(runSlashCommand('/env', commands)).resolves.toEqual({ kind: 'list', view })
+    // 形状不合法的视图按无输出处理（fail-open，不炸 REPL）
+    await expect(runSlashCommand('/bad', commands)).resolves.toBeUndefined()
+  })
+
+  it('passes through a tabs view returned from run() and drops malformed ones', async () => {
+    const view = {
+      kind: 'tabs' as const,
+      title: 'Plugins',
+      tabs: [
+        { id: 'builtin', label: 'Built-in (1)', entries: [{ id: 'env', label: 'env' }] },
+        { id: 'dev', label: 'Dev (0)', entries: [] },
+      ],
+    }
+    const commands: SlashCommand[] = [
+      { name: 'plugins', description: 'Browse', run: () => view },
+      { name: 'badtabs', description: 'Malformed', run: () => ({ kind: 'tabs' }) as never },
+    ]
+
+    await expect(runSlashCommand('/plugins', commands)).resolves.toEqual({ kind: 'tabs', view })
+    await expect(runSlashCommand('/badtabs', commands)).resolves.toBeUndefined()
+  })
+
+  it('opens a tabbed list panel for commands returning a tabs view (/plugins)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        slashCommands: [
+          {
+            name: 'plugins',
+            description: 'Browse plugins',
+            run: () => ({
+              kind: 'tabs' as const,
+              title: 'Plugins — builtin · dev · market',
+              placeholder: 'Search by name, version, or status',
+              tabs: [
+                {
+                  id: 'builtin',
+                  label: 'Built-in (2)',
+                  entries: [
+                    {
+                      id: 'apollo-plugin-env',
+                      label: 'env',
+                      value: '0.1.0',
+                      status: 'loaded · 1 cmd',
+                      detail: 'apollo-plugin-env @ 0.1.0\nsource: builtin',
+                    },
+                    { id: 'apollo-plugin-manager', label: 'manager', value: '0.1.0' },
+                  ],
+                },
+                {
+                  id: 'market',
+                  label: 'Market (1)',
+                  entries: [
+                    {
+                      id: 'apollo-plugin-hello',
+                      label: 'hello',
+                      value: '1.0.0',
+                      status: 'available · demo',
+                      detail: 'apollo-plugin-hello @ 1.0.0\nInstall with: /plugins install hello',
+                    },
+                  ],
+                },
+              ],
+            }),
+          },
+        ],
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('/plugins')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    // 面板标题 + 页签行 + 当前页签条目
+    expect(stdout.output).toContain('Plugins — builtin · dev · market')
+    expect(stdout.output).toContain('[Built-in (2)]')
+    expect(stdout.output).toContain('Market (1)')
+    expect(stdout.output).toContain('› env')
+
+    // → 切到 Market 页签（搜索词保留、选中复位）
+    stdin.write('\u001b[C')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('[Market (1)]')
+    expect(stdout.output).toContain('› hello')
+
+    // 搜索 + 回车选中 → detail 进 transcript，面板关闭
+    stdin.write('hel')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('Install with: /plugins install hello')
+
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('renders startup notices as initial transcript system entries', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        notices: [
+          'Builtin plugin apollo-plugin-env failed to activate: sandbox unavailable; refusing unsandboxed execution',
+        ],
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+    // 插件激活失败发生在 REPL 渲染前——必须直接可见，而不是攒到 stderr 退出才显示。
+    expect(stdout.output).toContain(
+      'Builtin plugin apollo-plugin-env failed to activate: sandbox unavailable',
     )
   })
 

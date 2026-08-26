@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink'
 import type { PropsWithChildren } from 'react'
 
-export type StatusLevel = 'active' | 'error' | 'muted' | 'warning'
+export type StatusLevel = 'active' | 'error' | 'muted' | 'warning' | 'info'
 
 export interface StatusLineProps extends PropsWithChildren {
   level?: StatusLevel

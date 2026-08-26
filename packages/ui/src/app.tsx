@@ -4,25 +4,36 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
+import { ListPicker } from './components/ListPicker'
+import { McpPanel } from './components/McpPanel'
 import { MemoryPanel } from './components/MemoryPanel'
 import { ModelPicker } from './components/ModelPicker'
 import { PermissionPromptStack } from './components/PermissionPromptStack'
 import { ScrollableTranscript } from './components/ScrollableTranscript'
 import { SessionPicker } from './components/SessionPicker'
+import { SkillsPanel } from './components/SkillsPanel'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
 import { StreamingStatus, type StreamingPhase } from './components/StreamingStatus'
+import { TabbedListView } from './components/TabbedListView'
 import { TopBar } from './components/TopBar'
 import { WelcomeScreen } from './components/welcome/WelcomeScreen'
 import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
+import type { CommandListEntry, CommandListView } from './list-picker'
+import { isCommandListView } from './list-picker'
+import type { McpPanelController } from './mcp-panel'
 import type { MemoryPanelController } from './memory-panel'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
+import { skillsListCommandView } from './skills-panel'
+import type { SkillsPanelController } from './skills-panel'
 import type { SessionCandidate } from './session-picker'
 import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
+import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
+import { mcpListCommandView } from './mcp-panel'
 import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export interface TranscriptEntry {
@@ -39,12 +50,57 @@ export interface SlashCommandInput {
   raw: string
 }
 
+/**
+ * SKILLS-MCPS-r1 §S3.3a：一次性调用视图。`/skill-name [args]` 返回它 → TUI 把
+ * text 作为**用户消息**提交当轮对话（skill 内容 + 任务），不持久改 system prompt
+ * ——业界 invocation 语义（Claude Code / Codex / Cursor）。仅 builtin 与 skill
+ * 来源的命令允许产出（runSlashCommand 对其它来源降级为系统消息，防插件伪造
+ * 用户发言）。
+ */
+export interface SlashSubmitView {
+  kind: 'submit'
+  text: string
+}
+
+export function isSlashSubmitView(value: unknown): value is SlashSubmitView {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      (value as { kind?: unknown }).kind === 'submit' &&
+      typeof (value as { text?: unknown }).text === 'string' &&
+      (value as { text: string }).text !== '',
+  )
+}
+
 export interface SlashCommand {
   name: string
   description: string
   aliases?: readonly string[]
   available?: boolean
-  run(input: SlashCommandInput): Promise<void> | void
+  /**
+   * 建议列表与 /help 的排序键（升序，可选）。内置命令占 10 的倍数号段
+   * （help=10 … skill=130，见 memo 内注释）；插件命令用任意有限数穿插
+   * （如 45 = /undo 与 /status 之间）。未设置的命令保持在未排序段（内置
+   * 之后、按注册序）。插件经 CommandSpec.order 过桥传入。
+   */
+  order?: number
+  /**
+   * 返回值契约：字符串 → 作为系统消息进 transcript；CommandListView（
+   * `{ kind: 'list', ... }` 纯数据描述符）→ 打开可搜索的列表面板（resume 风格，
+   * 插件贡献的查询类命令如 /env 由此呈现）；CommandTabsView（
+   * `{ kind: 'tabs', ... }`）→ 打开多页签列表面板（/plugins 风格）；
+   * SlashSubmitView（`{ kind: 'submit' }`，仅 builtin/skill 来源）→ text 作为
+   * 用户消息提交当轮；void → 静默成功。
+   */
+  run(
+    input: SlashCommandInput,
+  ):
+    | Promise<string | CommandListView | CommandTabsView | SlashSubmitView | void>
+    | string
+    | CommandListView
+    | CommandTabsView
+    | SlashSubmitView
+    | void
 }
 
 export interface InputHistoryStore {
@@ -99,8 +155,17 @@ export interface InteractiveAppOptions {
   history?: InputHistoryStore
   initialInput?: string
   memory?: MemoryPanelController
+  /** SKILLS-MCPS-r1 §S3.3：/skills 面板控制器（apps/cli 原生装配）。 */
+  skills?: SkillsPanelController
+  /** SKILLS-MCPS-r1 §S3.6：/mcp 面板控制器（apps/cli 原生装配）。 */
+  mcp?: McpPanelController
   modelPicker?: ModelPickerState
   noColor?: boolean
+  /**
+   * 启动期一次性系统消息（如内置插件激活失败原因），作为 transcript 初始条目
+   * 直接可见——这类失败发生在 REPL 渲染前，走 stderr 要等退出后才看得到。
+   */
+  notices?: readonly string[]
   onExit?: () => Promise<void> | void
   /** esc-to-interrupt while a turn streams/runs; omit to leave esc inert. */
   onInterrupt?: () => Promise<void> | void
@@ -141,12 +206,18 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     sessionId: options.sessionId ?? 'new',
     status: options.status ?? 'ready',
     statusLevel: 'muted',
-    transcript: [],
+    transcript: (options.notices ?? []).map((text, index) => ({
+      id: `notice-${index}`,
+      role: 'system' as const,
+      text,
+    })),
   }))
   const [historyEntries, setHistoryEntries] = useState<readonly string[]>([])
   const [welcome, setWelcome] = useState(options.welcome)
   const [showWelcome, setShowWelcome] = useState(Boolean(options.welcome))
   const [memoryOpen, setMemoryOpen] = useState(false)
+  const [skillsPanelOpen, setSkillsPanelOpen] = useState(false)
+  const [mcpPanelOpen, setMcpPanelOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
@@ -160,14 +231,26 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [activeSession, setActiveSession] = useState<ResumedInteractiveSession>()
   const [resumeCandidates, setResumeCandidates] = useState<readonly SessionCandidate[]>()
   const [resumeError, setResumeError] = useState<string>()
+  // 插件命令的列表视图输出（如 /env）：打开即独占键盘（InputBox 禁用），
+  // Enter 把该条 detail 进 transcript，Esc 关闭。tabs 形态（/plugins）渲染成
+  // 多页签面板，交互同源。
+  const [commandListView, setCommandListView] = useState<CommandListView | CommandTabsView>()
+  // 斜杠命令执行中（如 /plugins 拉市场索引）：spinner 期 esc 不挂中断——
+  // 命令不是会话 turn，interrupt 语义不适用。
+  const [commandRunning, setCommandRunning] = useState(false)
   const [registryCommands, setRegistryCommands] = useState(
     () => options.slashCommandRegistry?.snapshot() ?? [],
   )
   const activeEvents = activeSession?.events ?? options.events
   const activeCwd = activeSession?.cwd ?? options.cwd
-  const activeOnExit = activeSession?.onExit ?? options.onExit
-  const activeOnInterrupt = activeSession?.onInterrupt ?? options.onInterrupt
-  const activeOnSubmit = activeSession?.onSubmit ?? options.onSubmit
+  const activeOnExit = activeSession ? () => activeSession.onExit() : options.onExit
+  const activeOnInterrupt = activeSession
+    ? () => activeSession.onInterrupt?.()
+    : options.onInterrupt
+  const activeOnSubmit = activeSession
+    ? (input: string, submitOptions?: SubmitOptions) =>
+      activeSession.onSubmit(input, submitOptions)
+    : options.onSubmit
 
   const flushPendingToTranscript = useCallback(
     (state: InteractiveAppState, id: string): InteractiveAppState => {
@@ -226,9 +309,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => {
             const withFlushed = flushed
               ? {
-                  ...current,
-                  pendingAssistantText: current.pendingAssistantText + flushed,
-                }
+                ...current,
+                pendingAssistantText: current.pendingAssistantText + flushed,
+              }
               : current
             return applyInteractiveEvent(withFlushed, event)
           })
@@ -239,9 +322,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => {
             const withFlushed = flushed
               ? {
-                  ...current,
-                  pendingAssistantText: current.pendingAssistantText + flushed,
-                }
+                ...current,
+                pendingAssistantText: current.pendingAssistantText + flushed,
+              }
               : current
             return applyInteractiveEvent(flushPendingToTranscript(withFlushed, event.id), event)
           })
@@ -291,6 +374,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       },
       () => undefined,
     )
+    // oxlint-disable-next-line typescript/consistent-return
     return () => {
       disposed = true
     }
@@ -298,9 +382,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
 
   const slashCommands = useMemo(() => {
     const hasModelPicker = Boolean(options.modelPicker?.models.length)
+    // 内置命令排序号段（10 的倍数）：help=10 … skill=130。插件命令用任意有限数
+    // 穿插（如 45 = /undo 与 /status 之间）；未设置 order 的保持在未排序段（内置
+    // 之后、按注册序）。新增内置命令取下一个 10 的倍数，不要复用间隙值。
     const commands: SlashCommand[] = [
       {
         name: 'help',
+        order: 10,
         description: 'Show slash commands',
         run: () => {
           setShowWelcome(false)
@@ -309,6 +397,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       },
       {
         name: 'exit',
+        order: 20,
         description: 'End the session',
         run: async () => {
           await activeOnExit?.()
@@ -317,120 +406,196 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       },
       {
         name: 'clear',
+        order: 30,
         description: 'Clear the transcript',
         run: () => {
           setShowWelcome(false)
           setStatusPanelOpen(false)
+          setSkillsPanelOpen(false)
+          setMcpPanelOpen(false)
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
       options.undo
         ? {
-            name: 'undo',
-            description: 'Undo the last side-effecting tool (single step)',
-            run: async () => {
-              setShowWelcome(false)
-              setStatusPanelOpen(false)
-              const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
-              if (!outcome.undone) {
-                appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
-                setState((current) => ({
-                  ...current,
-                  status: UNDO_NOTHING_MESSAGE,
-                  statusLevel: 'warning',
-                }))
-                return
-              }
-              appendSystemMessage(setState, undoTranscriptMessage(outcome))
+          name: 'undo',
+          order: 40,
+          description: 'Undo the last side-effecting tool (single step)',
+          run: async () => {
+            setShowWelcome(false)
+            setStatusPanelOpen(false)
+            const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
+            if (!outcome.undone) {
+              appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
               setState((current) => ({
                 ...current,
-                status: outcome.warnings.length
-                  ? 'undo restored with warnings (may have overwritten manual changes)'
-                  : `undid ${outcome.paths.length} file(s)`,
-                statusLevel: outcome.warnings.length ? 'warning' : 'muted',
+                status: UNDO_NOTHING_MESSAGE,
+                statusLevel: 'warning',
               }))
-            },
-          }
-        : unavailableSlashCommand('undo', 'Undo the last side-effecting tool (single step)'),
+              return
+            }
+            appendSystemMessage(setState, undoTranscriptMessage(outcome))
+            setState((current) => ({
+              ...current,
+              status: outcome.warnings.length
+                ? 'undo restored with warnings (may have overwritten manual changes)'
+                : `undid ${outcome.paths.length} file(s)`,
+              statusLevel: outcome.warnings.length ? 'warning' : 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('undo', 'Undo the last side-effecting tool (single step)', 40),
       welcome
         ? {
-            name: 'status',
-            description: 'Show runtime status',
-            run: () => {
-              setShowWelcome(false)
-              setModelPickerOpen(false)
-              setStatusPanelOpen(true)
-              setState((current) => ({
-                ...current,
-                status: 'status',
-                statusLevel: 'muted',
-              }))
-            },
-          }
-        : unavailableSlashCommand('status', 'Show runtime status'),
-      unavailableSlashCommand('context', 'Show context status'),
-      unavailableSlashCommand('compact', 'Compact conversation context'),
+          name: 'status',
+          order: 50,
+          description: 'Show runtime status',
+          run: () => {
+            setShowWelcome(false)
+            setModelPickerOpen(false)
+            setStatusPanelOpen(true)
+            setState((current) => ({
+              ...current,
+              status: 'status',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('status', 'Show runtime status', 50),
+      unavailableSlashCommand('context', 'Show context status', 60),
+      unavailableSlashCommand('compact', 'Compact conversation context', 70),
       options.memory
         ? {
-            name: 'memory',
-            description: 'Browse and manage memory',
-            run: () => {
-              setShowWelcome(false)
-              setModelPickerOpen(false)
-              setStatusPanelOpen(false)
-              setResumeCandidates(undefined)
-              setMemoryOpen(true)
-              setState((current) => ({
-                ...current,
-                status: 'memory',
-                statusLevel: 'muted',
-              }))
-            },
-          }
-        : unavailableSlashCommand('memory', 'Browse and manage memory'),
+          name: 'memory',
+          order: 80,
+          description: 'Browse and manage memory',
+          run: () => {
+            setShowWelcome(false)
+            setModelPickerOpen(false)
+            setStatusPanelOpen(false)
+            setSkillsPanelOpen(false)
+            setMcpPanelOpen(false)
+            setResumeCandidates(undefined)
+            setMemoryOpen(true)
+            setState((current) => ({
+              ...current,
+              status: 'memory',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('memory', 'Browse and manage memory', 80),
       options.resume
         ? {
-            name: 'resume',
-            description: 'Resume a saved session',
-            run: async () => {
-              setShowWelcome(false)
-              setModelPickerOpen(false)
-              setStatusPanelOpen(false)
-              setResumeError(undefined)
-              setResumeCandidates(await options.resume!.list())
-              setState((current) => ({
-                ...current,
-                status: 'select session',
-                statusLevel: 'muted',
-              }))
-            },
-          }
-        : unavailableSlashCommand('resume', 'Resume a saved session'),
+          name: 'resume',
+          order: 90,
+          description: 'Resume a saved session',
+          run: async () => {
+            setShowWelcome(false)
+            setModelPickerOpen(false)
+            setStatusPanelOpen(false)
+            setResumeError(undefined)
+            setResumeCandidates(await options.resume!.list())
+            setState((current) => ({
+              ...current,
+              status: 'select session',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('resume', 'Resume a saved session', 90),
       hasModelPicker
         ? {
-            name: 'model',
-            description: 'Switch model',
-            run: () => {
+          name: 'model',
+          order: 100,
+          description: 'Switch model',
+          run: () => {
+            setShowWelcome(false)
+            setStatusPanelOpen(false)
+            setModelPickerOpen(true)
+            setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
+            setState((current) => ({
+              ...current,
+              status: 'select model',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('model', 'Switch model', 100),
+      options.skills
+        ? {
+          name: 'skills',
+          order: 110,
+          description: 'Browse and manage skills',
+          run: async ({ args }) => {
+            setShowWelcome(false)
+            setModelPickerOpen(false)
+            setStatusPanelOpen(false)
+            setMemoryOpen(false)
+            setSkillsPanelOpen(false)
+            setMcpPanelOpen(false)
+            if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
+            setSkillsPanelOpen(true)
+            setState((current) => ({
+              ...current,
+              status: 'skills',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('skills', 'Browse and manage skills', 110),
+      options.mcp
+        ? {
+          name: 'mcp',
+          order: 120,
+          description: 'Browse and manage MCP servers',
+          run: async ({ args }) => {
+            setShowWelcome(false)
+            setModelPickerOpen(false)
+            setStatusPanelOpen(false)
+            setMemoryOpen(false)
+            setSkillsPanelOpen(false)
+            setMcpPanelOpen(false)
+            if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
+            setMcpPanelOpen(true)
+            setState((current) => ({
+              ...current,
+              status: 'mcp',
+              statusLevel: 'muted',
+            }))
+          },
+        }
+        : unavailableSlashCommand('mcp', 'Browse and manage MCP servers', 120),
+      options.skills
+        ? {
+          name: 'skill',
+          order: 130,
+          description: 'Activate, deactivate, or show a skill',
+          run: async ({ args }) => {
+            const [verb, name] = args
+            if (verb === 'activate' && name) {
               setShowWelcome(false)
-              setStatusPanelOpen(false)
-              setModelPickerOpen(true)
-              setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
-              setState((current) => ({
-                ...current,
-                status: 'select model',
-                statusLevel: 'muted',
-              }))
-            },
-          }
-        : unavailableSlashCommand('model', 'Switch model'),
+              return options.skills!.setActive(name, true)
+            }
+            if (verb === 'deactivate' && name) return options.skills!.setActive(name, false)
+            if (verb === 'show' && name) {
+              setShowWelcome(false)
+              return options.skills!.show(name)
+            }
+            return 'usage: /skill activate|deactivate|show <name> (browse with /skills)'
+          },
+        }
+        : unavailableSlashCommand('skill', 'Activate, deactivate, or show a skill', 130),
     ]
-    return [...commands, ...(options.slashCommands ?? []), ...registryCommands]
+    return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
   }, [
     activeSession,
     currentModelId,
     exit,
     options.memory,
     options.modelPicker,
+    options.skills,
+    options.mcp,
     activeOnExit,
     options.resume,
     options.slashCommands,
@@ -453,8 +618,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       disabled={
         statusPanelOpen ||
         memoryOpen ||
+        skillsPanelOpen ||
+        mcpPanelOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
+        commandListView !== undefined ||
         state.statusLevel === 'active' ||
         permissionRequests.length > 0
       }
@@ -473,11 +641,57 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         }
         if (trimmed.startsWith('/')) {
           setShowWelcome(false)
-          const message = await runSlashCommand(trimmed, slashCommands)
-          if (message) {
-            appendSystemMessage(setState, message)
-            setState((current) => ({ ...current, status: message, statusLevel: 'warning' }))
+          // 命令执行期（如 /plugins 拉市场索引可能要几秒）显示 spinner：InputBox
+          // 随 active 状态禁用，StreamingStatus 以 tool 相位呈现 `running /<name>`。
+          const commandName = trimmed.slice(1).split(/\s+/)[0] ?? ''
+          setCommandRunning(true)
+          setState((current) => ({
+            ...current,
+            status: `running /${commandName}`,
+            statusLevel: 'active',
+          }))
+          const outcome = await runSlashCommand(trimmed, slashCommands)
+          setCommandRunning(false)
+          // 命令可能在 run() 里自设状态（如 /undo 的 'undid N file(s)'）——只回落
+          // 我们设置的执行期占位，不碰命令自设的值。error/warning 染状态行并落
+          // 文本；info 保持命令自设状态。
+          const settleStatus = (level: 'info' | 'warning' | 'error', text?: string) =>
+            setState((current) => ({
+              ...current,
+              status:
+                level === 'info'
+                  ? current.status === `running /${commandName}`
+                    ? 'ready'
+                    : current.status
+                  : (text ?? current.status),
+              statusLevel: level,
+            }))
+          if (!outcome) {
+            settleStatus('info')
+            return
           }
+          // 面板视图（/env 列表、/plugins 页签）打开可搜索面板；文本结果照旧进 transcript
+          if (outcome.kind === 'list' || outcome.kind === 'tabs') {
+            settleStatus('info')
+            setCommandListView(outcome.view)
+            return
+          }
+          // /skill-name 一次性调用：skill 内容 + 任务作为用户消息进当轮对话
+          //（不持久改 system prompt）。输入行历史记原始命令，不记展开文本。
+          if (outcome.kind === 'submit') {
+            setShowWelcome(false)
+            settleStatus('info')
+            try {
+              await options.history?.append(input)
+              setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
+            } catch {
+              // 历史失败不阻塞提交（同普通输入路径的降级语义）
+            }
+            await activeOnSubmit?.(outcome.text)
+            return
+          }
+          appendSystemMessage(setState, outcome.text)
+          settleStatus(outcome.level, outcome.text)
           return
         }
         setShowWelcome(false)
@@ -518,7 +732,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const turnStatus = turnInFlight ? (
     <StreamingStatus
       active
-      {...(activeOnInterrupt ? { onInterrupt: activeOnInterrupt } : {})}
+      {...(!commandRunning && activeOnInterrupt ? { onInterrupt: activeOnInterrupt } : {})}
       {...(toolName ? { phaseDetail: toolName } : {})}
       phase={streamPhase}
       streamedChars={state.pendingAssistantText.length}
@@ -595,6 +809,32 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           }}
         />
       ) : null}
+      {skillsPanelOpen && options.skills ? (
+        <SkillsPanel
+          controller={options.skills}
+          {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onNotice={(text) => appendSystemMessage(setState, text)}
+          onClose={() => {
+            setSkillsPanelOpen(false)
+            setState((current) => ({ ...current, status: 'skills closed' }))
+          }}
+        />
+      ) : null}
+      {mcpPanelOpen && options.mcp ? (
+        <McpPanel
+          controller={options.mcp}
+          {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onNotice={(text) => appendSystemMessage(setState, text)}
+          onClose={() => {
+            setMcpPanelOpen(false)
+            setState((current) => ({ ...current, status: 'mcp closed' }))
+          }}
+        />
+      ) : null}
       {resumeCandidates ? (
         <SessionPicker
           {...(resumeError ? { error: resumeError } : {})}
@@ -625,6 +865,42 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             })()
           }}
         />
+      ) : null}
+      {commandListView ? (
+        commandListView.kind === 'tabs' ? (
+          <TabbedListView
+            view={commandListView}
+            onCancel={() => {
+              setCommandListView(undefined)
+              setState((current) => ({ ...current, status: 'closed' }))
+            }}
+            onSelect={(entry: CommandListEntry) => {
+              setCommandListView(undefined)
+              appendSystemMessage(
+                setState,
+                entry.detail ??
+                `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
+              )
+            }}
+          />
+        ) : (
+          <ListPicker
+            view={commandListView}
+            onCancel={() => {
+              setCommandListView(undefined)
+              setState((current) => ({ ...current, status: 'closed' }))
+            }}
+            onSelect={(entry: CommandListEntry) => {
+              setCommandListView(undefined)
+              // 选中一条 → 完整 detail（长值全文）进 transcript；无 detail 时拼主行信息
+              appendSystemMessage(
+                setState,
+                entry.detail ??
+                `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
+              )
+            }}
+          />
+        )
       ) : null}
     </Box>
   )
@@ -679,12 +955,13 @@ function appendSystemMessage(
   }))
 }
 
-function unavailableSlashCommand(name: string, description: string): SlashCommand {
+function unavailableSlashCommand(name: string, description: string, order: number): SlashCommand {
   return {
     name,
     description,
+    order,
     available: false,
-    run: () => {},
+    run: () => { },
   }
 }
 
@@ -706,16 +983,62 @@ function undoTranscriptMessage(outcome: UndoStepOutcome): string {
   )
 }
 
-export async function runSlashCommand(raw: string, commands: readonly SlashCommand[]) {
+/**
+ * 命令执行结果：message → 系统消息进 transcript（level 染状态行：warning 橙 /
+ * error 红；info 不动）；list → 打开 ListPicker 面板（数据描述符，可能来自插件
+ * 沙箱经桥返回）；tabs → 打开多页签面板（/plugins 风格）。
+ *
+ * level 刻意止步于 'error'，不收全宽 StatusLevel：'active' 是回合生命周期态
+ * （spinner + InputBox 禁用 + esc 中断），命令结果置入且无人复位会软锁 REPL；
+ * 'muted' 是空闲基线，内置命令要设状态可直接 setState（/undo 先例），无需经
+ * outcome 通道。
+ */
+export type SlashCommandOutcome =
+  | { kind: 'message'; text: string; level: 'info' | 'warning' | 'error' }
+  | { kind: 'list'; view: CommandListView }
+  | { kind: 'tabs'; view: CommandTabsView }
+  | { kind: 'submit'; text: string }
+
+export async function runSlashCommand(
+  raw: string,
+  commands: readonly SlashCommand[],
+): Promise<SlashCommandOutcome | undefined> {
   const [name = '', ...args] = raw.slice(1).trim().split(/\s+/).filter(Boolean)
   if (!name) return undefined
   const command = commands.find((item) => item.name === name || item.aliases?.includes(name))
-  if (!command) return `Unknown slash command: /${name}`
-  if (command.available === false) return `/${command.name} is not available in this build/session`
+  if (!command)
+    return { kind: 'message', text: `Unknown slash command: /${name}`, level: 'warning' }
+  if (command.available === false)
+    return {
+      kind: 'message',
+      text: `/${command.name} is not available in this build/session`,
+      level: 'warning',
+    }
   try {
-    await command.run({ args, name: command.name, raw })
+    const output = await command.run({ args, name: command.name, raw })
+    if (typeof output === 'string' && output)
+      return { kind: 'message', text: output, level: 'info' }
+    // 桥值是任意 JSON：形状不合法的视图按无输出处理（fail-open，不炸 REPL）
+    if (isCommandListView(output)) return { kind: 'list', view: output }
+    if (isCommandTabsView(output)) return { kind: 'tabs', view: output }
+    // submit 视图等价于"以用户身份发言"——只允许 builtin（无 source）与 skill
+    // 来源产出；插件/测试来源一律降级为系统消息（防伪造用户输入）。
+    if (isSlashSubmitView(output)) {
+      const source = (command as { source?: { kind?: string } }).source?.kind
+      if (source === undefined || source === 'builtin' || source === 'skill')
+        return { kind: 'submit', text: output.text }
+      return {
+        kind: 'message',
+        text: `/${command.name} returned a submit view, which is only allowed for builtin and skill commands`,
+        level: 'warning',
+      }
+    }
   } catch (error) {
-    return error instanceof Error ? error.message : `/${command.name} failed`
+    return {
+      kind: 'message',
+      text: error instanceof Error ? error.message : `/${command.name} failed`,
+      level: 'error',
+    }
   }
   return undefined
 }
@@ -727,6 +1050,17 @@ function slashHelpText(commands: readonly SlashCommand[]) {
       return `/${command.name} - ${command.description}${suffix}`
     })
     .join('\n')
+}
+
+/**
+ * 命令排序（稳定）：设置 order 的命令按升序浮到前面；未设置的保持在传入
+ * 顺序（内置在前、注册序在后——即现状）。建议下拉与 /help 共用这一顺序。
+ */
+export function sortSlashCommands(commands: readonly SlashCommand[]): SlashCommand[] {
+  return [...commands].toSorted(
+    (left, right) =>
+      (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER),
+  )
 }
 
 export function applyInteractiveEvent(
