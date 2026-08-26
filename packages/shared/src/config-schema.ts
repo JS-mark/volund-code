@@ -63,6 +63,16 @@ export const configKeyRegistry = {
   'telemetry.otel.endpoint': 'forbidden',
   // [evolution] legacy compatibility switch（见 §15）：严格 boolean，缺省 off
   'evolution.enabled': 'allowed',
+  // [skills] / [mcp]（SKILLS-MCPS-r1 §S3.4）：面板持久开关面；server 定义本体在
+  // mcp.toml / .mcp.json（开放键空间，不经 ConfigSchema）。项目级可覆盖禁用名单
+  // （如企业统一禁用某 server），无数据流向风险。
+  'skills.disabled': 'allowed',
+  'skills.index_budget': 'allowed',
+  'mcp.disabled': 'allowed',
+  'mcp.enable_all_project_servers': 'forbidden',
+  // [plugins] 市场源（PLUGIN-MANAGER-r1）：信任配置，禁止项目级覆盖
+  // （项目 config 不得把市场指向第三方源）
+  'plugins.market': 'forbidden',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -197,6 +207,24 @@ export const ConfigSchema = z.strictObject({
     })
     .optional(),
   evolution: z.strictObject({ enabled: z.boolean().optional() }).optional(),
+  // [skills]（SKILLS-MCPS-r1 §S3.4）：/skills 面板与 discovery 的持久开关面。
+  skills: z
+    .strictObject({
+      disabled: z.array(z.string()).optional(),
+      index_budget: z.number().int().optional(),
+    })
+    .optional(),
+  // [mcp]（SKILLS-MCPS-r1 §S3.4）：/mcp 面板持久开关面；server 定义本体在
+  // mcp.toml / .mcp.json（开放键空间，不走 ConfigSchema 校验）。
+  mcp: z
+    .strictObject({
+      disabled: z.array(z.string()).optional(),
+      enable_all_project_servers: z.boolean().optional(),
+    })
+    .optional(),
+  // [plugins] 市场源（PLUGIN-MANAGER-r1）：HTTPS（或回环 http）索引 URL；
+  // 信任语义校验（同源 / digest）在 apps/cli 的 plugin-market.ts，schema 只管形状
+  plugins: z.strictObject({ market: z.string().optional() }).optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地
   reflection: z
     .strictObject({
