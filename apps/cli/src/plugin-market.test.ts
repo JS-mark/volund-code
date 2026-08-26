@@ -301,7 +301,7 @@ describe('installFromMarket（安装链路）', () => {
   })
 })
 
-describe('loadMarketPlugins（启动自动装载）', () => {
+describe('loadMarketPlugins（启动发现与显式启用）', () => {
   it('skips dot dirs and non-plugin dirs; re-verifies digests on activation', async () => {
     const home = await fixtureHome()
     const root = marketInstallRoot(home)

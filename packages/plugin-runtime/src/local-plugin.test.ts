@@ -200,10 +200,7 @@ describe('createLocalPluginDispatch', () => {
   it('routes v2 inspect/approve/enable/disable through explicit plugins permissions', async () => {
     const { dispatch, managed } = dispatchFixture(['plugins.read', 'plugins.manage'])
     await dispatch('apollo.plugins.inspect', 'example')
-    await dispatch('apollo.plugins.approve', {
-      name: 'example',
-      permissionHash: 'a'.repeat(64),
-    })
+    await dispatch('apollo.plugins.approve', ['example', 'a'.repeat(64)])
     await dispatch('apollo.plugins.enable', 'example')
     await dispatch('apollo.plugins.disable', 'example')
     expect(managed).toEqual([
@@ -219,7 +216,7 @@ describe('createLocalPluginDispatch', () => {
 
   it('rejects malformed approval parameters before the host service', () => {
     const { dispatch, managed } = dispatchFixture(['plugins.manage'])
-    expect(() => dispatch('apollo.plugins.approve', { name: 'example' })).toThrow(
+    expect(() => dispatch('apollo.plugins.approve', ['example'])).toThrow(
       'plugin_rpc_params_invalid',
     )
     expect(managed).toEqual([])

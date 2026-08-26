@@ -187,8 +187,8 @@ export interface PluginPort {
  * （约定目录 ~/.apollo/plugins-dev/<name>/ 自动发现 + APOLLO_DEV_PLUGINS 额外
  * 路径）、市场插件（[plugins] market 安装到 ~/.apollo/plugins/<name>/，带
  * apollo-market.json 完整性映射，激活期重验）。~/.apollo/plugins 与冻结中的
- * legacy Catalog 状态文件（plugins.json approvals，deny-only）同目录共存、
- * 互不读取。Catalog v2 生产路径重开后仅 dev/市场发现退役，内置插件继续走此链路。
+ * legacy Catalog 状态文件（plugins/plugins.json approvals，deny-only）完全隔离；本地
+ * 三源的持久生命周期统一由同级 plugin-state.v2.json 管理。
  */
 export interface LocalPluginPort {
   activateLocal(dir: string): Promise<{ name: string; statusTabs: number }>
@@ -205,9 +205,8 @@ export interface LocalPluginPort {
     failed: { dir: string; error: string }[]
   }>
   /**
-   * 市场插件（PLUGIN-MANAGER-r1）：~/.apollo/plugins/<name>/ 自动发现（dot
-   * 目录与无 manifest.json 的目录跳过）。与内置/dev 同链路；装自市场的插件
-   * 激活时逐文件重验 digest。交互会话启动时装载；一次性子命令不装载。
+   * 市场插件：~/.apollo/plugins/<name>/ 自动发现（dot 目录与无 manifest.json
+   * 的目录跳过），但只有 v2 状态同时 approved + enabled 才装载；激活前逐文件重验。
    */
   loadMarketPlugins(): Promise<{
     loaded: { name: string; statusTabs: number }[]

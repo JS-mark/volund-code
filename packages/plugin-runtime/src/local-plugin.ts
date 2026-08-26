@@ -164,17 +164,16 @@ export function createLocalPluginDispatch(options: {
     }
     if (short === 'plugins.approve') {
       if (
-        !params ||
-        typeof params !== 'object' ||
-        typeof (params as { name?: unknown }).name !== 'string' ||
-        typeof (params as { permissionHash?: unknown }).permissionHash !== 'string'
+        !Array.isArray(params) ||
+        params.length !== 2 ||
+        typeof params[0] !== 'string' ||
+        typeof params[1] !== 'string'
       )
         throw new PluginError(
           'plugin_rpc_params_invalid',
-          'plugins.approve requires { name, permissionHash }',
+          'plugins.approve requires (name, permissionHash)',
         )
-      const approval = params as { name: string; permissionHash: string }
-      return services.approvePlugin?.(approval.name, approval.permissionHash)
+      return services.approvePlugin?.(params[0], params[1])
     }
     if (short === 'plugins.enable' || short === 'plugins.disable') {
       if (typeof params !== 'string' || !params)

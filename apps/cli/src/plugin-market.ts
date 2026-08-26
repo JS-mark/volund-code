@@ -2,8 +2,8 @@
  * PLUGIN-MANAGER-r1 市场链路（宿主侧）：`[plugins] market` 指向市场索引 URL，
  * 索引列出可安装插件（name / version / files[]，每个文件带 sha256 digest）。
  * 安装 = 逐文件下载到 staging（同源校验 + digest 校验 + manifest 校验 +
- * verifyBundle）→ 落盘 `~/.apollo/plugins/<name>/`（与 legacy Catalog 的
- * plugins.json approvals 共存互不读取；激活走本地沙箱链，不重开 legacy 授权）。
+ * verifyBundle）→ 落盘 `~/.apollo/plugins/<name>/`。生命周期由同级
+ * `plugin-state.v2.json` 统一管理；legacy `plugins/plugins.json` 保持 deny-only。
  * 沙箱内无网络——市场拉取/安装全部由宿主完成，插件只经 `apollo.plugins.*`
  * 桥方法触发。
  *
@@ -45,7 +45,7 @@ export interface MarketIndex {
   readonly plugins: readonly MarketPluginEntry[]
 }
 
-/** 市场插件安装根：~/.apollo/plugins（下载后即本地插件，自动装载机制扫这里）。 */
+/** 市场插件安装根：~/.apollo/plugins（发现不等于激活，v2 状态决定 eligibility）。 */
 export const marketInstallRoot = (home: string) => join(home, 'plugins')
 
 const loopbackHost = (hostname: string) =>

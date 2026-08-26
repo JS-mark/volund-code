@@ -283,7 +283,13 @@ describe('plugin runtime', () => {
     await expect(runtime.load(manifest.name)).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
-    await manager.uninstall(manifest.name)
+    const unrelatedV2Dir = join(root, manifest.name)
+    await mkdir(unrelatedV2Dir, { recursive: true })
+    await writeFile(join(unrelatedV2Dir, 'sentinel'), 'v2-owned')
+    await expect(manager.uninstall(manifest.name)).rejects.toMatchObject({
+      code: 'plugin_not_installed',
+    })
+    expect(await readFile(join(unrelatedV2Dir, 'sentinel'), 'utf8')).toBe('v2-owned')
     expect(manager.list()).toEqual({})
   })
   it('rejects inherited and invalid approval keys before any mutation', async () => {

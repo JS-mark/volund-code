@@ -521,9 +521,10 @@ export class PluginManager {
     return !record.enabled
   }
   async uninstall(name: string) {
-    assertPluginName(name)
+    const record = ownApproval(this.state.approvals, name)
+    if (!record) throw new PluginError('plugin_not_installed', name)
     await rm(join(this.root, name), { recursive: true, force: true })
-    if (Object.hasOwn(this.state.approvals, name)) delete this.state.approvals[name]
+    delete this.state.approvals[name]
     await this.save()
   }
   list() {

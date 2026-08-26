@@ -178,6 +178,7 @@ import { createMemoryTools } from './memory-tools'
 import {
   fetchMarketIndex,
   installFromMarket,
+  isLocalMarketSource,
   marketInstallRoot,
   normalizePluginName,
   readMarketIntegrity,
@@ -1800,9 +1801,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   // （[plugins] market 下载到 ~/.apollo/plugins/<name>/）三个发现源、同一条链路——
   // 经 apollo-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
   // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
-  // ~/.apollo/plugins 与冻结中的 legacy Catalog 状态文件（plugins.json approvals，
-  // deny-only）同目录共存、互不读取；市场插件的激活走本地沙箱链，不重开 legacy
-  // 授权路径（LEGACY_PLUGIN_UNAVAILABLE 维持原样）。
+  // legacy plugins/plugins.json 继续 deny-only；本地三源只由同级
+  // plugin-state.v2.json 决定 approved/enabled，绝不从安装目录推断为可执行。
   interface LoadedPluginEntry {
     readonly source: 'builtin' | 'dev' | 'market'
     readonly name: string
@@ -2003,6 +2003,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const source = await readMarketSource(home)
     if (!source)
       throw new Error('no market configured — set [plugins] market in ~/.apollo/config.toml')
+    if (!isLocalMarketSource(source))
+      throw new PluginError(
+        'plugin_registry_signature_required',
+        'remote market installs require a verified publisher signature and trusted key',
+      )
     // 整个安装（索引 + 全部文件）共享一个 9s deadline（见 MARKET_INSTALL_DEADLINE_MS）。
     const deadline = AbortSignal.timeout(MARKET_INSTALL_DEADLINE_MS)
     const index = await cachedMarketIndex(source, true, deadline)
@@ -2119,9 +2124,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       return this.loadLocalPluginsFrom(candidates, 'builtin')
     },
     /**
-     * 市场插件（PLUGIN-MANAGER-r1）：~/.apollo/plugins/<name>/ 自动发现（dot 目录
+     * 市场插件：~/.apollo/plugins/<name>/ 自动发现（dot 目录
      * 跳过——staging 与 legacy 状态文件不在此列，但防御性排除；无 manifest.json
-     * 的目录跳过）。带 apollo-market.json 的目录在激活时逐文件重验 digest。
+     * 的目录跳过）。发现只登记；approved + enabled 后才逐文件重验并激活。
      */
     async loadMarketPlugins() {
       const root = marketInstallRoot(home)
@@ -3017,6 +3022,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
       async uninstall(name) {
         assertLegacyPluginName(name)
+        if (await localPluginState.get(name))
+          throw new PluginError(
+            'plugin_lifecycle_authority_mismatch',
+            `${name} is managed by plugin-state.v2.json; use /plugins uninstall ${name.replace(/^apollo-plugin-/, '')}`,
+          )
         await pluginsReady
         await plugins.uninstall(name)
       },

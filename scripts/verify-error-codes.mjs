@@ -54,7 +54,6 @@ export const reservedContractCodes = new Map([
   ['plugin_activation_cancelled', legacyHostRemovalGate],
   ['plugin_activation_timeout', legacyHostRemovalGate],
   ['plugin_already_loaded', legacyHostRemovalGate],
-  ['plugin_approval_stale', legacyHostRemovalGate],
   ['plugin_callback_cancelled', legacyHostRemovalGate],
   ['plugin_callback_failed', legacyHostRemovalGate],
   ['plugin_callback_timeout', legacyHostRemovalGate],

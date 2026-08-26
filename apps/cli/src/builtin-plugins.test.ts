@@ -222,6 +222,53 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
     expect(output).toContain('no market configured')
   }, 30_000)
 
+  it('keeps installs inactive and requires the exact inspect/approve/enable sequence', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'apollo-manager-lifecycle-'))
+    dirs.push(home)
+    const hash = 'a'.repeat(64)
+    const calls: string[] = []
+    const entry = {
+      name: 'apollo-plugin-hello',
+      version: '1.0.0',
+      dir: join(home, 'plugins', 'apollo-plugin-hello'),
+      source: 'market' as const,
+      commands: 0,
+      statusTabs: 0,
+      lifecycle: { permissionHash: hash, approved: false, enabled: false, loaded: false },
+      permissions: { apollo: ['log.write'] },
+    }
+    const command = await activateManager(home, {
+      installMarketPlugin: async () => ({
+        name: entry.name,
+        version: entry.version,
+        dir: entry.dir,
+        permissionHash: hash,
+        approvalRequired: true,
+        permissions: entry.permissions,
+      }),
+      inspectPlugin: async () => entry,
+      approvePlugin: async (name, permissionHash) => {
+        calls.push(`approve:${name}:${permissionHash}`)
+        return { ...entry, lifecycle: { ...entry.lifecycle, approved: true } }
+      },
+      enablePlugin: async (name) => {
+        calls.push(`enable:${name}`)
+        return {
+          ...entry,
+          lifecycle: { ...entry.lifecycle, approved: true, enabled: true, loaded: true },
+        }
+      },
+    })
+    const installed = (await command.run(['install', 'hello'])) as string
+    expect(installed).toContain('The plugin is not active')
+    expect(installed).toContain(hash)
+    expect(await command.run(['approve', 'hello'])).toContain('Approval requires')
+    expect(await command.run(['approve', 'hello', hash])).toContain('remains disabled')
+    expect(await command.run(['enable', 'hello'])).toContain('now active')
+    expect(calls).toEqual([`approve:hello:${hash}`, 'enable:hello'])
+  }, 30_000)
+
   it('hot-uninstall reports success, and builtin/dev rejections carry explicit reasons', async () => {
     if (!(await sandboxAvailable())) return
     const home = await mkdtemp(join(tmpdir(), 'apollo-manager-uninstall-'))
