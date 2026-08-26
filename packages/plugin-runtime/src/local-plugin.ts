@@ -2,7 +2,12 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { startPluginHost } from '@apollo-code/native-bridge'
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import type {
+  EffectiveEnvEntry,
+  PluginInstallResult,
+  PluginInventory,
+  PluginManifest,
+} from '@apollo-code/plugin-sdk'
 
 import { PluginBridgeServer, PluginCallbackRef, PluginBridgeError } from './bridge-server'
 import { BRIDGE_PERMISSIONS, createRpcGuard, PluginError } from './index'
@@ -22,18 +27,40 @@ export interface StatusSectionContribution {
 }
 
 /**
- * 本地（dev）插件可用的宿主侧服务集。刻意保持最小：日志、会话用量快照、
- * /status 贡献注册。其余 bridge 方法一律 unknown-method 拒绝。
+ * 插件贡献的斜杠命令（commands.register）。run 经 callback.invoke 回到沙箱执行
+ * 插件 handler；返回值约定：string → 作为系统消息进 transcript；其他 → 静默成功。
+ * order 是可选排序键（CommandSpec.order，建议列表 / /help 升序）。
+ */
+export interface CommandContribution {
+  readonly name: string
+  readonly description: string
+  readonly order?: number
+  run(args: readonly string[]): Promise<unknown>
+}
+
+/**
+ * 本地（dev / 内置 / 市场）插件可用的宿主侧服务集。刻意保持最小：日志、会话
+ * 用量快照、[env] 生效快照、装载清单与市场管理、/status 贡献注册。其余 bridge
+ * 方法一律 unknown-method 拒绝。
  */
 export interface LocalPluginServices {
   log?(level: string, message: string, meta?: unknown): void
   getSessionUsage?(): unknown
+  /** [env] 配置段的生效快照（每次调用重读 config.toml，与 process.env 对比）。 */
+  getEffectiveEnv?(): Promise<readonly EffectiveEnvEntry[]> | readonly EffectiveEnvEntry[]
+  /** 装载清单（内置 / dev / 市场三源 + 市场索引，宿主侧计算）。 */
+  listPlugins?(): Promise<PluginInventory>
+  /** 从市场安装（宿主侧拉取 + digest 校验 + 落盘 + 立即激活）。 */
+  installMarketPlugin?(name: string): Promise<PluginInstallResult>
+  /** 卸载市场插件（停用 + 删目录）。 */
+  uninstallMarketPlugin?(name: string): Promise<{ name: string }>
 }
 
 export interface ActivatedLocalPlugin {
   readonly manifest: PluginManifest
   readonly statusTabs: readonly StatusTabContribution[]
   readonly statusSections: readonly StatusSectionContribution[]
+  readonly commands: readonly CommandContribution[]
   deactivate(): Promise<void>
 }
 
@@ -44,6 +71,11 @@ export interface ActivateLocalPluginOptions {
   /** 插件数据根目录；实际数据目录 = dataDirRoot/<manifest.name>（沙箱内唯一可写根）。 */
   dataDirRoot: string
   services: LocalPluginServices
+  /**
+   * 相对路径 → sha256（hex 或 sha256- 前缀）完整性映射（市场安装的插件带
+   * apollo-market.json 时由装载器传入）：激活时逐文件校验，篡改即拒载。
+   */
+  integrity?: Record<string, string>
   signal?: AbortSignal
   /** 覆盖握手等待（host.ready / host.activated）超时，测试用。 */
   handshakeTimeoutMs?: number
@@ -55,11 +87,12 @@ export interface ActivateLocalPluginOptions {
  */
 export function createLocalPluginDispatch(options: {
   manifest: PluginManifest
-  invokeCallback: (ref: PluginCallbackRef) => Promise<unknown>
+  invokeCallback: (ref: PluginCallbackRef, args?: readonly unknown[]) => Promise<unknown>
   services: LocalPluginServices
   contributions: {
     statusTabs: StatusTabContribution[]
     statusSections: StatusSectionContribution[]
+    commands: CommandContribution[]
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
@@ -94,7 +127,36 @@ export function createLocalPluginDispatch(options: {
       })
       return null
     }
+    if (short === 'commands.register') {
+      const command = readCommandSpec(params)
+      contributions.commands.push({
+        name: command.name,
+        description: command.description,
+        ...(command.order !== undefined ? { order: command.order } : {}),
+        run: (args) => invokeCallback(command.handler, [args]),
+      })
+      return null
+    }
     if (short === 'session.getUsage') return services.getSessionUsage?.() ?? null
+    if (short === 'env.getEffective') return services.getEffectiveEnv?.() ?? []
+    if (short === 'plugins.list')
+      return (
+        services.listPlugins?.() ?? {
+          builtin: [],
+          dev: [],
+          market: { installed: [], registry: { error: 'plugins inventory unavailable' } },
+        }
+      )
+    if (short === 'plugins.install') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', 'plugins.install requires a name string')
+      return services.installMarketPlugin?.(params)
+    }
+    if (short === 'plugins.uninstall') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', 'plugins.uninstall requires a name string')
+      return services.uninstallMarketPlugin?.(params)
+    }
     if (['log.debug', 'log.info', 'log.warn', 'log.error'].includes(short)) {
       const level = short.slice('log.'.length)
       const args = Array.isArray(params) ? params : [params]
@@ -120,7 +182,7 @@ export async function activateLocalPlugin(
     JSON.parse(await readFile(join(options.dir, 'manifest.json'), 'utf8')),
     options.apolloVersion,
   )
-  await verifyBundle(options.dir, manifest)
+  await verifyBundle(options.dir, manifest, options.integrity)
   // 数据目录按 manifest 名派生（名字已被 validateManifest 约束为路径安全字符），
   // 与插件代码目录分离——插件在沙箱里对自己的代码目录只读。
   const dataDir = join(options.dataDirRoot, manifest.name)
@@ -136,10 +198,11 @@ export async function activateLocalPlugin(
   const contributions = {
     statusTabs: [] as StatusTabContribution[],
     statusSections: [] as StatusSectionContribution[],
+    commands: [] as CommandContribution[],
   }
   server.onRequest = createLocalPluginDispatch({
     manifest,
-    invokeCallback: (ref) => server.invokeCallback(ref),
+    invokeCallback: (ref, args) => server.invokeCallback(ref, args ?? []),
     services: options.services,
     contributions,
   })
@@ -160,6 +223,9 @@ export async function activateLocalPlugin(
     },
     get statusSections() {
       return contributions.statusSections
+    },
+    get commands() {
+      return contributions.commands
     },
     deactivate: async () => {
       process.off('exit', onExit)
@@ -199,4 +265,34 @@ function readSectionSpec(params: unknown): {
       'registerSection requires a render function',
     )
   return { id: spec.id, title: spec.title, render: spec.render }
+}
+
+function readCommandSpec(params: unknown): {
+  name: string
+  description: string
+  order?: number
+  handler: PluginCallbackRef
+} {
+  const spec = (params ?? {}) as {
+    name?: unknown
+    description?: unknown
+    order?: unknown
+    handler?: unknown
+  }
+  if (typeof spec.name !== 'string' || !spec.name)
+    throw new PluginBridgeError('plugin_command_invalid', 'commands.register requires a name')
+  if (!(spec.handler instanceof PluginCallbackRef))
+    throw new PluginBridgeError(
+      'plugin_command_invalid',
+      'commands.register requires a handler function',
+    )
+  // 排序键只收有限数（桥值是任意 JSON，非法值按未设置处理）
+  const order =
+    typeof spec.order === 'number' && Number.isFinite(spec.order) ? spec.order : undefined
+  return {
+    name: spec.name,
+    description: typeof spec.description === 'string' ? spec.description : '',
+    ...(order !== undefined ? { order } : {}),
+    handler: spec.handler,
+  }
 }

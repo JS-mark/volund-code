@@ -595,6 +595,30 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
     test: 'packages/plugin-runtime/src/index.test.ts#ApolloBridge capability matrix',
   })),
   {
+    method: 'env.getEffective',
+    status: 'supported' as const,
+    reason: 'Local (dev/builtin) channel only; the frozen legacy Catalog path never exposes it.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  },
+  {
+    method: 'plugins.list',
+    status: 'supported' as const,
+    reason: 'Local (builtin/dev/market) channel only; host-side inventory data.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  },
+  {
+    method: 'plugins.install',
+    status: 'supported' as const,
+    reason: 'Local (builtin/dev/market) channel only; host performs fetch + digest verify.',
+    test: 'apps/cli/src/plugin-market.test.ts#installFromMarket',
+  },
+  {
+    method: 'plugins.uninstall',
+    status: 'supported' as const,
+    reason: 'Local (builtin/dev/market) channel only; host deactivates and removes the dir.',
+    test: 'apps/cli/src/builtin-plugins.test.ts#apollo-plugin-manager',
+  },
+  {
     method: 'call',
     status: 'unsupported' as const,
     reason: 'Low-level calls are transport-only; there is no direct in-process handler.',
@@ -817,6 +841,12 @@ export const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freez
   'memory.delete': 'memory.write',
   'memory.export': 'memory.export',
   'config.get': 'config.read',
+  // [env] 配置段生效快照（宿主侧数据；沙箱内读不到 process.env）
+  'env.getEffective': 'env.read',
+  // 插件装载清单与市场管理（宿主侧数据 + 宿主侧动作；沙箱内无网络）
+  'plugins.list': 'plugins.read',
+  'plugins.install': 'plugins.manage',
+  'plugins.uninstall': 'plugins.manage',
   'log.write': 'log.write',
   'log.debug': 'log.write',
   'log.info': 'log.write',

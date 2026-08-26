@@ -54,7 +54,111 @@ export interface ToolSpec {
 export interface CommandSpec {
   name: string
   description?: string
-  handler(args: readonly string[]): void | Promise<void>
+  /**
+   * 建议列表与 /help 的排序键（升序，可选）。未设置 order 的命令保持在未排序
+   * 段（内置命令在前、其余按注册序）；设置了 order 的命令按值升序浮到未排序
+   * 段之前——插件用它在多个贡献命令之间声明展示顺序。桥值必须是有限数，
+   * 非法值按未设置处理。
+   */
+  order?: number
+  /**
+   * 斜杠命令处理器。返回值契约：字符串 → 作为系统消息进 transcript；
+   * CommandListView（`{ kind: 'list', ... }` 纯数据描述符）→ UI 打开可搜索的
+   * 列表面板（resume 风格，选中条目的 detail 进 transcript）；
+   * CommandTabsView（`{ kind: 'tabs', ... }`）→ UI 打开多页签列表面板
+   * （/plugins 风格，←/→ 切页签）；void → 静默成功。抛出异常 → 消息按失败展示。
+   */
+  handler(
+    args: readonly string[],
+  ):
+    | void
+    | string
+    | CommandListView
+    | CommandTabsView
+    | Promise<void | string | CommandListView | CommandTabsView>
+}
+/**
+ * 命令的结构化列表输出（纯数据，可过桥）：UI 渲染成可搜索选择器。
+ * 与 packages/ui 的 CommandListView 结构化一致（两侧各自定义，桥值是 JSON）。
+ */
+export interface CommandListView {
+  readonly kind: 'list'
+  readonly title: string
+  readonly placeholder?: string
+  readonly entries: readonly CommandListEntry[]
+}
+export interface CommandListEntry {
+  readonly id: string
+  readonly label: string
+  readonly value?: string
+  readonly status?: string
+  /** 选中后进入 transcript 的完整文本（长值全文放这里）。 */
+  readonly detail?: string
+}
+/**
+ * 命令的多页签列表输出（纯数据，可过桥）：UI 渲染成带页签的可搜索面板
+ * （/plugins 风格，←/→ 切页签，搜索词作用于当前页签）。条目形状复用
+ * CommandListEntry。与 packages/ui 的 CommandTabsView 结构化一致。
+ */
+export interface CommandTabsView {
+  readonly kind: 'tabs'
+  readonly title: string
+  readonly placeholder?: string
+  readonly tabs: readonly CommandTabsSection[]
+}
+export interface CommandTabsSection {
+  readonly id: string
+  readonly label: string
+  readonly entries: readonly CommandListEntry[]
+}
+/**
+ * [env] 配置段的单条生效快照（`apollo.env.getEffective` 的返回元素，宿主侧
+ * 计算）：configured 是配置值经前置解析（`~` / `${VAR}`）后的应用值，actual
+ * 是当前 process.env 里的实际值（null = 未设置）；status = effective（一致）/
+ * overridden（被外部改写）/ pending（尚未应用，如未经 applyEnv 的一次性子命令）。
+ * sandboxPassthrough 标出该名字是否经 [tools] pass_through_env（或最小继承集
+ * PATH/HOME/LANG/TZ）进入沙箱。
+ */
+export interface EffectiveEnvEntry {
+  readonly key: string
+  readonly configured: string
+  readonly actual: string | null
+  readonly status: 'effective' | 'pending' | 'overridden'
+  readonly sandboxPassthrough: boolean
+}
+/**
+ * 宿主侧装载清单的单个插件（`apollo.plugins.list` 的返回元素，宿主侧计算）：
+ * source = builtin（产物自带）/ dev（~/.apollo/plugins-dev + APOLLO_DEV_PLUGINS）/
+ * market（市场安装到 ~/.apollo/plugins 的插件）。
+ */
+export interface PluginInventoryEntry {
+  readonly name: string
+  readonly version: string
+  readonly dir: string
+  readonly source: 'builtin' | 'dev' | 'market'
+  readonly commands: number
+  readonly statusTabs: number
+}
+/** 市场索引里的单个可安装条目（files 摘要不进清单，仅宿主安装时使用）。 */
+export interface PluginMarketListing {
+  readonly name: string
+  readonly version: string
+  readonly description?: string
+  readonly publisher?: string
+}
+export interface PluginInventory {
+  readonly builtin: readonly PluginInventoryEntry[]
+  readonly dev: readonly PluginInventoryEntry[]
+  readonly market: {
+    readonly installed: readonly PluginInventoryEntry[]
+    /** registry 缺省未配置 / 拉取失败时为 { error }，面板负责解释。 */
+    readonly registry: { source: string; plugins: readonly PluginMarketListing[] } | { error: string }
+  }
+}
+export interface PluginInstallResult {
+  readonly name: string
+  readonly version: string
+  readonly dir: string
 }
 export interface PromptFragment {
   id: string
@@ -259,6 +363,26 @@ export interface ApolloBridge {
     }
   }
   readonly commands: { register(spec: CommandSpec): Disposable }
+  /**
+   * [env] 配置段的生效视图（宿主侧数据，沙箱内读不到 process.env）。
+   * 需要 manifest `permissions.apollo` 包含 `'env.read'`（deny-by-default）。
+   * 仅本地（dev / 内置）通道提供；冻结中的 legacy Catalog 路径不实现，
+   * 插件侧应 `apollo.env?.getEffective()` 或 try/catch 降级。
+   */
+  readonly env?: {
+    getEffective(): Promise<readonly EffectiveEnvEntry[]>
+  }
+  /**
+   * 插件装载清单与市场管理（宿主侧数据 + 宿主侧动作；沙箱内无网络，市场索引
+   * 的拉取/安装都由宿主完成）。需要 manifest `permissions.apollo` 包含
+   * `'plugins.read'`（list）与 `'plugins.manage'`（install / uninstall），
+   * deny-by-default。仅本地（内置 / dev / 市场）通道提供；插件侧应判空降级。
+   */
+  readonly plugins?: {
+    list(): Promise<PluginInventory>
+    install(name: string): Promise<PluginInstallResult>
+    uninstall(name: string): Promise<{ name: string }>
+  }
   readonly prompt: { contribute(fragment: PromptFragment): Disposable; revoke(id: string): void }
   readonly session: {
     readonly id: string
