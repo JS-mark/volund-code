@@ -1,4 +1,4 @@
-import { dirname } from 'node:path'
+import { basename, dirname } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
 import { ErrorCodes, sanitize, validateWorkspacePath } from '@apollo-code/shared'
@@ -17,12 +17,15 @@ import type {
   WelcomePanelData,
   WelcomeSandboxStatus,
 } from '@apollo-code/ui'
-import { parseArgs, renderUsage } from 'citty'
+import { parseArgs } from 'citty'
 
 import { CommandRegistry } from './app/command-registry'
-import { createCommand } from './command'
+import { createCommand, renderGlobalUsage } from './command'
 import { doctorCommand } from './commands/doctor'
-import { createMemoryCommand, memoryUsage } from './commands/memory'
+import { createConfigCommand } from './commands/config'
+import { actionStyleCommands, commandUsage } from './commands/help'
+import { createHistoryCommand } from './commands/history'
+import { createMemoryCommand } from './commands/memory'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
@@ -62,6 +65,10 @@ const argsDefinition = {
   batchSize: { type: 'string' as const },
   check: { type: 'boolean' as const },
   force: { type: 'boolean' as const },
+  project: { type: 'boolean' as const },
+  olderThan: { type: 'string' as const },
+  output: { type: 'string' as const },
+  o: { type: 'string' as const },
   source: { type: 'string' as const },
   pinned: { type: 'boolean' as const },
   cursor: { type: 'string' as const },
@@ -97,13 +104,34 @@ export async function runCli(
   io: CliIo = defaultIo,
 ): Promise<CliResult> {
   const command = createCommand(ports.identity)
+  // Per-command help (spec §11.3 `apollo help [command]`). Help must short-circuit
+  // before sandbox probing, trust checks, or session startup. Tokens after `--`
+  // belong to a subprocess (mcp add passthrough), so help flags are only scanned
+  // before it; a bare `help` positional only counts for action-style commands,
+  // where it would otherwise just error as an unknown action.
+  const passthrough = rawArgs.indexOf('--')
+  const scannable = passthrough === -1 ? rawArgs : rawArgs.slice(0, passthrough)
+  const wantsHelp = scannable.includes('--help') || scannable.includes('-h')
+  if (rawArgs[0] === 'help') {
+    const topic = rawArgs[1]
+    if (topic === undefined)
+      return { exitCode: 0, stdout: await renderGlobalUsage(command), stderr: '' }
+    const usage = commandUsage[topic]
+    return usage === undefined
+      ? {
+          exitCode: 2,
+          stdout: '',
+          stderr: `Unknown command: ${topic}. Run 'apollo help' to list commands.`,
+        }
+      : { exitCode: 0, stdout: usage, stderr: '' }
+  }
+  const topicUsage = rawArgs[0] === undefined ? undefined : commandUsage[rawArgs[0]]
   if (
-    rawArgs[0] === 'memory' &&
-    (rawArgs[1] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
+    topicUsage !== undefined &&
+    (wantsHelp || (rawArgs[1] === 'help' && actionStyleCommands.has(rawArgs[0]!)))
   )
-    return { exitCode: 0, stdout: memoryUsage, stderr: '' }
-  if (rawArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h'))
-    return { exitCode: 0, stdout: await renderUsage(command), stderr: '' }
+    return { exitCode: 0, stdout: topicUsage, stderr: '' }
+  if (wantsHelp) return { exitCode: 0, stdout: await renderGlobalUsage(command), stderr: '' }
   if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
     return { exitCode: 0, stdout: `${ports.identity.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
@@ -135,6 +163,8 @@ export async function runCli(
     doctorCommand,
     telemetryCommand,
     trustCommand,
+    createConfigCommand(io),
+    createHistoryCommand(io),
     createStatusCommand({
       buildFallback: async (fallbackCwd) =>
         buildWelcomePanelData({
@@ -154,7 +184,7 @@ export async function runCli(
   if (subcommand === 'version')
     return { exitCode: 0, stdout: `${stdout}${ports.identity.version}\n`, stderr }
   if (subcommand === 'help')
-    return { exitCode: 0, stdout: `${stdout}${await renderUsage(command)}`, stderr }
+    return { exitCode: 0, stdout: `${stdout}${await renderGlobalUsage(command)}`, stderr }
   if (subcommand === 'hook' && args._[1] === 'list')
     return { exitCode: 0, stdout: `${stdout}No builtin hooks registered.\n`, stderr }
   if (subcommand === 'plugin') {
@@ -252,7 +282,12 @@ export async function runCli(
       const servers = await ports.mcp.list()
       stdout += args.json
         ? `${JSON.stringify(servers)}\n`
-        : `${servers.map((server) => `${server.name}\t${redactTransport(server.transport)}`).join('\n')}${servers.length ? '\n' : ''}`
+        : `${servers
+            .map(
+              (server) =>
+                `${server.name}\t${server.status ?? 'configured'}\t${server.scope ?? ''}\t${redactTransport(server.transport)}`,
+            )
+            .join('\n')}${servers.length ? '\n' : ''}`
       return { exitCode: 0, stdout, stderr }
     }
     if (action === 'test' || action === 'inspect') {
@@ -275,7 +310,99 @@ export async function runCli(
         }
       }
     }
+    if (action === 'add') {
+      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      const parsed = parseMcpAddArgs(rawArgs.slice(rawArgs.indexOf('add') + 1))
+      if (parsed.error)
+        return args.json
+          ? jsonFailure(parsed.error, 2, 'mcp_add_invalid', 'usage')
+          : { exitCode: 2, stdout, stderr: parsed.error }
+      try {
+        const result = await ports.mcp.add(parsed.input!)
+        stdout += args.json
+          ? `${JSON.stringify(result)}\n`
+          : `Added MCP server ${parsed.input!.name} (${parsed.input!.transport.kind}) to ${result.file}\n`
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return args.json ? jsonFailure(message, 1, 'mcp_add_failed') : { exitCode: 1, stdout, stderr: message }
+      }
+    }
+    if (action === 'remove' || action === 'enable' || action === 'disable') {
+      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      const name = args._[2]
+      if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
+      const scope = args.scope === 'project' || args.scope === 'user' ? args.scope : undefined
+      try {
+        if (action === 'remove') {
+          const result = await ports.mcp.remove(name, scope)
+          stdout += args.json
+            ? `${JSON.stringify(result)}\n`
+            : `Removed MCP server ${name} from ${result.file}\n`
+        } else {
+          await ports.mcp.setEnabled(name, action === 'enable')
+          stdout += `MCP server ${name} ${action}d\n`
+        }
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return args.json ? jsonFailure(message, 1, 'mcp_action_failed') : { exitCode: 1, stdout, stderr: message }
+      }
+    }
     return { exitCode: 2, stdout, stderr: `Unknown mcp action: ${action}` }
+  }
+  if (subcommand === 'skill') {
+    if (!ports.skill) return { exitCode: 2, stdout, stderr: 'skill integration port is not connected' }
+    const action = args._[1] ?? 'list'
+    const scope = args.scope === 'project' || args.scope === 'user' ? args.scope : undefined
+    try {
+      if (action === 'list') {
+        const skills = await ports.skill.list()
+        const visible = scope ? skills.filter((skill) => skill.scope === scope) : skills
+        stdout += args.json
+          ? `${JSON.stringify(visible)}\n`
+          : `${visible
+              .map(
+                (skill) =>
+                  `${skill.name}\t${skill.scope}:${skill.status}\t${skill.description.split('\n', 1)[0] ?? ''}`,
+              )
+              .join('\n')}${visible.length ? '\n' : ''}`
+        return { exitCode: 0, stdout, stderr }
+      }
+      if (action === 'install') {
+        const spec = args._[2]
+        if (!spec) return { exitCode: 2, stdout, stderr: 'skill install requires a source (local dir, git URL, github:owner/repo, or owner/repo)' }
+        const installed = await ports.skill.install(spec, scope ? { scope } : undefined)
+        stdout += args.json
+          ? `${JSON.stringify(installed)}\n`
+          : `Installed ${installed.length} skill(s):\n${installed.map((skill) => `  ${skill.name} (${skill.scope} · ${skill.path})`).join('\n')}\n`
+        return { exitCode: 0, stdout, stderr }
+      }
+      if (action === 'uninstall') {
+        const name = args._[2]
+        if (!name) return { exitCode: 2, stdout, stderr: 'skill uninstall requires a name' }
+        await ports.skill.uninstall(name, scope ? { scope } : undefined)
+        stdout += `Uninstalled skill ${name}\n`
+        return { exitCode: 0, stdout, stderr }
+      }
+      if (action === 'show') {
+        const name = args._[2]
+        if (!name) return { exitCode: 2, stdout, stderr: 'skill show requires a name' }
+        stdout += `${await ports.skill.show(name)}\n`
+        return { exitCode: 0, stdout, stderr }
+      }
+      if (action === 'enable' || action === 'disable') {
+        const name = args._[2]
+        if (!name) return { exitCode: 2, stdout, stderr: `skill ${action} requires a name` }
+        await ports.skill.setEnabled(name, action === 'enable')
+        stdout += `Skill ${name} ${action}d\n`
+        return { exitCode: 0, stdout, stderr }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return args.json ? jsonFailure(message, 1, 'skill_command_failed') : { exitCode: 1, stdout, stderr: message }
+    }
+    return { exitCode: 2, stdout, stderr: `Unknown skill action: ${action}` }
   }
   if (subcommand === 'context') {
     if (!ports.context)
@@ -651,16 +778,36 @@ export async function runCli(
       const interactive = resumeSelection
         ? await ports.session.resumeInteractive!(resumeSelection.id)
         : await ports.session.startInteractive!({ cwd })
-      // PLUGIN-STATUS-UI-r1 dev 装载：自动发现 ~/.apollo/plugins-dev/<name>/，
-      // 外加 APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 的仓库内开发路径。单个失败不阻塞 REPL。
-      if (ports.pluginDev) {
+      // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件装载：内置插件（产物自带
+      // 的 apps/cli/plugins/，如 /env、/plugins）先装载；dev 插件随后
+      // （~/.apollo/plugins-dev 约定目录 + APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 的
+      // 仓库内开发路径）；市场插件最后（~/.apollo/plugins/<name>/，装自 [plugins]
+      // market，激活时逐文件重验 digest）。单个失败不阻塞 REPL。插件激活失败必须
+      // 进 TUI 可见的启动系统消息（notices）——只写 stderr 的话要等 REPL 退出才
+      // 显示，/env 这类命令就会静默缺失成 "Unknown slash command"。
+      const startupNotices: string[] = []
+      if (ports.localPlugins) {
+        const { failed: builtinFailed } = await ports.localPlugins.loadBuiltinPlugins()
+        for (const failure of builtinFailed)
+          startupNotices.push(
+            `Builtin plugin ${basename(failure.dir)} failed to activate: ${failure.error}`,
+          )
         const extraDirs = (process.env.APOLLO_DEV_PLUGINS ?? '')
           .split(',')
           .map((dir) => dir.trim())
           .filter(Boolean)
-        const { failed } = await ports.pluginDev.loadDevPlugins(extraDirs)
-        for (const failure of failed)
-          stderr += `Dev plugin ${failure.dir} failed to activate: ${failure.error}\n`
+        const { failed: devFailed } = await ports.localPlugins.loadDevPlugins(extraDirs)
+        for (const failure of devFailed) {
+          const note = `Dev plugin ${failure.dir} failed to activate: ${failure.error}`
+          startupNotices.push(note)
+          stderr += `${note}\n`
+        }
+        const { failed: marketFailed } = await ports.localPlugins.loadMarketPlugins()
+        for (const failure of marketFailed) {
+          const note = `Market plugin ${basename(failure.dir)} failed to activate: ${failure.error}`
+          startupNotices.push(note)
+          stderr += `${note}\n`
+        }
       }
       const permissions = new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
@@ -714,6 +861,7 @@ export async function runCli(
             }
           : {}),
         noColor,
+        notices: startupNotices,
         onExit: interactive.end,
         ...(interactive.interrupt ? { onInterrupt: () => interactive.interrupt!() } : {}),
         onSubmit: interactive.submit,
@@ -952,6 +1100,89 @@ function jsonFailure(
   return { exitCode, stdout: `${JSON.stringify(error)}\n${JSON.stringify(final)}\n`, stderr: '' }
 }
 
+
+/**
+ * SKILLS-MCPS-r1 §S3.7：`apollo mcp add` 的手动解析（citty 不支持 `--` 透传与
+ * 重复 flag）。形态（业界惯例）：
+ *   apollo mcp add [-s user|project] [-e K=V]... <name> -- <command> [args...]
+ *   apollo mcp add [-t http|sse] [-s scope] [-H 'K: v']... <name> <url>
+ */
+export function parseMcpAddArgs(tokens: readonly string[]): {
+  input?: import('./ports').McpAddInput
+  error?: string
+} {
+  const env: Record<string, string> = {}
+  const headers: Record<string, string> = {}
+  let scope: 'user' | 'project' = 'user'
+  let transportKind: 'stdio' | 'http' | 'sse' | undefined
+  const positionals: string[] = []
+  let command: string[] | undefined
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!
+    if (token === '--') {
+      command = tokens.slice(index + 1)
+      break
+    }
+    if (token === '-t' || token === '--transport') {
+      const value = tokens[++index]
+      if (value !== 'http' && value !== 'sse' && value !== 'stdio')
+        return { error: `--transport must be http, sse, or stdio (got ${value})` }
+      transportKind = value
+      continue
+    }
+    if (token === '-s' || token === '--scope') {
+      const value = tokens[++index]
+      if (value !== 'user' && value !== 'project')
+        return { error: `--scope must be user or project (got ${value})` }
+      scope = value
+      continue
+    }
+    if (token === '-e' || token === '--env') {
+      const pair = tokens[++index]
+      const split = pair?.indexOf('=')
+      if (pair === undefined || split === undefined || split <= 0)
+        return { error: `--env expects KEY=VALUE (got ${pair})` }
+      env[pair.slice(0, split)] = pair.slice(split + 1)
+      continue
+    }
+    if (token === '-H' || token === '--header') {
+      const pair = tokens[++index]
+      const split = pair ? Math.max(pair.indexOf(':'), pair.indexOf('=')) : -1
+      if (pair === undefined || split <= 0)
+        return { error: `--header expects 'Key: value' (got ${pair})` }
+      headers[pair.slice(0, split).trim()] = pair.slice(split + 1).trim()
+      continue
+    }
+    if (token.startsWith('-') && token.length > 1)
+      return { error: `Unknown flag for mcp add: ${token}` }
+    positionals.push(token)
+  }
+  const name = positionals[0]
+  if (!name) return { error: 'mcp add requires a server name' }
+  const url = positionals[1]
+  if (command && command.length > 0) {
+    if (url) return { error: 'mcp add takes either <url> or `-- <command> [args...]`, not both' }
+    if (transportKind === 'http' || transportKind === 'sse')
+      return { error: '--transport http/sse expects <url>, not a stdio command' }
+    return {
+      input: {
+        name,
+        scope,
+        transport: { kind: 'stdio', command: command[0]!, args: command.slice(1), env },
+      },
+    }
+  }
+  if (url && /^https?:\/\//.test(url))
+    return {
+      input: {
+        name,
+        scope,
+        transport: { kind: 'http', url, headers, legacySse: transportKind === 'sse' },
+      },
+    }
+  if (url) return { error: `Not a URL and no stdio command given: ${url} (use \`-- <command>\`)` }
+  return { error: 'mcp add requires a transport: `-- <command> [args...]` (stdio) or <url> (http)' }
+}
 function redactTransport(value: string): string {
   try {
     const url = new URL(value)

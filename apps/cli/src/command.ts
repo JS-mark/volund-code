@@ -1,4 +1,5 @@
-import { defineCommand } from 'citty'
+import { defineCommand, renderUsage } from 'citty'
+import type { ArgsDef, CommandDef } from 'citty'
 
 import type { AppIdentity } from './shared/app-identity'
 
@@ -27,7 +28,8 @@ export const createCommand = (identity: AppIdentity) =>
       doctor: leaf('doctor', 'Diagnose L1 dependencies'),
       memory: leaf('memory', 'Manage, search, and maintain durable memory'),
       hook: leaf('hook', 'List builtin hooks'),
-      mcp: leaf('mcp', 'List, test, and inspect MCP servers'),
+      skill: leaf('skill', 'Install, manage, and show prompt skills'),
+      mcp: leaf('mcp', 'Add, list, test, enable/disable, and inspect MCP servers'),
       version: leaf('version', 'Print version'),
       help: leaf('help', 'Show command help'),
     },
@@ -35,3 +37,13 @@ export const createCommand = (identity: AppIdentity) =>
 
 /** Stable test fixture; production uses createCommand(appIdentity). */
 export const command = createCommand({ version: '0.0.0-test' })
+
+/**
+ * citty enumerates every subcommand inline in the USAGE line
+ * (`USAGE apollo chat|resume|...`); the COMMANDS table below it already lists
+ * them, so collapse the enumeration to `<command>`.
+ */
+export async function renderGlobalUsage(cmd: CommandDef<ArgsDef>): Promise<string> {
+  const rendered = await renderUsage(cmd)
+  return rendered.replace(/(USAGE[^\n]*?apollo) [\w|-]+/, '$1 <command>')
+}

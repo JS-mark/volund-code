@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { createSession, EventBus, MachineEventFormatter } from '@apollo-code/core'
+import type { JsonValue } from '@apollo-code/shared'
 import type { ToolContext } from '@apollo-code/tool-kit'
 import { BashTool } from '@apollo-code/tools'
 import type { SandboxDisclosure } from '@apollo-code/ui'
@@ -9,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
 import { command } from './command'
+import { assignConfigValue, deleteConfigValue } from './config-edit'
 import type { ApolloPorts, PermissionInteractionMode } from './ports'
 import { createProductionToolPermissionChain } from './runtime'
 
@@ -96,6 +98,7 @@ describe('runCli', () => {
       'doctor',
       'memory',
       'hook',
+      'skill',
       'mcp',
       'version',
       'help',
@@ -142,6 +145,163 @@ describe('runCli', () => {
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
     expect(testPorts.session.start).not.toHaveBeenCalled()
     await expect(runCli(['-h'], ports())).resolves.toMatchObject({ exitCode: 0, stderr: '' })
+  })
+
+  it('renders per-command help via <command> --help, help <command>, and <command> help', async () => {
+    const testPorts = ports({
+      native: {
+        probe: vi.fn(async () => ({
+          tier: 'none' as const,
+          mechanism: 'unavailable',
+          features: { filesystem: false, network: false },
+          degradationReasons: ['probe failed'],
+        })),
+        health: vi.fn(async () => ({ sandbox: false, search: false, fs: false })),
+      },
+    })
+    const mcpHelp = await runCli(['mcp', '--help'], testPorts)
+    expect(mcpHelp).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(mcpHelp.stdout).toContain('Usage: apollo mcp')
+    expect(mcpHelp.stdout).toContain('-- <command> [args...]')
+    expect(mcpHelp.stdout).not.toContain('Usage: apollo <command>')
+    expect(testPorts.native.probe).not.toHaveBeenCalled()
+    expect(testPorts.session.start).not.toHaveBeenCalled()
+
+    const doctorHelp = await runCli(['help', 'doctor'], testPorts)
+    expect(doctorHelp).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(doctorHelp.stdout).toContain('Usage: apollo doctor')
+
+    const memoryHelp = await runCli(['memory', 'help'], testPorts)
+    expect(memoryHelp).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(memoryHelp.stdout).toContain('Usage: apollo memory')
+
+    const globalHelp = await runCli(['help'], testPorts)
+    expect(globalHelp).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(globalHelp.stdout).toContain('apollo')
+
+    const unknown = await runCli(['help', 'nope'], testPorts)
+    expect(unknown).toMatchObject({ exitCode: 2, stdout: '' })
+    expect(unknown.stderr).toContain('Unknown command: nope')
+  })
+
+  it('does not treat flags after -- as help requests', async () => {
+    const testPorts = ports({
+      mcp: {
+        list: vi.fn(async () => []),
+        add: vi.fn(async () => ({ file: 'mcp.toml' })),
+        remove: vi.fn(async () => ({ file: 'mcp.toml' })),
+        setEnabled: vi.fn(async () => {}),
+        test: vi.fn(async () => ({ protocolVersion: 'test' })),
+        inspect: vi.fn(async () => ({ tools: [] })),
+      },
+    })
+    const result = await runCli(
+      ['mcp', 'add', 'server', '--', 'node', 'server.js', '--help'],
+      testPorts,
+    )
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(result.stdout).not.toContain('Usage: apollo')
+    expect(testPorts.mcp?.add).toHaveBeenCalled()
+  })
+
+  it('runs config commands through the config port', async () => {
+    const store: Record<string, JsonValue> = {}
+    const file = '/home/user/.apollo/config.toml'
+    const testPorts = ports({
+      config: {
+        health: vi.fn(async () => ({ valid: true, detail: 'valid' })),
+        listMerged: vi.fn(async () => ({ config: store, warnings: [] })),
+        setValue: vi.fn(async (input: { key: string; value: JsonValue }) => {
+          assignConfigValue(store, input.key, input.value)
+          return { file }
+        }),
+        unsetValue: vi.fn(async (input: { key: string }) => {
+          const removed = deleteConfigValue(store, input.key)
+          return { file, removed }
+        }),
+        filePaths: vi.fn(() => ({ user: file, project: '/cwd/.apollo/config.toml' })),
+      },
+    })
+    await expect(runCli(['config', 'set', 'provider.default', 'anthropic'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: `Set provider.default in ${file}\n`,
+    })
+    await expect(runCli(['config', 'get', 'provider.default'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: 'anthropic\n',
+    })
+    await expect(runCli(['config', 'get', 'missing.key'], testPorts)).resolves.toMatchObject({
+      exitCode: 3,
+    })
+    await expect(runCli(['config', 'set', 'only-key'], testPorts)).resolves.toMatchObject({
+      exitCode: 2,
+      stderr: 'config set requires a key and a value',
+    })
+    await expect(runCli(['config', 'unset', 'provider.default'], testPorts)).resolves.toMatchObject(
+      { exitCode: 0 },
+    )
+    await expect(runCli(['config', 'unset', 'provider.default'], testPorts)).resolves.toMatchObject(
+      { exitCode: 3 },
+    )
+    await expect(runCli(['config', 'path', '--json'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: `${JSON.stringify({ user: file, project: '/cwd/.apollo/config.toml' })}\n`,
+    })
+    await expect(runCli(['config', 'bogus'], testPorts)).resolves.toMatchObject({ exitCode: 2 })
+    await expect(runCli(['config', '--help'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining('Usage: apollo config'),
+    })
+  })
+
+  it('runs history commands through the history port with a confirmation gate for clear', async () => {
+    const candidate = {
+      id: '018f2d3a-0000-7000-8000-00000000000a',
+      cwd: '/work/a',
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      title: 'a session',
+    }
+    const testPorts = ports({
+      history: {
+        list: vi.fn(async () => [candidate]),
+        show: vi.fn(async () => ({
+          id: candidate.id,
+          cwd: candidate.cwd,
+          updatedAt: candidate.updatedAt,
+          events: 3,
+          messages: [{ role: 'user', text: 'hello' }],
+        })),
+        exportSession: vi.fn(async () => '# Session\n'),
+        importSession: vi.fn(async () => ({ id: candidate.id, file: '/tmp/x.jsonl' })),
+        clear: vi.fn(async () => ({ removed: [candidate.id] })),
+        search: vi.fn(async () => [{ sessionId: candidate.id, snippet: 'hello' }]),
+      },
+    })
+    const listed = await runCli(['history', 'list', '--json'], testPorts)
+    expect(listed).toMatchObject({ exitCode: 0, stderr: '' })
+    expect(JSON.parse(listed.stdout)).toEqual([candidate])
+
+    const shown = await runCli(['history', 'show', candidate.id], testPorts)
+    expect(shown.exitCode).toBe(0)
+    expect(shown.stdout).toContain('hello')
+
+    // clear：非交互且无 --yes → 拒绝；--yes → 执行
+    await expect(runCli(['history', 'clear'], testPorts)).resolves.toMatchObject({
+      exitCode: 2,
+      stderr: 'history clear requires exactly one of --all or --older-than <date>',
+    })
+    await expect(runCli(['history', 'clear', '--all'], testPorts)).resolves.toMatchObject({
+      exitCode: 2,
+      stderr: 'history clear requires --yes outside an interactive terminal',
+    })
+    await expect(
+      runCli(['history', 'clear', '--all', '--yes'], testPorts),
+    ).resolves.toMatchObject({ exitCode: 0, stdout: 'Removed 1 session(s).\n' })
+
+    await expect(runCli(['history', '--help'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining('Usage: apollo history'),
+    })
   })
 
   it('renders version flags before sandbox probing or session startup', async () => {
@@ -389,6 +549,9 @@ describe('runCli', () => {
       ]),
       test: vi.fn(async () => ({ protocolVersion: '2025-03-26' })),
       inspect: vi.fn(async () => ({ tools: [{ name: 'read', description: 'reads' }] })),
+      add: vi.fn(async () => ({ file: 'mcp.toml' })),
+      remove: vi.fn(async () => ({ file: 'mcp.toml' })),
+      setEnabled: vi.fn(async () => {}),
     }
     const listed = await runCli(['mcp', 'list'], ports({ mcp }))
     expect(listed.stdout).toContain('demo')
@@ -1299,5 +1462,37 @@ describe('runCli', () => {
     expect(reindex).toHaveBeenLastCalledWith({ batchSize: 250, check: true, force: false })
     await runCli(['memory', 'reindex', '--force', '--batch-size', '10'], testPorts)
     expect(reindex).toHaveBeenLastCalledWith({ batchSize: 10, check: false, force: true })
+  })
+})
+
+describe('mcp add argument parsing (SKILLS-MCPS-r1 §S3.7)', () => {
+  it('parses stdio `--` passthrough, http urls, flags and rejects bad shapes', async () => {
+    const { parseMcpAddArgs } = await import('./cli')
+    expect(parseMcpAddArgs(['demo', '--', 'npx', '-y', 'pkg'])).toEqual({
+      input: {
+        name: 'demo',
+        scope: 'user',
+        transport: { kind: 'stdio', command: 'npx', args: ['-y', 'pkg'], env: {} },
+      },
+    })
+    expect(
+      parseMcpAddArgs(['-t', 'http', '-s', 'project', '-H', 'Authorization: Bearer x', 'remote', 'https://api.example.com/mcp']),
+    ).toEqual({
+      input: {
+        name: 'remote',
+        scope: 'project',
+        transport: { kind: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer x' }, legacySse: false },
+      },
+    })
+    expect(parseMcpAddArgs(['-e', 'TOKEN=abc', 'demo', '--', 'node', 's.js']).input?.transport).toEqual({
+      kind: 'stdio',
+      command: 'node',
+      args: ['s.js'],
+      env: { TOKEN: 'abc' },
+    })
+    expect(parseMcpAddArgs(['demo', 'https://x.example.com', '--', 'cmd']).error).toBeTruthy()
+    expect(parseMcpAddArgs(['demo', 'not-a-url']).error).toBeTruthy()
+    expect(parseMcpAddArgs([]).error).toBeTruthy()
+    expect(parseMcpAddArgs(['-t', 'ws', 'demo', '--', 'x']).error).toBeTruthy()
   })
 })

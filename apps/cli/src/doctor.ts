@@ -63,12 +63,24 @@ async function resolveExecutablePath(
   }
   return undefined
 }
+interface SkillsHealth {
+  total: number
+  broken: number
+  disabled: number
+  error?: string
+}
+interface McpHealth {
+  total: number
+  connected: number
+  failed: number
+  error?: string
+}
 export async function runDoctor(
   cwd: string,
   ports: ApolloPorts,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DoctorCheck[]> {
-  const [native, auth, config, telemetry, gh, plugin, evolution] = await Promise.all([
+  const [native, auth, config, telemetry, gh, plugin, evolution, skillsHealth, mcpHealth] = await Promise.all([
     ports.native.health(),
     ports.auth.health(),
     ports.config.health(cwd),
@@ -79,6 +91,26 @@ export async function runDoctor(
       (error): DoctorHealth => ({
         valid: false,
         detail: `evolution health check failed: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+    ),
+    ports.skill?.list().then(
+      (skills): SkillsHealth => ({
+        total: skills.length,
+        broken: skills.filter((skill) => skill.status === 'broken').length,
+        disabled: skills.filter((skill) => skill.status === 'disabled').length,
+      }),
+      (error): SkillsHealth => ({
+        total: 0, broken: 0, disabled: 0, error: error instanceof Error ? error.message : String(error),
+      }),
+    ),
+    ports.mcp?.list().then(
+      (servers): McpHealth => ({
+        total: servers.length,
+        connected: servers.filter((server) => server.status === 'connected').length,
+        failed: servers.filter((server) => server.status === 'failed' || server.status === 'needs-auth').length,
+      }),
+      (error): McpHealth => ({
+        total: 0, connected: 0, failed: 0, error: error instanceof Error ? error.message : String(error),
       }),
     ),
   ])
@@ -140,6 +172,22 @@ export async function runDoctor(
           } satisfies DoctorCheck,
         ]
       : []),
+    // SKILLS-MCPS-r1：skills 与 mcp 的健康面（list 失败 / broken skill → fail;
+    // 断开/未配置 → 只读状态行,不影响 doctor 结论）。
+    {
+      name: 'skills',
+      ok: !skillsHealth?.error && (skillsHealth?.broken ?? 0) === 0,
+      detail: skillsHealth?.error
+        ? `skill discovery failed: ${skillsHealth.error}`
+        : `${skillsHealth?.total ?? 0} installed${skillsHealth && skillsHealth.broken > 0 ? `, ${skillsHealth.broken} broken` : ''}${skillsHealth && skillsHealth.disabled > 0 ? `, ${skillsHealth.disabled} disabled` : ''}`,
+    },
+    {
+      name: 'mcp servers',
+      ok: !mcpHealth?.error && (mcpHealth?.failed ?? 0) === 0,
+      detail: mcpHealth?.error
+        ? `mcp discovery failed: ${mcpHealth.error}`
+        : `${mcpHealth?.total ?? 0} configured${mcpHealth && mcpHealth.connected > 0 ? `, ${mcpHealth.connected} connected` : ''}${mcpHealth && mcpHealth.failed > 0 ? `, ${mcpHealth.failed} failed/needs-auth` : ''}`,
+    },
     {
       name: 'local telemetry',
       ok: telemetry.writable && telemetry.corruptLines === 0,
