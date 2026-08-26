@@ -56,6 +56,7 @@ import {
   PluginError,
   PluginManager,
   activateLocalPlugin,
+  validateManifest,
   satisfies,
 } from '@apollo-code/plugin-runtime'
 import type {
@@ -184,6 +185,8 @@ import {
   uninstallMarketDir,
   type MarketIndex,
 } from './plugin-market'
+import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
+import type { LocalPluginStateEntry } from './plugin-state'
 import type {
   ApolloPorts,
   InteractiveSession,
@@ -1787,6 +1790,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
   const pluginsReady = plugins.init()
   void pluginsReady.catch(() => undefined)
+  // 唯一的本地插件 v2 生命周期状态源。legacy plugins/plugins.json 继续 deny-only，
+  // 不参与安装/批准/启用/装载决策。
+  const localPluginState = new LocalPluginStateStore(home)
+  const localPluginStateReady = localPluginState.init()
+  void localPluginStateReady.catch(() => undefined)
   // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件路径：内置（apps/cli/plugins/，
   // 随产物分发）、dev（~/.apollo/plugins-dev + APOLLO_DEV_PLUGINS）、市场
   // （[plugins] market 下载到 ~/.apollo/plugins/<name>/）三个发现源、同一条链路——
@@ -1848,6 +1856,18 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     integrity?: Record<string, string>,
   ) {
     const resolved = resolve(dir)
+    const manifest = validateManifest(
+      JSON.parse(await readFile(join(resolved, 'manifest.json'), 'utf8')),
+      options.identity.version,
+    )
+    const lifecycle = await localPluginState.discover(manifest, source, resolved)
+    if (!isPluginApproved(lifecycle))
+      throw new PluginError(
+        'plugin_approval_required',
+        `${manifest.name} requires approval for ${manifest.version} / ${lifecycle.permissionHash}`,
+      )
+    if (!lifecycle.enabled)
+      throw new PluginError('plugin_disabled', `${manifest.name} is installed but disabled`)
     const activated = await activateLocalPlugin({
       dir: resolved,
       apolloVersion: options.identity.version,
@@ -1868,7 +1888,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         getEffectiveEnv: () => readEffectiveEnv(home, appliedEnvEntries),
         // /plugins 内置插件的数据源与动作（宿主侧；沙箱内无网络）。
         listPlugins: () => pluginInventory(),
+        inspectPlugin: (name: string) => inspectPlugin(name),
         installMarketPlugin: (name: string) => installMarketPlugin(name),
+        approvePlugin: (name: string, hash: string) => approvePlugin(name, hash),
+        enablePlugin: (name: string) => enablePlugin(name),
+        disablePlugin: (name: string) => disablePlugin(name),
         uninstallMarketPlugin: (name: string) => uninstallMarketPlugin(name),
       },
     })
@@ -1897,17 +1921,50 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     await entry?.handle?.deactivate()
     return entry
   }
-  function inventorySnapshot(source: LoadedPluginEntry['source']): PluginInventoryEntry[] {
-    return loadedPluginEntries
-      .filter((entry) => entry.source === source)
-      .map((entry) => ({
-        name: entry.name,
-        version: entry.version,
-        dir: entry.dir,
-        source: entry.source,
-        commands: entry.handle.commands.length,
-        statusTabs: entry.handle.statusTabs.length,
-      }))
+  async function inventoryEntry(entry: LocalPluginStateEntry): Promise<PluginInventoryEntry> {
+    const loaded = loadedPluginEntries.find((candidate) => candidate.name === entry.name)
+    let permissions: PluginInventoryEntry['permissions']
+    try {
+      permissions = validateManifest(
+        JSON.parse(await readFile(join(entry.dir, 'manifest.json'), 'utf8')),
+        options.identity.version,
+      ).permissions
+    } catch {
+      permissions = undefined
+    }
+    return {
+      name: entry.name,
+      version: entry.version,
+      dir: entry.dir,
+      source: entry.source,
+      commands: loaded?.handle.commands.length ?? 0,
+      statusTabs: loaded?.handle.statusTabs.length ?? 0,
+      lifecycle: {
+        permissionHash: entry.permissionHash,
+        approved: isPluginApproved(entry),
+        enabled: entry.enabled,
+        loaded: Boolean(loaded),
+      },
+      ...(permissions ? { permissions } : {}),
+    }
+  }
+  async function inventorySnapshot(
+    source: LoadedPluginEntry['source'],
+  ): Promise<PluginInventoryEntry[]> {
+    const state = await localPluginState.list()
+    return Promise.all(
+      state.filter((entry) => entry.source === source).map((entry) => inventoryEntry(entry)),
+    )
+  }
+  async function inspectPlugin(input: string): Promise<PluginInventoryEntry> {
+    const name = normalizePluginName(input)
+    const current = await localPluginState.get(name)
+    if (!current) throw new PluginError('plugin_not_installed', name)
+    const manifest = validateManifest(
+      JSON.parse(await readFile(join(current.dir, 'manifest.json'), 'utf8')),
+      options.identity.version,
+    )
+    return inventoryEntry(await localPluginState.discover(manifest, current.source, current.dir))
   }
   /** apollo.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
   async function pluginInventory(): Promise<PluginInventory> {
@@ -1935,12 +1992,12 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       registry = { error: error instanceof Error ? error.message : String(error) }
     }
     return {
-      builtin: inventorySnapshot('builtin'),
-      dev: inventorySnapshot('dev'),
-      market: { installed: inventorySnapshot('market'), registry },
+      builtin: await inventorySnapshot('builtin'),
+      dev: await inventorySnapshot('dev'),
+      market: { installed: await inventorySnapshot('market'), registry },
     }
   }
-  /** apollo.plugins.install 的宿主实现：拉索引 → 下载校验落盘 → 立即激活。 */
+  /** apollo.plugins.install：只下载、校验、登记。批准与启用必须由后续显式命令完成。 */
   async function installMarketPlugin(input: string): Promise<PluginInstallResult> {
     const name = normalizePluginName(input)
     const source = await readMarketSource(home)
@@ -1951,7 +2008,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const index = await cachedMarketIndex(source, true, deadline)
     const entry = index.plugins.find((candidate) => candidate.name === name)
     if (!entry) throw new Error(`${name} not found in market index (${source})`)
-    // 同名已装载（旧版本）先停用，换新版后重注册命令。
+    // 同名已装载（旧版本）先停用；换新版后必须重新批准，绝不自动重启。
     await unloadPlugin(name)
     const installed = await installFromMarket({
       home,
@@ -1960,22 +2017,41 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       apolloVersion: options.identity.version,
       signal: deadline,
     })
-    try {
-      await activateLocal(installed.dir, 'market', await readMarketIntegrity(installed.dir))
-    } catch (error) {
-      // 安装成功但激活失败：保留目录（下次启动重试），错误上抛给调用方展示。
-      void telemetry.emit('plugin.local_load_failed', 'plugin', {
-        dir: name,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      throw error
-    }
+    const lifecycle = await localPluginState.discover(installed.manifest, 'market', installed.dir)
     marketIndexCache = undefined
     void telemetry.emit('plugin.market_installed', 'plugin', {
       name,
       version: installed.version,
     })
-    return { name: installed.name, version: installed.version, dir: installed.dir }
+    return {
+      name: installed.name,
+      version: installed.version,
+      dir: installed.dir,
+      permissionHash: lifecycle.permissionHash,
+      approvalRequired: true,
+      permissions: installed.manifest.permissions,
+    }
+  }
+  async function approvePlugin(input: string, expectedHash: string): Promise<PluginInventoryEntry> {
+    const inspected = await inspectPlugin(input)
+    const approved = await localPluginState.approve(inspected.name, expectedHash)
+    return inventoryEntry(approved)
+  }
+  async function enablePlugin(input: string): Promise<PluginInventoryEntry> {
+    const inspected = await inspectPlugin(input)
+    const enabled = await localPluginState.setEnabled(inspected.name, true)
+    if (!loadedPluginEntries.some((entry) => entry.name === enabled.name))
+      await activateLocal(
+        enabled.dir,
+        enabled.source,
+        enabled.source === 'market' ? await readMarketIntegrity(enabled.dir) : undefined,
+      )
+    return inventoryEntry((await localPluginState.get(enabled.name)) ?? enabled)
+  }
+  async function disablePlugin(input: string): Promise<PluginInventoryEntry> {
+    const inspected = await inspectPlugin(input)
+    await unloadPlugin(inspected.name)
+    return inventoryEntry(await localPluginState.setEnabled(inspected.name, false))
   }
   /**
    * apollo.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
@@ -1984,17 +2060,20 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
    */
   async function uninstallMarketPlugin(input: string): Promise<{ name: string }> {
     const name = normalizePluginName(input)
+    const state = await localPluginState.get(name)
     const loaded = loadedPluginEntries.find((entry) => entry.name === name)
-    if (loaded && loaded.source === 'builtin')
+    const source = loaded?.source ?? state?.source
+    if (source === 'builtin')
       throw new Error(
         `${name} is a builtin plugin shipped with the Apollo artifact; it cannot be uninstalled`,
       )
-    if (loaded && loaded.source === 'dev')
+    if (source === 'dev')
       throw new Error(
         `${name} is a dev plugin (from ~/.apollo/plugins-dev/ or APOLLO_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
       )
     await unloadPlugin(name)
     await uninstallMarketDir(home, name)
+    await localPluginState.remove(name)
     marketIndexCache = undefined
     return { name }
   }
@@ -2067,9 +2146,13 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           continue // 无 manifest 的目录不视为插件（legacy 状态文件等）
         }
         try {
-          loaded.push(
-            await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)),
+          const manifest = validateManifest(
+            JSON.parse(await readFile(join(candidate, 'manifest.json'), 'utf8')),
+            options.identity.version,
           )
+          const lifecycle = await localPluginState.discover(manifest, 'market', resolve(candidate))
+          if (!isPluginApproved(lifecycle) || !lifecycle.enabled) continue
+          loaded.push(await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)))
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           failed.push({ dir: candidate, error: message })
@@ -2080,6 +2163,18 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       }
       return { loaded, failed }
+    },
+    async inspectPlugin(input: string) {
+      return inspectPlugin(input)
+    },
+    async approvePlugin(input: string, hash: string) {
+      return approvePlugin(input, hash)
+    },
+    async enablePlugin(input: string) {
+      return enablePlugin(input)
+    },
+    async disablePlugin(input: string) {
+      return disablePlugin(input)
     },
     async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {      const loaded: { name: string; statusTabs: number }[] = []
       const failed: { dir: string; error: string }[] = []

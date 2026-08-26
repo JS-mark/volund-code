@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import type { PluginManifest } from '@apollo-code/plugin-sdk'
 
 import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
 
@@ -17,8 +18,8 @@ async function fixtureHome() {
   return home
 }
 
-const manifest = (version = '1.0.0', permissions = ['log.write']) => ({
-  name: 'apollo-plugin-example',
+const manifest = (version = '1.0.0', permissions = ['log.write']): PluginManifest => ({
+  name: 'apollo-plugin-example' as const,
   version,
   type: 'module' as const,
   main: 'index.mjs',

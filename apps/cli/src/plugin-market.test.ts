@@ -14,6 +14,7 @@ import {
   fetchMarketIndex,
   installFromMarket,
   isTrustedMarketSource,
+  isLocalMarketSource,
   marketInstallRoot,
   normalizePluginName,
   parseMarketIndex,
@@ -144,6 +145,28 @@ describe('readMarketSource（[plugins] market 配置）', () => {
     await expect(readMarketSource(home)).rejects.toThrow('config_invalid')
     await writeFile(join(home, 'config.toml'), '[plugins]\nmarket = 42\n')
     await expect(readMarketSource(home)).rejects.toThrow(/plugins.market/)
+  })
+})
+
+describe('market executable trust boundary', () => {
+  it('allows HTTPS for browsing but not execution without a signature trust root', async () => {
+    expect(isTrustedMarketSource('https://registry.example/index.json')).toBe(true)
+    expect(isLocalMarketSource('https://registry.example/index.json')).toBe(false)
+    await expect(
+      installFromMarket({
+        home: await fixtureHome(),
+        source: 'https://registry.example/index.json',
+        entry: {
+          name: 'apollo-plugin-example',
+          version: '1.0.0',
+          files: [
+            { path: 'manifest.json', digest: sha256('{}') },
+            { path: 'index.mjs', digest: sha256('') },
+          ],
+        },
+        apolloVersion: '0.1.0',
+      }),
+    ).rejects.toThrow('plugin_registry_signature_required')
   })
 })
 

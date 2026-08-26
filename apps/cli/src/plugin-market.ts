@@ -7,9 +7,9 @@
  * 沙箱内无网络——市场拉取/安装全部由宿主完成，插件只经 `apollo.plugins.*`
  * 桥方法触发。
  *
- * 信任模型 r1：HTTPS（或回环 http，测试/自建源）+ 逐文件 sha256 + 同源约束 +
- * 激活期完整性重验（apollo-market.json 里的 digest 映射在每次装载时核对）。
- * 签名/吊销（registry metadata verifier）留给 Catalog v2（CAT-01/02）。
+ * 信任模型：索引浏览允许规范 HTTPS；可执行安装在签名信任根接入前只允许回环
+ * http 开发源。HTTPS 只能保证传输完整性，不能替代发布者签名，因此远程未签名
+ * 市场必须 fail closed。逐文件 sha256、同源约束和激活期重验仍是纵深防御。
  */
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -65,6 +65,13 @@ export function isTrustedMarketSource(value: string): boolean {
   if (url.username || url.password || url.search || url.hash) return false
   if (url.protocol === 'https:') return url.toString() === value
   return url.protocol === 'http:' && loopbackHost(url.hostname) && url.toString() === value
+}
+
+/** 当前唯一可执行安装源；远程 HTTPS 等签名/吊销信任根接入后再开放。 */
+export function isLocalMarketSource(value: string): boolean {
+  if (!isTrustedMarketSource(value)) return false
+  const url = new URL(value)
+  return url.protocol === 'http:' && loopbackHost(url.hostname)
 }
 
 /**
@@ -257,6 +264,11 @@ export async function installFromMarket(options: {
   const { home, source, entry, apolloVersion, signal } = options
   if (!isTrustedMarketSource(source))
     throw new PluginError('plugin_market_source_invalid', source)
+  if (!isLocalMarketSource(source))
+    throw new PluginError(
+      'plugin_registry_signature_required',
+      'remote market installs require a verified publisher signature and trusted key; use a loopback source only for local development',
+    )
   const root = marketInstallRoot(home)
   const target = join(root, entry.name)
   const staging = join(root, `.staging-${entry.name}-${process.pid}-${Date.now()}`)
