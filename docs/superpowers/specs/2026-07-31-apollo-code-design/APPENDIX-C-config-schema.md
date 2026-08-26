@@ -30,7 +30,7 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[tools]` | `windows_shell` | string?（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `pass_through_env` | string[]，默认 `[]`（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `ignore_dirs` | string[]，默认 `[".git","node_modules","target","dist"]`（r13-D1） | §4.3.3 | allowed |
-| `[env]` | `<NAME>` | string，默认无；启动时写入 `process.env` 的会话级环境变量（MCP / 插件宿主等子进程随之继承）。进沙箱需配合 `[tools] pass_through_env` 白名单（env_clear 模型，r13-I11）；`*_api_key` 结尾的名字按 §8.3.1 通用模式禁止项目级覆盖 | §8.3 | allowed |
+| `[env]` | `<NAME>` | string，默认无；启动时写入 `process.env` 的会话级环境变量（MCP / 插件宿主等子进程随之继承）。值在写入前做前置解析：开头 `~` → 主目录；`${VAR}` / `$VAR` → 启动时已有环境，**仅名字已设置才展开**（未设置保持字面，`${}` 形式额外 warn，值里的 `$` 不误伤）。进沙箱需配合 `[tools] pass_through_env` 白名单（env_clear 模型，r13-I11）；`*_api_key` 结尾的名字按 §8.3.1 通用模式禁止项目级覆盖 | §8.3 | allowed |
 | `[context]` | `policy` | `"sliding" \| "summary" \| "semantic"`，L1 默认 `sliding` | §8b | allowed |
 | `[context]` | `max_tokens` | int，默认 180000 | §8.3 / §8b | allowed |
 | `[context]` | `keep` / `unkeep` 等 pinned 参数 | 见 §8b.13 | §8b | allowed |
@@ -58,6 +58,11 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[auth]` | `skipAuth` | bool，默认 `false`；`true` 时完全跳过凭据解析、请求不带凭据头（企业网关/本地代理，配合 `provider.<name>.baseUrl`） | §8.4 | **forbidden**（§8.3.1） |
 | `[auth]` | `anthropic_api_key` | string?（Layer 4 明文 key，显式 opt-in，建议文件权限 0600） | §8.4 | **forbidden**（§8.3.1） |
 | `[auth]` | （全部） | — | §8.4 | **forbidden**（§8.3.1） |
+| `[plugins]` | `market` | string?，市场索引 URL（PLUGIN-MANAGER-r1）：规范 HTTPS 或回环 http（本地源/测试）；索引列出 name/version/description/publisher/files[]{path,digest:sha256}，逐文件 digest 校验后落盘 `~/.apollo/plugins/<name>/`，激活期经 apollo-market.json 重验 | PLUGIN-MANAGER-r1 | **forbidden**（信任配置，项目级不得指向第三方源） |
+| `[skills]` | `disabled` | string[]，默认 `[]`；/skills 面板 Space 切换写这里，对 user+project scope 均生效；名单跨层合并（并集） | SKILLS-MCP-UI-r1 §S3.4 | allowed |
+| `[skills]` | `index_budget` | int，默认 `4096`；skills index fragment 字符预算，超出时从尾部退化 name-only 行 | SKILLS-MCP-UI-r1 §S3.4 | allowed |
+| `[mcp]` | `disabled` | string[]，默认 `[]`；/mcp 面板 Space 切换写这里（断开连接并注销全部 `mcp__<server>__*` 工具） | SKILLS-MCP-UI-r1 §S3.4 | allowed |
+| `[mcp]` | `enable_all_project_servers` | bool，默认 `false`；非交互场景对项目级 mcp.toml/.mcp.json 的总放行 | SKILLS-MCP-UI-r1 §S3.4 | **forbidden**（项目级自我批准绕过用户信任门） |
 
 ## C.3 全量示例（节选拼合，键值以 C.2 为准）
 
@@ -100,6 +105,9 @@ ignore_dirs = [".git", "node_modules", "target", "dist"]
 # 会话级环境变量：启动时写入 process.env，之后 spawn 的子进程（MCP stdio /
 # 插件宿主 / native worker）随之继承；沙箱内 Bash 只额外接受白名单名字
 NO_PROXY = "localhost,127.0.0.1"
+# 值写入前做前置解析：开头 ~ → 主目录；${VAR} 与 $VAR → 启动时已有的环境变量
+# （仅名字已设置才展开；未设置保持字面，${} 形式额外 warn，值里的 $ 不误伤）
+APOLLO_NATIVE_SANDBOX_BINARY = "~/myself/code/apollo-code/target/debug/apollo-sandbox"
 
 [context]
 policy = "sliding"

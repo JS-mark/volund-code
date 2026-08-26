@@ -9,13 +9,15 @@
 | `apollo` / `apollo chat`       | 启动交互式或单次编程会话。                   |
 | `apollo login <provider>`      | 验证并安全保存 provider 凭据。               |
 | `apollo logout <provider>`     | 删除已保存的 provider 凭据。                 |
-| `apollo config`                | 查看配置。                                   |
-| `apollo history list` / `show` | 查看本地会话历史。                           |
+| `apollo config <action>`       | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。   |
+| `apollo history <action>`      | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。 |
 | `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。             |
 | `apollo restore <session-id>`  | 回滚该会话修改过的文件。                     |
 | `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。           |
 | `apollo memory <action>`       | 管理长期记忆、pinned 上下文和本地搜索索引。  |
 | `apollo plugin <action>`       | 检查或清理本地插件；旧版安装与启用暂不可用。 |
+| `apollo skill <action>`        | 安装、列出、查看、启停、卸载 prompt skill。                                    |
+| `apollo mcp <action>`          | 添加、列出、测试、启停、删除、查看 MCP server。                                |
 | `apollo hook list`             | 列出内置 hooks。                             |
 
 旧版 v1 插件的安装、启用和激活目前在生产环境中暂不可用，并以 `plugin_legacy_activation_unavailable` 失败；只有 Catalog v2、经验证的 capability ABI 和显式安全复审完成后才可重新开放。启动时会把可解析的旧 `enabled:true` 记录解释为 disabled，且不会加载插件。`plugin list [--json]`、`plugin doctor <name>`、`plugin disable <name>` 和 `plugin uninstall <name>` 仍可用于安全检查与清理。插件命令在 `--json` 失败时只向 stdout 依次写入 `error`、`final` 两条 NDJSON 事件，stderr 为空。
@@ -23,6 +25,34 @@
 | `apollo help` | 显示帮助。 |
 
 常用模式包括 `--no-tui`、`--json` 和 `--no-color`。非交互运行不会加载项目配置，除非显式传入 `--trust-project-config`。危险沙箱绕过参数会被审计，并要求显式确认。
+
+运行 `apollo help <command>` 或 `apollo <command> --help` 可查看具体命令的子命令与参数说明。
+
+## 配置
+
+```sh
+apollo config list [--json]
+apollo config get <key>
+apollo config set <key> <value> [--project]
+apollo config unset <key> [--project]
+apollo config path [--project]
+apollo config edit [--project]
+```
+
+`list` 打印 user + project 两层文件合并后的配置；被数据流向门禁止的项目级 key（附录 C.2 `projectOverride: forbidden`，以及任何 `*.baseUrl`/`*.endpoint`/`*_api_key`）会被过滤并给出警告。`set` 默认写用户级配置，`--project` 写 `<cwd>/.apollo/config.toml`；未知 key 和类型不匹配的值会按 config schema 拒绝。值先按 JSON 字面量解析（`40` → 数字、`true` → 布尔），否则按字符串。`edit` 用 `$EDITOR`（或 `$VISUAL`、`vi`）打开配置文件并在保存后校验；需要交互式终端。
+
+## 会话历史
+
+```sh
+apollo history list [--limit N] [--since <date>] [--project] [--json]
+apollo history show <session-id> [--json]
+apollo history search <query> [--limit N]
+apollo history export <session-id> [-o file] [--json]
+apollo history import <file>
+apollo history clear (--all | --older-than <date>) [--yes]
+```
+
+这组命令管理已保存的会话档案（`~/.apollo/sessions/*.jsonl`），与交互式输入行历史无关。`search` 是对消息文本的本地关键词匹配，不做 embedding、不发网络请求。`export` 默认输出 markdown，`--json` 输出带版本的 JSON 文档；`import` 还原这种 JSON 导出，且拒绝覆盖已存在的会话。`clear` 删除会话文件，与 `memory delete` 一样，非交互环境必须传 `--yes`。
 
 ## Memory
 

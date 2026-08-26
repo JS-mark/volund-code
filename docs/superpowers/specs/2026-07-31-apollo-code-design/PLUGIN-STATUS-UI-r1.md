@@ -6,7 +6,7 @@
 
 > **状态**：r1.1（2026-08-25）——**K0 渲染器 + dev 装载路径已落地**：约定目录 `~/.apollo/plugins-dev/<name>/` 自动发现（REPL 启动与 `apollo status` 均加载；`APOLLO_DEV_PLUGINS` 仅作仓库内开发的额外路径），经 `apollo-sandbox --run-plugin` 沙箱子进程激活（不经 Catalog，与冻结中的 legacy 安装路径 `~/.apollo/plugins` 完全隔离）；插件数据目录 `~/.apollo/plugins-dev-data/<name>/`。Catalog v2 生产路径仍待 CAT-01/02 + ABI-R1。
 > **文档类型**：ADR + 扩展规约
-> **范围**：`packages/plugin-sdk` / `packages/plugin-runtime`（bridge-server / local-plugin）/ `packages/ui`（StatusPanel）/ `apps/cli`（pluginDev 端口）/ `examples/plugin-status-demo`
+> **范围**：`packages/plugin-sdk` / `packages/plugin-runtime`（bridge-server / local-plugin）/ `packages/ui`（StatusPanel）/ `apps/cli`（localPlugins 端口）/ `examples/plugin-status-demo`
 > **触发**：/status 面板已实现五页签（Settings / Status / Config / Usage / Stats）后，第三方需要同等扩展位；评审结论是"数据契约式"（插件只产出描述符，K0 渲染），否决插件自渲染。
 
 ---
@@ -118,7 +118,7 @@ type PluginTabBody =
    1. `plugin-sdk`：`PluginStatusTabBody` / `PluginStatusTabSpec` / `PluginStatusSectionSpec` + `ApolloBridge.ui.status`。
    2. `plugin-runtime`：`PluginBridgeServer`（fd3 JSONRPC 宿主侧 + `callback.invoke` 反向调用）、`activateLocalPlugin`（manifest 校验 → bundle 校验 → 沙箱 profile → `apollo-sandbox --run-plugin`）、`createLocalPluginDispatch`（权限 guard + 方法路由）、`BRIDGE_PERMISSIONS` 增 `ui.status.*` / `session.getUsage` / `log.*` 映射；`sandboxProfile` 放行 darwin 系统 OpenSSL 配置（否则沙箱内 node 起不来）。
    3. `packages/ui`：StatusPanel 页签集合动态化 + `sanitizePluginTabs`（§S3.3）+ 三种体例渲染器（heatmap 复用抽取的公共 `StatusHeatmap`）。
-   4. `apps/cli`：`pluginDev` 端口（`activateLocal`/`deactivateAll`）；`APOLLO_DEV_PLUGINS=<dir>` 在 REPL 启动与 `apollo status` 一次性命令里激活；runtimeStatusData 在面板数据组装时经桥回调 render 取值。
+   4. `apps/cli`：`localPlugins` 端口（`activateLocal`/`loadBuiltinPlugins`/`loadDevPlugins`/`deactivateAll`；内置插件与 dev 插件同链路，仅发现源不同）；`APOLLO_DEV_PLUGINS=<dir>` 在 REPL 启动与 `apollo status` 一次性命令里激活；runtimeStatusData 在面板数据组装时经桥回调 render 取值。
    5. 活样例：`examples/plugin-status-demo`（Plug=rows / Pulse=heatmap 两页签）。
 4. **解禁后实现清单**（按依赖序）：
    1. `plugin-sdk`：`PluginUiSurface += 'status-panel'` + 描述符类型（type-only，保持 sdk 零运行时副作用）。

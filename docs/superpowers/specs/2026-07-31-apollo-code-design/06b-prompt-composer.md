@@ -197,6 +197,8 @@ Prefer Conventional Commits: `<type>(<scope>): <subject>`
 
 **Frontmatter zod schema** 放在 `packages/shared/skill-schema.ts`。
 
+> **SKILLS-MCP-r1（2026-08-25）修订**：frontmatter 对齐 [agentskills.io](https://agentskills.io/specification) 开放标准——`name`（1–64，须与目录名一致）/`description`（1–1024）必填，`license`/`compatibility`/`metadata`/`allowed-tools` 标准可选字段；`apolloVersion` 由必填降级为可选（缺失 = 兼容），`version`/`tags`/`author` 等存量顶层字段继续双读并建议迁移到 `metadata`；新增 `disable-model-invocation`/`user-invocable` 开关。发现路径扩为多作用域（user / project / `.agents/skills/` 互操作 / 插件），同名按 project > user > plugin 整条覆盖（shadow 不报错）。渐进披露三层与本节不变。完整契约见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.1–S3.2。
+
 #### 6.5.3 Skill Progressive Disclosure 机制
 
 **问题**：直接把所有 skill 的全文塞进 system prompt → 上下文爆炸。

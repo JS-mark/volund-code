@@ -74,6 +74,14 @@ export default defineConfig({
               items: [
                 { text: 'Agent loop', link: '/docs/concepts/agent-loop' },
                 { text: 'Security model', link: '/docs/concepts/security-model' },
+                { text: 'Skills and vision', link: '/docs/concepts/skills-and-vision' },
+              ],
+            },
+            {
+              text: 'Guides',
+              items: [
+                { text: 'Managing skills', link: '/docs/guides/managing-skills' },
+                { text: 'MCP servers', link: '/docs/guides/mcp-servers' },
               ],
             },
             { text: 'API reference', link: '/api/README' },
@@ -122,6 +130,14 @@ export default defineConfig({
               items: [
                 { text: '智能体循环', link: '/zh/docs/concepts/agent-loop' },
                 { text: '安全模型', link: '/zh/docs/concepts/security-model' },
+                { text: 'Skill 与图像附件', link: '/zh/docs/concepts/skills-and-vision' },
+              ],
+            },
+            {
+              text: '使用指南',
+              items: [
+                { text: '管理 Skill', link: '/zh/docs/guides/managing-skills' },
+                { text: '接入 MCP Server', link: '/zh/docs/guides/mcp-servers' },
               ],
             },
             { text: 'API 参考', link: '/api/README' },

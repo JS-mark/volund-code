@@ -180,6 +180,8 @@ apollo plugin init [--template <name>]          # 生成骨架
 
 #### 11.3.8 skill
 
+> **SKILLS-MCPS-r1.4（2026-08-26）已实现**：`install`（spec = 本地目录 | git URL | `github:owner/repo` | `owner/repo` | `file://…`；git 仓库根有 SKILL.md 装 root，否则装一层子目录全部带 SKILL.md 的；`--scope project` 装 `<cwd>/.apollo/skills`）、`uninstall`（仅可写非 interop 作用域）、`list`（scope 过滤 + status 列）、`show`、`enable/disable`（持久面）。详见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.7。
+
 ```
 apollo skill install <spec>                     # 类似 plugin
 apollo skill uninstall <name>
@@ -190,7 +192,11 @@ apollo skill show <name>                        # 打印 SKILL.md
 apollo skill init [--template <name>]
 ```
 
+> **SKILLS-MCP-r1（2026-08-25）**：skill 协议对齐 [agentskills.io](https://agentskills.io/specification) 开放标准——frontmatter 标准字段（`name`/`description`）必填、`apolloVersion` 降级可选；多作用域（user / project / `.agents/skills/` 互操作 / 插件）+ 信任门；新增 `enable`/`disable`/`validate` 子命令与 `/skills` 面板。完整契约见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md)。
+
 #### 11.3.9 mcp
+
+> **SKILLS-MCPS-r1.4（2026-08-26）已实现**：`add`（stdio `--` 透传 / http url；`-e K=V`、`-H 'K: v'` 可重复；`-s user|project` 选目标 mcp.toml）、`remove`、`enable/disable`、`list`（连通性有界等待后快照）、`test`、`inspect`。`reload` 走 REPL `/mcp reload`；`login/logout` 属 SM-07 未做。详见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.7。
 
 ```
 apollo mcp add <name> <transport-config>        # transport-config: stdio:cmd | http://... | sse://...
@@ -199,6 +205,8 @@ apollo mcp list
 apollo mcp test <name>                          # 连通性测试
 apollo mcp inspect <name>                       # 打印其暴露的 tools/resources
 ```
+
+> **SKILLS-MCP-r1（2026-08-25）**：配置结构对齐业界通用形态——mcp.toml 顶层 `[mcp_servers.<name>]` 表（stdio `command/args/env/cwd`；远程 `type/url/headers`）+ `${VAR}`/`${VAR:-default}` env 展开 + 项目级 `.mcp.json` 只读互操作导入；工具命名由 `mcp:<server>:<tool>` 改为 `mcp__<server>__<tool>`（权限规则三粒度：`mcp__server` / `mcp__server__tool` / `mcp__server__*`）；新增 `enable`/`disable`/`reload`/`login`/`logout` 子命令与 `/mcp` 面板。完整契约见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.5。
 
 **★ Transport credentials 存储规则（W7）**：MCP server 的 auth 材料（HTTP `Authorization` header / bearer token / OAuth refresh / env 注入的 API key / stdio 命令行内的敏感 flag）**禁止**明文进 `~/.apollo/mcp.toml` 或 `~/.apollo/config.toml`。
 
@@ -362,7 +370,10 @@ apollo status [--json]                    # 查询类命令（§11.1：--json �
 | `/compact` | `apollo context compact` | 手动触发上下文压缩（r10：补 CLI 交叉引用） |
 | `/context` | `apollo context show` | **r10 新增**：打开 TUI `/context` 面板（实时 token 占用 + 占比 + 最近压缩 + K/C 快捷键，见 §8b.13） |
 | `/model <alias>` | `apollo model use` | 切当前 session 模型 |
-| `/skill activate <name>` | `apollo skill activate` | 会话内激活 skill |
+| `/skill activate <name>` | `apollo skill activate` | 会话内激活 skill（r1.2 补实现，另有 `deactivate` / `show` 动词） |
+| `/<skill-name> [args]` | — | **SKILLS-MCPS-r1 §S3.3a 新增**：每个 user-invocable skill 自动注册为同名命令；执行 = 一次性调用（invocation）——skill 内容 + args 任务作为用户消息进当轮对话，不持久改 prompt（Claude Code / Codex / Cursor 惯例） |
+| `/skills` | `apollo skill list` | **SKILLS-MCP-r1 新增**：打开 skill 管理面板（多作用域列表 / 启停 / 激活 / 重扫描，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.3）；另有 `/skills list` 纯文本形式 |
+| `/mcp` | `apollo mcp list` | **SKILLS-MCP-r1 新增**：打开 MCP server 管理面板（状态 / view tools / 启停 / 重连 / reload，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.6）；子命令 `list` / `reload` / `auth [<name>]` |
 | `/plugin list` | `apollo plugin list` | |
 | `/debug prompt` | — | dump 当前 system prompt（见 §6.5.5） |
 | `/debug state` | — | dump SessionState 摘要 |

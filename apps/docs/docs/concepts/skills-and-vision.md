@@ -1,6 +1,6 @@
 # Skills and image attachments
 
-Apollo discovers skills from `~/.apollo/skills/<name>/SKILL.md`. Startup reads only YAML metadata and contributes a compact index to the system prompt. Activating a skill loads its body and only the resources explicitly listed in its frontmatter. Resources must remain inside the skill directory. Skills are prompt content: they never execute code and do not grant permissions.
+Apollo discovers skills from layered scopes (project `.apollo/skills/` and `.agents/skills/`, user `~/.apollo/skills/` and `~/.agents/skills/`), and every user-invocable skill is registered as a same-name slash command. Startup reads only YAML metadata and contributes a compact index to the system prompt. A one-shot `/skill-name [task]` sends the skill body plus the task as the current turn's user message without persisting a prompt change; `/skill activate <name>` (or the `a` key in the `/skills` panel) keeps the skill in the prompt for the session. Skill instructions never execute code and do not grant permissions. Enable/disable state persists in `~/.apollo/config.toml` under `[skills] disabled`; the `/skills` panel lists every discovered skill with scope, status (active / available / disabled / shadowed / broken / incompatible), and the reason for any shadow or failure.
 
 An incompatible `apolloVersion` produces a warning but does not hide the skill. Activation is idempotent, and deactivation removes the prompt contribution immediately.
 

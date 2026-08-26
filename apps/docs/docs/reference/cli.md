@@ -20,20 +20,51 @@ apollo chat --cwd <path> --trust-workspace "prompt"
 | `apollo` / `apollo chat`       | Start an interactive or one-shot coding session.                                              |
 | `apollo login <provider>`      | Verify, then securely store a provider credential.                                            |
 | `apollo logout <provider>`     | Remove a stored provider credential.                                                          |
-| `apollo config`                | Inspect configuration.                                                                        |
-| `apollo history list` / `show` | Inspect local session history.                                                                |
+| `apollo config <action>`       | Inspect and edit configuration (`list`/`get`/`set`/`unset`/`path`/`edit`).                    |
+| `apollo history <action>`      | Inspect and manage saved sessions (`list`/`show`/`search`/`export`/`import`/`clear`).         |
 | `apollo resume <session-id>`   | Resume at the last durable turn boundary.                                                     |
 | `apollo restore <session-id>`  | Restore files changed during a session.                                                       |
 | `apollo doctor [--strict]`     | Check configuration, credentials, native packages, and sandbox readiness.                     |
 | `apollo memory <action>`       | Manage durable memories, pinned context, and the local search index.                          |
 | `apollo plugin <action>`       | Inspect or remove contained local plugins; legacy install/enable are temporarily unavailable. |
+| `apollo skill <action>`        | Install, list, show, enable/disable, uninstall prompt skills.                                 |
+| `apollo mcp <action>`          | Add, list, test, enable/disable, remove, and inspect MCP servers.                             |
 | `apollo hook list`             | List built-in hooks.                                                                          |
 | `apollo version`               | Print the version.                                                                            |
 | `apollo help`                  | Show command help.                                                                            |
 
 Common modes include `--no-tui`, `--json`, and `--no-color`. Non-interactive runs do not load project configuration unless `--trust-project-config` is supplied. Dangerous sandbox bypass flags are audited and require explicit confirmation.
 
+Run `apollo help <command>` or `apollo <command> --help` for command-specific actions and options.
+
 For automation, see the [versioned NDJSON and management JSON contract](./json-output.md). Chat `--json` is an event stream and disables the TUI; management commands return one JSON document.
+
+## Configuration
+
+```sh
+apollo config list [--json]
+apollo config get <key>
+apollo config set <key> <value> [--project]
+apollo config unset <key> [--project]
+apollo config path [--project]
+apollo config edit [--project]
+```
+
+`list` prints the merged user + project file configuration; project keys forbidden by the data-flow gate (Appendix C.2 `projectOverride: forbidden`, plus any `*.baseUrl`/`*.endpoint`/`*_api_key`) are filtered out with a warning. `set` writes the user config by default and `--project` targets `<cwd>/.apollo/config.toml`; unknown keys and wrong-typed values are rejected against the config schema. Values parse as JSON literals first (`40` → number, `true` → boolean), otherwise as strings. `edit` opens `$EDITOR` (or `$VISUAL`, then `vi`) on the file and validates it on save; it requires an interactive terminal.
+
+## Session history
+
+```sh
+apollo history list [--limit N] [--since <date>] [--project] [--json]
+apollo history show <session-id> [--json]
+apollo history search <query> [--limit N]
+apollo history export <session-id> [-o file] [--json]
+apollo history import <file>
+apollo history clear (--all | --older-than <date>) [--yes]
+```
+
+These commands manage saved session archives (`~/.apollo/sessions/*.jsonl`) and never touch the interactive input-line history. `search` is a local keyword match over message text; it performs no embedding or network request. `export` prints markdown by default and a versioned JSON document with `--json`; `import` restores such a JSON export and refuses to overwrite an existing session. `clear` deletes session files and, like `memory delete`, requires interactive confirmation or `--yes` outside a TTY.
+
 
 Use `apollo restore <session-id> --dry-run` to preview a rollback. Every `Write`, `Edit`, and `MultiEdit` operation records a session-scoped backup first. Restore refuses to overwrite files changed after Apollo's edit. Backups are retained for seven days by default and bounded to 500 MB.
 

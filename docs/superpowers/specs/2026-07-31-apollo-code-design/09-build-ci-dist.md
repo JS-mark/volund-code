@@ -190,13 +190,15 @@ jobs:
 
 > 注：分发模型本身（npm 平台包 vs GitHub Release）的换轨认定属 r12 REM-45（BDFL 决策）；上述三条无论哪个方向都成立。
 
-### 9.6 apps/cli 打包与分发
+### 9.6 apps/cli 打包与分发（r13.2 修订）
 
-- rolldown 打成 `dist/apollo.js`（单文件 ESM）+ shebang
-- package.json `"bin": { "apollo": "dist/apollo.js" }`
-- npm 用户：`npm i -g apollo-code` → 全局 `apollo` 命令
+- rolldown 打成 `dist/apollo.js`（单文件 ESM + minify + treeshake）——它是二进制的**编译原料**与本地开发入口，不再是 npm 面向用户的形态
+- **npm 渠道 = 二进制薄壳**（r13.2 起）：发布 7 个平台包 `@apollo-code/<triple>`（各含 bun 单文件二进制 + native sidecar + 内置插件，os/cpu/libc 字段让包管理器跳过不匹配平台）+ meta 包 `apollo-code`（`bin: bin/apollo.cjs` 壳，按宿主 triple 解析平台包并 spawn 转发）。`npm i -g apollo-code` 得到的 `apollo` 命令与 GitHub Release 的 standalone 归档内容一致
+- 平台包由 `scripts/build-all-standalone.mjs`（native.yml `standalone` job，bun `--compile --target` 跨编译）+ `scripts/pack-standalone-npm.mjs` 生成；**不进 pnpm workspace、不经 changesets 版本化**（发布 workflow 在 tag 检出上按 apps/cli 版本打戳），与 ADR-native-github-release 的副作用面零冲突——sidecar 单体的 GitHub Release 分发不变
+- **win32-arm64-msvc 例外**：bun 无 `bun-windows-arm64` 编译目标；Windows arm64 由 `@apollo-code/win32-x64-msvc` 包覆盖（`cpu` 同列 arm64，Prism 仿真，仿真进程内 `process.arch=x64` 与包内 x64 sidecar 自洽）
 - Homebrew / apt 通道（v2）：`brew install apollo-code`
-- **独立二进制**（v2）：`bun build --compile` 或 `pkg` 打进 Node runtime，供不装 Node 的用户
+- ~~独立二进制（v2）：bun build --compile 或 pkg 打进 Node runtime~~ → r13.2 已落地为上述薄壳模型（pkg 因 RFC 否决，仅 bun）
+
 
 ### 9.7 apps/docs 部署
 
@@ -259,6 +261,7 @@ jobs:
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-08-25 | §9 r13.2 | npm 渠道切换为二进制薄壳（§9.6）：7 个 `@apollo-code/<triple>` 平台包 + `apollo-code` 壳包；native.yml 新增 `standalone` job（bun `--compile --target` 跨编译，win32-arm64 无 bun 目标由 x64 包 Prism 仿真覆盖）并把 `apollo-standalone-<triple>.tar.gz` 挂上 Release；新增手动 dispatch 的 `publish-npm.yml`（tag 一致性门禁 → Release 资产 sha256 校验 → 重组装 → `--provenance` 发布，平台包先于 meta 包）。自动 publish 门禁不变。 |
 | 2026-08-16 | §9 r13.1 | r13 修正落地：§9.4 新增 `e2e` smoke job（T2，MockProvider 脚本化交互 + JSONL replay 断言）；§9.5 新增供应链三条——npm org 抢注防护（L1 前）/ provenance（L2 起）/ NOTICE tiktoken-rs 归属（S1/S2）；新增 §9.10 性能预算表 + CI 基线采集（P2/P5/T4）。 |
 | 2026-08-01 | §9 r10.1（一致性修复） | §9.9 L1 时间口径对齐 §10：删除"3-4 周（r9 单人口径）"，改"8-12 轮 AI 迭代（r10）"+ 加口径说明段，消除 §9 ↔ §10 的时间估算矛盾（复审 P1）。 |
 

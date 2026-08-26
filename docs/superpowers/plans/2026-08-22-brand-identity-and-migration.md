@@ -129,6 +129,30 @@
 
 历史候选 `Evalistry`、`Evidfold`、`Rigilume`、`Rigorbind` 只保留为研究记录，不代表当前 shortlist。`Cereward AI` 虽有用户选择历史，但已被 clearance gate 撤回。`Cereward AI`、`Evalistry`、`Rigorbind` 均不得进入下一轮 shortlist。
 
+### 4.1 2026-08-26 全新 shortlist（等待用户选择）
+
+本轮保持同一套 `Controlled Port` mark、相同 palette 和相同应用场景，只比较名称语义、读写感与 wordmark，不把三种不同 Logo 风格混入命名决策：
+
+| 候选 | 构词与含义 | 当前判断 | Discovery board |
+|---|---|---|---|
+| **`Nomitera`** | `nomos`（规则/秩序）+ `iterare`（迭代） | **推荐**；同时覆盖“受控演进”和“边界先于能力”，读写稳定 | [`2026-08-26-nomitera-board.png`](../../assets/brand-discovery/2026-08-26-nomitera-board.png) |
+| **`Ordiflux`** | `ordo`（秩序）+ `flux`（变化） | 基础设施感最强，但 `flux` 会比另外两项更强调变化而非证据 | [`2026-08-26-ordiflux-board.png`](../../assets/brand-discovery/2026-08-26-ordiflux-board.png) |
+| **`Tenitera`** | `tenet`（不变量/原则）+ `iterare`（迭代） | 最简洁、最平静；需要在首次传播时解释词源和重音 | [`2026-08-26-tenitera-board.png`](../../assets/brand-discovery/2026-08-26-tenitera-board.png) |
+
+2026-08-26（Asia/Shanghai）的工程级实时初筛：
+
+- 精确名称 + `software / AI / developer / company` 搜索未发现与三项直接重叠的相关产品；精确名称 + `trademark / trade mark` 搜索也未返回明显结果。
+- GitHub user/org 查询对三项均未显示现有主体；`.dev` 与 `.ai` RDAP 查询均返回未找到。
+- `.com` RDAP、npm/PyPI/crates 的直接查询在本轮受到连接重置/超时影响，状态仍是 **INCONCLUSIVE**，不得解读为可注册。
+- 上述是命名工程初筛，不是法律意见；进入 `BRAND-FREEZE` 前仍须由 owner 完成中美欧商标、公司/普通使用、domain、GitHub/npm/PyPI/crates/Homebrew/Winget 的正式复核并保存原始证据。
+- 三张 board 是生成式 discovery preview，不是生产 Logo；选择名称后仍要用确定性 SVG 重建 mark，并执行 16px、单色、相似性和 accessibility 验收。
+
+Preview SHA-256：
+
+- `Nomitera`: `888a7e6e33c0631dd04b10706ccacb1f48668f84dcd7b42643463595671709e9`
+- `Ordiflux`: `e27511ded7bb51f8f6a62cc5e7c2832f28b187833b5e44dcc51d7d002baf12d5`
+- `Tenitera`: `e3f9786c189081e20de90bfce5a0d3cb52414ccbbec72a555367034c5faae183`
+
 ## 5. Logo 系统
 
 ### 5.1 主符号：Controlled Port
@@ -298,9 +322,9 @@ Self-Development / Evolution Loop 可使用独立的功能 glyph 或 motion：ca
 
 下一轮品牌确认应只做一个高价值决策：
 
-> 从全新、独创、短名称出发，最终更偏“可信边界”还是更偏“受控演进”？
+> 从 §4.1 的 `Nomitera`、`Ordiflux`、`Tenitera` 中选择一个进入正式 clearance；若三者都不满意，明确回复“全部重做”，不要勉强冻结。
 
-AI、plugin-native、sandbox 和 Rust enforcement 仍会写入 descriptor 与品牌证明，不要求四个概念都生硬塞进主名称。方向确定后，再提供不超过 3 个经过实时清查的全新名称候选；每个候选都使用同一套 Controlled Port 视觉语法，避免把“喜欢哪个 Logo”和“选择哪个产品身份”混成一个问题。
+推荐顺序是 `Nomitera` → `Tenitera` → `Ordiflux`。用户选择只授权进入正式 clearance 和确定性 Logo refinement，不自动授权 package、CLI、home、env、wire 或 signing identity 迁移；完整 identity tuple 仍需在 `BRAND-FREEZE` 人工签收。
 
 ## Appendix A · Rejection ledger
 
