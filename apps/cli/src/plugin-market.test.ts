@@ -68,7 +68,8 @@ const helloEntry = `export async function activate(apollo) {
   await apollo.log.info('apollo-plugin-hello activated')
 }
 `
-const sha256 = (value: string) => `sha256-${createHash('sha256').update(value).digest('hex')}`
+const sha256 = (value: string): `sha256-${string}` =>
+  `sha256-${createHash('sha256').update(value).digest('hex')}`
 
 /** 回环 http fixture：索引 + 插件文件。digest 始终按预期内容计算；corrupt 时
  * 伺服被篡改的 index.mjs —— 触发下载校验失败。 */
