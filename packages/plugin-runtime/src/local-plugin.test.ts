@@ -26,6 +26,21 @@ function dispatchFixture(permissions: string[]) {
     commands: [] as CommandContribution[],
   }
   const invocations: { callbackId: string; args: readonly unknown[] }[] = []
+  const managed: { method: string; value: unknown }[] = []
+  const inventoryEntry = {
+    name: 'apollo-plugin-example',
+    version: '1.0.0',
+    dir: '/plugins/example',
+    source: 'market' as const,
+    commands: 0,
+    statusTabs: 0,
+    lifecycle: {
+      permissionHash: 'a'.repeat(64),
+      approved: false,
+      enabled: false,
+      loaded: false,
+    },
+  }
   const dispatch = createLocalPluginDispatch({
     manifest: manifest(permissions),
     invokeCallback: async (ref, args = []) => {
@@ -43,10 +58,31 @@ function dispatchFixture(permissions: string[]) {
           sandboxPassthrough: true,
         },
       ],
+      listPlugins: async () => ({
+        builtin: [],
+        dev: [],
+        market: { installed: [inventoryEntry], registry: { error: 'offline' } },
+      }),
+      inspectPlugin: async (name) => {
+        managed.push({ method: 'inspect', value: name })
+        return inventoryEntry
+      },
+      approvePlugin: async (name, permissionHash) => {
+        managed.push({ method: 'approve', value: { name, permissionHash } })
+        return inventoryEntry
+      },
+      enablePlugin: async (name) => {
+        managed.push({ method: 'enable', value: name })
+        return inventoryEntry
+      },
+      disablePlugin: async (name) => {
+        managed.push({ method: 'disable', value: name })
+        return inventoryEntry
+      },
     },
     contributions,
   })
-  return { contributions, dispatch, invocations }
+  return { contributions, dispatch, invocations, managed }
 }
 
 describe('createLocalPluginDispatch', () => {
@@ -159,6 +195,34 @@ describe('createLocalPluginDispatch', () => {
   it('denies env.getEffective without env.read', () => {
     const { dispatch } = dispatchFixture(['session.read'])
     expect(() => dispatch('apollo.env.getEffective', undefined)).toThrow(/env\.read/)
+  })
+
+  it('routes v2 inspect/approve/enable/disable through explicit plugins permissions', async () => {
+    const { dispatch, managed } = dispatchFixture(['plugins.read', 'plugins.manage'])
+    await dispatch('apollo.plugins.inspect', 'example')
+    await dispatch('apollo.plugins.approve', {
+      name: 'example',
+      permissionHash: 'a'.repeat(64),
+    })
+    await dispatch('apollo.plugins.enable', 'example')
+    await dispatch('apollo.plugins.disable', 'example')
+    expect(managed).toEqual([
+      { method: 'inspect', value: 'example' },
+      {
+        method: 'approve',
+        value: { name: 'example', permissionHash: 'a'.repeat(64) },
+      },
+      { method: 'enable', value: 'example' },
+      { method: 'disable', value: 'example' },
+    ])
+  })
+
+  it('rejects malformed approval parameters before the host service', () => {
+    const { dispatch, managed } = dispatchFixture(['plugins.manage'])
+    expect(() => dispatch('apollo.plugins.approve', { name: 'example' })).toThrow(
+      'plugin_rpc_params_invalid',
+    )
+    expect(managed).toEqual([])
   })
 
   it('denies session.getUsage without session.read', () => {
