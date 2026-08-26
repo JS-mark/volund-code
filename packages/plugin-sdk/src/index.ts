@@ -138,6 +138,15 @@ export interface PluginInventoryEntry {
   readonly source: 'builtin' | 'dev' | 'market'
   readonly commands: number
   readonly statusTabs: number
+  /** v2 生命周期；旧宿主可省略。installed / approved / enabled / loaded 不再混为一态。 */
+  readonly lifecycle?: {
+    readonly permissionHash: string
+    readonly approved: boolean
+    readonly enabled: boolean
+    readonly loaded: boolean
+  }
+  /** 批准前供用户检查的完整权限声明。 */
+  readonly permissions?: PluginManifest['permissions']
 }
 /** 市场索引里的单个可安装条目（files 摘要不进清单，仅宿主安装时使用）。 */
 export interface PluginMarketListing {
@@ -159,6 +168,10 @@ export interface PluginInstallResult {
   readonly name: string
   readonly version: string
   readonly dir: string
+  /** 市场安装只落盘，不激活；批准时必须回传这个完整哈希。 */
+  readonly permissionHash?: string
+  readonly approvalRequired?: boolean
+  readonly permissions?: PluginManifest['permissions']
 }
 export interface PromptFragment {
   id: string
@@ -375,12 +388,17 @@ export interface ApolloBridge {
   /**
    * 插件装载清单与市场管理（宿主侧数据 + 宿主侧动作；沙箱内无网络，市场索引
    * 的拉取/安装都由宿主完成）。需要 manifest `permissions.apollo` 包含
-   * `'plugins.read'`（list）与 `'plugins.manage'`（install / uninstall），
+   * `'plugins.read'`（list / inspect）与 `'plugins.manage'`（install / approve /
+   * enable / disable / uninstall），
    * deny-by-default。仅本地（内置 / dev / 市场）通道提供；插件侧应判空降级。
    */
   readonly plugins?: {
     list(): Promise<PluginInventory>
+    inspect(name: string): Promise<PluginInventoryEntry>
     install(name: string): Promise<PluginInstallResult>
+    approve(name: string, permissionHash: string): Promise<PluginInventoryEntry>
+    enable(name: string): Promise<PluginInventoryEntry>
+    disable(name: string): Promise<PluginInventoryEntry>
     uninstall(name: string): Promise<{ name: string }>
   }
   readonly prompt: { contribute(fragment: PromptFragment): Disposable; revoke(id: string): void }

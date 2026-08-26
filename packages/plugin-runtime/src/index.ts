@@ -612,6 +612,12 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
     reason: 'Local (builtin/dev/market) channel only; host performs fetch + digest verify.',
     test: 'apps/cli/src/plugin-market.test.ts#installFromMarket',
   },
+  ...['plugins.inspect', 'plugins.approve', 'plugins.enable', 'plugins.disable'].map((method) => ({
+    method,
+    status: 'supported' as const,
+    reason: 'Local v2 lifecycle only; approval and enablement are explicit host-side actions.',
+    test: 'packages/plugin-runtime/src/local-plugin.test.ts#createLocalPluginDispatch',
+  })),
   {
     method: 'plugins.uninstall',
     status: 'supported' as const,
@@ -845,7 +851,11 @@ export const BRIDGE_PERMISSIONS: Readonly<Record<string, string>> = Object.freez
   'env.getEffective': 'env.read',
   // 插件装载清单与市场管理（宿主侧数据 + 宿主侧动作；沙箱内无网络）
   'plugins.list': 'plugins.read',
+  'plugins.inspect': 'plugins.read',
   'plugins.install': 'plugins.manage',
+  'plugins.approve': 'plugins.manage',
+  'plugins.enable': 'plugins.manage',
+  'plugins.disable': 'plugins.manage',
   'plugins.uninstall': 'plugins.manage',
   'log.write': 'log.write',
   'log.debug': 'log.write',

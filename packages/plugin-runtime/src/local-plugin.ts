@@ -6,6 +6,7 @@ import type {
   EffectiveEnvEntry,
   PluginInstallResult,
   PluginInventory,
+  PluginInventoryEntry,
   PluginManifest,
 } from '@apollo-code/plugin-sdk'
 
@@ -50,8 +51,12 @@ export interface LocalPluginServices {
   getEffectiveEnv?(): Promise<readonly EffectiveEnvEntry[]> | readonly EffectiveEnvEntry[]
   /** 装载清单（内置 / dev / 市场三源 + 市场索引，宿主侧计算）。 */
   listPlugins?(): Promise<PluginInventory>
-  /** 从市场安装（宿主侧拉取 + digest 校验 + 落盘 + 立即激活）。 */
+  /** 从市场安装（宿主侧拉取 + digest 校验 + 落盘；不批准、不激活）。 */
   installMarketPlugin?(name: string): Promise<PluginInstallResult>
+  inspectPlugin?(name: string): Promise<PluginInventoryEntry>
+  approvePlugin?(name: string, permissionHash: string): Promise<PluginInventoryEntry>
+  enablePlugin?(name: string): Promise<PluginInventoryEntry>
+  disablePlugin?(name: string): Promise<PluginInventoryEntry>
   /** 卸载市场插件（停用 + 删目录）。 */
   uninstallMarketPlugin?(name: string): Promise<{ name: string }>
 }
@@ -147,10 +152,36 @@ export function createLocalPluginDispatch(options: {
           market: { installed: [], registry: { error: 'plugins inventory unavailable' } },
         }
       )
+    if (short === 'plugins.inspect') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', 'plugins.inspect requires a name string')
+      return services.inspectPlugin?.(params)
+    }
     if (short === 'plugins.install') {
       if (typeof params !== 'string' || !params)
         throw new PluginError('plugin_rpc_params_invalid', 'plugins.install requires a name string')
       return services.installMarketPlugin?.(params)
+    }
+    if (short === 'plugins.approve') {
+      if (
+        !params ||
+        typeof params !== 'object' ||
+        typeof (params as { name?: unknown }).name !== 'string' ||
+        typeof (params as { permissionHash?: unknown }).permissionHash !== 'string'
+      )
+        throw new PluginError(
+          'plugin_rpc_params_invalid',
+          'plugins.approve requires { name, permissionHash }',
+        )
+      const approval = params as { name: string; permissionHash: string }
+      return services.approvePlugin?.(approval.name, approval.permissionHash)
+    }
+    if (short === 'plugins.enable' || short === 'plugins.disable') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', `${short} requires a name string`)
+      return short === 'plugins.enable'
+        ? services.enablePlugin?.(params)
+        : services.disablePlugin?.(params)
     }
     if (short === 'plugins.uninstall') {
       if (typeof params !== 'string' || !params)
