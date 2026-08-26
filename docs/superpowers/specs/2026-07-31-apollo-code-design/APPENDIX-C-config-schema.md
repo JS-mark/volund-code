@@ -58,7 +58,7 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[auth]` | `skipAuth` | bool，默认 `false`；`true` 时完全跳过凭据解析、请求不带凭据头（企业网关/本地代理，配合 `provider.<name>.baseUrl`） | §8.4 | **forbidden**（§8.3.1） |
 | `[auth]` | `anthropic_api_key` | string?（Layer 4 明文 key，显式 opt-in，建议文件权限 0600） | §8.4 | **forbidden**（§8.3.1） |
 | `[auth]` | （全部） | — | §8.4 | **forbidden**（§8.3.1） |
-| `[plugins]` | `market` | string?，市场索引 URL（PLUGIN-MANAGER-r1）：规范 HTTPS 或回环 http（本地源/测试）；索引列出 name/version/description/publisher/files[]{path,digest:sha256}，逐文件 digest 校验后落盘 `~/.apollo/plugins/<name>/`，激活期经 apollo-market.json 重验 | PLUGIN-MANAGER-r1 | **forbidden**（信任配置，项目级不得指向第三方源） |
+| `[plugins]` | `market` | string?，市场索引 URL（PLUGIN-MANAGER-r1.2）：规范 HTTPS 可浏览索引；在发布者签名、吊销与可信 key root 接通前，**可执行安装仅允许回环 http 开发源**。安装逐文件 digest 校验后落盘 `~/.apollo/plugins/<name>/`，但保持 disabled；显式 approve(hash) + enable 后才激活，激活期经 apollo-market.json 重验 | PLUGIN-MANAGER-r1.2 | **forbidden**（信任配置，项目级不得指向第三方源） |
 | `[skills]` | `disabled` | string[]，默认 `[]`；/skills 面板 Space 切换写这里，对 user+project scope 均生效；名单跨层合并（并集） | SKILLS-MCP-UI-r1 §S3.4 | allowed |
 | `[skills]` | `index_budget` | int，默认 `4096`；skills index fragment 字符预算，超出时从尾部退化 name-only 行 | SKILLS-MCP-UI-r1 §S3.4 | allowed |
 | `[mcp]` | `disabled` | string[]，默认 `[]`；/mcp 面板 Space 切换写这里（断开连接并注销全部 `mcp__<server>__*` 工具） | SKILLS-MCP-UI-r1 §S3.4 | allowed |
