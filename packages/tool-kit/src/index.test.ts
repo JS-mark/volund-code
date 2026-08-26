@@ -40,13 +40,13 @@ describe('tool contract', () => {
   it('enforces MCP and plugin namespaces', () => {
     const registry = new ToolRegistry()
     expect(() => registry.register(tool('search'), { kind: 'mcp', server: 'docs' })).toThrow(
-      'mcp:<server>',
+      'mcp__<server>',
     )
     expect(() => registry.register(tool('search'), { kind: 'plugin', plugin: 'demo' })).toThrow(
       'plugin:<name>',
     )
     expect(() =>
-      registry.register(tool('mcp:docs:search'), { kind: 'mcp', server: 'docs' }),
+      registry.register(tool('mcp__docs__search'), { kind: 'mcp', server: 'docs' }),
     ).not.toThrow()
     expect(() =>
       registry.register(tool('plugin:demo:search'), { kind: 'plugin', plugin: 'demo' }),

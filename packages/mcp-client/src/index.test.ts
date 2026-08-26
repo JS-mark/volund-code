@@ -55,7 +55,7 @@ describe('McpClient', () => {
     )
     const registry = new ToolRegistry()
     await client.registerTools(registry)
-    const tool = registry.get('mcp:demo:read')!
+    const tool = registry.get('mcp__demo__read')!
     expect(tool.permissionSpec({})).toEqual({ custom: { mcpServer: 'demo', mcpTool: 'read' } })
     const result = await client.callTool('read', {})
     expect(result.content[0]).toEqual(
@@ -66,7 +66,7 @@ describe('McpClient', () => {
     )
     expect((result.content[0] as { text: string }).text.match(/<\/untrusted>/g)).toHaveLength(1)
     await client.close()
-    expect(registry.get('mcp:demo:read')).toBeUndefined()
+    expect(registry.get('mcp__demo__read')).toBeUndefined()
     expect(transport.closed).toBe(true)
   })
 
@@ -90,11 +90,17 @@ describe('McpClient', () => {
 
 describe('HttpSseTransport', () => {
   it('uses endpoint events and Last-Event-ID on bounded reconnect', async () => {
-    let call = 0
-    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      call++
-      if (init?.method === 'POST') return new Response('', { status: 202 })
-      if (call === 1)
+    let sseCalls = 0
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      // 探测 = initialize POST 到 server URL（json）→ 405 → 回退 SSE；send 到 /messages 走 202
+      if (init?.method === 'POST') {
+        const isInitialize = String((init.headers as Record<string, string> | undefined)?.['content-type'] ?? '') === 'application/json' && String(url).endsWith('/sse')
+        if (isInitialize) return new Response('', { status: 405 })
+        return new Response('', { status: 202 })
+      }
+      // GET SSE 流：第一次回 endpoint+id,后续断言 Last-Event-ID=7
+      sseCalls++
+      if (sseCalls === 1)
         return new Response('id: 7\nevent: endpoint\ndata: /messages\n\n', {
           headers: { 'content-type': 'text/event-stream' },
         })

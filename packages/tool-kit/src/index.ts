@@ -70,8 +70,9 @@ export class ToolRegistry {
       | { kind: 'mcp'; server: string }
       | { kind: 'plugin'; plugin: string } = { kind: 'builtin' },
   ): () => void {
-    if (source.kind === 'mcp' && !tool.name.startsWith(`mcp:${source.server}:`))
-      throw new Error('MCP tools require mcp:<server>: prefix')
+    if (source.kind === 'mcp' && !tool.name.startsWith(`mcp__${source.server}__`))
+      // SKILLS-MCPS-r1 §S3.5：命名对齐业界 mcp__<server>__<tool>（双下划线）。
+      throw new Error('MCP tools require mcp__<server>__ prefix')
     if (source.kind === 'plugin' && !tool.name.startsWith(`plugin:${source.plugin}:`))
       throw new Error('Plugin tools require plugin:<name>: prefix')
     if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`)

@@ -21,6 +21,8 @@ export interface StdioOptions {
   cwd?: string
   env?: Record<string, string>
   maxMessageBytes?: number
+  /** server stderr（规范允许非 MCP 日志）：逐行上报到 Manager 日志（追查超时/启动失败）。 */
+  onStderrLine?: (line: string) => void
 }
 
 export class StdioTransport implements McpTransport {
@@ -35,6 +37,16 @@ export class StdioTransport implements McpTransport {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.#child = child
+    let stderrBuffer = ''
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrBuffer += chunk.toString('utf8')
+      let newline: number
+      while ((newline = stderrBuffer.indexOf('\n')) >= 0) {
+        const line = stderrBuffer.slice(0, newline).trim()
+        stderrBuffer = stderrBuffer.slice(newline + 1)
+        if (line) this.options.onStderrLine?.(line)
+      }
+    })
     child.stdout.on('data', (chunk: Buffer) => {
       try {
         this.#consume(chunk, onMessage)
@@ -46,7 +58,12 @@ export class StdioTransport implements McpTransport {
     child.once('error', onClose)
     child.once('exit', (code, signal) => {
       this.#child = undefined
-      onClose(code === 0 ? undefined : new Error(`MCP server exited (${code ?? signal})`))
+      const tail = stderrBuffer.split('\n').filter(Boolean).slice(-5).join(' | ')
+      onClose(
+        code === 0
+          ? undefined
+          : new Error(`MCP server exited (${code ?? signal})${tail ? `; stderr tail: ${tail}` : ''}`),
+      )
     })
   }
   #consume(chunk: Buffer, onMessage: (message: unknown) => void) {
@@ -92,6 +109,8 @@ export interface HttpSseOptions {
   maxReconnects?: number
   reconnectBaseMs?: number
   fetch?: typeof fetch
+  /** 协议探测结果（规范回退判定）。 */
+  onProbe?: (transport: 'streamable-http' | 'sse') => void
 }
 
 export class HttpSseTransport implements McpTransport {
@@ -105,9 +124,47 @@ export class HttpSseTransport implements McpTransport {
   async start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void) {
     if (this.#abort) throw new Error('MCP HTTP/SSE transport already started')
     this.#abort = new AbortController()
+    // 规范回退（2025-06-18）：先 POST initialize 探测 Streamable HTTP 端点；
+    // 4xx/405 → 回退旧 HTTP+SSE（GET 等 endpoint 事件）。探测结果告知 client，
+    // client 会用对应协议模式完成握手。
+    try {
+      const probe = await this.#probeStreamable()
+      this.options.onProbe?.(probe === 'streamable-http' ? 'streamable-http' : 'sse')
+    } catch (error) {
+      onClose(asError(error))
+      return
+    }
     this.#loop = this.#readLoop(onMessage).catch((error) => {
       if (!this.#abort?.signal.aborted) onClose(asError(error))
     })
+  }
+  /**
+   * POST initialize 探测：200 → 这是 Streamable HTTP 端点（Mcp-Session-Id 由
+   * client 后续请求携带）；4xx → 端点是旧 SSE。网络失败抛给 onClose。
+   */
+  async #probeStreamable(): Promise<'streamable-http' | 'sse'> {
+    const response = await (this.options.fetch ?? fetch)(this.options.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...this.options.headers,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: 'apollo-code', version: '0.0.0' },
+        },
+      }),
+      signal: this.#abort!.signal,
+    })
+    if (response.ok) return 'streamable-http'
+    if (response.status === 404 || response.status === 405) return 'sse'
+    if (response.status === 401 || response.status === 403) return 'sse'
+    return 'sse'
   }
   async #readLoop(onMessage: (message: unknown) => void) {
     const fetcher = this.options.fetch ?? fetch
@@ -183,6 +240,8 @@ export interface McpClientOptions {
   transport: McpTransport
   timeoutMs?: number
   maxPending?: number
+  /** 结构化诊断（stderr/异常面）——Manager 侧据此写 mcp.log。 */
+  onDiagnostics?: (entry: { level: 'warn' | 'error'; code: string; message: string }) => void
 }
 
 export class McpClient {
@@ -229,7 +288,7 @@ export class McpClient {
     const tools = await this.listTools()
     for (const descriptor of tools) {
       const tool: Tool = {
-        name: `mcp:${this.options.name}:${descriptor.name}`,
+        name: mcpToolName(this.options.name, descriptor.name),
         description: descriptor.description ?? '',
         inputSchema: descriptor.inputSchema ?? { type: 'object' },
         permissionSpec: () =>
@@ -259,7 +318,7 @@ export class McpClient {
       content: [
         {
           type: 'text',
-          text: `<untrusted source="mcp:${this.options.name}:${escapeAttribute(name)}">\n${text}\n</untrusted>`,
+          text: `<untrusted source="${escapeAttribute(mcpToolName(this.options.name, name))}">\n${text}\n</untrusted>`,
         },
       ],
       ...(result.isError === true ? { isError: true } : {}),
@@ -354,6 +413,14 @@ export function mcpToolSetHash(tools: readonly McpToolDescription[]): string {
       ),
     )
     .digest('hex')
+}
+/**
+ * SKILLS-MCPS-r1 §S3.5：工具命名对齐业界 `mcp__<server>__<tool>`（双下划线），
+ * server/tool 名内非法字符替换为 `_`（与 Claude Code 一致）。
+ */
+export function mcpToolName(server: string, tool: string): string {
+  const sanitize = (value: string) => value.replaceAll(/[^A-Za-z0-9._-]/g, '_')
+  return `mcp__${sanitize(server)}__${sanitize(tool)}`
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
