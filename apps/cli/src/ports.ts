@@ -213,6 +213,14 @@ export interface LocalPluginPort {
     loaded: { name: string; statusTabs: number }[]
     failed: { dir: string; error: string }[]
   }>
+  /** v2 生命周期管理；市场插件必须 inspect → approve(hash) → enable。 */
+  inspectPlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
+  approvePlugin(
+    input: string,
+    permissionHash: string,
+  ): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
+  enablePlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
+  disablePlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
   /**
    * 卸载市场插件（热生效）：停用（命令/页签当场摘除）+ 删除
    * ~/.apollo/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
