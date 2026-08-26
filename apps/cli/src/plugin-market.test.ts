@@ -333,9 +333,11 @@ describe('loadMarketPlugins（启动自动装载）', () => {
     const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
     expect(loaded).toEqual([])
-    expect(failed).toHaveLength(1)
-    expect(failed[0]!.dir).toContain('apollo-plugin-hello')
-    expect(failed[0]!.error).toContain('integrity mismatch')
+    expect(failed).toEqual([])
+    const inspected = await ports.localPlugins!.inspectPlugin('hello')
+    expect(inspected.lifecycle).toMatchObject({ approved: false, enabled: false, loaded: false })
+    await ports.localPlugins!.approvePlugin('hello', inspected.lifecycle!.permissionHash)
+    await expect(ports.localPlugins!.enablePlugin('hello')).rejects.toThrow('integrity mismatch')
     await ports.localPlugins!.deactivateAll()
   })
 
@@ -352,7 +354,11 @@ describe('loadMarketPlugins（启动自动装载）', () => {
     try {
       const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
       expect(failed).toEqual([])
-      expect(loaded).toEqual([{ name: 'apollo-plugin-hello', statusTabs: 0 }])
+      expect(loaded).toEqual([])
+      const inspected = await ports.localPlugins!.inspectPlugin('hello')
+      await ports.localPlugins!.approvePlugin('hello', inspected.lifecycle!.permissionHash)
+      const enabled = await ports.localPlugins!.enablePlugin('hello')
+      expect(enabled.lifecycle).toMatchObject({ approved: true, enabled: true, loaded: true })
     } finally {
       await ports.localPlugins!.deactivateAll()
     }
@@ -370,7 +376,10 @@ describe('loadMarketPlugins（启动自动装载）', () => {
     const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
     try {
       const first = await ports.localPlugins!.loadMarketPlugins()
-      expect(first.loaded).toEqual([{ name: 'apollo-plugin-hello', statusTabs: 0 }])
+      expect(first.loaded).toEqual([])
+      const inspected = await ports.localPlugins!.inspectPlugin('hello')
+      await ports.localPlugins!.approvePlugin('hello', inspected.lifecycle!.permissionHash)
+      await ports.localPlugins!.enablePlugin('hello')
       // 热：已装载（沙箱进程活着）状态下卸载——停用 + 删目录，同会话生效
       await expect(ports.localPlugins!.uninstallMarketPlugin('hello')).resolves.toEqual({
         name: 'apollo-plugin-hello',
