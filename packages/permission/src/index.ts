@@ -15,7 +15,7 @@ export { InvalidNetUrlError, normalizeOrigin } from './net-origin'
 
 export interface PermissionSpec {
   fs?: { read?: string[]; write?: string[] }
-  bash?: { command: string }
+  bash?: { command: string; background?: boolean }
   net?: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' }
   env?: { read?: string[] }
   custom?: Record<string, unknown>

@@ -24,6 +24,8 @@ import { WebFetchTool, type WebFetchOptions } from './web-fetch'
 export { canonicalWebOrigin, isForbiddenAddress, WebFetchTool } from './web-fetch'
 export type { WebFetchInput, WebFetchOptions } from './web-fetch'
 export * from './bash-shell'
+export * from './background-shells'
+import { BackgroundShells } from './background-shells'
 import { minimalEnv, quoteShellArgument, resolvePwshPath, selectShell } from './bash-shell'
 
 const objectSchema = (properties: Record<string, unknown>, required: string[]) =>
@@ -61,6 +63,8 @@ export interface BuiltinToolsOptions {
   webFetch?: WebFetchOptions
   /** REM-57 (r13-I11): shell selection + env inheritance knobs ([tools] config). */
   bash?: BashToolOptions
+  /** REM-62 (r13-G2): background shell registry — enables runInBackground + ShellOutput/KillShell. */
+  background?: BackgroundShells
 }
 
 async function safeMutationPath(cwd: string, input: string): Promise<string> {
@@ -412,6 +416,8 @@ export class MultiEditTool implements Tool<MultiEditInput> {
   }
 }
 export interface BashToolOptions {
+  /** 后台 shell 注册表（r13-G2）；提供后 Bash 支持 runInBackground。 */
+  background?: BackgroundShells
   /** `[tools] windows_shell` — overrides PowerShell/cmd detection (win32 only). */
   windowsShell?: string
   /** `[tools] pass_through_env` — env names inherited beyond PATH/HOME/LANG/TZ. */
@@ -419,17 +425,27 @@ export interface BashToolOptions {
   /** Effective platform; defaults to `process.platform`. Injectable for tests. */
   platform?: string
 }
-export class BashTool implements Tool<{ command: string }> {
+export class BashTool implements Tool<{ command: string; runInBackground?: boolean }> {
   constructor(readonly options: BashToolOptions = {}) {}
   readonly name = 'Bash'
   readonly description = 'Run a command in the Rust sandbox'
-  readonly inputSchema = objectSchema({ command: stringProp }, ['command'])
+  readonly inputSchema = objectSchema(
+    { command: stringProp, runInBackground: { type: 'boolean' } },
+    ['command'],
+  )
   readonly sandboxRequired = true
   readonly parallelSafe = false
-  permissionSpec(i: { command: string }): PermissionSpec {
-    return { bash: { command: i.command }, fs: { read: ['.'], write: ['.'] } }
+  permissionSpec(i: { command: string; runInBackground?: boolean }): PermissionSpec {
+    return {
+      bash: {
+        command: i.command,
+        // r13-G2：后台运行标注——permission 层据此排除出静默白名单并提示
+        ...(i.runInBackground ? { background: true } : {}),
+      },
+      fs: { read: ['.'], write: ['.'] },
+    }
   }
-  async invoke(i: { command: string }, c: ToolContext) {
+  async invoke(i: { command: string; runInBackground?: boolean }, c: ToolContext) {
     const s = Date.now()
     try {
       // REM-57 (spec §4.3.1, r13-I11): the shell is pinned per platform —
@@ -444,6 +460,28 @@ export class BashTool implements Tool<{ command: string }> {
         ...(pwshPath ? { pwshPath } : {}),
       })
       const env = minimalEnv(process.env, this.options.passThroughEnv)
+      if (i.runInBackground) {
+        // r13-G2：后台 = 同一条沙箱化执行不 await；timeoutMs 不生效（abort 只来自
+        // KillShell / session 结束）。立即返回 shellId，输出经 ShellOutput 获取。
+        const background = this.options.background
+        if (!background)
+          return failure(new Error('background shells are not configured in this runtime'), s)
+        const { shellId } = background.spawn({
+          command: i.command,
+          cwd: c.session.cwd,
+          run: (signal) =>
+            c.native.execute(
+              shell.program,
+              [...shell.args, quoteShellArgument(i.command, shell.quoting)],
+              signal,
+              env,
+            ),
+        })
+        return result(
+          `Background shell started.\nshellId: ${shellId}\nUse ShellOutput { shellId: "${shellId}", action: "wait" } to retrieve output.`,
+          { durationMs: Date.now() - s },
+        )
+      }
       const out = await c.native.execute(
         shell.program,
         [...shell.args, quoteShellArgument(i.command, shell.quoting)],
@@ -458,6 +496,51 @@ export class BashTool implements Tool<{ command: string }> {
     }
   }
 }
+
+export class ShellOutputTool implements Tool<{
+  shellId: string
+  action: 'view' | 'wait'
+  timeoutMs?: number
+}> {
+  readonly name = 'ShellOutput'
+  readonly description = 'View or wait for a background shell started via Bash runInBackground'
+  readonly readonly = true
+  readonly inputSchema = objectSchema(
+    {
+      shellId: stringProp,
+      action: { type: 'string', enum: ['view', 'wait'] },
+      timeoutMs: { type: 'number' },
+    },
+    ['shellId', 'action'],
+  )
+  constructor(readonly background: BackgroundShells) {}
+  permissionSpec(): PermissionSpec {
+    return {}
+  }
+  async invoke(i: { shellId: string; action: 'view' | 'wait'; timeoutMs?: number }) {
+    const s = Date.now()
+    const text =
+      i.action === 'wait'
+        ? await this.background.wait(i.shellId, i.timeoutMs)
+        : this.background.view(i.shellId)
+    return result(text, { durationMs: Date.now() - s })
+  }
+}
+
+export class KillShellTool implements Tool<{ shellId: string }> {
+  readonly name = 'KillShell'
+  readonly description = 'Terminate a background shell (r13-G2)'
+  readonly inputSchema = objectSchema({ shellId: stringProp }, ['shellId'])
+  constructor(readonly background: BackgroundShells) {}
+  permissionSpec(): PermissionSpec {
+    return {}
+  }
+  async invoke(i: { shellId: string }) {
+    const s = Date.now()
+    return result(this.background.kill(i.shellId), { durationMs: Date.now() - s })
+  }
+}
+
 async function walk(root: string, base = root, out: string[] = []): Promise<string[]> {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const p = resolve(root, entry.name)
@@ -611,6 +694,9 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new EditTool(options.backups),
   new MultiEditTool(options.backups),
   new BashTool(options.bash),
+  ...(options.background
+    ? [new ShellOutputTool(options.background), new KillShellTool(options.background)]
+    : []),
   new GrepTool(),
   new GlobTool(),
   new TodoTool(),

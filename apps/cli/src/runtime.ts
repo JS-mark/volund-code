@@ -115,7 +115,7 @@ import {
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import type { NativeBridge, ToolContext } from '@apollo-code/tool-kit'
-import { builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@apollo-code/tools'
+import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@apollo-code/tools'
 import type { ToolHookDispatcher } from '@apollo-code/tools'
 import {
   renderDirectoryTrustPrompt,
@@ -500,6 +500,8 @@ export class ProductionPermissionSessionPolicy {
 export class RuntimeSessionPort implements SessionPort {
   #runner: Runner | undefined
   #events: EventBus | undefined
+  // r13-G2：后台 shell 注册表；end() 时统一 killAll
+  readonly #background: BackgroundShells | undefined
   #output?: { json: boolean; write: (value: string) => void }
   #lastExitCode = 0
   constructor(
@@ -515,7 +517,10 @@ export class RuntimeSessionPort implements SessionPort {
         | undefined,
     ) => void,
     readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
-  ) { }
+    readonly background?: BackgroundShells,
+  ) {
+    this.#background = background
+  }
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
   }
@@ -669,6 +674,8 @@ export class RuntimeSessionPort implements SessionPort {
   async end(): Promise<void> {
     if (!this.#runner || !this.#events) return
     const sessionId = this.#runner.state.id
+    // r13-G2（spec §4.3.1）：session 结束统一 kill 全部后台 shell
+    this.#background?.killAll('session_ended')
     // 附录 D.2 session.ended：★reason（exit|signal|error） ?exitCode。
     await this.#events.emit({
       type: 'session.ended',
@@ -689,6 +696,25 @@ export class RuntimeSessionPort implements SessionPort {
     resumed?: { tailTurns: number; skippedTurns: number },
   ): Promise<void> {
     const events = new EventBus()
+    // r13-G2：后台 shell 事件按附录 D 形状上本 session 总线（每 session 重挂）
+    if (this.#background) {
+      this.#background.events.started = (payload) => {
+        void events.emit({
+          type: 'shell.background_started',
+          version: state.version,
+          sessionId: state.id,
+          payload: { ...payload },
+        })
+      }
+      this.#background.events.exited = (payload) => {
+        void events.emit({
+          type: 'shell.background_exited',
+          version: state.version,
+          sessionId: state.id,
+          payload: { ...payload },
+        })
+      }
+    }
     const store = new SessionStore(this.path(state.id))
     store.attach(events)
     const runner = await this.createRunner(state, events)
@@ -2665,6 +2691,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
+  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 RuntimeSessionPort
+  // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
+  const background = new BackgroundShells()
   const createRunner: RunnerFactory = async (state, events) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -2831,6 +2860,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const registry = new ToolRegistry()
     for (const tool of builtinTools({
       backups,
+      background,
       bash: {
         ...(windowsShell ? { windowsShell } : {}),
         ...(passThroughEnv ? { passThroughEnv } : {}),
@@ -2971,6 +3001,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
     }),
+    background,
   )
   return {
     identity: options.identity,

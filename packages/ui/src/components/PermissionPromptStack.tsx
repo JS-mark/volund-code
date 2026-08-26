@@ -121,7 +121,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
         </Box>
       ) : null}
       <Box flexDirection="column" marginTop={1}>
-        <Text bold>{request.display.toolName}</Text>
+        <Text bold>{request.display.toolName}{(request.spec as { bash?: { background?: boolean } })?.bash?.background ? '（后台运行）' : ''}</Text>
         <Text color="gray" wrap="wrap">
           {request.display.spec}
         </Text>
