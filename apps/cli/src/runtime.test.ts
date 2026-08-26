@@ -10,6 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
@@ -19,6 +20,7 @@ import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storag
 import type { ToolContext } from '@apollo-code/tool-kit'
 import { BashTool } from '@apollo-code/tools'
 import type { InteractivePermissionRequest } from '@apollo-code/ui'
+import { MutableSlashCommandRegistry } from '@apollo-code/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -33,7 +35,10 @@ import {
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
+  expandEnvValue,
   loadProductionContextTuning,
+  readEffectiveEnv,
+  registerPluginCommands,
   registerRuntimeMemoryPrompts,
   requestHttp2,
   requestPermission,
@@ -1418,6 +1423,255 @@ describe('production [env] config application (§8.3)', () => {
     const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
     await expect(ports.config.applyEnv?.()).rejects.toMatchObject({ code: 'config_invalid' })
   })
+
+  it('expands leading ~ and ${VAR} references before writing process.env', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.env-config-expand-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[env]\nAPOLLO_EXPAND_TILDE = "~/apollo-bin"\nAPOLLO_EXPAND_REF = "${APOLLO_EXPAND_BASE}/sub"\nAPOLLO_EXPAND_BARE = "$APOLLO_EXPAND_BASE/bare"\nAPOLLO_EXPAND_MISSING = "keep-${APOLLO_UNSET_XYZ}-literal"\nAPOLLO_EXPAND_BARE_MISSING = "keep-$APOLLO_UNSET_XYZ-literal"\n',
+    )
+    const keys = [
+      'APOLLO_EXPAND_TILDE',
+      'APOLLO_EXPAND_REF',
+      'APOLLO_EXPAND_BARE',
+      'APOLLO_EXPAND_MISSING',
+      'APOLLO_EXPAND_BARE_MISSING',
+      'APOLLO_EXPAND_BASE',
+    ] as const
+    const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+    process.env.APOLLO_EXPAND_BASE = '/opt/base'
+    try {
+      const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+      await ports.config.applyEnv?.()
+      expect(process.env.APOLLO_EXPAND_TILDE).toBe(`${homedir()}/apollo-bin`)
+      expect(process.env.APOLLO_EXPAND_REF).toBe('/opt/base/sub')
+      // 裸 $VAR：已设置则展开
+      expect(process.env.APOLLO_EXPAND_BARE).toBe('/opt/base/bare')
+      // 未设置的引用保持字面（${} 形式额外 warn；裸形式静默）
+      expect(process.env.APOLLO_EXPAND_MISSING).toBe('keep-${APOLLO_UNSET_XYZ}-literal')
+      expect(process.env.APOLLO_EXPAND_BARE_MISSING).toBe('keep-$APOLLO_UNSET_XYZ-literal')
+      // /env 的生效判定以 applyEnv 记录的应用值为基准：展开后的值判 effective
+      const entries = await readEffectiveEnv(root)
+      expect(entries.find((entry) => entry.key === 'APOLLO_EXPAND_TILDE')).toMatchObject({
+        configured: `${homedir()}/apollo-bin`,
+        status: 'effective',
+      })
+    } finally {
+      for (const [key, value] of Object.entries(previous))
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
+  })
+})
+
+describe('expandEnvValue ([env] 前置解析)', () => {
+  it('expands a leading tilde and bare tilde to the home directory', () => {
+    expect(expandEnvValue('~/bin', {})).toBe(`${homedir()}/bin`)
+    expect(expandEnvValue('~', {})).toBe(homedir())
+    // 非开头的 ~ 与 ~user 形式不展开
+    expect(expandEnvValue('/opt/~/x', {})).toBe('/opt/~/x')
+    expect(expandEnvValue('~root/x', {})).toBe('~root/x')
+  })
+
+  it('resolves ${VAR} and bare $VAR from the given source, keeping unset references literal', () => {
+    const unresolved: string[] = []
+    const onUnresolved = (name: string) => unresolved.push(name)
+    expect(expandEnvValue('${A}:${B}', { A: '1', B: '2' }, onUnresolved)).toBe('1:2')
+    // 裸 $VAR：已设置才展开；未设置保持字面且静默（值里的 $ 常见于凭据/正则）
+    expect(expandEnvValue('$A and $', { A: '1' }, onUnresolved)).toBe('1 and $')
+    expect(expandEnvValue('sk-$APOLLO_UNSET_ZZ-tail', { A: '1' }, onUnresolved)).toBe(
+      'sk-$APOLLO_UNSET_ZZ-tail',
+    )
+    // ${VAR} 是显式意图：未设置保持字面并上报名字
+    expect(expandEnvValue('x-${MISSING}-y', { A: '1' }, onUnresolved)).toBe('x-${MISSING}-y')
+    expect(unresolved).toEqual(['MISSING'])
+    // 单趟展开：解析出的值里再含 $ 不递归
+    expect(expandEnvValue('${A}', { A: '${B}', B: '2' })).toBe('${B}')
+  })
+})
+
+describe('readEffectiveEnv (/env 数据源)', () => {
+  it('returns [] when the user config is missing or has no [env] section', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.effective-env-empty-'))
+    fixtures.push(root)
+    await expect(readEffectiveEnv(root)).resolves.toEqual([])
+    await writeFile(join(root, 'config.toml'), '[ui]\ntheme = "auto"\n')
+    await expect(readEffectiveEnv(root)).resolves.toEqual([])
+  })
+
+  it('compares configured values with process.env and flags sandbox passthrough', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.effective-env-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[env]\nAPOLLO_EFF_PROXY = "http://proxy:8080"\nAPOLLO_EFF_OVERRIDE = "configured"\nAPOLLO_EFF_PENDING = "not-yet"\n[tools]\npass_through_env = ["APOLLO_EFF_PROXY"]\n',
+    )
+    const previous = {
+      APOLLO_EFF_PROXY: process.env.APOLLO_EFF_PROXY,
+      APOLLO_EFF_OVERRIDE: process.env.APOLLO_EFF_OVERRIDE,
+      APOLLO_EFF_PENDING: process.env.APOLLO_EFF_PENDING,
+    }
+    process.env.APOLLO_EFF_PROXY = 'http://proxy:8080'
+    process.env.APOLLO_EFF_OVERRIDE = 'ambient'
+    delete process.env.APOLLO_EFF_PENDING
+    try {
+      const entries = await readEffectiveEnv(root)
+      expect(entries).toEqual([
+        {
+          key: 'APOLLO_EFF_PROXY',
+          configured: 'http://proxy:8080',
+          actual: 'http://proxy:8080',
+          status: 'effective',
+          sandboxPassthrough: true, // pass_through_env 白名单
+        },
+        {
+          key: 'APOLLO_EFF_OVERRIDE',
+          configured: 'configured',
+          actual: 'ambient',
+          status: 'overridden',
+          sandboxPassthrough: false,
+        },
+        {
+          key: 'APOLLO_EFF_PENDING',
+          configured: 'not-yet',
+          actual: null,
+          status: 'pending',
+          sandboxPassthrough: false,
+        },
+      ])
+    } finally {
+      for (const [key, value] of Object.entries(previous))
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
+  })
+
+  it('treats minimal-inheritance names (PATH/HOME/LANG/TZ) as sandbox passthrough', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.effective-env-minimal-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), '[env]\nTZ = "Asia/Shanghai"\n')
+    const entries = await readEffectiveEnv(root)
+    expect(entries[0]).toMatchObject({ key: 'TZ', sandboxPassthrough: true })
+  })
+
+  it('uses the applied map as the exact baseline so self-references stay consistent', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.effective-env-applied-'))
+    fixtures.push(root)
+    // B 引用同段的 A：applyEnv 的展开快照里还没有 A，占位符保持字面并被应用。
+    // readEffectiveEnv 用 applied 基准比较 → effective；若按当前环境重展开，
+    // B 会被算成 "1/x" 而误报 overridden（一次性子命令无 applied 时确实如此）。
+    await writeFile(
+      join(root, 'config.toml'),
+      '[env]\nAPOLLO_SELF_A = "1"\nAPOLLO_SELF_B = "${APOLLO_SELF_A}/x"\n',
+    )
+    const previous = {
+      APOLLO_SELF_A: process.env.APOLLO_SELF_A,
+      APOLLO_SELF_B: process.env.APOLLO_SELF_B,
+    }
+    process.env.APOLLO_SELF_A = '1'
+    process.env.APOLLO_SELF_B = '${APOLLO_SELF_A}/x'
+    try {
+      const entries = await readEffectiveEnv(root, {
+        APOLLO_SELF_A: '1',
+        APOLLO_SELF_B: '${APOLLO_SELF_A}/x',
+      })
+      expect(entries.find((entry) => entry.key === 'APOLLO_SELF_B')).toMatchObject({
+        configured: '${APOLLO_SELF_A}/x',
+        actual: '${APOLLO_SELF_A}/x',
+        status: 'effective',
+      })
+      // 无 applied（一次性子命令路径）：就地展开基准扣除本段 key 后 A 不可见，
+      // B 保持字面，与实际值一致——同样判 effective，不产生假 overridden。
+      const standalone = await readEffectiveEnv(root)
+      expect(standalone.find((entry) => entry.key === 'APOLLO_SELF_B')).toMatchObject({
+        status: 'effective',
+      })
+    } finally {
+      for (const [key, value] of Object.entries(previous))
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
+  })
+})
+
+describe('registerPluginCommands', () => {
+  it('registers plugin commands and returns string handler output for the transcript', async () => {
+    const registry = new MutableSlashCommandRegistry()
+    const listView = {
+      kind: 'list' as const,
+      title: 'Environment',
+      entries: [{ id: 'NO_PROXY', label: 'NO_PROXY' }],
+    }
+    const unsubscribes = registerPluginCommands(
+      registry,
+      'apollo-plugin-test',
+      [
+        {
+          name: 'env',
+          description: 'Show env',
+          run: async (args) => `env output for: ${args.join(' ')}`,
+        },
+        { name: 'silent', description: '', run: async () => undefined },
+        { name: 'panel', description: 'Show a panel', run: async () => listView },
+      ],
+      vi.fn(),
+    )
+    const snapshot = registry.snapshot()
+    // snapshot 按来源分组 + 名字字母序
+    expect(snapshot.map((command) => command.name)).toEqual(['env', 'panel', 'silent'])
+    expect(snapshot[0]).toMatchObject({
+      source: { kind: 'plugin', plugin: 'apollo-plugin-test' },
+    })
+    await expect(
+      snapshot[0]!.run({ args: ['--json'], name: 'env', raw: '/env --json' }),
+    ).resolves.toBe('env output for: --json')
+    // 列表视图描述符原样透传给 UI 渲染
+    await expect(snapshot[1]!.run({ args: [], name: 'panel', raw: '/panel' })).resolves.toBe(
+      listView,
+    )
+    // 非字符串结果（void / 其他类型）静默成功，不进 transcript
+    await expect(
+      snapshot[2]!.run({ args: [], name: 'silent', raw: '/silent' }),
+    ).resolves.toBeUndefined()
+    // 描述缺省时有兜底文案
+    expect(snapshot[2]!.description).toBe('/silent (plugin command)')
+    for (const unsubscribe of unsubscribes) unsubscribe()
+    expect(registry.snapshot()).toHaveLength(0)
+  })
+
+  it('warns and skips conflicting or builtin-reserved names without dropping other commands', () => {
+    const registry = new MutableSlashCommandRegistry()
+    const onWarn = vi.fn()
+    registerPluginCommands(
+      registry,
+      'apollo-plugin-first',
+      [{ name: 'env', description: '', run: async () => undefined }],
+      onWarn,
+    )
+    const second = registerPluginCommands(
+      registry,
+      'apollo-plugin-second',
+      [
+        { name: 'env', description: '', run: async () => undefined }, // 与 first 冲突
+        { name: 'status', description: '', run: async () => undefined }, // 内置保留名
+        { name: 'fresh', description: '', run: async () => undefined },
+      ],
+      onWarn,
+    )
+    // 冲突与保留名各 warn 一次并跳过；fresh 照常注册
+    expect(second).toHaveLength(1)
+    expect(onWarn).toHaveBeenCalledTimes(2)
+    const warnings = onWarn.mock.calls.map(([message]) => String(message)).join('\n')
+    expect(warnings).toMatch(/slash_command_conflict/)
+    expect(warnings).toMatch(/slash_command_builtin_reserved/)
+    expect(
+      registry
+        .snapshot()
+        .map((command) => command.name)
+        .sort(),
+    ).toEqual(['env', 'fresh'])
+  })
 })
 
 describe('status configuration adapter', () => {
@@ -2195,5 +2449,121 @@ describe('production plugin composition root containment', () => {
     expect((await runCli(['plugin', 'disable', pluginName], ports)).exitCode).toBe(0)
     expect((await runCli(['plugin', 'uninstall', pluginName], ports)).exitCode).toBe(0)
     expect(await ports.plugin!.list()).toEqual({})
+  })
+})
+
+describe('production config and history commands', () => {
+  it('config set/get/list/unset round-trip through the real user config file', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.config-cmd-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    const file = join(root, 'config.toml')
+
+    await expect(runCli(['config', 'set', 'provider.default', 'anthropic'], ports)).resolves.toMatchObject(
+      { exitCode: 0, stdout: `Set provider.default in ${file}\n` },
+    )
+    await expect(
+      runCli(['config', 'set', 'runner.maxToolLoopsPerTurn', '40'], ports),
+    ).resolves.toMatchObject({ exitCode: 0 })
+    await expect(runCli(['config', 'get', 'provider.default'], ports)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: 'anthropic\n',
+    })
+    await expect(runCli(['config', 'get', 'runner.maxToolLoopsPerTurn'], ports)).resolves.toMatchObject(
+      { exitCode: 0, stdout: '40\n' },
+    )
+    const listed = await runCli(['config', 'list'], ports)
+    expect(listed.exitCode).toBe(0)
+    expect(listed.stdout).toContain('[provider]')
+    expect(listed.stdout).toContain('maxToolLoopsPerTurn = 40')
+
+    // 未知 key 拒绝写入（防 typo 落成死配置）
+    await expect(runCli(['config', 'set', 'no.such.key', 'x'], ports)).resolves.toMatchObject({
+      exitCode: 2,
+      stderr: "Unknown config key: 'no.such.key'. See the config schema reference for known keys.",
+    })
+    // project 级 forbidden key 被 §8.3.1 数据流向门拒绝
+    await expect(
+      runCli(['config', 'set', 'telemetry.otel.endpoint', 'http://x', '--project'], ports),
+    ).resolves.toMatchObject({ exitCode: 2 })
+
+    await expect(runCli(['config', 'unset', 'provider.default'], ports)).resolves.toMatchObject({
+      exitCode: 0,
+    })
+    await expect(runCli(['config', 'get', 'provider.default'], ports)).resolves.toMatchObject({
+      exitCode: 3,
+    })
+    await expect(runCli(['config', 'path'], ports)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: `${file}\n`,
+    })
+    // 未触及的文件保持不存在或不含被 unset 的 key
+    const text = await readFile(file, 'utf8')
+    expect(text).not.toContain('provider')
+    expect(text).toContain('maxToolLoopsPerTurn = 40')
+  })
+
+  it('config list merges the project layer with forbidden keys filtered', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.config-cmd-merged-'))
+    fixtures.push(root)
+    const cwd = await mkdtemp(join(process.cwd(), '.config-cmd-cwd-'))
+    fixtures.push(cwd)
+    await mkdir(join(cwd, '.apollo'), { recursive: true })
+    await writeFile(
+      join(cwd, '.apollo', 'config.toml'),
+      '[context]\npolicy = "summary"\n\n[auth]\nskipAuth = true\n',
+      'utf8',
+    )
+    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+
+    const listed = await runCli(['config', 'list', '--json', '--cwd', cwd], ports)
+    expect(listed.exitCode).toBe(0)
+    expect(JSON.parse(listed.stdout)).toEqual({ context: { policy: 'summary' } })
+    expect(listed.stderr).toContain("project override of 'auth.skipAuth' is forbidden")
+  })
+
+  it('history lists, shows, exports, and clears real session files', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.history-cmd-'))
+    fixtures.push(root)
+    const sessionsDir = join(root, 'sessions')
+    await mkdir(sessionsDir, { recursive: true })
+    const id = '018f2d3a-0000-7000-8000-00000000000a'
+    const lines = [
+      { v: 1, id: `${id}-1`, type: 'session.started', sessionId: id, at: '2026-08-01T10:00:00.000Z', payload: { cwd: process.cwd() } },
+      { v: 1, id: `${id}-2`, type: 'message.appended', sessionId: id, at: '2026-08-01T10:01:00.000Z', payload: { messageId: 'user-1', role: 'user', content: [{ type: 'text', text: 'hello history' }] } },
+      { v: 1, id: `${id}-3`, type: 'message.appended', sessionId: id, at: '2026-08-01T10:02:00.000Z', payload: { messageId: 'assistant-1', role: 'assistant', content: [{ type: 'text', text: 'hi there' }] } },
+    ]
+    await writeFile(join(sessionsDir, `${id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf8')
+    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+
+    const listed = await runCli(['history', 'list', '--json'], ports)
+    expect(listed.exitCode).toBe(0)
+    expect(JSON.parse(listed.stdout)).toEqual([
+      expect.objectContaining({ id, title: 'hello history' }),
+    ])
+
+    const shown = await runCli(['history', 'show', id], ports)
+    expect(shown.exitCode).toBe(0)
+    expect(shown.stdout).toContain('hello history')
+    expect(shown.stdout).toContain('hi there')
+    await expect(runCli(['history', 'show', '018f2d3a-0000-7000-8000-0000000000ff'], ports)).resolves.toMatchObject(
+      { exitCode: 3 },
+    )
+
+    const exported = await runCli(['history', 'export', id], ports)
+    expect(exported.exitCode).toBe(0)
+    expect(exported.stdout).toContain(`# Session ${id}`)
+
+    const searched = await runCli(['history', 'search', 'history'], ports)
+    expect(searched.exitCode).toBe(0)
+    expect(searched.stdout).toContain(id)
+
+    await expect(
+      runCli(['history', 'clear', '--all', '--yes', '--json'], ports),
+    ).resolves.toMatchObject({ exitCode: 0, stdout: `${JSON.stringify({ removed: [id] })}\n` })
+    await expect(runCli(['history', 'list'], ports)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: 'No sessions.\n',
+    })
   })
 })

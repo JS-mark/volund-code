@@ -14,13 +14,14 @@ export function createStatusCommand(presentation: StatusPresentation): CommandDe
     async run({ args, cwd, ports }) {
       // dev 插件（~/.apollo/plugins-dev 约定目录 + APOLLO_DEV_PLUGINS 额外路径）
       // 在一次性命令里同样激活，让 `apollo status --json` 能看到插件页签；用完即回收。
+      // 内置插件不在此装载：它们贡献的是命令而非页签，一次性命令没有 REPL 生命周期。
       let activated = 0
-      if (ports.pluginDev) {
+      if (ports.localPlugins) {
         const extraDirs = (process.env.APOLLO_DEV_PLUGINS ?? '')
           .split(',')
           .map((dir) => dir.trim())
           .filter(Boolean)
-        const { loaded } = await ports.pluginDev.loadDevPlugins(extraDirs)
+        const { loaded } = await ports.localPlugins.loadDevPlugins(extraDirs)
         activated = loaded.length
       }
       try {
@@ -33,7 +34,7 @@ export function createStatusCommand(presentation: StatusPresentation): CommandDe
           stderr: '',
         }
       } finally {
-        if (activated > 0) await ports.pluginDev?.deactivateAll()
+        if (activated > 0) await ports.localPlugins?.deactivateAll()
       }
     },
   }

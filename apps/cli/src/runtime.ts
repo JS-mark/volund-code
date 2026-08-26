@@ -1,4 +1,4 @@
-import { constants as fsConstants } from 'node:fs'
+import { constants as fsConstants, existsSync } from 'node:fs'
 import {
   access,
   appendFile,
@@ -9,6 +9,7 @@ import {
   readdir,
   realpath,
   rename,
+  rm,
   writeFile,
 } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
@@ -20,7 +21,7 @@ import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
 import { AuthManager, EncryptedCredentialStore } from '@apollo-code/auth'
-import { loadTomlFile, parseTomlFile } from '@apollo-code/config'
+import { loadConfig, loadTomlFile, parseTomlFile } from '@apollo-code/config'
 import { SlidingWindowPolicy } from '@apollo-code/context'
 import {
   builtinPromptFragment,
@@ -40,7 +41,13 @@ import type {
   RunnerToolPort,
   SessionState,
 } from '@apollo-code/core'
-import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
+import {
+  execSandbox,
+  nativeProbes,
+  probeSandbox,
+  resolveBinary,
+  standaloneArtifactDir,
+} from '@apollo-code/native-bridge'
 import type { SandboxTier } from '@apollo-code/native-bridge'
 import { PermissionManager } from '@apollo-code/permission'
 import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
@@ -51,23 +58,36 @@ import {
   activateLocalPlugin,
   satisfies,
 } from '@apollo-code/plugin-runtime'
-import type { ActivatedLocalPlugin, StatusTabContribution } from '@apollo-code/plugin-runtime'
+import type {
+  ActivatedLocalPlugin,
+  CommandContribution,
+  StatusTabContribution,
+} from '@apollo-code/plugin-runtime'
 import type { HookPipelineSignal } from '@apollo-code/plugin-runtime'
-import type { PluginMemoryScope } from '@apollo-code/plugin-sdk'
+import type {
+  EffectiveEnvEntry,
+  PluginInstallResult,
+  PluginInventory,
+  PluginInventoryEntry,
+  PluginMemoryScope,
+} from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
 import {
+  ApolloError,
   detectSecret,
   isCredentialKeyForSecretDetection,
+  isProjectOverrideForbidden,
   normalizeForSecretDetection,
   sanitize,
   type JsonValue,
   type Logger,
 } from '@apollo-code/shared'
-import { SkillsRuntime } from '@apollo-code/skills-runtime'
+import { SkillsRuntime, defaultSkillSources } from '@apollo-code/skills-runtime'
+import type { SkillEntry } from '@apollo-code/skills-runtime'
 import {
   AttachmentStore,
   BackupStore,
@@ -94,12 +114,14 @@ import {
 } from '@apollo-code/telemetry'
 import { ToolRegistry } from '@apollo-code/tool-kit'
 import type { NativeBridge, ToolContext } from '@apollo-code/tool-kit'
-import { builtinTools, ToolExecutor } from '@apollo-code/tools'
+import { builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@apollo-code/tools'
 import type { ToolHookDispatcher } from '@apollo-code/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
   renderSessionPicker,
+  isCommandListView,
+  isCommandTabsView,
   MutableSlashCommandRegistry,
   formatPermissionTextForDisplay,
   formatPermissionValueForDisplay,
@@ -118,6 +140,10 @@ import type {
   StatusPanelData,
   StatusValue,
   SessionCandidate,
+  McpPanelController,
+  SkillsPanelController,
+  SkillsPanelEntry,
+  McpPanelEntry,
 } from '@apollo-code/ui'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -127,8 +153,37 @@ import {
   scanSessionFile,
   scanSessionsDir,
 } from './commands/status/stats'
+import {
+  loadMcpServerConfigs,
+  McpManager,
+  removeMcpServerToml,
+  resolveSkillSpecToDirectories,
+  upsertMcpServerToml,
+} from './mcp'
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
+import {
+  assignConfigValue,
+  assertConfigKeyValue,
+  deleteConfigValue,
+  disabledNamesFrom,
+  readConfigFileOrEmpty,
+  updateConfigDisabledList,
+  writeConfigFile,
+} from './config-edit'
+import { createHistoryPort } from './history'
+import type { McpPort, SkillPort } from './ports'
+import { SkillSlashCommands } from './skill-commands'
 import { createMemoryTools } from './memory-tools'
+import {
+  fetchMarketIndex,
+  installFromMarket,
+  marketInstallRoot,
+  normalizePluginName,
+  readMarketIntegrity,
+  readMarketSource,
+  uninstallMarketDir,
+  type MarketIndex,
+} from './plugin-market'
 import type {
   ApolloPorts,
   InteractiveSession,
@@ -251,34 +306,34 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
     },
     model: input.model
       ? {
-          status: 'available',
-          provider: sanitize(input.model.provider),
-          model: sanitize(input.model.model),
-          liteModel:
-            input.model.liteModel === null
-              ? { status: 'disabled' }
-              : input.model.liteModel === undefined
-                ? statusUnavailable('lite_model_unavailable')
-                : { status: 'available', value: sanitize(input.model.liteModel) },
-          reasoningModel:
-            input.model.reasoningModel === null
-              ? { status: 'disabled' }
-              : input.model.reasoningModel === undefined
-                ? statusUnavailable('reasoning_model_unavailable')
-                : { status: 'available', value: sanitize(input.model.reasoningModel) },
-          source: input.model.source,
-        }
+        status: 'available',
+        provider: sanitize(input.model.provider),
+        model: sanitize(input.model.model),
+        liteModel:
+          input.model.liteModel === null
+            ? { status: 'disabled' }
+            : input.model.liteModel === undefined
+              ? statusUnavailable('lite_model_unavailable')
+              : { status: 'available', value: sanitize(input.model.liteModel) },
+        reasoningModel:
+          input.model.reasoningModel === null
+            ? { status: 'disabled' }
+            : input.model.reasoningModel === undefined
+              ? statusUnavailable('reasoning_model_unavailable')
+              : { status: 'available', value: sanitize(input.model.reasoningModel) },
+        source: input.model.source,
+      }
       : {
-          status: 'not_available',
-          source: 'derived_unreliable',
-          reason: { code: 'current_model_source_unavailable' },
-        },
+        status: 'not_available',
+        source: 'derived_unreliable',
+        reason: { code: 'current_model_source_unavailable' },
+      },
     runtime: {
       sandbox: sandbox
         ? {
-            status: 'available',
-            value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
-          }
+          status: 'available',
+          value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
+        }
         : statusUnavailable('sandbox_probe_unavailable'),
       filesystem: sandbox
         ? sandbox.features.filesystem
@@ -294,11 +349,11 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
         input.dangerousPermissions === undefined
           ? statusUnavailable('permission_mode_unavailable')
           : {
-              status: 'available',
-              value: input.dangerousPermissions
-                ? { mode: 'bypassed', source: 'flag' }
-                : { mode: 'ask', source: 'default' },
-            },
+            status: 'available',
+            value: input.dangerousPermissions
+              ? { mode: 'bypassed', source: 'flag' }
+              : { mode: 'ask', source: 'default' },
+          },
       memory: input.memoryMode
         ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
         : statusUnavailable('memory_adapter_unavailable'),
@@ -321,21 +376,21 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
     capabilities: {
       mcpServers: input.mcpServers
         ? {
-            status: 'available',
-            value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
-          }
+          status: 'available',
+          value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
+        }
         : statusUnavailable('mcp_discovery_adapter_unavailable'),
       skills: input.skills
         ? {
-            status: 'available',
-            value: { count: input.skills.length, names: sanitize([...input.skills]) },
-          }
+          status: 'available',
+          value: { count: input.skills.length, names: sanitize([...input.skills]) },
+        }
         : statusUnavailable('skills_discovery_adapter_unavailable'),
       plugins: input.plugins
         ? {
-            status: 'available',
-            value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
-          }
+          status: 'available',
+          value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
+        }
         : statusUnavailable('plugins_discovery_adapter_unavailable'),
     },
     usage: {
@@ -456,7 +511,7 @@ export class RuntimeSessionPort implements SessionPort {
         | undefined,
     ) => void,
     readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
-  ) {}
+  ) { }
   configureSecurity(input: { skipPermissions: boolean }): void {
     this.onSecurity?.(input)
   }
@@ -475,7 +530,7 @@ export class RuntimeSessionPort implements SessionPort {
       await this.#runner!.run(input.prompt)
     } else {
       if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
-      for (;;) {
+      for (; ;) {
         const prompt = await promptLineMaybe('> ')
         if (prompt === undefined) break
         const trimmed = prompt.trim()
@@ -692,7 +747,7 @@ export class FileInputHistoryStore {
     readonly maxBytes = 1024 * 1024,
     readonly maxEntries = 1000,
     readonly maxInputBytes = 8 * 1024,
-  ) {}
+  ) { }
 
   async append(input: string): Promise<void> {
     const value = input.trim()
@@ -1143,8 +1198,8 @@ export async function requestPermission(input: {
   events: EventBus
   interactionMode: PermissionInteractionMode
   interactivePermissionPrompt:
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-    | undefined
+  | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+  | undefined
   request: PermissionRequest
   /** Deterministic test seam; production always uses the real terminal predicate. */
   terminalIsInteractive?: () => boolean
@@ -1367,22 +1422,22 @@ async function readContainedPluginDiagnostic(
   const compatibility: PluginCompatibilityDiagnostic = range
     ? satisfies(apolloVersion, range)
       ? {
-          status: 'compatible',
-          detail: `Declared Apollo engine range is compatible with ${apolloVersion}.`,
-        }
-      : {
-          status: 'incompatible',
-          detail: `Declared Apollo engine range is incompatible with ${apolloVersion}; legacy activation remains unavailable.`,
-        }
-    : {
-        status: 'invalid',
-        detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
+        status: 'compatible',
+        detail: `Declared Apollo engine range is compatible with ${apolloVersion}.`,
       }
+      : {
+        status: 'incompatible',
+        detail: `Declared Apollo engine range is incompatible with ${apolloVersion}; legacy activation remains unavailable.`,
+      }
+    : {
+      status: 'invalid',
+      detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
+    }
   return {
     version:
       typeof manifest.version === 'string' &&
-      manifest.version.length <= 128 &&
-      /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
+        manifest.version.length <= 128 &&
+        /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
         ? manifest.version
         : safeStoredVersion,
     permissions,
@@ -1440,11 +1495,11 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
           : options.sessionId
             ? sessionMemoryScope(options.cwd, options.sessionId)
             : (() => {
-                throw new MemoryError(
-                  'memory_scope_denied',
-                  'Session memory requires an active session',
-                )
-              })()
+              throw new MemoryError(
+                'memory_scope_denied',
+                'Session memory requires an active session',
+              )
+            })()
     const auditPath = join(options.home, 'memory', 'audit.jsonl')
     const writeOperation = ['create', 'update', 'delete'].includes(operation)
     if (writeOperation) {
@@ -1539,6 +1594,150 @@ export async function loadProductionContextTuning(options: {
 }
 
 /**
+ * 插件命令贡献 → 斜杠命令注册表（UI 经 subscribe 热更新）。handler 在插件沙箱里
+ * 经桥执行，返回字符串即作为系统消息进 transcript。撞内置名 / 撞已注册命令时
+ * warn + 跳过该命令（不拖累插件其余贡献）；返回注销函数集（deactivate 时摘除）。
+ */
+export function registerPluginCommands(
+  registry: MutableSlashCommandRegistry,
+  plugin: string,
+  commands: readonly CommandContribution[],
+  onWarn: (message: string) => void,
+): Array<() => void> {
+  const unsubscribes: Array<() => void> = []
+  for (const command of commands) {
+    try {
+      unsubscribes.push(
+        registry.register(
+          {
+            name: command.name,
+            description: command.description || `/${command.name} (plugin command)`,
+            ...(command.order !== undefined ? { order: command.order } : {}),
+            run: async ({ args }) => {
+              const result = await command.run(args)
+              if (typeof result === 'string' && result) return result
+              // 列表 / 页签视图（纯数据描述符）原样透传：UI 渲染成可搜索面板
+              if (isCommandListView(result)) return result
+              if (isCommandTabsView(result)) return result
+              return undefined
+            },
+          },
+          { kind: 'plugin', plugin },
+        ),
+      )
+    } catch (error) {
+      onWarn(
+        `Plugin command /${command.name} from ${plugin} not registered: ${error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
+  }
+  return unsubscribes
+}
+
+/**
+ * [env] 值的前置解析（applyEnv 写入 process.env 之前）：
+ * - 开头 `~` / `~/...` → 用户主目录；
+ * - `${VAR}` 与裸 `$VAR` → source 里已有的环境变量。**只有名字已设置才展开**：
+ *   未设置的引用一律保持字面（值里的 `$` 常见于凭据/正则，撞不到真实环境变量名
+ *   就不会被误伤）；`${VAR}` 形式未设置时额外回调 onUnresolved（显式意图，值得
+ *   fail-visible），裸 `$VAR` 未设置则静默保持字面。
+ * 单趟展开不递归；同段 key 互引用不支持——source 取应用前的环境快照。
+ */
+export function expandEnvValue(
+  value: string,
+  source: Record<string, string | undefined>,
+  onUnresolved?: (name: string) => void,
+): string {
+  const tildeExpanded =
+    value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}${value.slice(1)}` : value
+  return tildeExpanded.replaceAll(
+    /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+    (raw, braced: string | undefined, bare: string | undefined) => {
+      const name = (braced ?? bare)!
+      const resolved = source[name]
+      if (resolved === undefined) {
+        if (braced) onUnresolved?.(name)
+        return raw
+      }
+      return resolved
+    },
+  )
+}
+
+/**
+ * [env] 段的生效快照（/env 内置插件的数据源）：每次调用重读用户级 config.toml，
+ * 与当前 process.env 对比出 effective / pending / overridden；sandboxPassthrough
+ * 标出该名字是否经最小继承集（PATH/HOME/LANG/TZ）或 [tools] pass_through_env
+ * 白名单进入沙箱。缺配置文件 → 空列表；类型错按 C.1 传播 config_invalid。
+ *
+ * 配置值先经前置解析（`~` / `${VAR}`，见 expandEnvValue）再与 process.env 比较：
+ * `applied`（applyEnv 记录的应用值）在本进程跑过 applyEnv 时是精确基准；否则
+ * （一次性子命令）按「扣除本段 key 的当前环境」就地展开，展示"应用后会是这个值"。
+ */
+export async function readEffectiveEnv(
+  home: string,
+  applied?: Record<string, string>,
+): Promise<EffectiveEnvEntry[]> {
+  let config: Record<string, JsonValue> = {}
+  try {
+    config = await loadTomlFile(join(home, 'config.toml'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const envSection =
+    config.env && typeof config.env === 'object' && !Array.isArray(config.env)
+      ? (config.env as Record<string, JsonValue>)
+      : {}
+  const toolsSection =
+    config.tools && typeof config.tools === 'object' && !Array.isArray(config.tools)
+      ? (config.tools as Record<string, JsonValue>)
+      : {}
+  const passThrough = new Set(MINIMAL_ENV_KEYS)
+  if (Array.isArray(toolsSection.pass_through_env))
+    for (const name of toolsSection.pass_through_env)
+      if (typeof name === 'string' && name) passThrough.add(name)
+  // 就地展开的基准要扣除本段 key：applyEnv 跑过的进程里这些名字的值来自配置
+  // 本身，拿它们当引用基准会把自引用误判成已解析。
+  const basis = { ...process.env }
+  for (const key of Object.keys(envSection)) delete basis[key]
+  const entries: EffectiveEnvEntry[] = []
+  for (const [key, value] of Object.entries(envSection)) {
+    if (typeof value !== 'string') continue
+    const expected = applied?.[key] ?? expandEnvValue(value, basis)
+    const actual = process.env[key] ?? null
+    entries.push({
+      key,
+      configured: expected,
+      actual,
+      status: actual === null ? 'pending' : actual === expected ? 'effective' : 'overridden',
+      sandboxPassthrough: passThrough.has(key),
+    })
+  }
+  return entries
+}
+
+/**
+ * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）。与 native 资产同一
+ * 解析惯例（resolver.ts standaloneArtifactDir）：standalone 先看
+ * APOLLO_STANDALONE_ASSET_DIR，否则取产物旁——bun --compile 后是 execPath 旁，
+ * dist 单文件布局是 dist/plugins/，源码布局（vitest）是 apps/cli/plugins/。
+ * 取第一个存在的候选，不存在 → undefined（无内置插件）。
+ */
+export function builtinPluginRoot(): string | undefined {
+  const here = standaloneArtifactDir(import.meta.url, process.execPath)
+  const candidates = [
+    process.env.APOLLO_STANDALONE_ASSET_DIR
+      ? join(process.env.APOLLO_STANDALONE_ASSET_DIR, 'plugins')
+      : undefined,
+    join(here, 'plugins'),
+    join(here, '..', 'plugins'),
+  ]
+  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate
+  return undefined
+}
+
+/**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
  * 值可含 [env] 段写入 process.env 的配置）透传进 apollo-sandbox——Rust 侧
@@ -1588,53 +1787,229 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
   const pluginsReady = plugins.init()
   void pluginsReady.catch(() => undefined)
-  // PLUGIN-STATUS-UI-r1 插件路径（dev 装载，APOLLO_DEV_PLUGINS 门控）：本地插件经
-  // apollo-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
+  // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件路径：内置（apps/cli/plugins/，
+  // 随产物分发）、dev（~/.apollo/plugins-dev + APOLLO_DEV_PLUGINS）、市场
+  // （[plugins] market 下载到 ~/.apollo/plugins/<name>/）三个发现源、同一条链路——
+  // 经 apollo-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
   // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
-  // 与冻结中的 legacy Catalog 安装路径（LEGACY_PLUGIN_UNAVAILABLE）无关。
-  const devPluginTabs: StatusTabContribution[] = []
-  const devPluginHandles: ActivatedLocalPlugin[] = []
+  // ~/.apollo/plugins 与冻结中的 legacy Catalog 状态文件（plugins.json approvals，
+  // deny-only）同目录共存、互不读取；市场插件的激活走本地沙箱链，不重开 legacy
+  // 授权路径（LEGACY_PLUGIN_UNAVAILABLE 维持原样）。
+  interface LoadedPluginEntry {
+    readonly source: 'builtin' | 'dev' | 'market'
+    readonly name: string
+    readonly version: string
+    readonly dir: string
+    readonly handle: ActivatedLocalPlugin
+    readonly unsubscribes: readonly (() => void)[]
+  }
+  const loadedPluginEntries: LoadedPluginEntry[] = []
+  // applyEnv 应用过的 [env] 键值（前置解析后）：readEffectiveEnv 的精确比较基准，
+  // 保证 /env 的 effective 判定与启动时实际写入 process.env 的值一致。
+  let appliedEnvEntries: Record<string, string> | undefined
   // 插件 render 回调里 apollo.session.getUsage() 读到的值：最近一次 /status 组装的
   // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
   let lastSessionUsage: StatusPanelData['usage']
-  const devPluginHub = {
+  const localPluginHub = {
     get tabs(): readonly StatusTabContribution[] {
-      return devPluginTabs
+      return loadedPluginEntries.flatMap((entry) => [...entry.handle.statusTabs])
     },
     onUsage(usage: StatusPanelData['usage']): void {
       lastSessionUsage = usage
     },
   }
-  // dev 插件装载端口（PLUGIN-STATUS-UI-r1）：正式约定目录 ~/.apollo/plugins-dev/<name>/
-  // 自动发现（含 manifest.json 的子目录才激活，单个失败不阻塞启动）；
-  // APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的额外路径。
-  // 数据目录在 ~/.apollo/plugins-dev-data/<name>/，与插件代码目录分离（沙箱内代码只读）。
-  // 与冻结中的 legacy Catalog 安装路径（~/.apollo/plugins）完全隔离。
-  const pluginDev = {
-    async activateLocal(dir: string) {
-      const activated = await activateLocalPlugin({
-        dir: resolve(dir),
-        apolloVersion: options.identity.version,
-        dataDirRoot: join(home, 'plugins-dev-data'),
-        services: {
-          log: (level, message) => void telemetry.emit('plugin.log', 'plugin', { level, message }),
-          getSessionUsage: () =>
-            lastSessionUsage
-              ? {
-                  inputTokens: lastSessionUsage.tokens.input,
-                  outputTokens: lastSessionUsage.tokens.output,
-                  cost: lastSessionUsage.costUSD,
-                }
-              : null,
-        },
+  // 市场索引缓存（/plugins 反复打开不重复拉取；install/uninstall 后失效）。
+  let marketIndexCache:
+    | { source: string; fetchedAt: number; index: MarketIndex }
+    | undefined
+  const MARKET_INDEX_TTL_MS = 60_000
+  // 桥 RPC 10s 超时（plugin_host.mjs）：安装整体 deadline 控制在 9s 内，
+  // 保证宿主先给出明确结果，而不是插件侧先报 bridge call timed out。
+  const MARKET_INSTALL_DEADLINE_MS = 9_000
+  async function cachedMarketIndex(
+    source: string,
+    fresh = false,
+    signal?: AbortSignal,
+  ): Promise<MarketIndex> {
+    if (
+      !fresh &&
+      marketIndexCache &&
+      marketIndexCache.source === source &&
+      Date.now() - marketIndexCache.fetchedAt < MARKET_INDEX_TTL_MS
+    )
+      return marketIndexCache.index
+    const index = await fetchMarketIndex(source, signal)
+    marketIndexCache = { source, fetchedAt: Date.now(), index }
+    return index
+  }
+  async function activateLocal(
+    dir: string,
+    source: LoadedPluginEntry['source'],
+    integrity?: Record<string, string>,
+  ) {
+    const resolved = resolve(dir)
+    const activated = await activateLocalPlugin({
+      dir: resolved,
+      apolloVersion: options.identity.version,
+      dataDirRoot: join(home, source === 'market' ? 'plugins-data' : 'plugins-dev-data'),
+      ...(integrity ? { integrity } : {}),
+      services: {
+        log: (level, message) => void telemetry.emit('plugin.log', 'plugin', { level, message }),
+        getSessionUsage: () =>
+          lastSessionUsage
+            ? {
+              inputTokens: lastSessionUsage.tokens.input,
+              outputTokens: lastSessionUsage.tokens.output,
+              cost: lastSessionUsage.costUSD,
+            }
+            : null,
+        // /env 等内置插件的数据源：宿主侧重读 config.toml [env] 段并与
+        // process.env 对比（沙箱内读不到主进程环境）。
+        getEffectiveEnv: () => readEffectiveEnv(home, appliedEnvEntries),
+        // /plugins 内置插件的数据源与动作（宿主侧；沙箱内无网络）。
+        listPlugins: () => pluginInventory(),
+        installMarketPlugin: (name: string) => installMarketPlugin(name),
+        uninstallMarketPlugin: (name: string) => uninstallMarketPlugin(name),
+      },
+    })
+    loadedPluginEntries.push({
+      source,
+      name: activated.manifest.name,
+      version: activated.manifest.version,
+      dir: resolved,
+      handle: activated,
+      // 插件贡献的斜杠命令进 MutableSlashCommandRegistry（UI 经 subscribe 热更新）。
+      unsubscribes: registerPluginCommands(
+        slashCommands,
+        activated.manifest.name,
+        activated.commands,
+        (message) => logger.warn(message),
+      ),
+    })
+    return { name: activated.manifest.name, statusTabs: activated.statusTabs.length }
+  }
+  /** 停用并摘除单个已装载插件（uninstall / 同名重装换新版时用）。 */
+  async function unloadPlugin(name: string): Promise<LoadedPluginEntry | undefined> {
+    const index = loadedPluginEntries.findIndex((entry) => entry.name === name)
+    if (index < 0) return undefined
+    const [entry] = loadedPluginEntries.splice(index, 1)
+    for (const unsubscribe of entry?.unsubscribes || []) unsubscribe()
+    await entry?.handle?.deactivate()
+    return entry
+  }
+  function inventorySnapshot(source: LoadedPluginEntry['source']): PluginInventoryEntry[] {
+    return loadedPluginEntries
+      .filter((entry) => entry.source === source)
+      .map((entry) => ({
+        name: entry.name,
+        version: entry.version,
+        dir: entry.dir,
+        source: entry.source,
+        commands: entry.handle.commands.length,
+        statusTabs: entry.handle.statusTabs.length,
+      }))
+  }
+  /** apollo.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
+  async function pluginInventory(): Promise<PluginInventory> {
+    let registry: PluginInventory['market']['registry']
+    try {
+      const source = await readMarketSource(home)
+      if (!source)
+        registry = {
+          error:
+            'no market configured — add `[plugins] market = "https://…/index.json"` to ~/.apollo/config.toml',
+        }
+      else {
+        const index = await cachedMarketIndex(source)
+        registry = {
+          source,
+          plugins: index.plugins.map(({ name, version, description, publisher }) => ({
+            name,
+            version,
+            ...(description ? { description } : {}),
+            ...(publisher ? { publisher } : {}),
+          })),
+        }
+      }
+    } catch (error) {
+      registry = { error: error instanceof Error ? error.message : String(error) }
+    }
+    return {
+      builtin: inventorySnapshot('builtin'),
+      dev: inventorySnapshot('dev'),
+      market: { installed: inventorySnapshot('market'), registry },
+    }
+  }
+  /** apollo.plugins.install 的宿主实现：拉索引 → 下载校验落盘 → 立即激活。 */
+  async function installMarketPlugin(input: string): Promise<PluginInstallResult> {
+    const name = normalizePluginName(input)
+    const source = await readMarketSource(home)
+    if (!source)
+      throw new Error('no market configured — set [plugins] market in ~/.apollo/config.toml')
+    // 整个安装（索引 + 全部文件）共享一个 9s deadline（见 MARKET_INSTALL_DEADLINE_MS）。
+    const deadline = AbortSignal.timeout(MARKET_INSTALL_DEADLINE_MS)
+    const index = await cachedMarketIndex(source, true, deadline)
+    const entry = index.plugins.find((candidate) => candidate.name === name)
+    if (!entry) throw new Error(`${name} not found in market index (${source})`)
+    // 同名已装载（旧版本）先停用，换新版后重注册命令。
+    await unloadPlugin(name)
+    const installed = await installFromMarket({
+      home,
+      source,
+      entry,
+      apolloVersion: options.identity.version,
+      signal: deadline,
+    })
+    try {
+      await activateLocal(installed.dir, 'market', await readMarketIntegrity(installed.dir))
+    } catch (error) {
+      // 安装成功但激活失败：保留目录（下次启动重试），错误上抛给调用方展示。
+      void telemetry.emit('plugin.local_load_failed', 'plugin', {
+        dir: name,
+        error: error instanceof Error ? error.message : String(error),
       })
-      devPluginHandles.push(activated)
-      devPluginTabs.push(...activated.statusTabs)
-      return { name: activated.manifest.name, statusTabs: activated.statusTabs.length }
+      throw error
+    }
+    marketIndexCache = undefined
+    void telemetry.emit('plugin.market_installed', 'plugin', {
+      name,
+      version: installed.version,
+    })
+    return { name: installed.name, version: installed.version, dir: installed.dir }
+  }
+  /**
+   * apollo.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
+   * 摘除）+ 删除 ~/.apollo/plugins/<name>/。仅市场插件可卸载：内置随产物分发、
+   * dev 目录归开发者管理，命中这两类时给出明确拒绝而不是裸 plugin_not_installed。
+   */
+  async function uninstallMarketPlugin(input: string): Promise<{ name: string }> {
+    const name = normalizePluginName(input)
+    const loaded = loadedPluginEntries.find((entry) => entry.name === name)
+    if (loaded && loaded.source === 'builtin')
+      throw new Error(
+        `${name} is a builtin plugin shipped with the Apollo artifact; it cannot be uninstalled`,
+      )
+    if (loaded && loaded.source === 'dev')
+      throw new Error(
+        `${name} is a dev plugin (from ~/.apollo/plugins-dev/ or APOLLO_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
+      )
+    await unloadPlugin(name)
+    await uninstallMarketDir(home, name)
+    marketIndexCache = undefined
+    return { name }
+  }
+  // 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：内置插件发现源是
+  // 产物自带的 apps/cli/plugins/<name>/；dev 插件发现源是正式约定目录
+  // ~/.apollo/plugins-dev/<name>/ 自动发现（含 manifest.json 的子目录才激活，单个
+  // 失败不阻塞启动），APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的
+  // 额外路径；市场插件装在 ~/.apollo/plugins/<name>/（带 apollo-market.json 完整性
+  // 映射，激活期重验）。数据目录在 ~/.apollo/plugins-dev-data/<name>/（市场插件为
+  // ~/.apollo/plugins-data/<name>/），与插件代码目录分离（沙箱内代码只读）。
+  const localPlugins = {
+    async activateLocal(dir: string) {
+      return activateLocal(dir, 'dev')
     },
     async loadDevPlugins(extraDirs: readonly string[] = []) {
-      const loaded: { name: string; statusTabs: number }[] = []
-      const failed: { dir: string; error: string }[] = []
       const candidates: string[] = []
       // 约定目录：plugins-dev 下每个含 manifest.json 的子目录
       try {
@@ -1645,6 +2020,69 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
       candidates.push(...extraDirs)
+      return this.loadLocalPluginsFrom(candidates, 'dev')
+    },
+    /**
+     * 内置插件（apps/cli/plugins/<name>/，随产物分发）：与 dev 插件同一条
+     * 沙箱/桥链路，差异仅在目录来源。内置插件只信产物本身，manifest 校验、
+     * bundle 完整性检查、权限 guard 一样不少。
+     */
+    async loadBuiltinPlugins() {
+      const root = builtinPluginRoot()
+      if (!root) return { loaded: [], failed: [] }
+      const candidates: string[] = []
+      try {
+        for (const entry of await readdir(root, { withFileTypes: true }))
+          if (entry.isDirectory()) candidates.push(join(root, entry.name))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      return this.loadLocalPluginsFrom(candidates, 'builtin')
+    },
+    /**
+     * 市场插件（PLUGIN-MANAGER-r1）：~/.apollo/plugins/<name>/ 自动发现（dot 目录
+     * 跳过——staging 与 legacy 状态文件不在此列，但防御性排除；无 manifest.json
+     * 的目录跳过）。带 apollo-market.json 的目录在激活时逐文件重验 digest。
+     */
+    async loadMarketPlugins() {
+      const root = marketInstallRoot(home)
+      const candidates: string[] = []
+      try {
+        for (const entry of await readdir(root, { withFileTypes: true }))
+          if (
+            (entry.isDirectory() || entry.isSymbolicLink()) &&
+            !entry.name.startsWith('.') &&
+            entry.name !== 'plugins.json'
+          )
+            candidates.push(join(root, entry.name))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      const loaded: { name: string; statusTabs: number }[] = []
+      const failed: { dir: string; error: string }[] = []
+      for (const candidate of candidates) {
+        try {
+          await access(join(candidate, 'manifest.json'))
+        } catch {
+          continue // 无 manifest 的目录不视为插件（legacy 状态文件等）
+        }
+        try {
+          loaded.push(
+            await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)),
+          )
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          failed.push({ dir: candidate, error: message })
+          void telemetry.emit('plugin.local_load_failed', 'plugin', {
+            dir: basename(candidate),
+            error: message,
+          })
+        }
+      }
+      return { loaded, failed }
+    },
+    async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {      const loaded: { name: string; statusTabs: number }[] = []
+      const failed: { dir: string; error: string }[] = []
       for (const candidate of candidates) {
         try {
           await access(join(candidate, 'manifest.json'))
@@ -1652,24 +2090,34 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           continue // 无 manifest 的目录不视为插件
         }
         try {
-          loaded.push(await this.activateLocal(candidate))
+          loaded.push(await activateLocal(candidate, source))
         } catch (error) {
-          failed.push({
-            dir: candidate,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          void telemetry.emit('plugin.dev_load_failed', 'plugin', {
+          const message = error instanceof Error ? error.message : String(error)
+          failed.push({ dir: candidate, error: message })
+          void telemetry.emit('plugin.local_load_failed', 'plugin', {
             dir: basename(candidate),
-            error: error instanceof Error ? error.message : String(error),
+            error: message,
           })
         }
       }
       return { loaded, failed }
     },
+    /**
+     * 卸载市场插件（端口面，管理命令/未来 CLI 子命令用；桥上经
+     * apollo.plugins.uninstall 走同一实现）：热生效——停用、摘命令与页签、
+     * 删目录，当前会话立即可见。内置/dev 插件明确拒绝（见实现内说明）。
+     */
+    async uninstallMarketPlugin(input: string) {
+      return uninstallMarketPlugin(input)
+    },
     async deactivateAll() {
-      await Promise.allSettled(devPluginHandles.map((handle) => handle.deactivate()))
-      devPluginHandles.length = 0
-      devPluginTabs.length = 0
+      const entries = loadedPluginEntries.splice(0)
+      await Promise.allSettled(
+        entries.map(async (entry) => {
+          for (const unsubscribe of entry.unsubscribes) unsubscribe()
+          await entry.handle.deactivate()
+        }),
+      )
     },
   }
   let memory: MemoryService
@@ -1713,7 +2161,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     }
     const section = config.auth
     return section && typeof section === 'object' && !Array.isArray(section)
-      ? (section as Record<string, JsonValue>)
+      ? (section)
       : {}
   }
   /** login 的 verify 请求要打向配置的网关（§8.3 provider.<name>.baseUrl），否则网关 key 在官方端点上必然 4xx。 */
@@ -1748,6 +2196,370 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   let skipAuthEmitted = false
   const http = new NodeHttpPort()
   const permissionPolicy = new ProductionPermissionSessionPolicy()
+
+  // ── SKILLS-MCPS-r1：/skills 与 /mcp 的运行期装配（原生，不经插件桥）──────────
+  // skills：多作用域发现（每个 Runner 一个 SkillsRuntime，共享同一个可变 disabled
+  // 名单——面板 / config 任一侧改名单对所有会话即时生效）。
+  const skillsRuntimes = new Set<SkillsRuntime>()
+  const skillsDisabled = new Set<string>()
+  let skillsConfigLoaded = false
+  async function ensureSkillsConfig(): Promise<void> {
+    if (skillsConfigLoaded) return
+    skillsConfigLoaded = true
+    try {
+      const config = await loadTomlFile(join(home, 'config.toml'), {
+        onWarning: (message) => logger.warn(message),
+      })
+      for (const name of disabledNamesFrom(config.skills))
+        skillsDisabled.add(name)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  // mcp：runtime 级单例 manager（首会话 cwd 已知时初始化；项目级 mcp.toml /
+  // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
+  const mcpDisabled = new Set<string>()
+  let mcpManager: McpManager | undefined
+  async function ensureMcpManager(cwd: string): Promise<McpManager> {
+    if (mcpManager) return mcpManager
+    try {
+      const config = await loadTomlFile(join(home, 'config.toml'), {
+        onWarning: (message) => logger.warn(message),
+      })
+      for (const name of disabledNamesFrom(config.mcp)) mcpDisabled.add(name)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const servers = await loadMcpServerConfigs({
+      apolloHome: home,
+      cwd,
+      onWarning: (message) => logger.warn(message),
+    })
+    mcpManager = new McpManager({
+      servers,
+      disabled: mcpDisabled,
+      onWarning: (message) => logger.warn(message),
+      // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
+      // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
+      logPath: join(home, 'mcp.log'),
+    })
+    void mcpManager.connect()
+    return mcpManager
+  }
+  function skillsPanelEntries(): SkillsPanelEntry[] {
+    const runtime = [...skillsRuntimes][0]
+    if (!runtime) return []
+    return runtime.entries().map(toPanelEntry)
+  }
+  // SKILLS-MCPS-r1 §S3.3a：每个 user-invocable skill 注册为同名 slash 命令。
+  // `/skill-name [args]` = 一次性调用：skill body + 任务文本作为用户消息进当轮
+  // 对话（不持久改 system prompt；区别于 /skill activate 的会话级激活与面板 a 键）。
+  // 主会话 runtime 的 entries 是唯一快照源；首次装载、面板 r 重扫、启停切换后
+  // 都会重新 sync（幂等 diff）。
+  const skillCommands = new SkillSlashCommands({
+    registry: slashCommands,
+    invoke: async (name, args) => {
+      const runtime = [...skillsRuntimes][0]
+      if (!runtime) throw new Error('No active session; open a session first')
+      const invocation = await runtime.readInvocation(name)
+      const task = args.length
+        ? args.join(' ')
+        : `Follow the "${name}" skill's instructions for my next request.`
+      return {
+        kind: 'submit',
+        text: [
+          `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
+          // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
+          invocation.body.replaceAll('</skill', '<\\/skill'),
+          '</skill>',
+          '',
+          task,
+        ].join('\n'),
+      }
+    },
+    onWarn: (message) => logger.warn(message),
+  })
+  function syncSkillSlashCommands(): void {
+    const runtime = [...skillsRuntimes][0]
+    if (runtime) skillCommands.sync(runtime.entries())
+  }
+  function toPanelEntry(entry: SkillEntry): SkillsPanelEntry {
+    return {
+      name: entry.name,
+      description: entry.description,
+      scope: entry.scope,
+      source: entry.path,
+      status: entry.status,
+      ...(entry.version ? { version: entry.version } : {}),
+      ...(entry.reason ? { reason: entry.reason } : {}),
+      flags: [
+        ...(entry.disableModelInvocation ? ['disable-model-invocation'] : []),
+        ...(entry.userInvocable ? [] : ['user-invocable-false']),
+      ],
+    }
+  }
+  const skillsPanelController: SkillsPanelController = {
+    async list() {
+      return skillsPanelEntries()
+    },
+    async reload() {
+      for (const runtime of skillsRuntimes) {
+        await runtime.discover()
+        await runtime.registerIndex()
+      }
+      syncSkillSlashCommands()
+      return skillsPanelEntries()
+    },
+    async setActive(name, active) {
+      if (skillsRuntimes.size === 0) throw new Error('No active session; open a session first')
+      for (const runtime of skillsRuntimes) {
+        if (active) await runtime.activate(name)
+        else runtime.deactivate(name)
+      }
+      return `skill ${name} ${active ? 'activated' : 'deactivated'}`
+    },
+    async setEnabled(name, enabled) {
+      if (enabled) skillsDisabled.delete(name)
+      else {
+        skillsDisabled.add(name)
+        for (const runtime of skillsRuntimes) runtime.deactivate(name)
+      }
+      for (const runtime of skillsRuntimes) await runtime.registerIndex()
+      syncSkillSlashCommands()
+      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
+      return `skill ${name} ${enabled ? 'enabled' : 'disabled'}`
+    },
+    async show(name) {
+      const runtime = [...skillsRuntimes][0]
+      const entry = runtime?.entries().find((item) => item.name === name)
+      if (!entry || !entry.path) return `[failed to read: No SKILL.md available for ${name}]`
+      try {
+        const body = await readFile(entry.path, 'utf8')
+        return body || `[${name}: SKILL.md is empty]`
+      } catch (error) {
+        return `[failed to read ${entry.path}: ${error instanceof Error ? error.message : String(error)}]`
+      }
+    },
+  }
+  // ── SKILLS-MCPS-r1 §S3.7：CLI 管理命令族端口（apollo skill / apollo mcp）────────
+  /** CLI 一次性进程用：按当前 cwd 的多作用域源构造发现 runtime（无会话 composer）。 */
+  async function listingSkillsRuntime(): Promise<SkillsRuntime> {
+    await ensureSkillsConfig()
+    return new SkillsRuntime({
+      sources: defaultSkillSources({
+        apolloHome: home,
+        userHome: homedir(),
+        cwd: process.cwd(),
+      }),
+      apolloVersion: options.identity.version,
+      composer: new DefaultPromptComposer(),
+      disabled: skillsDisabled,
+      onWarning: (message) => logger.warn(message),
+    })
+  }
+  const skillPort: SkillPort = {
+    async list() {
+      const runtime = await listingSkillsRuntime()
+      await runtime.discover()
+      return runtime.entries().map((entry) => ({
+        name: entry.name,
+        description: entry.description,
+        scope: entry.scope,
+        status: entry.status,
+        ...(entry.version ? { version: entry.version } : {}),
+        path: entry.path,
+      }))
+    },
+    async install(spec, installOptions) {
+      const { directories, cleanup } = await resolveSkillSpecToDirectories(spec, {
+        onInfo: (message) => logger.warn(message),
+      })
+      try {
+        const runtime = await listingSkillsRuntime()
+        // 逐个安装,失败（重名/目录已存在/格式错）记警告继续，其余照常装。
+        const installedNames: string[] = []
+        const failures: string[] = []
+        for (const directory of directories) {
+          try {
+            const installed = await runtime.installFromDirectory(directory, {
+              scope: installOptions?.scope ?? 'user',
+            })
+            installedNames.push(installed.name)
+          } catch (error) {
+            const name = directory.split('/').pop() ?? directory
+            failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        if (failures.length > 0)
+          logger.warn(`skill install partial: ${failures.length} skipped (${failures.join('; ')})`)
+        await runtime.discover()
+        // 只返回本次新装的（发现源里还有互操作路径等既有 skill，不该混进安装回执）。
+        return runtime
+          .entries()
+          .filter((entry) => installedNames.includes(entry.name))
+          .map((entry) => ({
+            name: entry.name,
+            description: entry.description,
+            scope: entry.scope,
+            status: entry.status,
+            ...(entry.version ? { version: entry.version } : {}),
+            path: entry.path,
+          }))
+      } finally {
+        await cleanup()
+      }
+    },
+    async uninstall(name, uninstallOptions) {
+      const runtime = await listingSkillsRuntime()
+      await runtime.discover()
+      const entry = runtime
+        .entries()
+        .find(
+          (item) =>
+            item.name === name &&
+            (!uninstallOptions?.scope || item.scope === uninstallOptions.scope) &&
+            !item.interop,
+        )
+      if (!entry || !entry.path)
+        throw new Error(
+          `Skill not found in a managed (non-interop) ${uninstallOptions?.scope ?? 'user|project'} scope: ${name}`,
+        )
+      await rm(resolve(entry.path, '..'), { recursive: true, force: true })
+    },
+    async show(name) {
+      const runtime = await listingSkillsRuntime()
+      await runtime.discover()
+      const entry = runtime.entries().find((item) => item.name === name)
+      if (!entry || !entry.path) throw new Error(`No SKILL.md available for ${name}`)
+      return readFile(entry.path, 'utf8')
+    },
+    async setEnabled(name, enabled) {
+      await ensureSkillsConfig()
+      if (enabled) skillsDisabled.delete(name)
+      else skillsDisabled.add(name)
+      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
+    },
+  }
+  const mcpPort: McpPort = {
+    async list() {
+      const manager = await ensureMcpManager(process.cwd())
+      // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
+      await Promise.race([
+        manager.connect(),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ])
+      const snapshot = manager.snapshot().map((entry) => ({
+        name: entry.name,
+        transport: entry.transport,
+        scope: entry.scope,
+        status: entry.status,
+        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
+        ...(entry.protocolVersion ? { protocolVersion: entry.protocolVersion } : {}),
+      }))
+      await manager.close()
+      return snapshot
+    },
+    async test(name) {
+      const manager = await ensureMcpManager(process.cwd())
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
+      try {
+        const { entry } = await manager.inspect(name)
+        if (entry.status !== 'connected')
+          throw new Error(`mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`)
+        return { protocolVersion: entry.protocolVersion ?? 'unknown' }
+      } finally {
+        await manager.close()
+      }
+    },
+    async inspect(name) {
+      const manager = await ensureMcpManager(process.cwd())
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
+      try {
+        const { tools } = await manager.inspect(name)
+        return {
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            ...(tool.description ? { description: tool.description } : {}),
+          })),
+        }
+      } finally {
+        await manager.close()
+      }
+    },
+    async add(input) {
+      const file =
+        input.scope === 'project'
+          ? join(process.cwd(), '.apollo', 'mcp.toml')
+          : join(home, 'mcp.toml')
+      await upsertMcpServerToml({
+        file,
+        name: input.name,
+        transport:
+          input.transport.kind === 'stdio'
+            ? {
+                kind: 'stdio',
+                command: input.transport.command,
+                args: input.transport.args,
+                env: input.transport.env,
+              }
+            : {
+                kind: 'http',
+                url: input.transport.url,
+                headers: input.transport.headers,
+                legacySse: input.transport.legacySse ?? false,
+              },
+      })
+      return { file }
+    },
+    async remove(name, scope) {
+      const files =
+        scope === 'project'
+          ? [join(process.cwd(), '.apollo', 'mcp.toml')]
+          : scope === 'user'
+            ? [join(home, 'mcp.toml')]
+            : [join(process.cwd(), '.apollo', 'mcp.toml'), join(home, 'mcp.toml')]
+      for (const file of files) if (await removeMcpServerToml({ file, name })) return { file }
+      throw new Error(`MCP server not configured: ${name}`)
+    },
+    async setEnabled(name, enabled) {
+      const manager = await ensureMcpManager(process.cwd())
+      if (enabled) mcpDisabled.delete(name)
+      else mcpDisabled.add(name)
+      await updateConfigDisabledList({ home, section: 'mcp', name, add: !enabled })
+      // CLI 一次性进程：ensure 触发的后台连接要收尾，否则 stdio 子进程挂住事件循环。
+      await manager.close()
+    },
+  }
+  const mcpPanelController: McpPanelController = {
+    async list() {
+      return (mcpManager?.snapshot() ?? []) as McpPanelEntry[]
+    },
+    async reload() {
+      if (!mcpManager) return []
+      await mcpManager.reload()
+      return mcpManager.snapshot() as McpPanelEntry[]
+    },
+    async setEnabled(name, enabled) {
+      if (!mcpManager) throw new Error('MCP is not available in this session')
+      if (enabled) mcpDisabled.delete(name)
+      else mcpDisabled.add(name)
+      await mcpManager.setEnabled(name, enabled)
+      await updateConfigDisabledList({ home, section: 'mcp', name, add: !enabled })
+      return `mcp server ${name} ${enabled ? 'enabled' : 'disabled'}`
+    },
+    async inspect(name) {
+      if (!mcpManager) throw new Error('MCP is not available in this session')
+      const { entry, tools } = await mcpManager.inspect(name)
+      return {
+        entry: entry as McpPanelEntry,
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.description ? { description: tool.description } : {}),
+        })),
+      }
+    },
+  }
+
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
@@ -1794,16 +2606,16 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const preferencesSection = userConfig.preferences
     const preferencesModel =
       preferencesSection &&
-      typeof preferencesSection === 'object' &&
-      !Array.isArray(preferencesSection) &&
-      typeof preferencesSection.model === 'string'
+        typeof preferencesSection === 'object' &&
+        !Array.isArray(preferencesSection) &&
+        typeof preferencesSection.model === 'string'
         ? preferencesSection.model.replace(/^anthropic\//, '')
         : undefined
     const providerModel =
       anthropicEntry &&
-      typeof anthropicEntry === 'object' &&
-      !Array.isArray(anthropicEntry) &&
-      typeof anthropicEntry.model === 'string'
+        typeof anthropicEntry === 'object' &&
+        !Array.isArray(anthropicEntry) &&
+        typeof anthropicEntry.model === 'string'
         ? anthropicEntry.model
         : undefined
     const configuredModel = preferencesModel ?? providerModel
@@ -1821,15 +2633,22 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       permissions: permissionRequests,
     })
     await promptLoader.registerProject(composer)
+    // SKILLS-MCPS-r1：多作用域发现（project > user > .agents/skills 互操作），
+    // disabled 名单跨 Runner 共享（面板切换即时生效）。每个 Runner 一个实例
+    // （composer 是 per-session 的）；主会话最先创建，面板取 [...set][0]。
+    await ensureSkillsConfig()
     const skills = new SkillsRuntime({
-      skillsDir: join(home, 'skills'),
+      sources: defaultSkillSources({ apolloHome: home, userHome: homedir(), cwd: state.cwd }),
       apolloVersion: options.identity.version,
       composer,
+      disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
     })
+    skillsRuntimes.add(skills)
     await skills.discover()
     await skills.registerIndex()
     await skills.activateAutomatic(state.cwd)
+    syncSkillSlashCommands()
     const attachments = new AttachmentStore(
       join(home, 'sessions', state.id, 'attachments'),
       20 * 1024 * 1024,
@@ -1906,8 +2725,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         : undefined
     const passThroughEnv = Array.isArray(toolsConfig.pass_through_env)
       ? toolsConfig.pass_through_env.filter(
-          (name): name is string => typeof name === 'string' && name !== '',
-        )
+        (name): name is string => typeof name === 'string' && name !== '',
+      )
       : undefined
     const registry = new ToolRegistry()
     for (const tool of builtinTools({
@@ -1954,6 +2773,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
     })
+    // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
+    // Runner 的 registry；invoke 走 runtime 级共享连接，子 agent 不重复 spawn。
+    ;(await ensureMcpManager(state.cwd)).attach(registry)
     let runner: Runner
     const native = createSandboxNativeBridge({
       cwd: () => runner.state.cwd,
@@ -2054,6 +2876,12 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     identity: options.identity,
     version: options.identity.version,
     session,
+    // §11.3.4 `apollo history`：会话档案的只读检视 + 导入/清理；list 复用
+    // session port 的 replay 派生，两个入口不会出现两份候选逻辑。
+    history: createHistoryPort({
+      sessionsDir: join(home, 'sessions'),
+      listCandidates: () => session.list(),
+    }),
     ui: {
       renderInteractiveApp: (input) =>
         renderInteractiveApp({
@@ -2062,6 +2890,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           // r13-G4 (spec 08-session-config.md §8.6.2): `/undo` single-step tool
           // rollback backed by the session backup store.
           undo: { undoStep: (sessionId) => backups.undoStep(sessionId) },
+          // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（原生装配，§S3.3/§S3.6）
+          skills: skillsPanelController,
+          mcp: mcpPanelController,
           ...input,
         }),
       renderDirectoryTrustPrompt,
@@ -2132,7 +2963,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
     },
-    pluginDev,
+    localPlugins,
+    skill: skillPort,
+    mcp: mcpPort,
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
       summary: () => telemetryStore.summary(),
@@ -2206,6 +3039,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
        * 写入 process.env——之后 spawn 的子进程（native worker / 插件宿主 / MCP
        * stdio）随之继承；沙箱内 Bash 走 env_clear 白名单模型，仅 [tools]
        * pass_through_env 列出的名字进入（值可来自这里写入的 process.env）。
+       * 值先经 expandEnvValue 前置解析（`~` / `${VAR}`）；解析后的应用值记入
+       * appliedEnvEntries，作为 /env 生效判定的精确基准。
        * 缺文件是 no-op；类型错按 C.1 传播 config_invalid（启动 fail）。
        */
       async applyEnv() {
@@ -2220,8 +3055,21 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
         const section = config.env
         if (!section || typeof section !== 'object' || Array.isArray(section)) return
-        for (const [key, value] of Object.entries(section))
-          if (typeof value === 'string') process.env[key] = value
+        // 展开基准 = 写入前的环境快照：${PATH} 这类"在已有值上追加"的写法拿到的
+        // 是启动时已有的值；同段 key 互引用不支持（快照里还没有它们）。
+        const basis = { ...process.env }
+        const applied: Record<string, string> = {}
+        for (const [key, value] of Object.entries(section)) {
+          if (typeof value !== 'string') continue
+          const resolvedValue = expandEnvValue(value, basis, (name) =>
+            logger.warn(
+              `[env] ${key}: referenced variable ${name} is not set; kept the placeholder literal`,
+            ),
+          )
+          process.env[key] = resolvedValue
+          applied[key] = resolvedValue
+        }
+        appliedEnvEntries = applied
       },
       async health(cwd) {
         try {
@@ -2245,14 +3093,14 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         }
       },
       async status(input) {
-        return runtimeStatusData(home, options, input, devPluginHub)
+        return runtimeStatusData(home, options, input, localPluginHub)
       },
       async updatePreference(id, value, input) {
         const data = await runtimeStatusData(
           home,
           options,
           { ...input, includeStats: true },
-          devPluginHub,
+          localPluginHub,
         )
         const item = data.config.find((candidate) => candidate.id === id)
         if (!item) throw new Error(`Unknown configuration item: ${id}`)
@@ -2274,7 +3122,69 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         const temporary = `${path}.${process.pid}.tmp`
         await writeFile(temporary, serializeConfig(config), { encoding: 'utf8', mode: 0o600 })
         await rename(temporary, path)
-        return runtimeStatusData(home, options, { ...input, includeStats: true }, devPluginHub)
+        return runtimeStatusData(home, options, { ...input, includeStats: true }, localPluginHub)
+      },
+      /**
+       * §11.3.3 `apollo config list` 的合并视图：user + project 两层文件经
+       * loadConfig 的层合并与 projectOverride forbidden 过滤。这是只读检视
+       * （同 health 的 parse-only），不等于会话生效语义——会话还叠加 defaults
+       * /env/flags 与项目配置信任门。
+       */
+      async listMerged({ cwd }: { cwd: string }) {
+        const warnings: string[] = []
+        const user = await loadTomlFile(join(home, 'config.toml'), {
+          onWarning: (message) => warnings.push(message),
+        }).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+          throw error
+        })
+        const project = await loadTomlFile(join(cwd, '.apollo', 'config.toml'), {
+          onWarning: (message) => warnings.push(message),
+        }).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+          throw error
+        })
+        const forbidden: string[] = []
+        const { config: merged } = await loadConfig({
+          defaults: {},
+          global: user,
+          project,
+          trustProjectConfig: true,
+          warning: (key) =>
+            forbidden.push(`project override of '${key}' is forbidden (§8.3.1); ignored`),
+        })
+        return { config: merged, warnings: [...warnings, ...forbidden] }
+      },
+      async setValue({ cwd, key, value, project }) {
+        if (project && isProjectOverrideForbidden(key))
+          throw new ApolloError(
+            'config_project_forbidden',
+            `'${key}' cannot be set in project config (data-flow gate, §8.3.1)`,
+          )
+        assertConfigKeyValue(key, value)
+        const file = project
+          ? join(cwd, '.apollo', 'config.toml')
+          : join(home, 'config.toml')
+        const config = await readConfigFileOrEmpty(file)
+        assignConfigValue(config, key, value)
+        await writeConfigFile(file, config)
+        return { file }
+      },
+      async unsetValue({ cwd, key, project }) {
+        // unset 不做 forbidden 门：从 project 配置里移除 forbidden key 是清理，应当允许。
+        const file = project
+          ? join(cwd, '.apollo', 'config.toml')
+          : join(home, 'config.toml')
+        const config = await readConfigFileOrEmpty(file)
+        const removed = deleteConfigValue(config, key)
+        if (removed) await writeConfigFile(file, config)
+        return { file, removed }
+      },
+      filePaths({ cwd }: { cwd: string }) {
+        return {
+          user: join(home, 'config.toml'),
+          project: join(cwd, '.apollo', 'config.toml'),
+        }
       },
     },
     native: {
@@ -2337,7 +3247,7 @@ async function runtimeStatusData(
   home: string,
   options: ProductionOptions,
   input: { cwd: string; sessionId?: string; includeStats?: boolean },
-  devPlugin?: {
+  localPluginHub?: {
     tabs: readonly StatusTabContribution[]
     onUsage?: (usage: StatusPanelData['usage']) => void
   },
@@ -2350,8 +3260,8 @@ async function runtimeStatusData(
   }
   const preferences =
     config.preferences &&
-    typeof config.preferences === 'object' &&
-    !Array.isArray(config.preferences)
+      typeof config.preferences === 'object' &&
+      !Array.isArray(config.preferences)
       ? (config.preferences as Record<string, JsonValue>)
       : {}
   const authSection =
@@ -2366,8 +3276,8 @@ async function runtimeStatusData(
       : undefined
   const anthropicEntry =
     providerSection?.anthropic &&
-    typeof providerSection.anthropic === 'object' &&
-    !Array.isArray(providerSection.anthropic)
+      typeof providerSection.anthropic === 'object' &&
+      !Array.isArray(providerSection.anthropic)
       ? (providerSection.anthropic as Record<string, JsonValue>)
       : undefined
   const providerModel = typeof anthropicEntry?.model === 'string' ? anthropicEntry.model : undefined
@@ -2441,10 +3351,10 @@ async function runtimeStatusData(
   // PLUGIN-STATUS-UI-r1：插件页签的 render 在此经桥回调取值（面板打开 / 刷新时）。
   // render 失败 → error 占位行（§S3.4 降级语义）；返回 null → 本次不渲染。
   let pluginTabs: StatusPanelData['pluginTabs']
-  if (devPlugin && devPlugin.tabs.length > 0) {
-    devPlugin.onUsage?.(usage)
+  if (localPluginHub && localPluginHub.tabs.length > 0) {
+    localPluginHub.onUsage?.(usage)
     const rendered = await Promise.all(
-      devPlugin.tabs.map(async (tab) => {
+      localPluginHub.tabs.map(async (tab) => {
         try {
           const body = await tab.render()
           if (!body || typeof body !== 'object') return null
@@ -2510,6 +3420,11 @@ function preference(
   kind: Exclude<StatusConfigItem['kind'], undefined>,
 ): StatusConfigItem {
   return { id, label, value: value as StatusValue, editable: true, kind }
+}
+
+/** skill invocation 框架的属性值转义（§S3.3a：skill 元数据是不可信输入）。 */
+function escapeSkillAttribute(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {

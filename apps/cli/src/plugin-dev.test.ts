@@ -33,7 +33,7 @@ async function sandboxAvailable(): Promise<boolean> {
   }
 }
 
-describe('pluginDev 目录发现（~/.apollo/plugins-dev）', () => {
+describe('localPlugins dev 发现（~/.apollo/plugins-dev）', () => {
   it('discovers plugin dirs with a manifest, skips plain dirs, and isolates failures', async () => {
     const home = await fixtureHome()
     await mkdir(join(home, 'plugins-dev', 'not-a-plugin'), { recursive: true })
@@ -46,17 +46,17 @@ describe('pluginDev 目录发现（~/.apollo/plugins-dev）', () => {
       apolloHome: home,
       identity: { version: '0.1.0' },
     })
-    const { loaded, failed } = await ports.pluginDev!.loadDevPlugins()
+    const { loaded, failed } = await ports.localPlugins!.loadDevPlugins()
     expect(loaded).toEqual([])
     expect(failed).toHaveLength(1)
     expect(failed[0]!.dir).toContain('apollo-plugin-broken')
-    await ports.pluginDev!.deactivateAll()
+    await ports.localPlugins!.deactivateAll()
   })
 
   it('returns empty results when the plugins-dev directory does not exist', async () => {
     const home = await fixtureHome()
     const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
-    const { loaded, failed } = await ports.pluginDev!.loadDevPlugins()
+    const { loaded, failed } = await ports.localPlugins!.loadDevPlugins()
     expect(loaded).toEqual([])
     expect(failed).toEqual([])
   })
@@ -80,12 +80,12 @@ describe('pluginDev 目录发现（~/.apollo/plugins-dev）', () => {
     await writeFile(join(target, 'manifest.json'), JSON.stringify(manifest))
 
     const ports = createProductionPorts({ apolloHome: home, identity: { version: '1.2.3' } })
-    const { loaded, failed } = await ports.pluginDev!.loadDevPlugins()
+    const { loaded, failed } = await ports.localPlugins!.loadDevPlugins()
     expect(failed).toEqual([])
     expect(loaded).toEqual([{ name: 'apollo-plugin-status-demo', statusTabs: 2 }])
     // 贡献汇入 status 数据组装
     const data = await ports.config.status!({ cwd: repoRoot, includeStats: false })
     expect(data.pluginTabs?.map((tab) => tab.id)).toEqual(['plugin-demo', 'plugin-demo-pulse'])
-    await ports.pluginDev!.deactivateAll()
+    await ports.localPlugins!.deactivateAll()
   }, 30_000)
 })

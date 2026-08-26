@@ -1,4 +1,5 @@
 import type { EventBus } from '@apollo-code/core'
+import type { JsonValue } from '@apollo-code/shared'
 import type {
   MemoryMaintenanceService,
   MemoryRecallService,
@@ -118,13 +119,52 @@ export interface EvolutionPort {
   /** §15.11 T1b: tuning journal health for `apollo doctor`. */
   health?(): Promise<DoctorHealth>
 }
+export interface McpServerListing {
+  name: string
+  transport: string
+  scope?: 'user' | 'project'
+  status?: 'connected' | 'connecting' | 'needs-auth' | 'failed' | 'disabled'
+  tools?: number
+  protocolVersion?: string
+}
+export interface McpAddInput {
+  name: string
+  scope: 'user' | 'project'
+  transport:
+    | { kind: 'stdio'; command: string; args: string[]; env: Record<string, string> }
+    | { kind: 'http'; url: string; headers: Record<string, string>; legacySse?: boolean }
+}
 export interface McpPort {
-  list(): Promise<Array<{ name: string; transport: string }>>
+  list(): Promise<readonly McpServerListing[]>
   test(name: string, signal: AbortSignal): Promise<{ protocolVersion: string }>
   inspect(
     name: string,
     signal: AbortSignal,
   ): Promise<{ tools: Array<{ name: string; description?: string }> }>
+  /** SKILLS-MCPS-r1 §S3.7：写入目标 scope 的 mcp.toml（同名整条覆盖）。 */
+  add(input: McpAddInput): Promise<{ file: string }>
+  remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string }>
+  setEnabled(name: string, enabled: boolean): Promise<void>
+}
+export interface SkillListing {
+  name: string
+  description: string
+  scope: 'user' | 'project'
+  status: string
+  version?: string
+  path: string
+}
+export interface SkillPort {
+  list(): Promise<readonly SkillListing[]>
+  /**
+   * SKILLS-MCPS-r1 §S3.7：安装三方源——`<本地目录>` / git URL / `github:owner/repo`
+   * / `owner/repo` 简写；git 仓库根有 SKILL.md 装 root，否则装一层子目录里全部
+   * 带 SKILL.md 的 skill。scope 默认 user，project 写 `<cwd>/.apollo/skills`。
+   */
+  install(spec: string, options?: { scope?: 'user' | 'project' }): Promise<readonly SkillListing[]>
+  uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<void>
+  show(name: string): Promise<string>
+  setEnabled(name: string, enabled: boolean): Promise<void>
 }
 export interface PluginPort {
   availability(): Promise<PluginAvailability>
@@ -141,17 +181,44 @@ export interface PluginPort {
   }>
 }
 /**
- * PLUGIN-STATUS-UI-r1 dev 装载端口：约定目录 ~/.apollo/plugins-dev/<name>/ 自动发现 +
- * APOLLO_DEV_PLUGINS 额外路径，经沙箱宿主（apollo-sandbox --run-plugin）激活；
- * 与冻结中的 legacy Catalog 安装路径（~/.apollo/plugins）完全隔离。
- * 生产 Catalog 路径重开后此端口退役。
+ * 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：三个发现源共用
+ * 同一条激活链路（manifest 校验 → bundle 校验 → 沙箱宿主 apollo-sandbox
+ * --run-plugin）——内置插件（随产物分发的 apps/cli/plugins/<name>/）、dev 插件
+ * （约定目录 ~/.apollo/plugins-dev/<name>/ 自动发现 + APOLLO_DEV_PLUGINS 额外
+ * 路径）、市场插件（[plugins] market 安装到 ~/.apollo/plugins/<name>/，带
+ * apollo-market.json 完整性映射，激活期重验）。~/.apollo/plugins 与冻结中的
+ * legacy Catalog 状态文件（plugins.json approvals，deny-only）同目录共存、
+ * 互不读取。Catalog v2 生产路径重开后仅 dev/市场发现退役，内置插件继续走此链路。
  */
-export interface PluginDevPort {
+export interface LocalPluginPort {
   activateLocal(dir: string): Promise<{ name: string; statusTabs: number }>
   loadDevPlugins(extraDirs?: readonly string[]): Promise<{
     loaded: { name: string; statusTabs: number }[]
     failed: { dir: string; error: string }[]
   }>
+  /**
+   * 内置插件（随产物分发的 apps/cli/plugins/<name>/）：与 dev 插件同一沙箱链路，
+   * 仅发现源不同。交互会话启动时装载一次；一次性管理子命令（如 status）不装载。
+   */
+  loadBuiltinPlugins(): Promise<{
+    loaded: { name: string; statusTabs: number }[]
+    failed: { dir: string; error: string }[]
+  }>
+  /**
+   * 市场插件（PLUGIN-MANAGER-r1）：~/.apollo/plugins/<name>/ 自动发现（dot
+   * 目录与无 manifest.json 的目录跳过）。与内置/dev 同链路；装自市场的插件
+   * 激活时逐文件重验 digest。交互会话启动时装载；一次性子命令不装载。
+   */
+  loadMarketPlugins(): Promise<{
+    loaded: { name: string; statusTabs: number }[]
+    failed: { dir: string; error: string }[]
+  }>
+  /**
+   * 卸载市场插件（热生效）：停用（命令/页签当场摘除）+ 删除
+   * ~/.apollo/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
+   * dev 目录归开发者管理（命中即明确拒绝）。
+   */
+  uninstallMarketPlugin(input: string): Promise<{ name: string }>
   deactivateAll(): Promise<void>
 }
 export interface PluginCompatibilityDiagnostic {
@@ -163,6 +230,40 @@ export interface PluginAvailability {
   code: 'plugin_legacy_activation_unavailable'
   detail: string
   reopenCondition: string
+}
+export interface HistoryMessage {
+  role: string
+  text: string
+}
+export interface HistorySessionDetail {
+  id: string
+  cwd: string
+  startedAt?: string
+  updatedAt: string
+  events: number
+  messages: HistoryMessage[]
+}
+export interface HistorySearchHit {
+  sessionId: string
+  snippet: string
+  at?: string
+}
+/**
+ * §11.3.4 `apollo history` 命令族：操作 ~/.apollo/sessions/<id>.jsonl 会话档案
+ * （与输入行历史 ~/.apollo/history 无关）。list 复用 session port 的候选派生
+ * （事件 replay），show/export 走同一 replay，search 只做本地关键词匹配。
+ */
+export interface HistoryPort {
+  list(options: {
+    limit?: number
+    since?: Date
+    cwd?: string
+  }): Promise<readonly SessionCandidate[]>
+  show(id: string): Promise<HistorySessionDetail>
+  exportSession(id: string, format: 'markdown' | 'json'): Promise<string>
+  importSession(content: string): Promise<{ id: string; file: string }>
+  clear(options: { all?: boolean; olderThan?: Date }): Promise<{ removed: string[] }>
+  search(query: string, options?: { limit?: number }): Promise<readonly HistorySearchHit[]>
 }
 export interface ApolloPorts {
   identity: Readonly<AppIdentity>
@@ -207,6 +308,28 @@ export interface ApolloPorts {
       value: StatusValue,
       input: { cwd: string; sessionId: string },
     ): Promise<StatusPanelData>
+    /**
+     * §11.3.3 `apollo config` 命令族。目标文件：user = <home>/config.toml，
+     * project = <cwd>/.apollo/config.toml。setValue 在端口内做 schema 校验
+     * （未知 key → config_unknown_key；类型错 → config_invalid）与
+     * §8.3.1 projectOverride 数据流向门（forbidden key → config_project_forbidden）。
+     */
+    listMerged?(input: { cwd: string }): Promise<{
+      config: Record<string, JsonValue>
+      warnings: string[]
+    }>
+    setValue?(input: {
+      cwd: string
+      key: string
+      value: JsonValue
+      project?: boolean
+    }): Promise<{ file: string }>
+    unsetValue?(input: {
+      cwd: string
+      key: string
+      project?: boolean
+    }): Promise<{ file: string; removed: boolean }>
+    filePaths?(input: { cwd: string }): { user: string; project: string }
   }
   telemetry: {
     securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void>
@@ -232,8 +355,10 @@ export interface ApolloPorts {
   memoryMaintenance?: MemoryMaintenanceService
   memoryTransfer?: MemoryTransferService
   mcp?: McpPort
+  skill?: SkillPort
   plugin?: PluginPort
-  pluginDev?: PluginDevPort
+  localPlugins?: LocalPluginPort
+  history?: HistoryPort
   ui?: UiPort
 }
 export function unavailablePorts(): ApolloPorts {

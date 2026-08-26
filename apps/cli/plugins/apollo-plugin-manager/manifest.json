@@ -1,0 +1,10 @@
+{
+  "name": "apollo-plugin-manager",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "apollo": "^0.1.0" },
+  "permissions": {
+    "apollo": ["commands.register", "plugins.read", "plugins.manage", "log.write"]
+  }
+}
