@@ -8,8 +8,8 @@
   "artifacts": [
     {
       "target": "darwin-arm64",
-      "path": "artifacts/apollo-code-darwin-arm64.txt",
-      "sha256": "c296891f24618031a19311b8d3cb133f0899d7cb9899e01d8064cc31952a88dd"
+      "path": "artifacts/volund-code-darwin-arm64.txt",
+      "sha256": "5bf768d63d787e89cc23e4a01f6000ceb288a803dcf499abde6f705a7b70246d"
     }
   ],
   "rollback": {
@@ -19,7 +19,7 @@
   "signature": {
     "algorithm": "ed25519",
     "keyUsage": "test-fixture-only",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAD2sbG/ltl44bmPqqcdFwnDPZqwWDwLmp4SlEDz3MTns=\n-----END PUBLIC KEY-----\n",
-    "value": "i5IqoILa6evsfn7osXgf5SzkGE5B6b/7UVviOtqIicBJk9p7VtChaZd/GMEDm2hOE99QeSBalNwg+t8M3ssxAQ=="
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFhlF0Pe+w1uzL8Z9v/Hgfm3z/z1XZV4lbV4HK3J41DY=\n-----END PUBLIC KEY-----\n",
+    "value": "h4ZPy8yxSjzYaLDVl66CG1WczvwrDYj/R/5PzH0WPm6M8kTxAUO2yJ6tQM29WnK4xDfsOiasWMOGmi7FkcmXBQ=="
   }
 }

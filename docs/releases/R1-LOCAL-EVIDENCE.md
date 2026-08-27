@@ -4,10 +4,10 @@ R1 local verification is intentionally split into reproducible local evidence an
 
 ## Reproducible local gate
 
-Run `pnpm test:l1-local-e2e` from the repository root. The gate builds the published CLI entry point and launches it as a child process with an isolated `APOLLO_HOME`, an empty credential environment, and no terminal UI. It verifies:
+Run `pnpm test:l1-local-e2e` from the repository root. The gate builds the published CLI entry point and launches it as a child process with an isolated `VOLUND_HOME`, an empty credential environment, and no terminal UI. It verifies:
 
-- `apollo status --json` returns parseable, secret-free state without reading or disclosing a credential value;
-- `apollo chat --json --no-tui` rejects a missing prompt with stable `error` and `final` NDJSON records carrying `prompt_required`;
+- `volund status --json` returns parseable, secret-free state without reading or disclosing a credential value;
+- `volund chat --json --no-tui` rejects a missing prompt with stable `error` and `final` NDJSON records carrying `prompt_required`;
 - neither process output nor locally persisted telemetry contains credential-shaped data.
 
 The root `pnpm test` command includes this gate after building the CLI, so the evidence is attached to the exact commit under test rather than a fixture-only package test.

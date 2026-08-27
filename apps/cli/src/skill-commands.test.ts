@@ -1,8 +1,7 @@
+import type { SkillEntry } from '@volund/skills-runtime'
+import { MutableSlashCommandRegistry } from '@volund/ui'
 import { describe, expect, it, vi } from 'vitest'
 
-import { MutableSlashCommandRegistry } from '@apollo-code/ui'
-
-import type { SkillEntry } from '@apollo-code/skills-runtime'
 import { SkillSlashCommands } from './skill-commands'
 
 function entry(name: string, overrides: Partial<SkillEntry> = {}): SkillEntry {
@@ -34,8 +33,9 @@ describe('SkillSlashCommands (SKILLS-MCPS-r1 §S3.3a)', () => {
     expect(registered.source).toEqual({ kind: 'skill' })
     expect(registered.description).toBe('git-flow skill description')
     // 长描述截断到一行 80
-    expect(registry.snapshot().find((command) => command.name === 'pdf-tools')!.description.length)
-      .toBeLessThanOrEqual(80)
+    expect(
+      registry.snapshot().find((command) => command.name === 'pdf-tools')!.description.length,
+    ).toBeLessThanOrEqual(80)
     // /git-flow 写一条 commit message → invoke(name, args)；run 返回 submit 视图
     const outcome = await registered.run({
       name: 'git-flow',
@@ -81,11 +81,7 @@ describe('SkillSlashCommands (SKILLS-MCPS-r1 §S3.3a)', () => {
       invoke: async () => ({ kind: 'submit', text: 'x' }),
       onWarn: warn,
     })
-    commands.sync([
-      entry('status'),
-      entry('model'),
-      entry('unique'),
-    ])
+    commands.sync([entry('status'), entry('model'), entry('unique')])
     expect(commands.registered()).toEqual(['unique'])
     expect(warn).toHaveBeenCalledTimes(2)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('/status not registered'))

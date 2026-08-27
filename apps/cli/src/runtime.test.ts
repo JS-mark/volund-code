@@ -13,14 +13,14 @@ import { createServer, type Server } from 'node:http'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@apollo-code/core'
-import type { Runner, SessionState } from '@apollo-code/core'
-import type { PermissionRequest } from '@apollo-code/permission'
-import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storage'
-import type { ToolContext } from '@apollo-code/tool-kit'
-import { BashTool } from '@apollo-code/tools'
-import type { InteractivePermissionRequest } from '@apollo-code/ui'
-import { MutableSlashCommandRegistry } from '@apollo-code/ui'
+import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
+import type { Runner, SessionState } from '@volund/core'
+import type { PermissionRequest } from '@volund/permission'
+import { DefaultMemoryService, LocalMemoryRepository } from '@volund/storage'
+import type { ToolContext } from '@volund/tool-kit'
+import { BashTool } from '@volund/tools'
+import type { InteractivePermissionRequest } from '@volund/ui'
+import { MutableSlashCommandRegistry } from '@volund/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -848,7 +848,6 @@ describe('production tool permission composition', () => {
     expect(denied.isError).toBe(true)
     expect(nativeExecute).not.toHaveBeenCalled()
     expect(permissionEvents).toHaveLength(1)
-
     ;(permissionSnapshot as { dangerouslySkip: boolean }).dangerouslySkip = true
     const stillDenied = await deniedExecutor.execute(
       bash,
@@ -1026,7 +1025,7 @@ describe('buildStatusViewModel', () => {
       state,
       version: '1.2.3',
       workspace: '/workspace',
-      project: 'apollo-code',
+      project: 'volund-code',
       model: {
         provider: 'anthropic',
         model: 'claude',
@@ -1389,29 +1388,29 @@ describe('production [env] config application (§8.3)', () => {
     fixtures.push(root)
     await writeFile(
       join(root, 'config.toml'),
-      '[env]\nAPOLLO_TEST_ENV_SET = "from-config"\nAPOLLO_TEST_ENV_OVERRIDE = "config-wins"\n',
+      '[env]\nVOLUND_TEST_ENV_SET = "from-config"\nVOLUND_TEST_ENV_OVERRIDE = "config-wins"\n',
     )
-    const previousSet = process.env.APOLLO_TEST_ENV_SET
-    const previousOverride = process.env.APOLLO_TEST_ENV_OVERRIDE
-    process.env.APOLLO_TEST_ENV_OVERRIDE = 'ambient'
+    const previousSet = process.env.VOLUND_TEST_ENV_SET
+    const previousOverride = process.env.VOLUND_TEST_ENV_OVERRIDE
+    process.env.VOLUND_TEST_ENV_OVERRIDE = 'ambient'
     try {
-      const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+      const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
       await ports.config.applyEnv?.()
-      expect(process.env.APOLLO_TEST_ENV_SET).toBe('from-config')
+      expect(process.env.VOLUND_TEST_ENV_SET).toBe('from-config')
       // 「重置」语义：同名环境变量以 config 值为准
-      expect(process.env.APOLLO_TEST_ENV_OVERRIDE).toBe('config-wins')
+      expect(process.env.VOLUND_TEST_ENV_OVERRIDE).toBe('config-wins')
     } finally {
-      if (previousSet === undefined) delete process.env.APOLLO_TEST_ENV_SET
-      else process.env.APOLLO_TEST_ENV_SET = previousSet
-      if (previousOverride === undefined) delete process.env.APOLLO_TEST_ENV_OVERRIDE
-      else process.env.APOLLO_TEST_ENV_OVERRIDE = previousOverride
+      if (previousSet === undefined) delete process.env.VOLUND_TEST_ENV_SET
+      else process.env.VOLUND_TEST_ENV_SET = previousSet
+      if (previousOverride === undefined) delete process.env.VOLUND_TEST_ENV_OVERRIDE
+      else process.env.VOLUND_TEST_ENV_OVERRIDE = previousOverride
     }
   })
 
   it('is a no-op when the user config is missing or has no [env] section', async () => {
     const root = await mkdtemp(join(process.cwd(), '.env-config-absent-'))
     fixtures.push(root)
-    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
     await expect(ports.config.applyEnv?.()).resolves.toBeUndefined()
     await writeFile(join(root, 'config.toml'), '[ui]\ntheme = "auto"\n')
     await expect(ports.config.applyEnv?.()).resolves.toBeUndefined()
@@ -1421,7 +1420,7 @@ describe('production [env] config application (§8.3)', () => {
     const root = await mkdtemp(join(process.cwd(), '.env-config-invalid-'))
     fixtures.push(root)
     await writeFile(join(root, 'config.toml'), '[env]\nPORT = 8080\n')
-    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
     await expect(ports.config.applyEnv?.()).rejects.toMatchObject({ code: 'config_invalid' })
   })
 
@@ -1430,32 +1429,32 @@ describe('production [env] config application (§8.3)', () => {
     fixtures.push(root)
     await writeFile(
       join(root, 'config.toml'),
-      '[env]\nAPOLLO_EXPAND_TILDE = "~/apollo-bin"\nAPOLLO_EXPAND_REF = "${APOLLO_EXPAND_BASE}/sub"\nAPOLLO_EXPAND_BARE = "$APOLLO_EXPAND_BASE/bare"\nAPOLLO_EXPAND_MISSING = "keep-${APOLLO_UNSET_XYZ}-literal"\nAPOLLO_EXPAND_BARE_MISSING = "keep-$APOLLO_UNSET_XYZ-literal"\n',
+      '[env]\nVOLUND_EXPAND_TILDE = "~/volund-bin"\nVOLUND_EXPAND_REF = "${VOLUND_EXPAND_BASE}/sub"\nVOLUND_EXPAND_BARE = "$VOLUND_EXPAND_BASE/bare"\nVOLUND_EXPAND_MISSING = "keep-${VOLUND_UNSET_XYZ}-literal"\nVOLUND_EXPAND_BARE_MISSING = "keep-$VOLUND_UNSET_XYZ-literal"\n',
     )
     const keys = [
-      'APOLLO_EXPAND_TILDE',
-      'APOLLO_EXPAND_REF',
-      'APOLLO_EXPAND_BARE',
-      'APOLLO_EXPAND_MISSING',
-      'APOLLO_EXPAND_BARE_MISSING',
-      'APOLLO_EXPAND_BASE',
+      'VOLUND_EXPAND_TILDE',
+      'VOLUND_EXPAND_REF',
+      'VOLUND_EXPAND_BARE',
+      'VOLUND_EXPAND_MISSING',
+      'VOLUND_EXPAND_BARE_MISSING',
+      'VOLUND_EXPAND_BASE',
     ] as const
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
-    process.env.APOLLO_EXPAND_BASE = '/opt/base'
+    process.env.VOLUND_EXPAND_BASE = '/opt/base'
     try {
-      const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+      const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
       await ports.config.applyEnv?.()
-      expect(process.env.APOLLO_EXPAND_TILDE).toBe(`${homedir()}/apollo-bin`)
-      expect(process.env.APOLLO_EXPAND_REF).toBe('/opt/base/sub')
+      expect(process.env.VOLUND_EXPAND_TILDE).toBe(`${homedir()}/volund-bin`)
+      expect(process.env.VOLUND_EXPAND_REF).toBe('/opt/base/sub')
       // 裸 $VAR：已设置则展开
-      expect(process.env.APOLLO_EXPAND_BARE).toBe('/opt/base/bare')
+      expect(process.env.VOLUND_EXPAND_BARE).toBe('/opt/base/bare')
       // 未设置的引用保持字面（${} 形式额外 warn；裸形式静默）
-      expect(process.env.APOLLO_EXPAND_MISSING).toBe('keep-${APOLLO_UNSET_XYZ}-literal')
-      expect(process.env.APOLLO_EXPAND_BARE_MISSING).toBe('keep-$APOLLO_UNSET_XYZ-literal')
+      expect(process.env.VOLUND_EXPAND_MISSING).toBe('keep-${VOLUND_UNSET_XYZ}-literal')
+      expect(process.env.VOLUND_EXPAND_BARE_MISSING).toBe('keep-$VOLUND_UNSET_XYZ-literal')
       // /env 的生效判定以 applyEnv 记录的应用值为基准：展开后的值判 effective
       const entries = await readEffectiveEnv(root)
-      expect(entries.find((entry) => entry.key === 'APOLLO_EXPAND_TILDE')).toMatchObject({
-        configured: `${homedir()}/apollo-bin`,
+      expect(entries.find((entry) => entry.key === 'VOLUND_EXPAND_TILDE')).toMatchObject({
+        configured: `${homedir()}/volund-bin`,
         status: 'effective',
       })
     } finally {
@@ -1481,8 +1480,8 @@ describe('expandEnvValue ([env] 前置解析)', () => {
     expect(expandEnvValue('${A}:${B}', { A: '1', B: '2' }, onUnresolved)).toBe('1:2')
     // 裸 $VAR：已设置才展开；未设置保持字面且静默（值里的 $ 常见于凭据/正则）
     expect(expandEnvValue('$A and $', { A: '1' }, onUnresolved)).toBe('1 and $')
-    expect(expandEnvValue('sk-$APOLLO_UNSET_ZZ-tail', { A: '1' }, onUnresolved)).toBe(
-      'sk-$APOLLO_UNSET_ZZ-tail',
+    expect(expandEnvValue('sk-$VOLUND_UNSET_ZZ-tail', { A: '1' }, onUnresolved)).toBe(
+      'sk-$VOLUND_UNSET_ZZ-tail',
     )
     // ${VAR} 是显式意图：未设置保持字面并上报名字
     expect(expandEnvValue('x-${MISSING}-y', { A: '1' }, onUnresolved)).toBe('x-${MISSING}-y')
@@ -1506,35 +1505,35 @@ describe('readEffectiveEnv (/env 数据源)', () => {
     fixtures.push(root)
     await writeFile(
       join(root, 'config.toml'),
-      '[env]\nAPOLLO_EFF_PROXY = "http://proxy:8080"\nAPOLLO_EFF_OVERRIDE = "configured"\nAPOLLO_EFF_PENDING = "not-yet"\n[tools]\npass_through_env = ["APOLLO_EFF_PROXY"]\n',
+      '[env]\nVOLUND_EFF_PROXY = "http://proxy:8080"\nVOLUND_EFF_OVERRIDE = "configured"\nVOLUND_EFF_PENDING = "not-yet"\n[tools]\npass_through_env = ["VOLUND_EFF_PROXY"]\n',
     )
     const previous = {
-      APOLLO_EFF_PROXY: process.env.APOLLO_EFF_PROXY,
-      APOLLO_EFF_OVERRIDE: process.env.APOLLO_EFF_OVERRIDE,
-      APOLLO_EFF_PENDING: process.env.APOLLO_EFF_PENDING,
+      VOLUND_EFF_PROXY: process.env.VOLUND_EFF_PROXY,
+      VOLUND_EFF_OVERRIDE: process.env.VOLUND_EFF_OVERRIDE,
+      VOLUND_EFF_PENDING: process.env.VOLUND_EFF_PENDING,
     }
-    process.env.APOLLO_EFF_PROXY = 'http://proxy:8080'
-    process.env.APOLLO_EFF_OVERRIDE = 'ambient'
-    delete process.env.APOLLO_EFF_PENDING
+    process.env.VOLUND_EFF_PROXY = 'http://proxy:8080'
+    process.env.VOLUND_EFF_OVERRIDE = 'ambient'
+    delete process.env.VOLUND_EFF_PENDING
     try {
       const entries = await readEffectiveEnv(root)
       expect(entries).toEqual([
         {
-          key: 'APOLLO_EFF_PROXY',
+          key: 'VOLUND_EFF_PROXY',
           configured: 'http://proxy:8080',
           actual: 'http://proxy:8080',
           status: 'effective',
           sandboxPassthrough: true, // pass_through_env 白名单
         },
         {
-          key: 'APOLLO_EFF_OVERRIDE',
+          key: 'VOLUND_EFF_OVERRIDE',
           configured: 'configured',
           actual: 'ambient',
           status: 'overridden',
           sandboxPassthrough: false,
         },
         {
-          key: 'APOLLO_EFF_PENDING',
+          key: 'VOLUND_EFF_PENDING',
           configured: 'not-yet',
           actual: null,
           status: 'pending',
@@ -1564,28 +1563,28 @@ describe('readEffectiveEnv (/env 数据源)', () => {
     // B 会被算成 "1/x" 而误报 overridden（一次性子命令无 applied 时确实如此）。
     await writeFile(
       join(root, 'config.toml'),
-      '[env]\nAPOLLO_SELF_A = "1"\nAPOLLO_SELF_B = "${APOLLO_SELF_A}/x"\n',
+      '[env]\nVOLUND_SELF_A = "1"\nVOLUND_SELF_B = "${VOLUND_SELF_A}/x"\n',
     )
     const previous = {
-      APOLLO_SELF_A: process.env.APOLLO_SELF_A,
-      APOLLO_SELF_B: process.env.APOLLO_SELF_B,
+      VOLUND_SELF_A: process.env.VOLUND_SELF_A,
+      VOLUND_SELF_B: process.env.VOLUND_SELF_B,
     }
-    process.env.APOLLO_SELF_A = '1'
-    process.env.APOLLO_SELF_B = '${APOLLO_SELF_A}/x'
+    process.env.VOLUND_SELF_A = '1'
+    process.env.VOLUND_SELF_B = '${VOLUND_SELF_A}/x'
     try {
       const entries = await readEffectiveEnv(root, {
-        APOLLO_SELF_A: '1',
-        APOLLO_SELF_B: '${APOLLO_SELF_A}/x',
+        VOLUND_SELF_A: '1',
+        VOLUND_SELF_B: '${VOLUND_SELF_A}/x',
       })
-      expect(entries.find((entry) => entry.key === 'APOLLO_SELF_B')).toMatchObject({
-        configured: '${APOLLO_SELF_A}/x',
-        actual: '${APOLLO_SELF_A}/x',
+      expect(entries.find((entry) => entry.key === 'VOLUND_SELF_B')).toMatchObject({
+        configured: '${VOLUND_SELF_A}/x',
+        actual: '${VOLUND_SELF_A}/x',
         status: 'effective',
       })
       // 无 applied（一次性子命令路径）：就地展开基准扣除本段 key 后 A 不可见，
       // B 保持字面，与实际值一致——同样判 effective，不产生假 overridden。
       const standalone = await readEffectiveEnv(root)
-      expect(standalone.find((entry) => entry.key === 'APOLLO_SELF_B')).toMatchObject({
+      expect(standalone.find((entry) => entry.key === 'VOLUND_SELF_B')).toMatchObject({
         status: 'effective',
       })
     } finally {
@@ -1606,7 +1605,7 @@ describe('registerPluginCommands', () => {
     }
     const unsubscribes = registerPluginCommands(
       registry,
-      'apollo-plugin-test',
+      'volund-plugin-test',
       [
         {
           name: 'env',
@@ -1622,7 +1621,7 @@ describe('registerPluginCommands', () => {
     // snapshot 按来源分组 + 名字字母序
     expect(snapshot.map((command) => command.name)).toEqual(['env', 'panel', 'silent'])
     expect(snapshot[0]).toMatchObject({
-      source: { kind: 'plugin', plugin: 'apollo-plugin-test' },
+      source: { kind: 'plugin', plugin: 'volund-plugin-test' },
     })
     await expect(
       snapshot[0]!.run({ args: ['--json'], name: 'env', raw: '/env --json' }),
@@ -1646,13 +1645,13 @@ describe('registerPluginCommands', () => {
     const onWarn = vi.fn()
     registerPluginCommands(
       registry,
-      'apollo-plugin-first',
+      'volund-plugin-first',
       [{ name: 'env', description: '', run: async () => undefined }],
       onWarn,
     )
     const second = registerPluginCommands(
       registry,
-      'apollo-plugin-second',
+      'volund-plugin-second',
       [
         { name: 'env', description: '', run: async () => undefined }, // 与 first 冲突
         { name: 'status', description: '', run: async () => undefined }, // 内置保留名
@@ -1702,12 +1701,12 @@ describe('status configuration adapter', () => {
   it('backfills tri-state native availability after parallel probing (r13-P1)', async () => {
     const root = await mkdtemp(join(process.cwd(), '.native-probe-composition-'))
     fixtures.push(root)
-    const previousVersion = process.env.APOLLO_VERSION
+    const previousVersion = process.env.VOLUND_VERSION
     // Keep resolution local-only so the test never touches the network.
-    process.env.APOLLO_VERSION = '0.0.0'
+    process.env.VOLUND_VERSION = '0.0.0'
     try {
       const ports = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       // Reading availability fires the probes lazily and starts in the probing
@@ -1729,8 +1728,8 @@ describe('status configuration adapter', () => {
       // startProbes is the composition-root parallel trigger and stays idempotent.
       ports.native.startProbes?.()
     } finally {
-      if (previousVersion === undefined) delete process.env.APOLLO_VERSION
-      else process.env.APOLLO_VERSION = previousVersion
+      if (previousVersion === undefined) delete process.env.VOLUND_VERSION
+      else process.env.VOLUND_VERSION = previousVersion
     }
   })
 
@@ -1742,7 +1741,7 @@ describe('status configuration adapter', () => {
     try {
       await writeFile(join(root, 'config.toml'), '[auth]\nanthropic_api_key = "config-layer"\n')
       const ports = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       await expect(ports.auth.health()).resolves.toEqual({
@@ -1763,7 +1762,7 @@ describe('status configuration adapter', () => {
     try {
       await writeFile(join(root, 'config.toml'), '[auth]\nskipAuth = true\n')
       const ports = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       await expect(ports.auth.health()).resolves.toEqual({
@@ -1790,7 +1789,7 @@ describe('status configuration adapter', () => {
       // early return did not fire — resolving at all proves the short-circuit.
       await writeFile(join(root, 'config.toml'), '[auth]\nskipAuth = true\n')
       const skipped = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       await expect(
@@ -1806,7 +1805,7 @@ describe('status configuration adapter', () => {
 
       await writeFile(join(root, 'config.toml'), '[auth]\nanthropic_api_key = "config-layer"\n')
       const keyed = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       await expect(
@@ -1832,7 +1831,7 @@ describe('status configuration adapter', () => {
         '[auth]\nskipAuth = true\nanthropic_api_key = "config-layer"\n',
       )
       const ports = createProductionPorts({
-        apolloHome: root,
+        volundHome: root,
         identity: { version: '1.2.3-test' },
       })
       await expect(ports.auth.health()).resolves.toEqual({
@@ -1854,7 +1853,7 @@ describe('status configuration adapter', () => {
       '[provider.anthropic]\nmodel = "aws/claude-sonnet-4-5"\nbaseUrl = "https://gateway.example"\n',
     )
     const ports = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     const status = await ports.config.status?.({ cwd: root })
@@ -1963,7 +1962,10 @@ describe('status configuration adapter', () => {
         upstream.pipe(clientSocket)
         clientSocket.pipe(upstream)
       })
-      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      const cleanup = (): void => {
+        upstream.destroy()
+        clientSocket.destroy()
+      }
       upstream.once('error', cleanup)
       clientSocket.once('close', cleanup)
       upstream.once('close', cleanup)
@@ -2043,10 +2045,10 @@ describe('status configuration adapter', () => {
     const net = await import('node:net')
     const https = await import('node:https')
     const { execSync } = await import('node:child_process')
-    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
-    const certDir = mkdtempSync(join(tmpdir(), 'apollo-proxy-test-'))
+    const certDir = mkdtempSync(join(tmpdir(), 'volund-proxy-test-'))
     const keyPath = join(certDir, 'key.pem')
     const certPath = join(certDir, 'cert.pem')
     execSync(
@@ -2077,7 +2079,10 @@ describe('status configuration adapter', () => {
         clientSocket.pipe(upstream)
       })
       // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
-      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      const cleanup = (): void => {
+        upstream.destroy()
+        clientSocket.destroy()
+      }
       upstream.once('error', cleanup)
       clientSocket.once('close', cleanup)
       upstream.once('close', cleanup)
@@ -2125,13 +2130,13 @@ describe('status configuration adapter', () => {
     const { execSync } = await import('node:child_process')
     const { mkdtempSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
-    const certDir = mkdtempSync(join(tmpdir(), 'apollo-ca-proxy-'))
+    const certDir = mkdtempSync(join(tmpdir(), 'volund-ca-proxy-'))
 
     // 1. 生成 CA 密钥 + 自签 CA 证书
     const caKeyPath = join(certDir, 'ca-key.pem')
     const caCertPath = join(certDir, 'ca-cert.pem')
     execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=Apollo Test CA" 2>/dev/null`,
+      `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=volund Test CA" 2>/dev/null`,
     )
 
     // 2. 生成服务器密钥 + CSR，用 CA 签名
@@ -2141,7 +2146,9 @@ describe('status configuration adapter', () => {
     const extPath = join(certDir, 'ext.cnf')
     writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
     execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
-    execSync(`openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`)
+    execSync(
+      `openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`,
+    )
     execSync(
       `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
     )
@@ -2168,7 +2175,10 @@ describe('status configuration adapter', () => {
         upstream.pipe(clientSocket)
         clientSocket.pipe(upstream)
       })
-      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      const cleanup = (): void => {
+        upstream.destroy()
+        clientSocket.destroy()
+      }
       upstream.once('error', cleanup)
       clientSocket.once('close', cleanup)
       upstream.once('close', cleanup)
@@ -2213,26 +2223,26 @@ describe('status configuration adapter', () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
     fixtures.push(root)
     const first = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     const memory = first.memory
     expect(memory).toBe(first.memory)
     await memory?.create({
       id: 'composition-root',
-      scope: { kind: 'project', workspaceId: 'local', projectId: 'apollo' },
+      scope: { kind: 'project', workspaceId: 'local', projectId: 'volund' },
       content: 'production reachable',
       provenance: { source: 'agent' },
     })
     await memory?.flush()
 
     const restarted = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     expect(
       await restarted.memory?.get(
-        { kind: 'project', workspaceId: 'local', projectId: 'apollo' },
+        { kind: 'project', workspaceId: 'local', projectId: 'volund' },
         'composition-root',
       ),
     ).toMatchObject({ content: 'production reachable' })
@@ -2241,9 +2251,9 @@ describe('status configuration adapter', () => {
   it('round trips a local memory archive through production ports without widening scope', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-transfer-composition-'))
     fixtures.push(root)
-    const scope = { kind: 'project', workspaceId: 'local', projectId: 'apollo' } as const
+    const scope = { kind: 'project', workspaceId: 'local', projectId: 'volund' } as const
     const source = createProductionPorts({
-      apolloHome: join(root, 'source'),
+      volundHome: join(root, 'source'),
       identity: { version: '1.2.3-test' },
     })
     await source.memory?.create({
@@ -2254,7 +2264,7 @@ describe('status configuration adapter', () => {
     })
     const archive = source.memoryTransfer?.serialize(await source.memoryTransfer.export([scope]))
     const target = createProductionPorts({
-      apolloHome: join(root, 'target'),
+      volundHome: join(root, 'target'),
       identity: { version: '1.2.3-test' },
     })
     await expect(target.memoryTransfer?.import(archive!, scope)).resolves.toMatchObject({
@@ -2275,7 +2285,7 @@ describe('status configuration adapter', () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-secret-composition-'))
     fixtures.push(root)
     const ports = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     const memory = ports.memory!
@@ -2337,7 +2347,7 @@ describe('status configuration adapter', () => {
     const root = await mkdtemp(join(process.cwd(), '.status-'))
     fixtures.push(root)
     const ports = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     const input = { cwd: process.cwd(), sessionId: 'session-test' }
@@ -2354,7 +2364,7 @@ describe('status configuration adapter', () => {
     const root = await mkdtemp(join(process.cwd(), '.status-health-'))
     fixtures.push(root)
     const ports = createProductionPorts({
-      apolloHome: root,
+      volundHome: root,
       identity: { version: '1.2.3-test' },
     })
     const configPath = join(root, 'config.toml')
@@ -2390,7 +2400,7 @@ describe('production memory plugin policy composition', () => {
     fixtures.push(root)
     const home = join(root, 'home')
     const pluginRoot = join(home, 'plugins')
-    const pluginName = 'apollo-plugin-memory-policy-test'
+    const pluginName = 'volund-plugin-memory-policy-test'
     await mkdir(join(pluginRoot, pluginName), { recursive: true })
     await writeFile(
       join(pluginRoot, 'plugins.json'),
@@ -2412,9 +2422,9 @@ describe('production memory plugin policy composition', () => {
         version: '1.2.3',
         type: 'module',
         main: 'missing-bundle.js',
-        engines: { apollo: '^0.1.0' },
+        engines: { volund: '^0.1.0' },
         permissions: {
-          apollo: ['hooks.on'],
+          volund: ['hooks.on'],
           memory: { read: ['workspace', 'project', 'session'] },
         },
       }),
@@ -2422,7 +2432,7 @@ describe('production memory plugin policy composition', () => {
     await writeFile(join(pluginRoot, pluginName, 'index.js'), 'throw new Error("must not run")')
 
     const ports = createProductionPorts({
-      apolloHome: home,
+      volundHome: home,
       identity: { version: '1.2.3' },
     })
     expect(await ports.plugin!.list()).toMatchObject({ [pluginName]: { enabled: false } })
@@ -2453,23 +2463,23 @@ describe('production plugin composition root containment', () => {
     await writeFile(
       join(source, 'manifest.json'),
       JSON.stringify({
-        name: 'apollo-plugin-composition-test',
+        name: 'volund-plugin-composition-test',
         version: '1.2.3',
         type: 'module',
         main: 'index.js',
-        engines: { apollo: '^1.2.3' },
-        permissions: { apollo: ['tools.register', 'commands.register'] },
+        engines: { volund: '^1.2.3' },
+        permissions: { volund: ['tools.register', 'commands.register'] },
       }),
     )
     await writeFile(
       join(source, 'index.js'),
-      `export async function activate(apollo) {
-          await apollo.tools.register({ name: 'plugin:apollo-plugin-composition-test:composition.tool', description: 'test', inputSchema: {}, async handler() { return 'ok' } })
-          await apollo.commands.register({ name: 'composition-command', async handler() {} })
+      `export async function activate(volund) {
+          await volund.tools.register({ name: 'plugin:volund-plugin-composition-test:composition.tool', description: 'test', inputSchema: {}, async handler() { return 'ok' } })
+          await volund.commands.register({ name: 'composition-command', async handler() {} })
         }`,
     )
     const ports = createProductionPorts({
-      apolloHome: join(root, 'home'),
+      volundHome: join(root, 'home'),
       identity: { version: '1.2.3' },
     })
     await expect(ports.plugin?.install(source)).rejects.toMatchObject({
@@ -2490,7 +2500,7 @@ describe('production plugin composition root containment', () => {
     await mkdir(join(home, 'plugins'), { recursive: true })
     await writeFile(join(home, 'plugins', 'plugins.json'), state())
     const ports = createProductionPorts({
-      apolloHome: home,
+      volundHome: home,
       identity: { version: '1.2.3' },
     })
 
@@ -2530,10 +2540,10 @@ describe('production plugin composition root containment', () => {
     const home = join(root, 'home')
     const pluginRoot = join(home, 'plugins')
     const outside = join(root, 'outside')
-    const symlinkedName = 'apollo-plugin-symlinked-diagnostic'
-    const oversizedName = 'apollo-plugin-oversized-diagnostic'
-    const permissionCountName = 'apollo-plugin-permission-count-diagnostic'
-    const permissionLengthName = 'apollo-plugin-permission-length-diagnostic'
+    const symlinkedName = 'volund-plugin-symlinked-diagnostic'
+    const oversizedName = 'volund-plugin-oversized-diagnostic'
+    const permissionCountName = 'volund-plugin-permission-count-diagnostic'
+    const permissionLengthName = 'volund-plugin-permission-length-diagnostic'
     await mkdir(outside, { recursive: true })
     await mkdir(pluginRoot, { recursive: true })
     await writeFile(
@@ -2541,8 +2551,8 @@ describe('production plugin composition root containment', () => {
       JSON.stringify({
         name: symlinkedName,
         version: '9.9.9',
-        engines: { apollo: '^9.0.0' },
-        permissions: { apollo: ['outside.secret'] },
+        engines: { volund: '^9.0.0' },
+        permissions: { volund: ['outside.secret'] },
       }),
     )
     await symlink(outside, join(pluginRoot, symlinkedName), 'dir')
@@ -2553,8 +2563,8 @@ describe('production plugin composition root containment', () => {
       join(pluginRoot, permissionCountName, 'manifest.json'),
       JSON.stringify({
         version: '9.9.9',
-        engines: { apollo: '^1.0.0' },
-        permissions: { apollo: Array.from({ length: 65 }, (_, index) => `tool.${index}`) },
+        engines: { volund: '^1.0.0' },
+        permissions: { volund: Array.from({ length: 65 }, (_, index) => `tool.${index}`) },
       }),
     )
     await mkdir(join(pluginRoot, permissionLengthName), { recursive: true })
@@ -2562,8 +2572,8 @@ describe('production plugin composition root containment', () => {
       join(pluginRoot, permissionLengthName, 'manifest.json'),
       JSON.stringify({
         version: '9.9.9',
-        engines: { apollo: '^1.0.0' },
-        permissions: { apollo: [`tool.${'x'.repeat(129)}`] },
+        engines: { volund: '^1.0.0' },
+        permissions: { volund: [`tool.${'x'.repeat(129)}`] },
       }),
     )
     await writeFile(
@@ -2594,7 +2604,7 @@ describe('production plugin composition root containment', () => {
       }),
     )
     const ports = createProductionPorts({
-      apolloHome: home,
+      volundHome: home,
       identity: { version: '1.2.3' },
     })
 
@@ -2630,7 +2640,7 @@ describe('production plugin composition root containment', () => {
     fixtures.push(root)
     const home = join(root, 'home')
     const pluginRoot = join(home, 'plugins')
-    const pluginName = 'apollo-plugin-safe-ops-test'
+    const pluginName = 'volund-plugin-safe-ops-test'
     await mkdir(join(pluginRoot, pluginName), { recursive: true })
     await writeFile(
       join(pluginRoot, pluginName, 'manifest.json'),
@@ -2639,8 +2649,8 @@ describe('production plugin composition root containment', () => {
         version: '1.2.3',
         type: 'module',
         main: 'missing-bundle.js',
-        engines: { apollo: '^0.1.0' },
-        permissions: { apollo: ['tools.register'] },
+        engines: { volund: '^0.1.0' },
+        permissions: { volund: ['tools.register'] },
       }),
     )
     await writeFile(
@@ -2657,7 +2667,7 @@ describe('production plugin composition root containment', () => {
       }),
     )
     const ports = createProductionPorts({
-      apolloHome: home,
+      volundHome: home,
       identity: { version: '1.2.3' },
     })
 
@@ -2703,7 +2713,7 @@ describe('production plugin composition root containment', () => {
     expect(JSON.parse(diagnosed.stdout)).toMatchObject({
       availability: { available: false, code: 'plugin_legacy_activation_unavailable' },
     })
-    const missing = await runCli(['plugin', 'doctor', 'apollo-plugin-missing', '--json'], ports)
+    const missing = await runCli(['plugin', 'doctor', 'volund-plugin-missing', '--json'], ports)
     const missingEvents = missing.stdout
       .trim()
       .split('\n')
@@ -2729,12 +2739,12 @@ describe('production config and history commands', () => {
   it('config set/get/list/unset round-trip through the real user config file', async () => {
     const root = await mkdtemp(join(process.cwd(), '.config-cmd-'))
     fixtures.push(root)
-    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
     const file = join(root, 'config.toml')
 
-    await expect(runCli(['config', 'set', 'provider.default', 'anthropic'], ports)).resolves.toMatchObject(
-      { exitCode: 0, stdout: `Set provider.default in ${file}\n` },
-    )
+    await expect(
+      runCli(['config', 'set', 'provider.default', 'anthropic'], ports),
+    ).resolves.toMatchObject({ exitCode: 0, stdout: `Set provider.default in ${file}\n` })
     await expect(
       runCli(['config', 'set', 'runner.maxToolLoopsPerTurn', '40'], ports),
     ).resolves.toMatchObject({ exitCode: 0 })
@@ -2742,9 +2752,9 @@ describe('production config and history commands', () => {
       exitCode: 0,
       stdout: 'anthropic\n',
     })
-    await expect(runCli(['config', 'get', 'runner.maxToolLoopsPerTurn'], ports)).resolves.toMatchObject(
-      { exitCode: 0, stdout: '40\n' },
-    )
+    await expect(
+      runCli(['config', 'get', 'runner.maxToolLoopsPerTurn'], ports),
+    ).resolves.toMatchObject({ exitCode: 0, stdout: '40\n' })
     const listed = await runCli(['config', 'list'], ports)
     expect(listed.exitCode).toBe(0)
     expect(listed.stdout).toContain('[provider]')
@@ -2781,13 +2791,13 @@ describe('production config and history commands', () => {
     fixtures.push(root)
     const cwd = await mkdtemp(join(process.cwd(), '.config-cmd-cwd-'))
     fixtures.push(cwd)
-    await mkdir(join(cwd, '.apollo'), { recursive: true })
+    await mkdir(join(cwd, '.volund'), { recursive: true })
     await writeFile(
-      join(cwd, '.apollo', 'config.toml'),
+      join(cwd, '.volund', 'config.toml'),
       '[context]\npolicy = "summary"\n\n[auth]\nskipAuth = true\n',
       'utf8',
     )
-    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
 
     const listed = await runCli(['config', 'list', '--json', '--cwd', cwd], ports)
     expect(listed.exitCode).toBe(0)
@@ -2802,12 +2812,45 @@ describe('production config and history commands', () => {
     await mkdir(sessionsDir, { recursive: true })
     const id = '018f2d3a-0000-7000-8000-00000000000a'
     const lines = [
-      { v: 1, id: `${id}-1`, type: 'session.started', sessionId: id, at: '2026-08-01T10:00:00.000Z', payload: { cwd: process.cwd() } },
-      { v: 1, id: `${id}-2`, type: 'message.appended', sessionId: id, at: '2026-08-01T10:01:00.000Z', payload: { messageId: 'user-1', role: 'user', content: [{ type: 'text', text: 'hello history' }] } },
-      { v: 1, id: `${id}-3`, type: 'message.appended', sessionId: id, at: '2026-08-01T10:02:00.000Z', payload: { messageId: 'assistant-1', role: 'assistant', content: [{ type: 'text', text: 'hi there' }] } },
+      {
+        v: 1,
+        id: `${id}-1`,
+        type: 'session.started',
+        sessionId: id,
+        at: '2026-08-01T10:00:00.000Z',
+        payload: { cwd: process.cwd() },
+      },
+      {
+        v: 1,
+        id: `${id}-2`,
+        type: 'message.appended',
+        sessionId: id,
+        at: '2026-08-01T10:01:00.000Z',
+        payload: {
+          messageId: 'user-1',
+          role: 'user',
+          content: [{ type: 'text', text: 'hello history' }],
+        },
+      },
+      {
+        v: 1,
+        id: `${id}-3`,
+        type: 'message.appended',
+        sessionId: id,
+        at: '2026-08-01T10:02:00.000Z',
+        payload: {
+          messageId: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi there' }],
+        },
+      },
     ]
-    await writeFile(join(sessionsDir, `${id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf8')
-    const ports = createProductionPorts({ apolloHome: root, identity: { version: '1.2.3-test' } })
+    await writeFile(
+      join(sessionsDir, `${id}.jsonl`),
+      `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`,
+      'utf8',
+    )
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
 
     const listed = await runCli(['history', 'list', '--json'], ports)
     expect(listed.exitCode).toBe(0)
@@ -2819,9 +2862,9 @@ describe('production config and history commands', () => {
     expect(shown.exitCode).toBe(0)
     expect(shown.stdout).toContain('hello history')
     expect(shown.stdout).toContain('hi there')
-    await expect(runCli(['history', 'show', '018f2d3a-0000-7000-8000-0000000000ff'], ports)).resolves.toMatchObject(
-      { exitCode: 3 },
-    )
+    await expect(
+      runCli(['history', 'show', '018f2d3a-0000-7000-8000-0000000000ff'], ports),
+    ).resolves.toMatchObject({ exitCode: 3 })
 
     const exported = await runCli(['history', 'export', id], ports)
     expect(exported.exitCode).toBe(0)

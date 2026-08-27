@@ -5,14 +5,15 @@ export type StatusTone = 'default' | 'info' | 'success' | 'warning' | 'danger' |
 export type TerminalSize = { columns: number; rows: number }
 
 export interface WelcomeScreenState {
-  app: { name: 'Apollo Code'; version: string }
-  workspace: { cwd: string; displayCwd: string; trustLabel: string; trustTone: StatusTone }
-  provider: { label: string; authLabel: string; authTone: StatusTone }
+  app: { name: string; version: string }
+  workspace: { displayCwd: string; trustLabel: string; trustTone: StatusTone }
+  provider: { label: string }
   sandbox: { label: string; tone: StatusTone }
   permission: { label: string; tone: StatusTone }
-  session: { label: string; contextLabel: string; tokensRemainingLabel: string | null }
+  session: { label: string; tokensRemainingLabel: string | null }
   agent: { mode: string; status: string; thinking: 'on' | 'off' }
-  firstRunChecks: ReadonlyArray<{ id: string; label: string; tone: StatusTone }>
+  /** 最近会话标题（已过滤当前会话，至多 3 条）；空数组渲染 "No recent activity"。 */
+  recentActivity: ReadonlyArray<string>
 }
 
 export interface WelcomeScreenProps {

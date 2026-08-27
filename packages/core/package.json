@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/core",
+  "name": "@volund/core",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,10 +17,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/provider-kit": "workspace:*",
-    "@apollo-code/router": "workspace:*",
-    "@apollo-code/shared": "workspace:*",
-    "@apollo-code/tool-kit": "workspace:*",
+    "@volund/provider-kit": "workspace:*",
+    "@volund/router": "workspace:*",
+    "@volund/shared": "workspace:*",
+    "@volund/tool-kit": "workspace:*",
     "immer": "catalog:",
     "uuid": "catalog:"
   },

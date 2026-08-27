@@ -1,4 +1,4 @@
-# @apollo-code/plugin-runtime
+# @volund/plugin-runtime
 
 ## 0.1.0
 
@@ -16,7 +16,7 @@
 - 3780728: Add the provider plugin registry, header-template authentication boundary, dedicated buffered streaming transport contract, and explicit plugin provider routing.
 - 4b4f0ac: Kill unresponsive plugin hosts with a bounded heartbeat watchdog and dispose their runtime registrations.
 - eeca5e1: Add a fail-closed provider signing fixture contract with explicit approval, minimal temporary environment injection, cleanup, and log redaction helpers.
-- f4e0e08: Add the complete permission-gated Apollo JSBridge API, ordered veto hooks, isolated hook KV, resource quotas, cancellation, redacted logging, and lifecycle cleanup.
+- f4e0e08: Add the complete permission-gated volund JSBridge API, ordered veto hooks, isolated hook KV, resource quotas, cancellation, redacted logging, and lifecycle cleanup.
 
 ### Patch Changes
 
@@ -55,6 +55,6 @@
 - Updated dependencies [01ffdbd]
 - Updated dependencies [ad4613e]
 - Updated dependencies [f4e0e08]
-  - @apollo-code/native-bridge@0.1.0
-  - @apollo-code/plugin-sdk@0.1.0
-  - @apollo-code/provider-kit@0.1.0
+  - @volund/native-bridge@0.1.0
+  - @volund/plugin-sdk@0.1.0
+  - @volund/provider-kit@0.1.0

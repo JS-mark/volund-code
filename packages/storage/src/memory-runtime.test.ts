@@ -23,12 +23,12 @@ const vitestExecutable = join(
   'vitest.mjs',
 )
 const workspace = { kind: 'workspace', workspaceId: 'ws' } as const
-const project = { kind: 'project', workspaceId: 'ws', projectId: 'apollo' } as const
+const project = { kind: 'project', workspaceId: 'ws', projectId: 'volund' } as const
 const otherProject = { kind: 'project', workspaceId: 'ws', projectId: 'other' } as const
 const session = {
   kind: 'session',
   workspaceId: 'ws',
-  projectId: 'apollo',
+  projectId: 'volund',
   sessionId: 'session-1',
 } as const
 
@@ -37,7 +37,7 @@ afterEach(async () => {
 })
 
 async function snapshotPath() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-runtime-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-runtime-'))
   roots.push(root)
   return join(root, 'memory', 'records.json')
 }
@@ -218,9 +218,9 @@ describe('DefaultMemoryService', () => {
     const helper = join(import.meta.dirname, 'memory-runtime.child.test.ts')
     const children = ['first', 'second'].map((id) =>
       runChild(helper, {
-        APOLLO_MEMORY_CHILD_FILE: file,
-        APOLLO_MEMORY_CHILD_GATE: gate,
-        APOLLO_MEMORY_CHILD_ID: id,
+        VOLUND_MEMORY_CHILD_FILE: file,
+        VOLUND_MEMORY_CHILD_GATE: gate,
+        VOLUND_MEMORY_CHILD_ID: id,
       }),
     )
     const childrenDone = Promise.all(children)
@@ -284,7 +284,7 @@ describe('DefaultMemoryService', () => {
       `AKIA${'FAKE'.repeat(4)}`,
       `eyJ${'F'.repeat(8)}.${'A'.repeat(12)}.${'K'.repeat(12)}`,
       `Authorization: Bearer ${'FAKE'.repeat(4)}`,
-      `redis://apollo:${'FAKE'.repeat(3)}@cache.example.test/0`,
+      `redis://volund:${'FAKE'.repeat(3)}@cache.example.test/0`,
     ]
 
     for (const [index, content] of corpus.entries()) {

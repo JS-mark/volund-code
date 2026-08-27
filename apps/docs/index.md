@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Apollo Code — model-agnostic coding agent
+title: Volund CLI — model-agnostic coding agent
 description: A permission-first, model-agnostic coding agent for your terminal.
 ---
 

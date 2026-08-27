@@ -37,25 +37,25 @@ describe('themes and declarative plugin UI', () => {
 
   it('isolates, orders, cleans up, and headlessly ignores contributions', () => {
     const registry = new PluginUiRegistry()
-    const low = registry.register('apollo-plugin-a', {
+    const low = registry.register('volund-plugin-a', {
       id: 'branch',
       surface: 'status-bar',
       text: 'main',
     })
-    registry.register('apollo-plugin-b', {
+    registry.register('volund-plugin-b', {
       id: 'cost',
       surface: 'status-bar',
       text: '$0.01',
       priority: 10,
     })
     expect(registry.list('status-bar').map((item) => item.plugin)).toEqual([
-      'apollo-plugin-b',
-      'apollo-plugin-a',
+      'volund-plugin-b',
+      'volund-plugin-a',
     ])
     low.dispose()
     expect(registry.list('status-bar')).toHaveLength(1)
     const headless = new PluginUiRegistry(true)
-    headless.register('apollo-plugin-a', { id: 'x', surface: 'status-bar', text: 'ignored' })
+    headless.register('volund-plugin-a', { id: 'x', surface: 'status-bar', text: 'ignored' })
     expect(headless.list('status-bar')).toEqual([])
   })
 })

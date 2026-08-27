@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/storage",
+  "name": "@volund/storage",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,10 +17,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/core": "workspace:*",
-    "@apollo-code/permission": "workspace:*",
-    "@apollo-code/provider-kit": "workspace:*",
-    "@apollo-code/shared": "workspace:*",
+    "@volund/core": "workspace:*",
+    "@volund/permission": "workspace:*",
+    "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*",
     "uuid": "catalog:"
   },
   "devDependencies": {

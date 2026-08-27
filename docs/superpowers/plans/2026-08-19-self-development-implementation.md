@@ -2,7 +2,7 @@
 
 > **状态**：PROPOSED / UNSTARTED。本文是实现顺序和 evidence contract，不表示任何 Self-Development 能力已经交付。
 >
-> **权威规范**：[§18 受控自我开发 / 变更流水线](../specs/2026-07-31-apollo-code-design/18-self-development.md)；运行时参数 tuning 另见 [§15](../specs/2026-07-31-apollo-code-design/15-self-evolution.md)。
+> **权威规范**：[§18 受控自我开发 / 变更流水线](../specs/2026-07-31-volund-code-design/18-self-development.md)；运行时参数 tuning 另见 [§15](../specs/2026-07-31-volund-code-design/15-self-evolution.md)。
 >
 > **目标 release**：`0.1.0-beta.1`，范围止于 SD4 branch-only。SD5 不进入该 beta。
 >
@@ -79,14 +79,14 @@ SD0-01 → SD0-02 → SD0-03
 
 - **Scope**：修改 `packages/permission`，在 v1 取消所有 raw Bash 的 silent auto-allow；不再让 prefix regex、字符串 parser 或“看起来只读”的 allowlist 成为无提示授权依据。普通交互会话中的任意 Bash 都按现有显式 prompt/deny policy 处理；§18 Runner 永不暴露 Bash，进程执行只经 base-owned typed `Check.run(suiteId)`。
 - **Dependencies**：无；它是所有专用 Runner 之前的 P0。
-- **Tests/evidence**：`packages/permission/src/index.test.ts` 增加 table corpus，至少覆盖普通 `git status`/`git diff`、`;`、`&&`、newline、pipe、redirect、backtick、`$()`、Unicode whitespace、quoted control token 和未知 executable；断言每个 raw command 都**不会 silent auto-allow**，合法只读命令同样进入显式 prompt/deny。运行 `pnpm --filter @apollo-code/permission test`、typecheck 和依赖它的 CLI permission integration；另由 SD3-01 测试 typed `Check.run`，两条能力不可混用。
+- **Tests/evidence**：`packages/permission/src/index.test.ts` 增加 table corpus，至少覆盖普通 `git status`/`git diff`、`;`、`&&`、newline、pipe、redirect、backtick、`$()`、Unicode whitespace、quoted control token 和未知 executable；断言每个 raw command 都**不会 silent auto-allow**，合法只读命令同样进入显式 prompt/deny。运行 `pnpm --filter @volund/permission test`、typecheck 和依赖它的 CLI permission integration；另由 SD3-01 测试 typed `Check.run`，两条能力不可混用。
 - **Human gate**：独立 security reviewer 审查权限差异、UX 影响和完整攻击 corpus；未签字不得开始 SD0-02。
 
 ### SD0-02 · Builtin Hook 不得因截断漏扫后缀
 
 - **Scope**：修改 `packages/plugin-runtime` 的 builtin Hook payload gate。当前 >1MB payload 在 dispatch 前截断会让危险内容藏在未扫描后缀；v1 明确选择 **strict canonical JSON-v1 计量后超限 direct-veto**，不做 streaming scan：每个 builtin handler 输入及每次 non-veto completion（含原地 mutation/返回 void）都复检并以 fresh measured clone 继续；serialized bytes ≤ 1 MiB 时传完整 payload，> 1 MiB 时 handler 不调用。direct-veto 写 `{rawBytes,rawDigest,scanStatus:'not_started',scannedBytes:0,scannedDigest:null,decision:'veto'}`；serialization/资源预算失败沿 `builtin_hook_error` typed veto，不能伪造 digest。未来只有真的 full scan 成功才可写 `scanStatus:'complete'`，并要求 raw/scanned length 与 digest 一致。非 builtin fail-open 语义不得扩散到安全 Hook。
 - **Dependencies**：SD0-01。
-- **Tests/evidence**：在 `domain-hooks.test.ts` 覆盖危险片段位于 1 MiB 之后、exact limit/limit+1、UTF-8 边界、深层/多字段 JSON、cycle/BigInt/accessor/non-plain/Proxy、depth/node/work resource budget、Uint8Array spoof/cross-realm SAB/tight subview、builtin 显式 rewrite 与原地 mutation 复检和 timeout/crash；direct-veto 逐字段断言 `rawBytes/rawDigest + not_started + 0 + null + veto`。真实 ToolExecutor 断言 `preToolUse` veto 时 permission/native invoke=0；`postToolUse` 只封锁结果且不宣称回滚。plugin/project/user oversized rewrite 原语义保持。运行 `pnpm --filter @apollo-code/plugin-runtime test`、typecheck 和 CLI tool-hook/mapper tests。
+- **Tests/evidence**：在 `domain-hooks.test.ts` 覆盖危险片段位于 1 MiB 之后、exact limit/limit+1、UTF-8 边界、深层/多字段 JSON、cycle/BigInt/accessor/non-plain/Proxy、depth/node/work resource budget、Uint8Array spoof/cross-realm SAB/tight subview、builtin 显式 rewrite 与原地 mutation 复检和 timeout/crash；direct-veto 逐字段断言 `rawBytes/rawDigest + not_started + 0 + null + veto`。真实 ToolExecutor 断言 `preToolUse` veto 时 permission/native invoke=0；`postToolUse` 只封锁结果且不宣称回滚。plugin/project/user oversized rewrite 原语义保持。运行 `pnpm --filter @volund/plugin-runtime test`、typecheck 和 CLI tool-hook/mapper tests。
 - **Human gate**：独立 security reviewer 核对扫描覆盖、资源上限、DoS 行为和 fail-closed 日志；未签字不得开始 SD0-03。
 
 ### SD0-03 · 冻结 Self-Development threat model 与安全默认

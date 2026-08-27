@@ -1,4 +1,4 @@
-# @apollo-code/plugin-sdk
+# @volund/plugin-sdk
 
 ## 0.1.0
 
@@ -14,7 +14,7 @@
 - 1dafc88: Add versioned theme tokens and permission-gated declarative plugin status-bar contributions with lifecycle cleanup and headless isolation.
 - 3780728: Add the provider plugin registry, header-template authentication boundary, dedicated buffered streaming transport contract, and explicit plugin provider routing.
 - eeca5e1: Add a fail-closed provider signing fixture contract with explicit approval, minimal temporary environment injection, cleanup, and log redaction helpers.
-- f4e0e08: Add the complete permission-gated Apollo JSBridge API, ordered veto hooks, isolated hook KV, resource quotas, cancellation, redacted logging, and lifecycle cleanup.
+- f4e0e08: Add the complete permission-gated volund JSBridge API, ordered veto hooks, isolated hook KV, resource quotas, cancellation, redacted logging, and lifecycle cleanup.
 
 ### Patch Changes
 
@@ -28,4 +28,4 @@
 - Updated dependencies [568cb92]
 - Updated dependencies [3816925]
 - Updated dependencies [01ffdbd]
-  - @apollo-code/provider-kit@0.1.0
+  - @volund/provider-kit@0.1.0

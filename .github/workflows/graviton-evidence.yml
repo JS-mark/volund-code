@@ -11,7 +11,7 @@ permissions:
 jobs:
   hardware-sample:
     # Never provisions paid infrastructure; dispatch targets an existing controlled runner.
-    runs-on: [self-hosted, linux, arm64, apollo-graviton]
+    runs-on: [self-hosted, linux, arm64, volund-graviton]
     timeout-minutes: 30
     steps:
       - name: Validate immutable candidate
@@ -29,7 +29,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p evidence
-          command='cargo test --workspace && cargo build -p apollo-sandbox --bin apollo-sandbox && crates/apollo-sandbox/tests/escape/run.sh target/debug/apollo-sandbox'
+          command='cargo test --workspace && cargo build -p volund-sandbox --bin volund-sandbox && crates/volund-sandbox/tests/escape/run.sh target/debug/volund-sandbox'
           started_at=$(date -u +%FT%TZ)
           set +e
           bash -lc "$command" 2>&1 | tee evidence/raw-summary.txt

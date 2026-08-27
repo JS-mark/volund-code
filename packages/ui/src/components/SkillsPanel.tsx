@@ -140,8 +140,10 @@ export function SkillsPanel({
       }
       if (key.downArrow || input === 'j') setDetailScroll((value) => Math.min(maxScroll, value + 1))
       else if (key.upArrow || input === 'k') setDetailScroll((value) => Math.max(0, value - 1))
-      else if (key.pageDown || input === 'd') setDetailScroll((value) => Math.min(maxScroll, value + detailViewport(terminalRows)))
-      else if (key.pageUp || input === 'u') setDetailScroll((value) => Math.max(0, value - detailViewport(terminalRows)))
+      else if (key.pageDown || input === 'd')
+        setDetailScroll((value) => Math.min(maxScroll, value + detailViewport(terminalRows)))
+      else if (key.pageUp || input === 'u')
+        setDetailScroll((value) => Math.max(0, value - detailViewport(terminalRows)))
       return
     }
     if (key.escape) {
@@ -188,7 +190,10 @@ export function SkillsPanel({
     const viewport = detailViewport(terminalRows)
     const visible = lines.slice(detailScroll, detailScroll + viewport)
     return (
-      <PanelFrame footer="↑/↓ scroll · Enter/Esc back to list" title={`Skills · ${current?.name ?? ''}`}>
+      <PanelFrame
+        footer="↑/↓ scroll · Enter/Esc back to list"
+        title={`Skills · ${current?.name ?? ''}`}
+      >
         <Box flexDirection="column">
           {visible.map((line, index) => (
             <Text key={index}>{truncateTerminal(line || ' ', terminalColumns - 6)}</Text>
@@ -218,7 +223,9 @@ export function SkillsPanel({
             const colorProps = statusColorProps(entry, noColor)
             return (
               <Box key={item.id} gap={1}>
-                <Text {...(selectedRow ? { color: 'cyan' as const } : {})}>{selectedRow ? '▸' : ' '}</Text>
+                <Text {...(selectedRow ? { color: 'cyan' as const } : {})}>
+                  {selectedRow ? '▸' : ' '}
+                </Text>
                 <Text {...colorProps}>{switchGlyph(entry)}</Text>
                 <Text {...colorProps} wrap="truncate">
                   {truncateTerminal(

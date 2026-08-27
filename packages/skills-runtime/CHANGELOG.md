@@ -1,4 +1,4 @@
-# @apollo-code/skills-runtime
+# @volund/skills-runtime
 
 ## 0.1.0
 
@@ -23,5 +23,5 @@
 - Updated dependencies [d631d20]
 - Updated dependencies [d348244]
 - Updated dependencies [01ffdbd]
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/core@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/core@0.1.0

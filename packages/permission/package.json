@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/permission",
+  "name": "@volund/permission",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/shared": "workspace:*",
+    "@volund/shared": "workspace:*",
     "picomatch": "^4.0.5"
   },
   "devDependencies": {

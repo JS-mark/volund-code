@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, open, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
-import type { Disposable, PromptComposer } from '@apollo-code/core'
+import type { Disposable, PromptComposer } from '@volund/core'
 import { parse } from 'yaml'
 
 /** SKILLS-MCPS-r1 §S3.1：标准 skill 名约束（agentskills.io）。 */
@@ -15,7 +15,7 @@ export type SkillScope = 'user' | 'project'
 export interface SkillSource {
   dir: string
   scope: SkillScope
-  /** 互操作路径（.agents/skills）：Apollo 只读不写。 */
+  /** 互操作路径（.agents/skills）：Volund 只读不写。 */
   interop?: boolean
 }
 export type SkillStatus =
@@ -28,7 +28,7 @@ export type SkillStatus =
 export interface SkillMetadata {
   name: string
   description: string
-  apolloVersion?: string
+  volundVersion?: string
   version?: string
   activation?: { manual?: boolean; auto?: Array<{ path_exists?: string; secret?: string }> }
   resources: string[]
@@ -50,7 +50,7 @@ export interface SkillsRuntimeOptions {
   skillsDir?: string
   /** 多作用域发现源，数组顺序即优先级（前者覆盖后者同名）。 */
   sources?: readonly SkillSource[]
-  apolloVersion: string
+  volundVersion: string
   composer: PromptComposer
   /** 持久禁用名单（config [skills] disabled）：不进 index、activate 拒绝。 */
   disabled?: ReadonlySet<string>
@@ -62,20 +62,20 @@ export interface SkillsRuntimeOptions {
 
 /**
  * SKILLS-MCPS-r1 §S3.2 默认发现顺序（高 → 低）：
- * `<cwd>/.apollo/skills` > `<cwd>/.agents/skills`（互操作）>
- * `<apolloHome>/skills` > `<userHome>/.agents/skills`（互操作）。
- * userHome 独立于 apolloHome：APOLLO_HOME 可指向自定义目录，而 `.agents` 互操作
+ * `<cwd>/.volund/skills` > `<cwd>/.agents/skills`（互操作）>
+ * `<volundHome>/skills` > `<userHome>/.agents/skills`（互操作）。
+ * userHome 独立于 volundHome：VOLUND_HOME 可指向自定义目录，而 `.agents` 互操作
  * 路径约定挂在真实用户主目录（业界事实，Gemini/Codex/Cursor/Copilot 共用）。
  */
 export function defaultSkillSources(input: {
-  apolloHome: string
+  volundHome: string
   userHome: string
   cwd: string
 }): SkillSource[] {
   return [
-    { dir: join(input.cwd, '.apollo', 'skills'), scope: 'project' },
+    { dir: join(input.cwd, '.volund', 'skills'), scope: 'project' },
     { dir: join(input.cwd, '.agents', 'skills'), scope: 'project', interop: true },
-    { dir: join(input.apolloHome, 'skills'), scope: 'user' },
+    { dir: join(input.volundHome, 'skills'), scope: 'user' },
     { dir: join(input.userHome, '.agents', 'skills'), scope: 'user', interop: true },
   ]
 }
@@ -161,9 +161,9 @@ export class SkillsRuntime {
             incompatible: false,
           }
           if (typeof data.version === 'string') skill.version = data.version
-          // SKILLS-MCPS-r1 §S3.1：apolloVersion 双读——存量字段可选，出现才校验。
-          if (typeof data.apolloVersion === 'string' && data.apolloVersion)
-            skill.apolloVersion = data.apolloVersion
+          // SKILLS-MCPS-r1 §S3.1：volundVersion 双读——存量字段可选，出现才校验。
+          if (typeof data.volundVersion === 'string' && data.volundVersion)
+            skill.volundVersion = data.volundVersion
           // SKILLS-MCPS-r1 §S3.1：标准约束——name 合法且必须与目录名一致。
           if (!validSkillName(skill.name))
             throw new TypeError(
@@ -184,10 +184,10 @@ export class SkillsRuntime {
           }
           this.#broken.delete(skill.name)
           this.#skills.set(skill.name, skill)
-          if (skill.apolloVersion && !compatible(skill.apolloVersion, this.options.apolloVersion)) {
+          if (skill.volundVersion && !compatible(skill.volundVersion, this.options.volundVersion)) {
             skill.incompatible = true
             this.options.onWarning?.(
-              `Skill ${skill.name} requires Apollo ${skill.apolloVersion}; running ${this.options.apolloVersion}`,
+              `Skill ${skill.name} requires volund ${skill.volundVersion}; running ${this.options.volundVersion}`,
             )
           }
         } catch (error) {
@@ -214,7 +214,7 @@ export class SkillsRuntime {
       : []
     const sourceRoot = await realpath(sourceDir)
     // SKILLS-MCPS-r1 §S3.2：默认装 user scope；--scope project 装到
-    // <cwd>/.apollo/skills（可写 = 非 interop 的目标作用域源）。
+    // <cwd>/.volund/skills（可写 = 非 interop 的目标作用域源）。
     const writable = this.#sources.find(
       (source) => !source.interop && source.scope === (options.scope ?? 'user'),
     )
@@ -269,8 +269,7 @@ export class SkillsRuntime {
         )
         if (visible.length === 0) return ''
         const lines = visible.map(
-          (skill) =>
-            `- ${skill.name}: ${truncateDescription(skill.description)} (${skill.scope})`,
+          (skill) => `- ${skill.name}: ${truncateDescription(skill.description)} (${skill.scope})`,
         )
         // 预算超限时从尾部退化为 name-only 行，保住全部名字（可激活性优先于描述）。
         let text = renderIndex(lines)
@@ -384,9 +383,7 @@ export class SkillsRuntime {
       result.push({
         ...skill,
         status,
-        ...(skill.incompatible
-          ? { reason: `requires Apollo ${skill.apolloVersion}` }
-          : {}),
+        ...(skill.incompatible ? { reason: `requires volund ${skill.volundVersion}` } : {}),
       })
     }
     for (const [name, shadow] of this.#shadowed) {

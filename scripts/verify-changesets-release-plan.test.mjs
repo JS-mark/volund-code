@@ -38,7 +38,7 @@ void test('Changesets never mix ignored and publishable packages', async () => {
 })
 
 void test('Changesets builds the release plan and rejects deleted workspace packages', async () => {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'apollo-changesets-'))
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'volund-changesets-'))
   const validPlanPath = join(temporaryDirectory, 'release-plan.json')
   const worktreePath = join(temporaryDirectory, 'invalid-worktree')
 
@@ -48,9 +48,9 @@ void test('Changesets builds the release plan and rejects deleted workspace pack
 
     const plan = JSON.parse(await readFile(validPlanPath, 'utf8'))
     assert.ok(plan.releases.length > 0)
-    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@apollo-code/native-fs-')))
-    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@apollo-code/native-sandbox-')))
-    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@apollo-code/native-search-')))
+    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-fs-')))
+    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-sandbox-')))
+    assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-search-')))
 
     const addWorktree = spawnSync('git', ['worktree', 'add', '--detach', worktreePath, 'HEAD'], {
       cwd: root,
@@ -60,7 +60,7 @@ void test('Changesets builds the release plan and rejects deleted workspace pack
 
     await writeFile(
       join(worktreePath, '.changeset', 'deleted-native-package.md'),
-      "---\n'@apollo-code/native-fs-darwin-arm64': patch\n---\n\nInvalid deleted package reference.\n",
+      "---\n'@volund/native-fs-darwin-arm64': patch\n---\n\nInvalid deleted package reference.\n",
     )
 
     const invalidStatus = runChangesetStatus(

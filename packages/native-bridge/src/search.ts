@@ -114,12 +114,12 @@ export async function* astQuery(
   signal?: AbortSignal,
 ): AsyncIterable<AstMatch> {
   throwIfAborted(signal)
-  if (!nativeSearchReady()) throw new Error('AST query requires the native apollo-search worker')
+  if (!nativeSearchReady()) throw new Error('AST query requires the native volund-search worker')
   let result: { matches?: AstMatch[] }
   try {
     result = (await workerPool.call('search', 'search.ast_query', options)) as typeof result
   } catch (error) {
-    throw new Error('AST query requires the native apollo-search worker', { cause: error })
+    throw new Error('AST query requires the native volund-search worker', { cause: error })
   }
   for (const match of result.matches ?? []) {
     throwIfAborted(signal)

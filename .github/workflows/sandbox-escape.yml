@@ -71,29 +71,29 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - if: matrix.verification == 'native'
-        run: cargo test -p apollo-sandbox --target ${{ matrix.target }}
+        run: cargo test -p volund-sandbox --target ${{ matrix.target }}
       - if: ${{ !contains(matrix.target, 'musl') }}
-        run: cargo build -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
+        run: cargo build -p volund-sandbox --bin volund-sandbox --target ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
-        run: cargo zigbuild -p apollo-sandbox --bin apollo-sandbox --target ${{ matrix.target }}
+        run: cargo zigbuild -p volund-sandbox --bin volund-sandbox --target ${{ matrix.target }}
       - if: matrix.verification == 'native-tier2'
         name: Run Windows Tier 2 AppContainer, ACL rollback, and escape suite
         shell: pwsh
-        run: ./crates/apollo-sandbox/tests/escape/windows-tier2.ps1 "target/${{ matrix.target }}/debug/apollo-sandbox.exe"
+        run: ./crates/volund-sandbox/tests/escape/windows-tier2.ps1 "target/${{ matrix.target }}/debug/volund-sandbox.exe"
       - if: matrix.verification == 'cross-verified'
         name: Run musl x64 escape suite on the host kernel
-        run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
+        run: bash crates/volund-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/volund-sandbox
       - if: matrix.verification == 'native'
         name: Run upstream-derived sandbox smoke and escape suite
-        run: bash crates/apollo-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/apollo-sandbox
+        run: bash crates/volund-sandbox/tests/escape/run.sh target/${{ matrix.target }}/debug/volund-sandbox
       - if: matrix.verification == 'partial-verified'
         name: Exercise QEMU binary and verify the documented namespace limitation
         run: |
-          binary=target/${{ matrix.target }}/debug/apollo-sandbox
+          binary=target/${{ matrix.target }}/debug/volund-sandbox
           "$binary" --verify-bwrap-digest
           "$binary" --probe > qemu-probe.json
           set +e
-          output=$(bash crates/apollo-sandbox/tests/escape/run.sh "$binary" 2>&1)
+          output=$(bash crates/volund-sandbox/tests/escape/run.sh "$binary" 2>&1)
           status=$?
           set -e
           test "$status" -ne 0

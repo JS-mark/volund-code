@@ -1,4 +1,4 @@
-import type { HookPipelineSignal } from '@apollo-code/plugin-runtime'
+import type { HookPipelineSignal } from '@volund/plugin-runtime'
 import { describe, expect, it } from 'vitest'
 
 import { mapHookPipelineSignal } from './runtime'
@@ -9,7 +9,7 @@ describe('hook pipeline runtime observability mapping', () => {
       kind: 'builtin_hook_payload_too_large',
       code: 'builtin_hook_payload_too_large',
       domain: 'builtin',
-      hook: 'apollo.secret-scan',
+      hook: 'volund.secret-scan',
       event: 'preToolUse',
       limitBytes: 1_048_576,
       rawBytes: 1_048_577,
@@ -24,7 +24,7 @@ describe('hook pipeline runtime observability mapping', () => {
         code: 'builtin_hook_payload_too_large',
         context: {
           domain: 'builtin',
-          hook: 'apollo.secret-scan',
+          hook: 'volund.secret-scan',
           event: 'preToolUse',
           limitBytes: 1_048_576,
           rawBytes: 1_048_577,
@@ -36,12 +36,12 @@ describe('hook pipeline runtime observability mapping', () => {
         },
       },
       warning:
-        'Builtin hook payload rejected for apollo.secret-scan on preToolUse: 1048577 bytes exceeds 1048576',
+        'Builtin hook payload rejected for volund.secret-scan on preToolUse: 1048577 bytes exceeds 1048576',
       telemetry: {
         name: 'hook.payload_rejected',
         payload: {
           domain: 'builtin',
-          hook: 'apollo.secret-scan',
+          hook: 'volund.secret-scan',
           event: 'preToolUse',
           limitBytes: 1_048_576,
           rawBytes: 1_048_577,
@@ -61,14 +61,14 @@ describe('hook pipeline runtime observability mapping', () => {
         kind: 'builtin_hook_timeout',
         code: 'builtin_hook_timeout',
         domain: 'builtin',
-        hook: 'apollo.scan',
+        hook: 'volund.scan',
         event: 'postToolUse',
         timeoutMs: 5_000,
       }),
     ).toEqual({
       error: {
         code: 'builtin_hook_timeout',
-        context: { hook: 'apollo.scan', event: 'postToolUse' },
+        context: { hook: 'volund.scan', event: 'postToolUse' },
       },
     })
     expect(

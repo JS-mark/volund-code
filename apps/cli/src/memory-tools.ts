@@ -3,8 +3,8 @@ import type {
   MemoryRecordScope,
   MemoryService,
   NewMemoryRecord,
-} from '@apollo-code/storage'
-import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
+} from '@volund/storage'
+import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 

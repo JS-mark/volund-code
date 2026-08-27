@@ -30,7 +30,7 @@ export class DirectoryTrustStore {
   readonly filePath: string
   readonly lockPath: string
 
-  constructor(readonly configDir = join(homedir(), '.apollo')) {
+  constructor(readonly configDir = join(homedir(), '.volund')) {
     this.filePath = join(configDir, 'trusted-directories.json')
     this.lockPath = `${this.filePath}.lock`
   }
@@ -168,7 +168,7 @@ function isWithin(parent: string, child: string): boolean {
 function assertSafeTrustTarget(path: string): void {
   const home = resolve(homedir())
   const root = resolve(path, '..') === path
-  const sensitive = [join(home, '.apollo'), join(home, '.ssh'), '/etc'].some(
+  const sensitive = [join(home, '.volund'), join(home, '.ssh'), '/etc'].some(
     (prefix) => path === prefix || isWithin(prefix, path),
   )
   if (root || path === home || sensitive)

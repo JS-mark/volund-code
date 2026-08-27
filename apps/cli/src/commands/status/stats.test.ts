@@ -24,7 +24,7 @@ afterEach(async () => {
 })
 
 async function fixtureDir() {
-  const dir = await mkdtemp(join(tmpdir(), 'apollo-stats-'))
+  const dir = await mkdtemp(join(tmpdir(), 'volund-stats-'))
   dirs.push(dir)
   return dir
 }

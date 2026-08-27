@@ -1,4 +1,4 @@
-import type { Message, Usage } from '@apollo-code/provider-kit'
+import type { Message, Usage } from '@volund/provider-kit'
 import { produce } from 'immer'
 
 export interface Turn {

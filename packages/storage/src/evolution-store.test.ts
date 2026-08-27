@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import {
-  CONTEXT_TUNABLE_DEFAULTS,
-  EVOLUTION_DEFAULTS,
-  type EvolutionRecord,
-} from '@apollo-code/core'
+import { CONTEXT_TUNABLE_DEFAULTS, EVOLUTION_DEFAULTS, type EvolutionRecord } from '@volund/core'
 import { describe, expect, it } from 'vitest'
 
 import { EvolutionStore, type EvolutionStoreDiagnostic, TuningMemoryStore } from './evolution-store'
@@ -86,7 +82,7 @@ async function rewindAppend(
 
 describe('evolution persistence', () => {
   it('writes sanitized V2 records and recovers around invalid lines without losing prior state', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -139,7 +135,7 @@ describe('evolution persistence', () => {
   })
 
   it('accepts strict legacy-v0 as compatibility state without rewriting the source file', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-legacy-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-legacy-'))
     const legacy = legacyContextRecord({ after: 0.5, reason: 'Bearer legacy-secret' })
     await writeFile(join(root, 'context.jsonl'), lines([legacy]))
     await writeFile(join(root, 'audit.jsonl'), lines([legacy]))
@@ -163,7 +159,7 @@ describe('evolution persistence', () => {
   })
 
   it('does not downgrade future, null, or string schema versions to legacy', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-schema-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-schema-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -202,7 +198,7 @@ describe('evolution persistence', () => {
   })
 
   it('strictly rejects unknown fields, params, namespace mismatch, bad time/signal, and oversized lines', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-strict-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-strict-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -238,7 +234,7 @@ describe('evolution persistence', () => {
   })
 
   it('rejects context continuity breaks and namespace-local clock regression', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-chain-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-chain-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -273,7 +269,7 @@ describe('evolution persistence', () => {
   })
 
   it('skips a cross-field-invalid item while retaining the preceding valid snapshot', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-cross-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-cross-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -302,7 +298,7 @@ describe('evolution persistence', () => {
   })
 
   it('orders multi-parameter rollback so every intermediate context snapshot remains safe', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-rollback-order-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-rollback-order-'))
     await writeFile(
       join(root, 'context.jsonl'),
       lines([
@@ -336,7 +332,7 @@ describe('evolution persistence', () => {
   })
 
   it('normalizes strict legacy append input to V2 identity and rejects unsafe append objects', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-append-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-append-'))
     const store = new EvolutionStore(root)
     await store.append(legacyContextRecord() as unknown as EvolutionRecord)
     const [written] = (await readFile(join(root, 'context.jsonl'), 'utf8')).trim().split('\n')
@@ -387,7 +383,7 @@ describe('evolution persistence', () => {
   })
 
   it('rejects a caller-supplied identity and reassigns it under the lock', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-identity-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-identity-'))
     const store = new EvolutionStore(root)
     const forged = {
       ...contextRecord(),
@@ -403,7 +399,7 @@ describe('evolution persistence', () => {
   })
 
   it('drops sequence regressions in a namespace file while keeping monotonic history', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-sequence-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-sequence-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -477,7 +473,7 @@ describe('evolution persistence', () => {
   })
 
   it('validates append values and namespace authority before resolving any storage path', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'apollo-tuning-path-boundary-'))
+    const parent = await mkdtemp(join(tmpdir(), 'volund-tuning-path-boundary-'))
     const root = join(parent, 'not-created')
     const store = new EvolutionStore(root)
     const tooManySignals = Object.fromEntries(
@@ -498,7 +494,7 @@ describe('evolution persistence', () => {
   })
 
   it('keeps non-context current and rollback deny-only while retaining validated audit history', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-non-context-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-non-context-'))
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -525,7 +521,7 @@ describe('evolution persistence', () => {
   })
 
   it('does not echo an invalid runtime namespace into diagnostics or resolve a file path', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'apollo-tuning-runtime-namespace-'))
+    const parent = await mkdtemp(join(tmpdir(), 'volund-tuning-runtime-namespace-'))
     const root = join(parent, 'not-created')
     const diagnostics: EvolutionStoreDiagnostic[] = []
     const store = new EvolutionStore(root, {
@@ -544,7 +540,7 @@ describe('evolution persistence', () => {
   })
 
   it('rejects invalid maintenance timestamps before reading or writing history', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'apollo-tuning-invalid-date-'))
+    const parent = await mkdtemp(join(tmpdir(), 'volund-tuning-invalid-date-'))
     const root = join(parent, 'not-created')
     const store = new EvolutionStore(root)
     const invalid = new Date('invalid')
@@ -559,7 +555,7 @@ describe('evolution persistence', () => {
   })
 
   it('serializes concurrent V2 appends without losing or interleaving records', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-concurrent-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-concurrent-'))
     const store = new EvolutionStore(root)
     await Promise.all(
       Array.from({ length: 25 }, (_, index) =>
@@ -590,7 +586,7 @@ describe('evolution persistence', () => {
   }, 15_000)
 
   it('writes tuning-scoped evolution memory with sanitization', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-memory-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-memory-'))
     const store = new TuningMemoryStore(root)
     const memory = await store.write({ id: 'one', title: 'preference', body: 'Bearer secret' })
     expect(memory).toMatchObject({ scope: 'tuning', source: 'evolution' })
@@ -598,7 +594,7 @@ describe('evolution persistence', () => {
   })
 
   it('rejects tuning memory ids that would escape the memory root', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'apollo-memory-path-'))
+    const parent = await mkdtemp(join(tmpdir(), 'volund-memory-path-'))
     const root = join(parent, 'memory')
     const store = new TuningMemoryStore(root)
     for (const id of ['../escape', 'a/b', '.hidden', 'x'.repeat(65), '']) {
@@ -619,7 +615,7 @@ describe('evolution journal recovery', () => {
   }
 
   it('treats a PREPARED journal with no writes as an aborted transaction', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-prepared-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-prepared-'))
     await seedAppend(root)
     const { recordLine } = await rewindAppend(root, {
       dropNamespace: true,
@@ -649,7 +645,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('aborts a torn namespace write back to the journalled pre-size', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-torn-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-torn-'))
     await seedAppend(root)
     const { recordLine } = await rewindAppend(root, {
       dropNamespace: true,
@@ -674,7 +670,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('aborts a NAMESPACE_DURABLE transaction that never reached audit', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-nsdurable-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-nsdurable-'))
     await seedAppend(root)
     await rewindAppend(root, { dropNamespace: false, dropAudit: true, state: 'NAMESPACE_DURABLE' })
     const store = new EvolutionStore(root)
@@ -687,7 +683,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('completes a BOTH_DURABLE transaction after proving both files carry the exact record', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-both-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-both-'))
     await seedAppend(root)
     const { recordLine } = await rewindAppend(root, {
       dropNamespace: false,
@@ -716,7 +712,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('fails closed into RECOVERY_REQUIRED when bytes cannot be proven', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-foreign-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-foreign-'))
     await seedAppend(root)
     await rewindAppend(root, { dropNamespace: true, dropAudit: true, state: 'PREPARED' })
     await writeFile(join(root, 'context.jsonl'), '{"foreign":true}\n', { flag: 'a' })
@@ -748,7 +744,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('fails closed when the journal itself is unreadable', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-corrupt-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-corrupt-'))
     await seedAppend(root)
     await writeFile(journalPathOf(root), '{not-json', 'utf8')
     const store = new EvolutionStore(root)
@@ -761,7 +757,7 @@ describe('evolution journal recovery', () => {
   })
 
   it('reports a clean journal on health when no transaction is in flight', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-journal-clean-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-journal-clean-'))
     const store = new EvolutionStore(root)
     expect(await store.health()).toEqual({
       journal: 'clean',
@@ -816,7 +812,7 @@ for (let index = 0; index < 5; index++) {
     })
 
   it('serializes two concurrent writer processes with dense unique sequences', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-two-process-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-two-process-'))
     await Promise.all([runChild(childScript, root, 'retry'), runChild(childScript, root, 'router')])
     for (const [namespace, param] of [
       ['retry', 'max_retries'],
@@ -839,7 +835,7 @@ for (let index = 0; index < 5; index++) {
   }, 45_000)
 
   it('steals a stale lock whose holder process is dead and keeps appends working', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-tuning-stale-lock-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-tuning-stale-lock-'))
     const holder = execFile(
       process.execPath,
       [

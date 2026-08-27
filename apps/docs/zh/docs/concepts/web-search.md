@@ -1,6 +1,6 @@
 # WebSearch 安全契约
 
-`WebSearch` 只定义可替换的 provider 接口；Apollo 默认不配置真实搜索服务，因此未配置 provider 时会关闭失败。仓库中的 `MockWebSearchProvider` 仅用于离线契约测试，不访问网络、不需要 API key，也不会产生服务费用。
+`WebSearch` 只定义可替换的 provider 接口；Volund 默认不配置真实搜索服务，因此未配置 provider 时会关闭失败。仓库中的 `MockWebSearchProvider` 仅用于离线契约测试，不访问网络、不需要 API key，也不会产生服务费用。
 
 每次查询都必须先通过 permission gate。权限请求只包含 provider 标识与脱敏后的 query；执行日志仅记录 query 的短哈希、provider 和结果数量，不记录原始 query、结果正文或凭据。
 

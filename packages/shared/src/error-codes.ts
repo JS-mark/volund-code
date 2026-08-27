@@ -1,10 +1,10 @@
 /**
  * 错误码集中登记表（REM-59 / r13-I3）。
  *
- * 契约来源：docs/superpowers/specs/2026-07-31-apollo-code-design/APPENDIX-B-error-codes.md。
+ * 契约来源：docs/superpowers/specs/2026-07-31-volund-code-design/APPENDIX-B-error-codes.md。
  * `error.raised` 的 `code` 是跨模块契约（core emit → ui 渲染 → telemetry 分类 → 用户 grep），
- * 其余跨模块错误标识（PluginError / MemoryError / ApolloError / ProtocolViolationError /
- * ApolloNormalizedError / CLI `--json` 错误协议的 `reason.code`）同表登记，唯一真相源在此。
+ * 其余跨模块错误标识（PluginError / MemoryError / VolundError / ProtocolViolationError /
+ * VolundNormalizedError / CLI `--json` 错误协议的 `reason.code`）同表登记，唯一真相源在此。
  *
  * 强制方式：oxlint 无"属性值 / 构造实参必须引用常量"类规则，裸字符串码由
  * `pnpm verify:error-codes`（scripts/verify-error-codes.mjs，挂在根 `pnpm test` 链）承担：
@@ -224,34 +224,34 @@ export const ErrorCodes = {
   themeInvalidJson: 'theme_invalid_json',
   themeVersionUnsupported: 'theme_version_unsupported',
 
-  /* ── APOLLO_* 传输 / 协议 / subagent 域（shared + subagent） ──────────── */
-  apolloInvalidCwd: 'APOLLO_INVALID_CWD',
-  apolloInvalidRequest: 'APOLLO_INVALID_REQUEST',
-  apolloMethodNotFound: 'APOLLO_METHOD_NOT_FOUND',
-  apolloProtocolInvalid: 'APOLLO_PROTOCOL_INVALID',
-  apolloResourceExhausted: 'APOLLO_RESOURCE_EXHAUSTED',
-  apolloSubagentConcurrencyExceeded: 'APOLLO_SUBAGENT_CONCURRENCY_EXCEEDED', // resourceError() 实参
-  apolloSubagentDepthExceeded: 'APOLLO_SUBAGENT_DEPTH_EXCEEDED', // resourceError() 实参
-  apolloSubagentFailed: 'APOLLO_SUBAGENT_FAILED',
-  apolloUnsafeCwd: 'APOLLO_UNSAFE_CWD',
-  apolloUnsupportedVersion: 'APOLLO_UNSUPPORTED_VERSION',
+  /* ── volund_* 传输 / 协议 / subagent 域（shared + subagent） ──────────── */
+  volundInvalidCwd: 'VOLUND_INVALID_CWD',
+  volundInvalidRequest: 'VOLUND_INVALID_REQUEST',
+  volundMethodNotFound: 'VOLUND_METHOD_NOT_FOUND',
+  volundProtocolInvalid: 'VOLUND_PROTOCOL_INVALID',
+  volundResourceExhausted: 'VOLUND_RESOURCE_EXHAUSTED',
+  volundSubagentConcurrencyExceeded: 'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', // resourceError() 实参
+  volundSubagentDepthExceeded: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED', // resourceError() 实参
+  volundSubagentFailed: 'VOLUND_SUBAGENT_FAILED',
+  volundUnsafeCwd: 'VOLUND_UNSAFE_CWD',
+  volundUnsupportedVersion: 'VOLUND_UNSUPPORTED_VERSION',
 
-  /* ── APOLLO_<CATEGORY>：normalizeError 动态工厂输出（shared/errors.ts） ─ */
-  apolloAuth: 'APOLLO_AUTH',
-  apolloCancelled: 'APOLLO_CANCELLED',
-  apolloContentFilter: 'APOLLO_CONTENT_FILTER',
-  apolloContextLength: 'APOLLO_CONTEXT_LENGTH',
-  apolloModelNotFound: 'APOLLO_MODEL_NOT_FOUND',
-  apolloNetwork: 'APOLLO_NETWORK',
-  apolloPermission: 'APOLLO_PERMISSION',
-  apolloProtocol: 'APOLLO_PROTOCOL',
-  apolloQuota: 'APOLLO_QUOTA',
-  apolloRateLimit: 'APOLLO_RATE_LIMIT',
-  apolloSandbox: 'APOLLO_SANDBOX',
-  apolloServer: 'APOLLO_SERVER',
-  apolloStreamTruncated: 'APOLLO_STREAM_TRUNCATED',
-  apolloTimeout: 'APOLLO_TIMEOUT',
-  apolloUnknown: 'APOLLO_UNKNOWN',
+  /* ── volund_<CATEGORY>：normalizeError 动态工厂输出（shared/errors.ts） ─ */
+  volundAuth: 'VOLUND_AUTH',
+  volundCancelled: 'VOLUND_CANCELLED',
+  volundContentFilter: 'VOLUND_CONTENT_FILTER',
+  volundContextLength: 'VOLUND_CONTEXT_LENGTH',
+  volundModelNotFound: 'VOLUND_MODEL_NOT_FOUND',
+  volundNetwork: 'VOLUND_NETWORK',
+  volundPermission: 'VOLUND_PERMISSION',
+  volundProtocol: 'VOLUND_PROTOCOL',
+  volundQuota: 'VOLUND_QUOTA',
+  volundRateLimit: 'VOLUND_RATE_LIMIT',
+  volundSandbox: 'VOLUND_SANDBOX',
+  volundServer: 'VOLUND_SERVER',
+  volundStreamTruncated: 'VOLUND_STREAM_TRUNCATED',
+  volundTimeout: 'VOLUND_TIMEOUT',
+  volundUnknown: 'VOLUND_UNKNOWN',
 
   /* ── 测试基建（packages/testkit，随包发布、可向用户冒泡） ────────────── */
   mockProviderDisposed: 'mock_provider_disposed',
@@ -285,27 +285,27 @@ export const appendixErrorCodes = [
 ] as const satisfies readonly ErrorCode[]
 
 /**
- * `normalizeError` 的 `APOLLO_${category.toUpperCase()}` 动态工厂全量输出
- * （ApolloErrorCategory 全集 × 前缀；静态字面量扫描无法覆盖，登记于此供核对）。
+ * `normalizeError` 的 `volund_${category.toUpperCase()}` 动态工厂全量输出
+ * （VolundErrorCategory 全集 × 前缀；静态字面量扫描无法覆盖，登记于此供核对）。
  */
 export const normalizedErrorCodes = [
-  'APOLLO_NETWORK',
-  'APOLLO_AUTH',
-  'APOLLO_RATE_LIMIT',
-  'APOLLO_QUOTA',
-  'APOLLO_INVALID_REQUEST',
-  'APOLLO_CONTENT_FILTER',
-  'APOLLO_MODEL_NOT_FOUND',
-  'APOLLO_SERVER',
-  'APOLLO_CONTEXT_LENGTH',
-  'APOLLO_STREAM_TRUNCATED',
-  'APOLLO_PROTOCOL',
-  'APOLLO_PERMISSION',
-  'APOLLO_SANDBOX',
-  'APOLLO_TIMEOUT',
-  'APOLLO_CANCELLED',
-  'APOLLO_RESOURCE_EXHAUSTED',
-  'APOLLO_UNKNOWN',
+  'VOLUND_NETWORK',
+  'VOLUND_AUTH',
+  'VOLUND_RATE_LIMIT',
+  'VOLUND_QUOTA',
+  'VOLUND_INVALID_REQUEST',
+  'VOLUND_CONTENT_FILTER',
+  'VOLUND_MODEL_NOT_FOUND',
+  'VOLUND_SERVER',
+  'VOLUND_CONTEXT_LENGTH',
+  'VOLUND_STREAM_TRUNCATED',
+  'VOLUND_PROTOCOL',
+  'VOLUND_PERMISSION',
+  'VOLUND_SANDBOX',
+  'VOLUND_TIMEOUT',
+  'VOLUND_CANCELLED',
+  'VOLUND_RESOURCE_EXHAUSTED',
+  'VOLUND_UNKNOWN',
 ] as const satisfies readonly ErrorCode[]
 
 const ErrorCodeSet: ReadonlySet<string> = new Set(Object.values(ErrorCodes))

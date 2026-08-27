@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/apollo-sandbox", "crates/apollo-search", "crates/apollo-fs"]
+members = ["crates/volund-sandbox", "crates/volund-search", "crates/volund-fs"]
 resolver = "2"
 
 [workspace.package]

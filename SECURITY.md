@@ -1,17 +1,17 @@
 # Security Policy
 
-Apollo Code is a terminal AI agent that executes tools with user permission,
+Volund CLI is a terminal AI agent that executes tools with user permission,
 routes credentials through OS keychains, and runs a native Rust sandbox on the
 host. Security bugs here can be high-impact — thank you for reporting them
 responsibly.
 
 ## Supported versions
 
-Apollo Code is under active pre-release development. Only the latest tagged
+Volund CLI is under active pre-release development. Only the latest tagged
 version receives security fixes.
 
-| Version                | Supported                                       |
-| ---------------------- | ----------------------------------------------- |
+| Version                | Supported                                      |
+|------------------------|------------------------------------------------|
 | Latest `0.x` tag       | ✅ Fixes on the next `0.x` release              |
 | Older `0.x` tags       | ❌ Pre-release; upgrade to the latest `0.x` tag |
 | `1.x` (once released)  | ✅ Latest minor                                 |
@@ -21,7 +21,7 @@ version receives security fixes.
 
 **Please do not open a public GitHub issue for security bugs.**
 
-- Email: `security@apollo-code.dev` (placeholder — will be replaced with the
+- Email: `security@volund-code.dev` (placeholder — will be replaced with the
   real address before first public release)
 - GitHub Security Advisory: use the `Report a vulnerability` button on the
   repository's `Security` tab (preferred for coordinated disclosure)
@@ -33,7 +33,7 @@ docs site under `/security`).
 
 - A description of the issue and impact
 - Steps to reproduce (minimal example preferred)
-- The version of `apollo-code` (`apollo version`) and OS
+- The installed package version (`volund version`) and OS
 - Any suggested mitigation
 
 ## Our commitment
@@ -49,13 +49,13 @@ otherwise).
 ## Scope
 
 **In scope:**
-- Sandbox escape from `apollo-sandbox` (macOS `sandbox-exec`/sbpl / Linux
+- Sandbox escape from `volund-sandbox` (macOS `sandbox-exec`/sbpl / Linux
   bundled `bwrap`+seccomp (landlock fallback) / Windows Job Object + AppContainer
   + WFP)
 - Permission model bypass (any tool executing without required decision)
 - Credential exfiltration from `packages/auth` (keychain / encrypted file /
   env fallback)
-- Plugin sandbox breakout (escape from the `apollo-sandbox --run-plugin`
+- Plugin sandbox breakout (escape from the `volund-sandbox --run-plugin`
   subprocess isolation, JSBridge abuse, RPC whitelist bypass)
 - Supply chain attacks affecting shipped npm packages or Rust crates (incl.
   the bundled bwrap binary digest tampering)
@@ -77,9 +77,9 @@ If you follow this policy we will not pursue legal action.
 
 ## Hardening resources
 
-- Design spec: `docs/superpowers/specs/2026-07-31-apollo-code-design/` (split
+- Design spec: `docs/superpowers/specs/2026-07-31-volund-code-design/` (split
   into `01`–`14` section files + `SANDBOX-COMPAT-r1.md`; `§4` permissions,
   `§5` Rust sandbox, `§6` plugin runtime)
 - Engineering conventions: `AGENT.md` `§4` boundary rules
 
-Thank you for helping keep Apollo Code and its users safe.
+Thank you for helping keep Volund CLI and its users safe.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://apollo-code.dev/schemas/l4-evidence-v1.json",
-  "title": "Apollo Code L4 release evidence",
+  "$id": "https://volund-code.dev/schemas/l4-evidence-v1.json",
+  "title": "Volund CLI L4 release evidence",
   "type": "object",
   "required": ["schemaVersion", "release", "generatedAt", "maxAgeDays", "entries"],
   "properties": {

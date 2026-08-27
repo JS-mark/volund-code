@@ -10,7 +10,7 @@ import type {
   EvolutionNamespace,
   EvolutionPersistence,
   EvolutionRecord,
-} from '@apollo-code/core'
+} from '@volund/core'
 import {
   CONTEXT_TUNABLE_DEFAULTS,
   CONTEXT_TUNABLE_PARAMS,
@@ -18,8 +18,8 @@ import {
   isContextTunableParam,
   isContextTunableValue,
   isValidContextTuningSnapshot,
-} from '@apollo-code/core'
-import { sanitize } from '@apollo-code/shared'
+} from '@volund/core'
+import { sanitize } from '@volund/shared'
 
 const EVOLUTION_RECORD_LINE_MAX_BYTES = 16 * 1024
 const EVOLUTION_REASON_MAX_BYTES = 1024

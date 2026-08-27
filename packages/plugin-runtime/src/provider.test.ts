@@ -1,4 +1,4 @@
-import { InMemoryProviderRegistry, type ProviderCapabilities } from '@apollo-code/provider-kit'
+import { InMemoryProviderRegistry, type ProviderCapabilities } from '@volund/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -12,9 +12,9 @@ import {
 
 const manifest = {
   kind: 'provider' as const,
-  name: 'apollo-plugin-provider-vllm' as const,
+  name: 'volund-plugin-provider-vllm' as const,
   version: '1.0.0',
-  engines: { apollo: '^1.0.0' },
+  engines: { volund: '^1.0.0' },
   main: 'index.js',
   type: 'module' as const,
   provider: {
@@ -28,7 +28,7 @@ const manifest = {
   },
   permissions: {
     net: { allowlist: ['localhost:8000'] },
-    apollo: ['provider.register', 'auth.getAuthHeaders'],
+    volund: ['provider.register', 'auth.getAuthHeaders'],
   },
 }
 const capabilities: ProviderCapabilities = {
@@ -50,7 +50,7 @@ const capabilities: ProviderCapabilities = {
 }
 const signingManifest = {
   ...manifest,
-  name: 'apollo-plugin-provider-bedrock' as const,
+  name: 'volund-plugin-provider-bedrock' as const,
   provider: {
     name: 'plugin-bedrock',
     displayName: 'Bedrock fixture',
@@ -65,7 +65,7 @@ const signingManifest = {
   },
   permissions: {
     ...manifest.permissions,
-    apollo: ['provider.register', 'auth.getSigningEnvKeys'],
+    volund: ['provider.register', 'auth.getSigningEnvKeys'],
   },
 }
 

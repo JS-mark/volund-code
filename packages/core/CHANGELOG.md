@@ -1,4 +1,4 @@
-# @apollo-code/core
+# @volund/core
 
 ## 0.1.0
 
@@ -33,7 +33,7 @@
 - Updated dependencies [02ebe86]
 - Updated dependencies [3816925]
 - Updated dependencies [01ffdbd]
-  - @apollo-code/router@0.1.0
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/provider-kit@0.1.0
-  - @apollo-code/tool-kit@0.1.0
+  - @volund/router@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/provider-kit@0.1.0
+  - @volund/tool-kit@0.1.0

@@ -1,9 +1,9 @@
 import { defineConfig } from 'vitepress'
 
 const sharedTheme = {
-  logo: '/apollo-mark.svg',
-  siteTitle: 'APOLLO CODE',
-  socialLinks: [{ icon: 'github' as const, link: 'https://github.com/JS-mark/apollo-code' }],
+  logo: '/volund-mark.svg',
+  siteTitle: 'VOLUND CLI',
+  socialLinks: [{ icon: 'github' as const, link: 'https://github.com/JS-mark/volund-code' }],
   search: {
     provider: 'local' as const,
     options: {
@@ -24,8 +24,8 @@ const sharedTheme = {
 }
 
 export default defineConfig({
-  base: '/apollo-code/',
-  title: 'Apollo Code',
+  base: '/volund-code/',
+  title: 'Volund CLI',
   description: 'The open, model-agnostic AI coding CLI',
   appearance: true,
   cleanUrls: true,
@@ -36,28 +36,28 @@ export default defineConfig({
     transformItems: (items) =>
       items.map((item) => ({
         ...item,
-        url: `/apollo-code/${item.url}`,
-        links: item.links?.map((link) => ({ ...link, url: `/apollo-code/${link.url}` })),
+        url: `/volund-code/${item.url}`,
+        links: item.links?.map((link) => ({ ...link, url: `/volund-code/${link.url}` })),
       })),
   },
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/apollo-code/favicon.svg' }],
-    ['meta', { property: 'og:title', content: 'Apollo Code' }],
-    ['meta', { property: 'og:description', content: 'Own your terminal. Choose your model.' }],
-    ['meta', { property: 'og:url', content: 'https://js-mark.com/apollo-code/' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/volund-code/favicon.svg' }],
+    ['meta', { property: 'og:title', content: 'Volund CLI' }],
+    ['meta', { property: 'og:description', content: 'The AI coding CLI forged for coders.' }],
+    ['meta', { property: 'og:url', content: 'https://js-mark.com/volund-code/' }],
   ],
   locales: {
     root: {
       label: 'English',
       lang: 'en-US',
-      title: 'Apollo Code',
+      title: 'Volund CLI',
       description: 'A permission-first, model-agnostic coding agent for your terminal.',
       themeConfig: {
         ...sharedTheme,
         nav: [
           { text: 'Docs', link: '/docs/getting-started/install' },
           { text: 'Security', link: '/docs/concepts/security-model' },
-          { text: 'GitHub', link: 'https://github.com/JS-mark/apollo-code' },
+          { text: 'GitHub', link: 'https://github.com/JS-mark/volund-code' },
         ],
         sidebar: {
           '/docs/': [
@@ -106,14 +106,14 @@ export default defineConfig({
       label: '简体中文',
       lang: 'zh-CN',
       link: '/zh/',
-      title: 'Apollo Code',
+      title: 'Volund CLI',
       description: '权限优先、模型无关的终端编程智能体。',
       themeConfig: {
         ...sharedTheme,
         nav: [
           { text: '文档', link: '/zh/docs/getting-started/install' },
           { text: '安全', link: '/zh/docs/concepts/security-model' },
-          { text: 'GitHub', link: 'https://github.com/JS-mark/apollo-code' },
+          { text: 'GitHub', link: 'https://github.com/JS-mark/volund-code' },
         ],
         sidebar: {
           '/zh/docs/': [

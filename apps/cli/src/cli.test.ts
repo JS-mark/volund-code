@@ -1,17 +1,17 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { createSession, EventBus, MachineEventFormatter } from '@apollo-code/core'
-import type { JsonValue } from '@apollo-code/shared'
-import type { ToolContext } from '@apollo-code/tool-kit'
-import { BashTool } from '@apollo-code/tools'
-import type { SandboxDisclosure } from '@apollo-code/ui'
+import { createSession, EventBus, MachineEventFormatter } from '@volund/core'
+import type { JsonValue } from '@volund/shared'
+import type { ToolContext } from '@volund/tool-kit'
+import { BashTool } from '@volund/tools'
+import type { SandboxDisclosure } from '@volund/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
 import { command } from './command'
 import { assignConfigValue, deleteConfigValue } from './config-edit'
-import type { ApolloPorts, PermissionInteractionMode } from './ports'
+import type { VolundPorts, PermissionInteractionMode } from './ports'
 import { createProductionToolPermissionChain } from './runtime'
 
 const fixtures: string[] = []
@@ -19,7 +19,7 @@ afterEach(async () =>
   Promise.all(fixtures.map((path) => rm(path, { force: true, recursive: true }))),
 )
 
-function ports(overrides: Partial<ApolloPorts> = {}): ApolloPorts {
+function ports(overrides: Partial<VolundPorts> = {}): VolundPorts {
   return {
     identity: { version: '0.0.0-test' },
     version: '0.0.0-test',
@@ -140,7 +140,7 @@ describe('runCli', () => {
     })
     const result = await runCli(['--help'], testPorts)
     expect(result).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(result.stdout).toContain('apollo')
+    expect(result.stdout).toContain('volund')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
     expect(testPorts.session.start).not.toHaveBeenCalled()
@@ -161,27 +161,28 @@ describe('runCli', () => {
     })
     const mcpHelp = await runCli(['mcp', '--help'], testPorts)
     expect(mcpHelp).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(mcpHelp.stdout).toContain('Usage: apollo mcp')
+    expect(mcpHelp.stdout).toContain('Usage: volund mcp')
     expect(mcpHelp.stdout).toContain('-- <command> [args...]')
-    expect(mcpHelp.stdout).not.toContain('Usage: apollo <command>')
+    expect(mcpHelp.stdout).not.toContain('Usage: volund <command>')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.session.start).not.toHaveBeenCalled()
 
     const doctorHelp = await runCli(['help', 'doctor'], testPorts)
     expect(doctorHelp).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(doctorHelp.stdout).toContain('Usage: apollo doctor')
+    expect(doctorHelp.stdout).toContain('Usage: volund doctor')
 
     const memoryHelp = await runCli(['memory', 'help'], testPorts)
     expect(memoryHelp).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(memoryHelp.stdout).toContain('Usage: apollo memory')
+    expect(memoryHelp.stdout).toContain('Usage: volund memory')
 
     const globalHelp = await runCli(['help'], testPorts)
     expect(globalHelp).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(globalHelp.stdout).toContain('apollo')
+    expect(globalHelp.stdout).toContain('volund')
 
     const unknown = await runCli(['help', 'nope'], testPorts)
     expect(unknown).toMatchObject({ exitCode: 2, stdout: '' })
     expect(unknown.stderr).toContain('Unknown command: nope')
+    expect(unknown.stderr).toContain("Run 'volund help'")
   })
 
   it('does not treat flags after -- as help requests', async () => {
@@ -200,13 +201,13 @@ describe('runCli', () => {
       testPorts,
     )
     expect(result).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(result.stdout).not.toContain('Usage: apollo')
+    expect(result.stdout).not.toContain('Usage: volund')
     expect(testPorts.mcp?.add).toHaveBeenCalled()
   })
 
   it('runs config commands through the config port', async () => {
     const store: Record<string, JsonValue> = {}
-    const file = '/home/user/.apollo/config.toml'
+    const file = '/home/user/.volund/config.toml'
     const testPorts = ports({
       config: {
         health: vi.fn(async () => ({ valid: true, detail: 'valid' })),
@@ -219,10 +220,12 @@ describe('runCli', () => {
           const removed = deleteConfigValue(store, input.key)
           return { file, removed }
         }),
-        filePaths: vi.fn(() => ({ user: file, project: '/cwd/.apollo/config.toml' })),
+        filePaths: vi.fn(() => ({ user: file, project: '/cwd/.volund/config.toml' })),
       },
     })
-    await expect(runCli(['config', 'set', 'provider.default', 'anthropic'], testPorts)).resolves.toMatchObject({
+    await expect(
+      runCli(['config', 'set', 'provider.default', 'anthropic'], testPorts),
+    ).resolves.toMatchObject({
       exitCode: 0,
       stdout: `Set provider.default in ${file}\n`,
     })
@@ -245,12 +248,12 @@ describe('runCli', () => {
     )
     await expect(runCli(['config', 'path', '--json'], testPorts)).resolves.toMatchObject({
       exitCode: 0,
-      stdout: `${JSON.stringify({ user: file, project: '/cwd/.apollo/config.toml' })}\n`,
+      stdout: `${JSON.stringify({ user: file, project: '/cwd/.volund/config.toml' })}\n`,
     })
     await expect(runCli(['config', 'bogus'], testPorts)).resolves.toMatchObject({ exitCode: 2 })
     await expect(runCli(['config', '--help'], testPorts)).resolves.toMatchObject({
       exitCode: 0,
-      stdout: expect.stringContaining('Usage: apollo config'),
+      stdout: expect.stringContaining('Usage: volund config'),
     })
   })
 
@@ -294,13 +297,14 @@ describe('runCli', () => {
       exitCode: 2,
       stderr: 'history clear requires --yes outside an interactive terminal',
     })
-    await expect(
-      runCli(['history', 'clear', '--all', '--yes'], testPorts),
-    ).resolves.toMatchObject({ exitCode: 0, stdout: 'Removed 1 session(s).\n' })
+    await expect(runCli(['history', 'clear', '--all', '--yes'], testPorts)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: 'Removed 1 session(s).\n',
+    })
 
     await expect(runCli(['history', '--help'], testPorts)).resolves.toMatchObject({
       exitCode: 0,
-      stdout: expect.stringContaining('Usage: apollo history'),
+      stdout: expect.stringContaining('Usage: volund history'),
     })
   })
 
@@ -402,14 +406,14 @@ describe('runCli', () => {
     }
     const plugin = {
       availability: vi.fn(async () => availability),
-      install: vi.fn(async () => ({ name: 'apollo-plugin-demo', version: '1.0.0' })),
+      install: vi.fn(async () => ({ name: 'volund-plugin-demo', version: '1.0.0' })),
       uninstall: vi.fn(async () => {}),
       list: vi.fn(async () => ({
-        'apollo-plugin-demo': { version: '1.0.0', enabled: true },
+        'volund-plugin-demo': { version: '1.0.0', enabled: true },
       })),
       setEnabled: vi.fn(async () => {}),
       doctor: vi.fn(async () => ({
-        name: 'apollo-plugin-demo',
+        name: 'volund-plugin-demo',
         version: '1.0.0',
         permissions: ['tools.register'],
         compatibility: { status: 'compatible' as const, detail: 'compatible' },
@@ -417,16 +421,16 @@ describe('runCli', () => {
       })),
     }
     expect((await runCli(['plugin', 'install', './demo'], ports({ plugin }))).stdout).toContain(
-      'Installed apollo-plugin-demo@1.0.0',
+      'Installed volund-plugin-demo@1.0.0',
     )
     expect((await runCli(['plugin', 'list'], ports({ plugin }))).stdout).toBe(
-      'apollo-plugin-demo@1.0.0\tdisabled (legacy runtime unavailable)\n',
+      'volund-plugin-demo@1.0.0\tdisabled (legacy runtime unavailable)\n',
     )
     expect(
       JSON.parse((await runCli(['plugin', 'list', '--json'], ports({ plugin }))).stdout),
     ).toEqual([
       {
-        name: 'apollo-plugin-demo',
+        name: 'volund-plugin-demo',
         version: '1.0.0',
         enabled: true,
         availability,
@@ -434,12 +438,12 @@ describe('runCli', () => {
       },
     ])
     expect(
-      (await runCli(['plugin', 'doctor', 'apollo-plugin-demo'], ports({ plugin }))).stdout,
+      (await runCli(['plugin', 'doctor', 'volund-plugin-demo'], ports({ plugin }))).stdout,
     ).toContain('plugin_legacy_activation_unavailable')
-    await runCli(['plugin', 'disable', 'apollo-plugin-demo'], ports({ plugin }))
-    await runCli(['plugin', 'uninstall', 'apollo-plugin-demo'], ports({ plugin }))
-    expect(plugin.setEnabled).toHaveBeenCalledWith('apollo-plugin-demo', false)
-    expect(plugin.uninstall).toHaveBeenCalledWith('apollo-plugin-demo')
+    await runCli(['plugin', 'disable', 'volund-plugin-demo'], ports({ plugin }))
+    await runCli(['plugin', 'uninstall', 'volund-plugin-demo'], ports({ plugin }))
+    expect(plugin.setEnabled).toHaveBeenCalledWith('volund-plugin-demo', false)
+    expect(plugin.uninstall).toHaveBeenCalledWith('volund-plugin-demo')
     const generalDoctor = JSON.parse(
       (await runCli(['doctor', '--json'], ports({ plugin }))).stdout,
     ) as Array<{ name: string; plugin?: typeof availability; warn?: boolean }>
@@ -480,7 +484,7 @@ describe('runCli', () => {
         category: 'runtime',
       },
       {
-        args: ['plugin', 'enable', 'apollo-plugin-demo', '--json'],
+        args: ['plugin', 'enable', 'volund-plugin-demo', '--json'],
         testPorts: ports({ plugin }),
         exitCode: 1,
         code: 'plugin_legacy_activation_unavailable',
@@ -494,14 +498,14 @@ describe('runCli', () => {
         category: 'usage',
       },
       {
-        args: ['plugin', 'explode', 'apollo-plugin-demo', '--json'],
+        args: ['plugin', 'explode', 'volund-plugin-demo', '--json'],
         testPorts: ports({ plugin }),
         exitCode: 2,
         code: 'plugin_command_unknown',
         category: 'usage',
       },
       {
-        args: ['plugin', 'uninstall', 'apollo-plugin-demo', '--json'],
+        args: ['plugin', 'uninstall', 'volund-plugin-demo', '--json'],
         testPorts: ports({ plugin }),
         exitCode: 1,
         code: 'plugin_internal_error',
@@ -612,6 +616,7 @@ describe('runCli', () => {
     expect(result.stdout).toContain('anthropic credential unavailable')
     expect(result.stdout).toContain('native search unavailable')
     expect(result.stdout).toContain('native fs unavailable')
+    expect(result.stdout).toContain('"name":"volund version"')
   })
 
   it('reports gh CLI availability as a structured doctor check', async () => {
@@ -1476,15 +1481,31 @@ describe('mcp add argument parsing (SKILLS-MCPS-r1 §S3.7)', () => {
       },
     })
     expect(
-      parseMcpAddArgs(['-t', 'http', '-s', 'project', '-H', 'Authorization: Bearer x', 'remote', 'https://api.example.com/mcp']),
+      parseMcpAddArgs([
+        '-t',
+        'http',
+        '-s',
+        'project',
+        '-H',
+        'Authorization: Bearer x',
+        'remote',
+        'https://api.example.com/mcp',
+      ]),
     ).toEqual({
       input: {
         name: 'remote',
         scope: 'project',
-        transport: { kind: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer x' }, legacySse: false },
+        transport: {
+          kind: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: { Authorization: 'Bearer x' },
+          legacySse: false,
+        },
       },
     })
-    expect(parseMcpAddArgs(['-e', 'TOKEN=abc', 'demo', '--', 'node', 's.js']).input?.transport).toEqual({
+    expect(
+      parseMcpAddArgs(['-e', 'TOKEN=abc', 'demo', '--', 'node', 's.js']).input?.transport,
+    ).toEqual({
       kind: 'stdio',
       command: 'node',
       args: ['s.js'],

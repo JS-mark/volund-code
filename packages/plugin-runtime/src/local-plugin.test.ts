@@ -1,4 +1,4 @@
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import type { PluginManifest } from '@volund/plugin-sdk'
 import { describe, expect, it } from 'vitest'
 
 import { PluginCallbackRef } from './bridge-server'
@@ -10,12 +10,12 @@ import {
 
 function manifest(permissions: string[]): PluginManifest {
   return {
-    name: 'apollo-plugin-test',
+    name: 'volund-plugin-test',
     version: '1.0.0',
     type: 'module',
     main: 'index.mjs',
-    engines: { apollo: '^0.1.0' },
-    permissions: { apollo: permissions },
+    engines: { volund: '^0.1.0' },
+    permissions: { volund: permissions },
   }
 }
 
@@ -28,7 +28,7 @@ function dispatchFixture(permissions: string[]) {
   const invocations: { callbackId: string; args: readonly unknown[] }[] = []
   const managed: { method: string; value: unknown }[] = []
   const inventoryEntry = {
-    name: 'apollo-plugin-example',
+    name: 'volund-plugin-example',
     version: '1.0.0',
     dir: '/plugins/example',
     source: 'market' as const,
@@ -88,7 +88,7 @@ function dispatchFixture(permissions: string[]) {
 describe('createLocalPluginDispatch', () => {
   it('registers status tabs and routes render through the bridge callback', async () => {
     const { contributions, dispatch, invocations } = dispatchFixture(['ui.status'])
-    dispatch('apollo.ui.status.registerTab', {
+    dispatch('volund.ui.status.registerTab', {
       id: 'demo',
       label: 'Plug',
       render: new PluginCallbackRef('callback-1'),
@@ -101,7 +101,7 @@ describe('createLocalPluginDispatch', () => {
   it('denies registerTab without the ui.status permission (deny-by-default)', () => {
     const { contributions, dispatch } = dispatchFixture(['session.read'])
     expect(() =>
-      dispatch('apollo.ui.status.registerTab', {
+      dispatch('volund.ui.status.registerTab', {
         id: 'demo',
         label: 'Plug',
         render: new PluginCallbackRef('callback-1'),
@@ -113,13 +113,13 @@ describe('createLocalPluginDispatch', () => {
   it('rejects a registerTab spec without a render callback', () => {
     const { dispatch } = dispatchFixture(['ui.status'])
     expect(() =>
-      dispatch('apollo.ui.status.registerTab', { id: 'demo', label: 'Plug', render: {} }),
+      dispatch('volund.ui.status.registerTab', { id: 'demo', label: 'Plug', render: {} }),
     ).toThrow(/render/)
   })
 
   it('serves session.getUsage from host services', () => {
     const { dispatch } = dispatchFixture(['session.read'])
-    expect(dispatch('apollo.session.getUsage', undefined)).toEqual({
+    expect(dispatch('volund.session.getUsage', undefined)).toEqual({
       inputTokens: 1,
       outputTokens: 2,
       cost: 0.5,
@@ -128,7 +128,7 @@ describe('createLocalPluginDispatch', () => {
 
   it('registers slash commands and routes run args through the bridge callback', async () => {
     const { contributions, dispatch, invocations } = dispatchFixture(['commands.register'])
-    dispatch('apollo.commands.register', {
+    dispatch('volund.commands.register', {
       name: 'env',
       description: 'Show env',
       handler: new PluginCallbackRef('callback-env'),
@@ -141,30 +141,32 @@ describe('createLocalPluginDispatch', () => {
 
   it('accepts a finite order key and treats malformed values as unset', () => {
     const { contributions, dispatch } = dispatchFixture(['commands.register'])
-    dispatch('apollo.commands.register', {
+    dispatch('volund.commands.register', {
       name: 'alpha',
       order: 5,
       handler: new PluginCallbackRef('callback-alpha'),
     })
-    dispatch('apollo.commands.register', {
+    dispatch('volund.commands.register', {
       name: 'beta',
       order: 'not-a-number',
       handler: new PluginCallbackRef('callback-beta'),
     })
-    dispatch('apollo.commands.register', {
+    dispatch('volund.commands.register', {
       name: 'gamma',
       order: Number.POSITIVE_INFINITY,
       handler: new PluginCallbackRef('callback-gamma'),
     })
     expect(contributions.commands.find((command) => command.name === 'alpha')?.order).toBe(5)
     expect(contributions.commands.find((command) => command.name === 'beta')?.order).toBeUndefined()
-    expect(contributions.commands.find((command) => command.name === 'gamma')?.order).toBeUndefined()
+    expect(
+      contributions.commands.find((command) => command.name === 'gamma')?.order,
+    ).toBeUndefined()
   })
 
   it('denies commands.register without the commands.register permission', () => {
     const { contributions, dispatch } = dispatchFixture(['ui.status'])
     expect(() =>
-      dispatch('apollo.commands.register', {
+      dispatch('volund.commands.register', {
         name: 'env',
         handler: new PluginCallbackRef('callback-env'),
       }),
@@ -174,14 +176,14 @@ describe('createLocalPluginDispatch', () => {
 
   it('rejects a commands.register spec without a handler callback', () => {
     const { dispatch } = dispatchFixture(['commands.register'])
-    expect(() => dispatch('apollo.commands.register', { name: 'env', handler: {} })).toThrow(
+    expect(() => dispatch('volund.commands.register', { name: 'env', handler: {} })).toThrow(
       /handler/,
     )
   })
 
   it('serves env.getEffective from host services', () => {
     const { dispatch } = dispatchFixture(['env.read'])
-    expect(dispatch('apollo.env.getEffective', undefined)).toEqual([
+    expect(dispatch('volund.env.getEffective', undefined)).toEqual([
       {
         key: 'NO_PROXY',
         configured: 'localhost',
@@ -194,15 +196,15 @@ describe('createLocalPluginDispatch', () => {
 
   it('denies env.getEffective without env.read', () => {
     const { dispatch } = dispatchFixture(['session.read'])
-    expect(() => dispatch('apollo.env.getEffective', undefined)).toThrow(/env\.read/)
+    expect(() => dispatch('volund.env.getEffective', undefined)).toThrow(/env\.read/)
   })
 
   it('routes v2 inspect/approve/enable/disable through explicit plugins permissions', async () => {
     const { dispatch, managed } = dispatchFixture(['plugins.read', 'plugins.manage'])
-    await dispatch('apollo.plugins.inspect', 'example')
-    await dispatch('apollo.plugins.approve', ['example', 'a'.repeat(64)])
-    await dispatch('apollo.plugins.enable', 'example')
-    await dispatch('apollo.plugins.disable', 'example')
+    await dispatch('volund.plugins.inspect', 'example')
+    await dispatch('volund.plugins.approve', ['example', 'a'.repeat(64)])
+    await dispatch('volund.plugins.enable', 'example')
+    await dispatch('volund.plugins.disable', 'example')
     expect(managed).toEqual([
       { method: 'inspect', value: 'example' },
       {
@@ -216,7 +218,7 @@ describe('createLocalPluginDispatch', () => {
 
   it('rejects malformed approval parameters before the host service', () => {
     const { dispatch, managed } = dispatchFixture(['plugins.manage'])
-    expect(() => dispatch('apollo.plugins.approve', ['example'])).toThrow(
+    expect(() => dispatch('volund.plugins.approve', ['example'])).toThrow(
       'plugin_rpc_params_invalid',
     )
     expect(managed).toEqual([])
@@ -224,11 +226,11 @@ describe('createLocalPluginDispatch', () => {
 
   it('denies session.getUsage without session.read', () => {
     const { dispatch } = dispatchFixture(['ui.status'])
-    expect(() => dispatch('apollo.session.getUsage', undefined)).toThrow(/session\.read/)
+    expect(() => dispatch('volund.session.getUsage', undefined)).toThrow(/session\.read/)
   })
 
   it('rejects unknown methods', () => {
     const { dispatch } = dispatchFixture(['ui.status'])
-    expect(() => dispatch('apollo.provider.stream', {})).toThrow(/denied/)
+    expect(() => dispatch('volund.provider.stream', {})).toThrow(/denied/)
   })
 })

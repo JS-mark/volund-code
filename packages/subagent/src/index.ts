@@ -1,6 +1,6 @@
-import { createSession, EventBus, type Runner, type SessionState } from '@apollo-code/core'
-import type { Message } from '@apollo-code/provider-kit'
-import { ApolloNormalizedError } from '@apollo-code/shared'
+import { createSession, EventBus, type Runner, type SessionState } from '@volund/core'
+import type { Message } from '@volund/provider-kit'
+import { VolundNormalizedError } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 export interface SubagentBudget {
@@ -24,7 +24,7 @@ export interface DispatchResult {
   sessionId: string
   status: 'completed' | 'partial' | 'failed' | 'cancelled'
   text: string
-  error?: ApolloNormalizedError
+  error?: VolundNormalizedError
 }
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
 export interface SubagentOptions {
@@ -50,12 +50,12 @@ export class SubagentDispatcher {
     const depth = (parent.state.lineage?.depth ?? 0) + 1
     if (depth > this.#maxDepth)
       throw resourceError(
-        'APOLLO_SUBAGENT_DEPTH_EXCEEDED',
+        'VOLUND_SUBAGENT_DEPTH_EXCEEDED',
         `Subagent depth ${depth} exceeds ${this.#maxDepth}`,
       )
     if (this.#active.size >= this.#maxConcurrency)
       throw resourceError(
-        'APOLLO_SUBAGENT_CONCURRENCY_EXCEEDED',
+        'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED',
         'Subagent concurrency budget exhausted',
       )
     if (parent.signal.aborted) return { sessionId: '', status: 'cancelled', text: '' }
@@ -93,9 +93,9 @@ export class SubagentDispatcher {
         text: budgetEvent ? `${text}\n[budget exhausted, partial result]`.trim() : text,
       }
     } catch (cause) {
-      const error = new ApolloNormalizedError({
+      const error = new VolundNormalizedError({
         category: 'unknown',
-        code: 'APOLLO_SUBAGENT_FAILED',
+        code: 'VOLUND_SUBAGENT_FAILED',
         message: cause instanceof Error ? cause.message : String(cause),
         retryable: false,
         source: { kind: 'core' },
@@ -125,8 +125,8 @@ function lastAssistantText(messages: readonly Message[]): string {
       .join('\n') ?? ''
   )
 }
-function resourceError(code: string, message: string): ApolloNormalizedError {
-  return new ApolloNormalizedError({
+function resourceError(code: string, message: string): VolundNormalizedError {
+  return new VolundNormalizedError({
     category: 'resource_exhausted',
     code,
     message,

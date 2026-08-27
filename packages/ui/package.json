@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/ui",
+  "name": "@volund/ui",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,8 +17,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/core": "workspace:*",
     "@types/react": "catalog:",
+    "@volund/core": "workspace:*",
+    "@volund/shared": "workspace:*",
     "ink": "catalog:",
     "marked": "^18.0.10",
     "react": "catalog:",

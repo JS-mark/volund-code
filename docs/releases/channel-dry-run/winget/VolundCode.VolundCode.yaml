@@ -1,0 +1,29 @@
+# DRY-RUN FIXTURE — NOT PUBLISHED; URLs and checksums are deterministic placeholders
+PackageIdentifier: VolundCode.VolundCode
+PackageVersion: 0.1.0-rc.1
+PackageLocale: en-US
+Publisher: Volund CLI
+PackageName: Volund CLI
+License: Apache-2.0
+ShortDescription: Open, model-agnostic AI coding CLI
+ManifestType: singleton
+ManifestVersion: 1.9.0
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-win32-x64-msvc.zip
+    InstallerSha256: 7777777777777777777777777777777777777777777777777777777777777777
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: volund.exe
+        PortableCommandAlias: volund
+    # Tier: None; L4 native evidence is not authorized
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-win32-arm64-msvc.zip
+    InstallerSha256: 8888888888888888888888888888888888888888888888888888888888888888
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: volund.exe
+        PortableCommandAlias: volund
+    # Tier: None; L4 native evidence is not authorized

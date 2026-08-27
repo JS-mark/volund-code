@@ -1,12 +1,12 @@
-import type { EventBus } from '@apollo-code/core'
-import type { JsonValue } from '@apollo-code/shared'
+import type { EventBus } from '@volund/core'
+import type { JsonValue } from '@volund/shared'
 import type {
   MemoryMaintenanceService,
   MemoryRecallService,
   MemoryService,
   MemoryTransferService,
-} from '@apollo-code/storage'
-import type { TelemetryHealth, TelemetrySummary } from '@apollo-code/telemetry'
+} from '@volund/storage'
+import type { TelemetryHealth, TelemetrySummary } from '@volund/telemetry'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
@@ -20,7 +20,7 @@ import type {
   SubmitOptions,
   SessionCandidate,
   TranscriptEntry,
-} from '@apollo-code/ui'
+} from '@volund/ui'
 
 import type { AppIdentity } from './shared/app-identity'
 
@@ -116,7 +116,7 @@ export interface EvolutionPort {
     namespace?: 'context' | 'router' | 'retry' | 'tool-timeout'
     to?: Date
   }): Promise<unknown[]>
-  /** §15.11 T1b: tuning journal health for `apollo doctor`. */
+  /** §15.11 T1b: tuning journal health for `volund doctor`. */
   health?(): Promise<DoctorHealth>
 }
 export interface McpServerListing {
@@ -159,7 +159,7 @@ export interface SkillPort {
   /**
    * SKILLS-MCPS-r1 §S3.7：安装三方源——`<本地目录>` / git URL / `github:owner/repo`
    * / `owner/repo` 简写；git 仓库根有 SKILL.md 装 root，否则装一层子目录里全部
-   * 带 SKILL.md 的 skill。scope 默认 user，project 写 `<cwd>/.apollo/skills`。
+   * 带 SKILL.md 的 skill。scope 默认 user，project 写 `<cwd>/.volund/skills`。
    */
   install(spec: string, options?: { scope?: 'user' | 'project' }): Promise<readonly SkillListing[]>
   uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<void>
@@ -182,11 +182,11 @@ export interface PluginPort {
 }
 /**
  * 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：三个发现源共用
- * 同一条激活链路（manifest 校验 → bundle 校验 → 沙箱宿主 apollo-sandbox
+ * 同一条激活链路（manifest 校验 → bundle 校验 → 沙箱宿主 volund-sandbox
  * --run-plugin）——内置插件（随产物分发的 apps/cli/plugins/<name>/）、dev 插件
- * （约定目录 ~/.apollo/plugins-dev/<name>/ 自动发现 + APOLLO_DEV_PLUGINS 额外
- * 路径）、市场插件（[plugins] market 安装到 ~/.apollo/plugins/<name>/，带
- * apollo-market.json 完整性映射，激活期重验）。~/.apollo/plugins 与冻结中的
+ * （约定目录 ~/.volund/plugins-dev/<name>/ 自动发现 + VOLUND_DEV_PLUGINS 额外
+ * 路径）、市场插件（[plugins] market 安装到 ~/.volund/plugins/<name>/，带
+ * volund-market.json 完整性映射，激活期重验）。~/.volund/plugins 与冻结中的
  * legacy Catalog 状态文件（plugins/plugins.json approvals，deny-only）完全隔离；本地
  * 三源的持久生命周期统一由同级 plugin-state.v2.json 管理。
  */
@@ -205,7 +205,7 @@ export interface LocalPluginPort {
     failed: { dir: string; error: string }[]
   }>
   /**
-   * 市场插件：~/.apollo/plugins/<name>/ 自动发现（dot 目录与无 manifest.json
+   * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录与无 manifest.json
    * 的目录跳过），但只有 v2 状态同时 approved + enabled 才装载；激活前逐文件重验。
    */
   loadMarketPlugins(): Promise<{
@@ -213,16 +213,16 @@ export interface LocalPluginPort {
     failed: { dir: string; error: string }[]
   }>
   /** v2 生命周期管理；市场插件必须 inspect → approve(hash) → enable。 */
-  inspectPlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
+  inspectPlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
   approvePlugin(
     input: string,
     permissionHash: string,
-  ): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
-  enablePlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
-  disablePlugin(input: string): Promise<import('@apollo-code/plugin-sdk').PluginInventoryEntry>
+  ): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
+  enablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
+  disablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
   /**
    * 卸载市场插件（热生效）：停用（命令/页签当场摘除）+ 删除
-   * ~/.apollo/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
+   * ~/.volund/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
    * dev 目录归开发者管理（命中即明确拒绝）。
    */
   uninstallMarketPlugin(input: string): Promise<{ name: string }>
@@ -256,8 +256,8 @@ export interface HistorySearchHit {
   at?: string
 }
 /**
- * §11.3.4 `apollo history` 命令族：操作 ~/.apollo/sessions/<id>.jsonl 会话档案
- * （与输入行历史 ~/.apollo/history 无关）。list 复用 session port 的候选派生
+ * §11.3.4 `volund history` 命令族：操作 ~/.volund/sessions/<id>.jsonl 会话档案
+ * （与输入行历史 ~/.volund/history 无关）。list 复用 session port 的候选派生
  * （事件 replay），show/export 走同一 replay，search 只做本地关键词匹配。
  */
 export interface HistoryPort {
@@ -272,7 +272,7 @@ export interface HistoryPort {
   clear(options: { all?: boolean; olderThan?: Date }): Promise<{ removed: string[] }>
   search(query: string, options?: { limit?: number }): Promise<readonly HistorySearchHit[]>
 }
-export interface ApolloPorts {
+export interface VolundPorts {
   identity: Readonly<AppIdentity>
   /** @deprecated Use identity.version. */
   version: string
@@ -316,8 +316,8 @@ export interface ApolloPorts {
       input: { cwd: string; sessionId: string },
     ): Promise<StatusPanelData>
     /**
-     * §11.3.3 `apollo config` 命令族。目标文件：user = <home>/config.toml，
-     * project = <cwd>/.apollo/config.toml。setValue 在端口内做 schema 校验
+     * §11.3.3 `volund config` 命令族。目标文件：user = <home>/config.toml，
+     * project = <cwd>/.volund/config.toml。setValue 在端口内做 schema 校验
      * （未知 key → config_unknown_key；类型错 → config_invalid）与
      * §8.3.1 projectOverride 数据流向门（forbidden key → config_project_forbidden）。
      */
@@ -368,7 +368,7 @@ export interface ApolloPorts {
   history?: HistoryPort
   ui?: UiPort
 }
-export function unavailablePorts(): ApolloPorts {
+export function unavailablePorts(): VolundPorts {
   return {
     identity: { version: '0.0.0-test' },
     version: '0.0.0-test',
@@ -377,7 +377,7 @@ export function unavailablePorts(): ApolloPorts {
         tier: 'none',
         mechanism: 'native port not connected',
         features: { filesystem: false, network: false },
-        degradationReasons: ['apollo-sandbox probe unavailable'],
+        degradationReasons: ['volund-sandbox probe unavailable'],
       }),
       health: async () => ({ sandbox: false, search: false, fs: false }),
       available: () => ({ sandbox: false, search: false, fs: false }),

@@ -1,0 +1,10 @@
+{
+  "name": "volund-plugin-manager",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "volund": "^0.1.0" },
+  "permissions": {
+    "volund": ["commands.register", "plugins.read", "plugins.manage", "log.write"]
+  }
+}

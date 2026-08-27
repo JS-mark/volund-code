@@ -12,7 +12,7 @@ afterEach(async () =>
 )
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-trust-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-trust-'))
   fixtures.push(root)
   const configDir = join(root, 'config')
   const workspace = join(root, 'work', 'project')

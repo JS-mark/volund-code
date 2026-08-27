@@ -100,8 +100,8 @@ export function StreamingStatus({
         <Text color="cyan">{frame} </Text>
         <Text bold>{chosenVerb}… </Text>
         <Text color="gray">
-          ({seconds}s · {phaseLabel(phase, phaseDetail)} · ↑{' '}
-          {estimateStreamedTokens(streamedChars)} tokens · <Text bold>esc</Text> to interrupt)
+          ({seconds}s · {phaseLabel(phase, phaseDetail)} · ↑ {estimateStreamedTokens(streamedChars)}{' '}
+          tokens · <Text bold>esc</Text> to interrupt)
         </Text>
       </Text>
       <Text color="gray"> ⎿ {tip}</Text>

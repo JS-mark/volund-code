@@ -1,3 +1,5 @@
+import { productIdentity } from '@volund/shared'
+
 import type { WelcomePanelData } from '../../welcome'
 import type { StatusTone, WelcomeScreenState } from './types'
 import { formatDisplayCwd } from './welcomeLayout'
@@ -26,7 +28,7 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
         ? 'probing'
         : 'unknown'
   return {
-    app: { name: 'Apollo Code', version: data.version },
+    app: { name: productIdentity.displayName, version: data.version },
     workspace: {
       cwd: data.cwd,
       displayCwd: formatDisplayCwd(data.cwd, input.homeDir),

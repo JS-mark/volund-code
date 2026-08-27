@@ -31,7 +31,7 @@ describe('error code registry', () => {
     expect(appendixErrorCodes).toHaveLength(11)
   })
 
-  it('covers every APOLLO_<CATEGORY> produced by the normalizeError factory', () => {
+  it('covers every VOLUND_<CATEGORY> produced by the normalizeError factory', () => {
     const registry = new Set(Object.values(ErrorCodes))
     expect(normalizedErrorCodes).toHaveLength(17)
     for (const code of normalizedErrorCodes) expect(registry.has(code)).toBe(true)

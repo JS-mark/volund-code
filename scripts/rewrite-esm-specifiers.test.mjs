@@ -8,7 +8,7 @@ import test from 'node:test'
 import { rewriteDirectory } from './rewrite-esm-specifiers.mjs'
 
 void test('adds runtime extensions to emitted relative ESM specifiers', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'apollo-esm-'))
+  const directory = await mkdtemp(join(tmpdir(), 'volund-esm-'))
   mkdirSync(join(directory, 'nested'))
   writeFileSync(join(directory, 'cli.js'), 'export const runCli = () => {}\n')
   writeFileSync(join(directory, 'types.d.ts'), 'export interface Options {}\n')

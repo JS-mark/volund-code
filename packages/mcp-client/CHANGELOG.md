@@ -1,4 +1,4 @@
-# @apollo-code/mcp-client
+# @volund/mcp-client
 
 ## 0.1.0
 
@@ -15,6 +15,6 @@
 - Updated dependencies [344f874]
 - Updated dependencies [8521920]
 - Updated dependencies [02ebe86]
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/permission@0.1.0
-  - @apollo-code/tool-kit@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/permission@0.1.0
+  - @volund/tool-kit@0.1.0

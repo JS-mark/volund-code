@@ -32,7 +32,7 @@ describe('InMemoryProviderRegistry', () => {
       first = client('plugin-vllm')
     const registration = registry.register(
       first,
-      { kind: 'plugin', plugin: 'apollo-plugin-vllm' },
+      { kind: 'plugin', plugin: 'volund-plugin-vllm' },
       {
         capabilities,
         displayName: 'vLLM',

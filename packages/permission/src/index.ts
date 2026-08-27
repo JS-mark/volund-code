@@ -56,7 +56,10 @@ function keyOf(request: PermissionRequest): string {
 
 export class PermissionManager {
   /** Prompted decisions remembered for the session, keyed by tool+spec. */
-  readonly #cache = new Map<string, 'allow-session' | 'allow-project' | 'allow-forever' | 'deny-forever'>()
+  readonly #cache = new Map<
+    string,
+    'allow-session' | 'allow-project' | 'allow-forever' | 'deny-forever'
+  >()
   #queue = Promise.resolve()
   #prompt?: PromptHandler
   constructor(

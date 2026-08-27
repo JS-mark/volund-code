@@ -2,7 +2,7 @@ import { lstat, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, parse, resolve, sep } from 'node:path'
 
-import { ApolloError } from './index'
+import { VolundError } from './index'
 
 function contains(base: string, candidate: string): boolean {
   return candidate === base || candidate.startsWith(`${base}${sep}`)
@@ -14,8 +14,8 @@ export async function validateWorkspacePath(input: string): Promise<string> {
   try {
     canonical = await realpath(absolute)
   } catch (cause) {
-    throw new ApolloError(
-      'APOLLO_INVALID_CWD',
+    throw new VolundError(
+      'VOLUND_INVALID_CWD',
       `Workspace does not exist: ${input}`,
       { input },
       { cause },
@@ -24,7 +24,7 @@ export async function validateWorkspacePath(input: string): Promise<string> {
   const home = await realpath(homedir())
   const root = parse(canonical).root
   const sensitive = [
-    resolve(home, '.apollo'),
+    resolve(home, '.volund'),
     resolve(home, '.ssh'),
     ...(process.platform === 'win32' ? [] : ['/etc', '/private']),
   ]
@@ -33,7 +33,7 @@ export async function validateWorkspacePath(input: string): Promise<string> {
     canonical === home ||
     sensitive.some((prefix) => contains(prefix, canonical))
   ) {
-    throw new ApolloError('APOLLO_UNSAFE_CWD', `Refusing unsafe workspace: ${canonical}`, {
+    throw new VolundError('VOLUND_UNSAFE_CWD', `Refusing unsafe workspace: ${canonical}`, {
       input,
       canonical,
     })
@@ -41,8 +41,8 @@ export async function validateWorkspacePath(input: string): Promise<string> {
   if (isAbsolute(input)) {
     const [source, target] = await Promise.all([lstat(absolute), stat(canonical)])
     if (source.dev !== target.dev)
-      throw new ApolloError(
-        'APOLLO_UNSAFE_CWD',
+      throw new VolundError(
+        'VOLUND_UNSAFE_CWD',
         `Workspace symlink crosses filesystems: ${input}`,
         { input, canonical },
       )

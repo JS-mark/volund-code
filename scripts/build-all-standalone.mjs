@@ -1,9 +1,9 @@
-// 批量组装全部 standalone target：扫描资产目录里的 apollo-sandbox-<triple>
+// 批量组装全部 standalone target：扫描资产目录里的 volund-sandbox-<triple>
 // 确定可构建集合（7 个，win32-arm64-msvc 无 bun 目标自动跳过），逐 target 调
-// buildStandalone，最后把每个产物目录打成 apollo-standalone-<triple>.tar.gz。
+// buildStandalone，最后把每个产物目录打成 volund-standalone-<triple>.tar.gz。
 //
 // 用法：node scripts/build-all-standalone.mjs <assetsDir> [outDir]
-//   assetsDir  平铺的 apollo-<kind>-<triple>[.exe]（native.yml 的 release-assets-*）
+//   assetsDir  平铺的 volund-<kind>-<triple>[.exe]（native.yml 的 release-assets-*）
 //   outDir     默认 apps/cli/dist/standalone/；tarball 落在其 archives/ 子目录
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -17,12 +17,12 @@ export async function buildAllStandalone({ root, assetsDirectory, outDirectory }
   const triples = [
     ...new Set(
       entries
-        .map((entry) => /^apollo-sandbox-(.+?)(?:\.exe)?$/.exec(entry)?.[1])
+        .map((entry) => /^volund-sandbox-(.+?)(?:\.exe)?$/.exec(entry)?.[1])
         .filter((triple) => triple && BUN_TARGETS[triple]),
     ),
   ].toSorted((a, b) => a.localeCompare(b))
   if (triples.length === 0)
-    throw new Error(`no apollo-sandbox-<triple> assets found in ${assetsDirectory}`)
+    throw new Error(`no volund-sandbox-<triple> assets found in ${assetsDirectory}`)
 
   const out = outDirectory ?? join(root, 'apps/cli/dist/standalone')
   const archives = join(out, 'archives')
@@ -36,13 +36,13 @@ export async function buildAllStandalone({ root, assetsDirectory, outDirectory }
       assetDirectory: assetsDirectory,
       outDirectory: join(out, triple),
     })
-    const archive = join(archives, `apollo-standalone-${triple}.tar.gz`)
+    const archive = join(archives, `volund-standalone-${triple}.tar.gz`)
     const tar = spawnSync('tar', ['czf', archive, '-C', built.out, '.'], { stdio: 'inherit' })
     if (tar.status !== 0) throw new Error(`tar failed for ${triple} with status ${tar.status}`)
     sums.push(
       `${createHash('sha256')
         .update(await readFile(archive))
-        .digest('hex')}  apollo-standalone-${triple}.tar.gz`,
+        .digest('hex')}  volund-standalone-${triple}.tar.gz`,
     )
   }
   await writeFile(join(archives, 'checksums.sha256'), `${sums.join('\n')}\n`)

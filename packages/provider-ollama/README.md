@@ -1,4 +1,4 @@
-# @apollo-code/provider-ollama
+# @volund/provider-ollama
 
 Ollama adapter with a localhost-safe default. The default endpoint is
 `http://127.0.0.1:11434`; loopback HTTP endpoints are accepted without a prompt.
@@ -9,5 +9,5 @@ project config, and is always refused in non-interactive mode. Plaintext HTTP is
 called out separately in the confirmation prompt. Redirect targets are checked
 with the same policy before any response body is consumed.
 
-Apollo never sends credentials to Ollama. Remote endpoint verification must use
+volund never sends credentials to Ollama. Remote endpoint verification must use
 an injected HTTP port and is not performed by this package's offline tests.

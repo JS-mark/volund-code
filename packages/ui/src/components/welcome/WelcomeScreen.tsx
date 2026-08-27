@@ -1,11 +1,13 @@
+import { productIdentity } from '@volund/shared'
 import { Box, Text } from 'ink'
 
-import { ApolloLogo } from './ApolloLogo'
 import { FirstRunChecks } from './FirstRunChecks'
 import type { WelcomeScreenProps } from './types'
+import { VolundLogo } from './VolundLogo'
 import { getWelcomeLayout } from './welcomeLayout'
 import { WelcomeStatusBar } from './WelcomeStatusBar'
 import { WelcomeStatusGrid } from './WelcomeStatusGrid'
+import { welcomeTheme } from './welcomeTheme'
 
 export function WelcomeScreen({
   bottomStatus,
@@ -17,13 +19,13 @@ export function WelcomeScreen({
   return (
     <Box flexDirection="column">
       <Box justifyContent="space-between" paddingX={1}>
-        <Text color="brightCyan" bold>
-          apollo
+        <Text color={welcomeTheme.brandAccent} bold>
+          {productIdentity.commandName}
         </Text>
         <Text color="gray">TERMINAL WELCOME / {layout.toUpperCase()}</Text>
       </Box>
       <Box
-        borderColor="cyan"
+        borderColor={welcomeTheme.border}
         borderStyle="round"
         flexDirection="column"
         marginTop={1}
@@ -34,7 +36,7 @@ export function WelcomeScreen({
           alignItems={layout === 'full' ? 'center' : undefined}
           flexDirection={layout === 'full' ? 'row' : 'column'}
         >
-          <ApolloLogo />
+          <VolundLogo />
           <Box flexDirection="column" flexGrow={1}>
             <Box>
               <Text bold>{state.app.name} </Text>

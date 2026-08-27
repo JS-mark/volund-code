@@ -8,7 +8,7 @@ import type {
   ProviderError,
   ProviderErrorCategory,
   ProviderRequest,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export interface CredentialPort {
   getCredential(providerId: 'openai'): Promise<string>

@@ -26,7 +26,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 async function fixture() {
-  const cwd = await mkdtemp(resolve(tmpdir(), 'apollo-edit-'))
+  const cwd = await mkdtemp(resolve(tmpdir(), 'volund-edit-'))
   dirs.push(cwd)
   return cwd
 }
@@ -109,13 +109,13 @@ describe('Edit contract (spec §4.3.2, r13-J3)', () => {
     const cwd = await fixture()
     const target = resolve(cwd, 'locked.txt')
     await writeFile(target, 'before')
-    await writeFile(`${target}.apollolock`, '4242 other-session\n')
+    await writeFile(`${target}.volundlock`, '4242 other-session\n')
     const result = await new EditTool().invoke(
       { path: 'locked.txt', old_string: 'before', new_string: 'after' },
       context(cwd),
     )
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toContain('file locked by another apollo session (pid 4242)')
+    expect(textOf(result)).toContain('file locked by another volund session (pid 4242)')
     expect(await readFile(target, 'utf8')).toBe('before')
   }, 10_000)
 

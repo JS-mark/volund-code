@@ -1,7 +1,7 @@
 import type { JsonValue } from './index'
 import { sanitize } from './sanitize'
 
-export type ApolloErrorCategory =
+export type VolundErrorCategory =
   | 'network'
   | 'auth'
   | 'rate_limit'
@@ -29,7 +29,7 @@ export type ErrorSource =
   | { kind: 'transport'; name?: string }
 
 export interface NormalizedErrorInit {
-  category: ApolloErrorCategory
+  category: VolundErrorCategory
   code: string
   message: string
   retryable: boolean
@@ -40,8 +40,8 @@ export interface NormalizedErrorInit {
   cause?: unknown
 }
 
-export class ApolloNormalizedError extends Error {
-  readonly category: ApolloErrorCategory
+export class VolundNormalizedError extends Error {
+  readonly category: VolundErrorCategory
   readonly code: string
   readonly retryable: boolean
   readonly source: ErrorSource
@@ -51,7 +51,7 @@ export class ApolloNormalizedError extends Error {
 
   constructor(init: NormalizedErrorInit) {
     super(sanitize(init.message), init.cause === undefined ? undefined : { cause: init.cause })
-    this.name = 'ApolloNormalizedError'
+    this.name = 'VolundNormalizedError'
     this.category = init.category
     this.code = init.code
     this.retryable = init.retryable
@@ -79,12 +79,12 @@ export class ApolloNormalizedError extends Error {
 
 export interface NormalizeErrorOptions {
   source: ErrorSource
-  category?: ApolloErrorCategory
+  category?: VolundErrorCategory
   code?: string
   retryable?: boolean
 }
 
-const statusCategory = (status?: number): ApolloErrorCategory => {
+const statusCategory = (status?: number): VolundErrorCategory => {
   if (status === 401) return 'auth'
   if (status === 403) return 'permission'
   if (status === 404) return 'model_not_found'
@@ -96,22 +96,22 @@ const statusCategory = (status?: number): ApolloErrorCategory => {
   return 'unknown'
 }
 
-const retryableByDefault = (category: ApolloErrorCategory): boolean =>
+const retryableByDefault = (category: VolundErrorCategory): boolean =>
   ['network', 'rate_limit', 'server', 'stream_truncated', 'timeout'].includes(category)
 
 export function normalizeError(
   input: unknown,
   options: NormalizeErrorOptions,
-): ApolloNormalizedError {
-  if (input instanceof ApolloNormalizedError) return input
+): VolundNormalizedError {
+  if (input instanceof VolundNormalizedError) return input
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const status = typeof record.status === 'number' ? record.status : undefined
   const category = options.category ?? statusCategory(status)
   const message = typeof record.message === 'string' ? record.message : String(input)
   const details = sanitize(record) as JsonValue
-  return new ApolloNormalizedError({
+  return new VolundNormalizedError({
     category,
-    code: options.code ?? `APOLLO_${category.toUpperCase()}`,
+    code: options.code ?? `volund_${category.toUpperCase()}`,
     message,
     retryable: options.retryable ?? retryableByDefault(category),
     source: options.source,

@@ -2,16 +2,11 @@ import { createReadStream } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 
-import { formatShortDay } from '@apollo-code/ui'
-import type {
-  StatsModelShare,
-  StatsOverview,
-  StatusStatsData,
-  StatusUsageData,
-} from '@apollo-code/ui'
+import { formatShortDay } from '@volund/ui'
+import type { StatsModelShare, StatsOverview, StatusStatsData, StatusUsageData } from '@volund/ui'
 
 /**
- * /status Usage 与 Stats 页签的数据源：直接挖掘 ~/.apollo/sessions/*.jsonl
+ * /status Usage 与 Stats 页签的数据源：直接挖掘 ~/.volund/sessions/*.jsonl
  * 会话事件日志（附录 D 落盘事件）。只解析与统计相关的事件类型，message 内容行
  * （占体积大头）用子串预过滤跳过 JSON.parse，保证 /status 打开延迟可控。
  */

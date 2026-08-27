@@ -21,11 +21,15 @@ void test('renders all channel manifests deterministically', async () => {
   const first = renderChannelFiles(input)
   const second = renderChannelFiles(structuredClone(input))
   assert.deepEqual([...first], [...second])
-  assert.match(first.get('homebrew/Formula/apollo-code.rb'), /on_arm[\s\S]*on_intel/)
+  assert.match(first.get('homebrew/Formula/volund-code.rb'), /on_arm[\s\S]*on_intel/)
   assert.match(
-    first.get('winget/ApolloCode.ApolloCode.yaml'),
+    first.get('winget/VolundCode.VolundCode.yaml'),
     /Architecture: x64[\s\S]*Architecture: arm64/,
   )
+  assert.match(first.get('winget/VolundCode.VolundCode.yaml'), /PackageName: Volund CLI/)
+  assert.match(first.get('winget/VolundCode.VolundCode.yaml'), /PortableCommandAlias: volund/)
+  assert.match(first.get('homebrew/Formula/volund-code.rb'), /Volund CLI/)
+  assert.match(first.get('homebrew/Formula/volund-code.rb'), /"volund" => "volund"/)
   const apt = JSON.parse(first.get('apt/packages.json'))
   assert.deepEqual(
     apt.artifacts.map(({ target }) => target),
@@ -66,7 +70,7 @@ void test('fails closed when release evidence is promoted without authorization'
 })
 
 void test('detects stale generated output', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-channel-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-channel-'))
   try {
     const input = await load()
     await assert.rejects(() => writeChannelFiles(input, root, true), /stale/)

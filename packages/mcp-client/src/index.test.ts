@@ -1,4 +1,4 @@
-import { ToolRegistry } from '@apollo-code/tool-kit'
+import { ToolRegistry } from '@volund/tool-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import { HttpSseTransport, McpClient, mcpToolSetHash, type McpTransport } from './index'
@@ -94,7 +94,9 @@ describe('HttpSseTransport', () => {
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       // 探测 = initialize POST 到 server URL（json）→ 405 → 回退 SSE；send 到 /messages 走 202
       if (init?.method === 'POST') {
-        const isInitialize = String((init.headers as Record<string, string> | undefined)?.['content-type'] ?? '') === 'application/json' && String(url).endsWith('/sse')
+        const isInitialize =
+          String((init.headers as Record<string, string> | undefined)?.['content-type'] ?? '') ===
+            'application/json' && String(url).endsWith('/sse')
         if (isInitialize) return new Response('', { status: 405 })
         return new Response('', { status: 202 })
       }

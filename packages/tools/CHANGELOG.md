@@ -1,4 +1,4 @@
-# @apollo-code/tools
+# @volund/tools
 
 ## 0.1.0
 
@@ -44,9 +44,9 @@
 - Updated dependencies [4842243]
 - Updated dependencies [01ffdbd]
 - Updated dependencies [ad4613e]
-  - @apollo-code/native-bridge@0.1.0
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/provider-kit@0.1.0
-  - @apollo-code/permission@0.1.0
-  - @apollo-code/tool-kit@0.1.0
-  - @apollo-code/subagent@0.1.0
+  - @volund/native-bridge@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/provider-kit@0.1.0
+  - @volund/permission@0.1.0
+  - @volund/tool-kit@0.1.0
+  - @volund/subagent@0.1.0

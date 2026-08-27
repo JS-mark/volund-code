@@ -1,23 +1,23 @@
-import { PermissionManager } from '@apollo-code/permission'
+import { PermissionManager } from '@volund/permission'
 import {
   BridgeRuntime,
   BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
   createToolHookDispatcher,
   type BridgeHost,
   type HookPipelineSignal,
-} from '@apollo-code/plugin-runtime'
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
-import type { Tool, ToolContext } from '@apollo-code/tool-kit'
-import { ToolExecutor } from '@apollo-code/tools'
+} from '@volund/plugin-runtime'
+import type { PluginManifest } from '@volund/plugin-sdk'
+import type { Tool, ToolContext } from '@volund/tool-kit'
+import { ToolExecutor } from '@volund/tools'
 import { describe, expect, it, vi } from 'vitest'
 
 const gitHelperManifest: PluginManifest = {
-  name: 'apollo-plugin-git-helper',
+  name: 'volund-plugin-git-helper',
   version: '1.2.0',
-  engines: { apollo: '0.1.0' },
+  engines: { volund: '0.1.0' },
   main: 'index.js',
   type: 'module',
-  permissions: { apollo: ['hooks.on'] },
+  permissions: { volund: ['hooks.on'] },
 }
 
 function stubHost(): BridgeHost {
@@ -94,7 +94,7 @@ describe('tool hook dispatch composition (REM-52, r11-REM5 acceptance)', () => {
 
     const blocked = await executor.execute(
       tool,
-      { command: 'rm -rf /tmp/apollo-rem-52-e2e' },
+      { command: 'rm -rf /tmp/volund-rem-52-e2e' },
       new AbortController().signal,
       'toolu_blocked',
     )
@@ -170,7 +170,7 @@ describe('tool hook dispatch composition (REM-52, r11-REM5 acceptance)', () => {
   it('vetoes an oversized builtin preToolUse payload before native tool invocation', async () => {
     const runtime = new BridgeRuntime(stubHost())
     const handler = vi.fn()
-    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'apollo.secret-scan' })
+    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'volund.secret-scan' })
     const reports: HookPipelineSignal[] = []
     const manager = new PermissionManager()
     const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
@@ -209,7 +209,7 @@ describe('tool hook dispatch composition (REM-52, r11-REM5 acceptance)', () => {
   it('blocks an oversized postToolUse result without claiming to roll back the tool side effect', async () => {
     const runtime = new BridgeRuntime(stubHost())
     const postHandler = vi.fn()
-    runtime.registerHostHook('builtin', 'postToolUse', postHandler, { name: 'apollo.output-scan' })
+    runtime.registerHostHook('builtin', 'postToolUse', postHandler, { name: 'volund.output-scan' })
     const reports: HookPipelineSignal[] = []
     const manager = new PermissionManager()
     manager.setPromptHandler(async () => ({ kind: 'allow-once' }))

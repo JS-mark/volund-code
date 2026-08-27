@@ -18,9 +18,9 @@ import { homedir } from 'node:os'
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
-import type { CoreEvent, EventBus, PromptComposer } from '@apollo-code/core'
-import type { PermissionDecision, PermissionRequest } from '@apollo-code/permission'
-import { sanitize, type JsonValue } from '@apollo-code/shared'
+import type { CoreEvent, EventBus, PromptComposer } from '@volund/core'
+import type { PermissionDecision, PermissionRequest } from '@volund/permission'
+import { sanitize, type JsonValue } from '@volund/shared'
 
 import type { MemoryRecordAttachment } from './memory-runtime'
 export * from './evolution-store'
@@ -81,7 +81,7 @@ export class SessionStore {
       for await (const line of rl) {
         if (!line) continue
         const event = JSON.parse(line) as StoredEvent
-        if (event.v > 1) throw new Error('Session is from a newer Apollo version')
+        if (event.v > 1) throw new Error('Session is from a newer volund version')
         out.push(event)
       }
     } catch (error) {
@@ -104,7 +104,7 @@ function containsInlineBinary(value: unknown): boolean {
 }
 export interface PromptLoaderOptions {
   cwd: string
-  apolloHome?: string
+  volundHome?: string
   permissions: {
     request(request: PermissionRequest): Promise<PermissionDecision>
   }
@@ -148,7 +148,7 @@ export class PromptLoader {
       if (current === home || dirname(current) === current) break
       current = dirname(current)
     }
-    const user = resolve(this.options.apolloHome ?? resolve(homedir(), '.apollo'), 'PROMPT.md')
+    const user = resolve(this.options.volundHome ?? resolve(homedir(), '.volund'), 'PROMPT.md')
     try {
       out.push(
         composer.register({
@@ -176,9 +176,9 @@ export class PromptLoader {
     }
     const roots = [
       await realpath(this.options.cwd),
-      await mkdir(this.options.apolloHome ?? resolve(homedir(), '.apollo'), {
+      await mkdir(this.options.volundHome ?? resolve(homedir(), '.volund'), {
         recursive: true,
-      }).then(() => realpath(this.options.apolloHome ?? resolve(homedir(), '.apollo'))),
+      }).then(() => realpath(this.options.volundHome ?? resolve(homedir(), '.volund'))),
     ]
     if (
       !roots.some((root) => {
@@ -299,7 +299,7 @@ export class AttachmentStore {
       throw new TypeError('Invalid attachment handle')
     await rm(resolve(this.root, handle), { force: true })
   }
-  async read(source: import('@apollo-code/provider-kit').AttachmentRef): Promise<Uint8Array> {
+  async read(source: import('@volund/provider-kit').AttachmentRef): Promise<Uint8Array> {
     if (source.kind === 'inline') return source.bytes
     if (source.kind === 'path') {
       const target = await realpath(source.absPath)
@@ -445,7 +445,7 @@ export class BackupStore {
     const releases: Array<() => Promise<void>> = []
     try {
       for (const path of [...latest.keys()].toSorted())
-        releases.push(await acquireFileLock(`${path}.apollolock`, `restore ${sessionId}`))
+        releases.push(await acquireFileLock(`${path}.volundlock`, `restore ${sessionId}`))
       const conflicts: string[] = []
       for (const record of latest.values()) {
         const initial = original.get(record.path)!
@@ -522,7 +522,7 @@ export class BackupStore {
     const releases: Array<() => Promise<void>> = []
     try {
       for (const path of paths)
-        releases.push(await acquireFileLock(`${path}.apollolock`, `undo ${sessionId}`))
+        releases.push(await acquireFileLock(`${path}.volundlock`, `undo ${sessionId}`))
       for (const record of step) {
         if (record.existed && record.backupPath) {
           assertWithin(resolve(this.root, sessionId), record.backupPath)

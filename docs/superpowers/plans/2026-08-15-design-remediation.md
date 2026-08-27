@@ -1,7 +1,7 @@
 # 设计一致性整改方案（2026-08-15）
 
 > **状态**：待 BDFL 批准
-> **输入**：[REVIEW-r11 文档正确性审计](../specs/2026-07-31-apollo-code-design/REVIEW-r11.md) + 三子系统实现评审（插件 / 记忆 / TUI，2026-08-15，基准 main `5fa00a7`）
+> **输入**：[REVIEW-r11 文档正确性审计](../specs/2026-07-31-volund-code-design/REVIEW-r11.md) + 三子系统实现评审（插件 / 记忆 / TUI，2026-08-15，基准 main `5fa00a7`）
 > **性质**：本文档是整改的**单一执行计划**。每项差异只有两个合法出口——**A. 改代码追设计**，或 **B. 改文档认现实**；禁止保留"文档空转"的第三态。每项标注出口与验收标准。
 
 ---
@@ -37,21 +37,21 @@
 | L186-190 | "单文件 index.js bundle"；`runPlugin()` | 保留意图但改述：单入口必须匹配 `manifest.main`（多文件目录当前可装载——若要收紧见 REM-16）；API 名更正 |
 | L193 | "AST 静态检查保留" | 改为"未实现；隔离靠 Rust 沙箱 + bridge 白名单 + manifest 批准三层" |
 | L194 | `-32601 Method not found` | `PluginError('plugin_rpc_method_denied')`（稳定 code，刻意不用 -32601 防泄露） |
-| L195 | `plugins.enabled.toml` | `~/.apollo/plugins/plugins.json`（`plugin-runtime/src/index.ts:365-373`） |
-| L207-211 | `apollo.provider.register` "唯一入口…受控开放" | 如实：主进程 `registerProviderPlugin` 已实现未接线；bridge 未暴露（联动 REM-11 决策） |
+| L195 | `plugins.enabled.toml` | `~/.volund/plugins/plugins.json`（`plugin-runtime/src/index.ts:365-373`） |
+| L207-211 | `volund.provider.register` "唯一入口…受控开放" | 如实：主进程 `registerProviderPlugin` 已实现未接线；bridge 未暴露（联动 REM-11 决策） |
 | L214 | 延迟卸载/sticky 锁 | 如实：当前 disable/uninstall 立即 deactivate（`index.ts:883-889`） |
 | L218 | bridge 超时 5s / 心跳 60s | 10s（`plugin_host.mjs:28-31`）/ 5s 发-30s 收（`plugin_host.mjs:14-16`） |
 | L225-229 | plugin 默认 priority 50/60 槽 | 如实：无默认槽；priority 由 fragment 自带，区间 -100~100（联动 REM-3） |
 | L235-237 | plugin-sdk 零依赖/`defineHook`/`defineCommand` | 如实：依赖 provider-kit（type）；仅 `definePlugin/defineTool` |
-| **§4.14 全节（L267-283）** | md/frontmatter/200 行/四层降级/`[memory]` 配置/`apollo.memory.recall`/`contributePrompt`/`-32601` | **按 ADR-0010/0011 重写**：JSON 快照 `records.json`；scope=workspace/project/session；64KiB + secret/Unicode/id 守卫（不可禁用）；工具 `Memory.create/get/list/update/delete/pin/unpin`；`permissions.memory = {read: scope[], write, search, export}`；无 `[memory]` 配置段（默认值硬编码，联动 REM-17） |
+| **§4.14 全节（L267-283）** | md/frontmatter/200 行/四层降级/`[memory]` 配置/`volund.memory.recall`/`contributePrompt`/`-32601` | **按 ADR-0010/0011 重写**：JSON 快照 `records.json`；scope=workspace/project/session；64KiB + secret/Unicode/id 守卫（不可禁用）；工具 `Memory.create/get/list/update/delete/pin/unpin`；`permissions.memory = {read: scope[], write, search, export}`；无 `[memory]` 配置段（默认值硬编码，联动 REM-17） |
 | §4.15 L288 | "`packages/core/src/prompt-loader.ts` 是唯一实现" | `packages/storage/src/index.ts:105`（`PromptLoader`） |
 | L298 | `prompt.include.failed` 事件 | 未实现，删除或标注 |
-| L299 | `apollo debug prompt` | 命令不存在，删除或标注 `[planned]` |
+| L299 | `volund debug prompt` | 命令不存在，删除或标注 `[planned]` |
 
 ### WP1.2 CLAUDE.md 逐条修订
 
 - **删除 C4 第 90-100 行对 §4.14/§4.15 的复述**，恢复"引用 AGENT.md 不重复"的自身约定（这是单一事实源裂开的根源）；保留索引行但更新摘要关键词。
-- C2 L52：`apollo-search` 不在 builtin 工具集（`tools/src/index.ts:482-494`）——改为"构建搜索类功能时优先复用 `native-bridge.search` 能力"，或走 REM-18 把工具接进来后再保留现文案。
+- C2 L52：`volund-search` 不在 builtin 工具集（`tools/src/index.ts:482-494`）——改为"构建搜索类功能时优先复用 `native-bridge.search` 能力"，或走 REM-18 把工具接进来后再保留现文案。
 - C2 L54 + CONTRIBUTING.md:60：`pnpm build:native` 幻影命令——先确认真实原生构建入口（root `build` 经 turbo 不含 Rust；standalone 构建是否触发 cargo 需核实），然后三处（CLAUDE/CONTRIBUTING/root scripts 二选一：改文案或补 script）统一。
 - L27 索引摘要"存储/frontmatter/200 行/权限门/唯一召回路径"→ 按 WP1.1 §4.14 新摘要更新。
 
@@ -81,7 +81,7 @@
 
 1. **16-capability-traceability.md 刷新**：至少修正 REVIEW-r11 2.8 列出的 3 处 memory 误判；建议把"刷新"从手工快照改为与发版节奏绑定的例行项。
 2. **流程约定**（写入 spec README"修改约定"节）：ADR 状态变更为 Accepted 的 PR **必须**同时回收对应 spec 卷（加 superseded/实现状态标注），否则不得合并——本轮 memory 的三层分裂正是缺这条纪律的直接后果。
-3. **REM-19 幻影引用检查脚本**（新 `scripts/verify-docs-references.mjs`，挂进现有 verify 体系）：扫描治理文档与 spec 中的 `packages/<name>`、`pnpm <script>`、`~/.apollo/<path>` 引用，校验其真实存在；先以 warn 模式上线，存量清零后转 enforce。
+3. **REM-19 幻影引用检查脚本**（新 `scripts/verify-docs-references.mjs`，挂进现有 verify 体系）：扫描治理文档与 spec 中的 `packages/<name>`、`pnpm <script>`、`~/.volund/<path>` 引用，校验其真实存在；先以 warn 模式上线，存量清零后转 enforce。
 
 ---
 
@@ -118,7 +118,7 @@
 
 - REM-16 插件"单文件 bundle"约束收紧或文档认现实（当前多文件目录可装载，与 `verifyBundle` 的多文件 integrity 设计并存）。
 - REM-17 `[memory]` 配置段：实现 8 个配置项的最小集（maxLines/maxTokens/recall_topk）或 spec 删除。
-- REM-18 `apollo-search` 接为 builtin 工具（兑现 CLAUDE.md C2 文案）或改文案。
+- REM-18 `volund-search` 接为 builtin 工具（兑现 CLAUDE.md C2 文案）或改文案。
 - REM-19 幻影引用检查脚本（见 WP3.3）。
 - REM-20 plugin install 的 npm/github 形态与 integrity digest 接入（registry 客户端已写好无调用方）；已批准插件本地篡改防线：把代码 digest 纳入审批记录。
 - REM-21 TUI 长会话滚动区（Ink Static 或等价）替换 `slice(-16)` 截断；NDJSON 真流式（`bin.ts:24`）；退出路径 provider dispose / native teardown。

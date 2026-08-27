@@ -12,7 +12,7 @@ describe('AppIdentity', () => {
   it.each(['0.0.0', 'latest', '1.2'])(
     'fails closed for invalid production version %s',
     (version) => {
-      expect(() => defineAppIdentity({ version })).toThrow('Apollo')
+      expect(() => defineAppIdentity({ version })).toThrow('Volund')
     },
   )
 })

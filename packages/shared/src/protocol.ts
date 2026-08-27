@@ -1,8 +1,8 @@
-import { ApolloNormalizedError } from './errors'
+import { VolundNormalizedError } from './errors'
 import type { JsonValue } from './index'
 
-export const APOLLO_PROTOCOL_VERSION = 1 as const
-export type ApolloProtocolVersion = typeof APOLLO_PROTOCOL_VERSION
+export const VOLUND_PROTOCOL_VERSION = 1 as const
+export type VolundProtocolVersion = typeof VOLUND_PROTOCOL_VERSION
 export type RequestId = number | string
 
 export interface TransportMeta {
@@ -32,7 +32,7 @@ export interface ResourceUsage {
 export type TransportEnvelope =
   | {
       jsonrpc: '2.0'
-      protocolVersion: ApolloProtocolVersion
+      protocolVersion: VolundProtocolVersion
       id: RequestId
       method: string
       params?: JsonValue
@@ -40,21 +40,21 @@ export type TransportEnvelope =
     }
   | {
       jsonrpc: '2.0'
-      protocolVersion: ApolloProtocolVersion
+      protocolVersion: VolundProtocolVersion
       method: string
       params?: JsonValue
       meta?: TransportMeta
     }
   | {
       jsonrpc: '2.0'
-      protocolVersion: ApolloProtocolVersion
+      protocolVersion: VolundProtocolVersion
       id: RequestId
       result: JsonValue
       meta?: TransportMeta
     }
   | {
       jsonrpc: '2.0'
-      protocolVersion: ApolloProtocolVersion
+      protocolVersion: VolundProtocolVersion
       id: RequestId | null
       error: TransportError
       meta?: TransportMeta
@@ -66,7 +66,7 @@ export interface TransportError {
   data?: JsonValue
 }
 
-export class ProtocolViolationError extends ApolloNormalizedError {
+export class ProtocolViolationError extends VolundNormalizedError {
   constructor(
     code: string,
     message: string,
@@ -83,16 +83,16 @@ export function parseTransportEnvelope(
 ): TransportEnvelope {
   if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new ProtocolViolationError(
-      'APOLLO_INVALID_REQUEST',
+      'VOLUND_INVALID_REQUEST',
       'Envelope must be an object',
       'invalid_request',
     )
   const value = input as Record<string, unknown>
   if (value.jsonrpc !== '2.0')
-    throw new ProtocolViolationError('APOLLO_PROTOCOL_INVALID', 'Only JSON-RPC 2.0 is supported')
-  if (value.protocolVersion !== APOLLO_PROTOCOL_VERSION)
+    throw new ProtocolViolationError('VOLUND_PROTOCOL_INVALID', 'Only JSON-RPC 2.0 is supported')
+  if (value.protocolVersion !== VOLUND_PROTOCOL_VERSION)
     throw new ProtocolViolationError(
-      'APOLLO_UNSUPPORTED_VERSION',
+      'VOLUND_UNSUPPORTED_VERSION',
       `Unsupported protocol version: ${String(value.protocolVersion)}`,
     )
   const hasMethod = 'method' in value
@@ -100,24 +100,24 @@ export function parseTransportEnvelope(
   const hasError = 'error' in value
   if ([hasMethod, hasResult, hasError].filter(Boolean).length !== 1)
     throw new ProtocolViolationError(
-      'APOLLO_INVALID_REQUEST',
+      'VOLUND_INVALID_REQUEST',
       'Envelope must contain exactly one of method, result, or error',
       'invalid_request',
     )
   if (hasMethod && (typeof value.method !== 'string' || value.method.length === 0))
     throw new ProtocolViolationError(
-      'APOLLO_INVALID_REQUEST',
+      'VOLUND_INVALID_REQUEST',
       'Method must be a non-empty string',
       'invalid_request',
     )
   if (hasMethod && options.methods && !options.methods.includes(value.method as string))
     throw new ProtocolViolationError(
-      'APOLLO_METHOD_NOT_FOUND',
+      'VOLUND_METHOD_NOT_FOUND',
       `Unsupported method: ${String(value.method)}`,
     )
   if (!hasMethod && !('id' in value))
     throw new ProtocolViolationError(
-      'APOLLO_INVALID_REQUEST',
+      'VOLUND_INVALID_REQUEST',
       'Responses require an id',
       'invalid_request',
     )
@@ -128,14 +128,14 @@ export function parseTransportEnvelope(
     typeof value.id !== 'number'
   )
     throw new ProtocolViolationError(
-      'APOLLO_INVALID_REQUEST',
+      'VOLUND_INVALID_REQUEST',
       'Id must be a string, number, or null',
       'invalid_request',
     )
   for (const key of ['params', 'result', 'error', 'meta'] as const)
     if (key in value && !isJsonValue(value[key]))
       throw new ProtocolViolationError(
-        'APOLLO_INVALID_REQUEST',
+        'VOLUND_INVALID_REQUEST',
         `${key} must be JSON-compatible`,
         'invalid_request',
       )
@@ -168,7 +168,7 @@ export function assertResourceLimits(usage: ResourceUsage, limits: ResourceLimit
     const limit = limits[limitKey]
     if (used !== undefined && limit !== undefined && used > limit)
       throw new ProtocolViolationError(
-        'APOLLO_RESOURCE_EXHAUSTED',
+        'VOLUND_RESOURCE_EXHAUSTED',
         `${usageKey} exceeds ${limitKey}`,
         'resource_exhausted',
       )

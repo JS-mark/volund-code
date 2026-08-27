@@ -7,7 +7,7 @@ const scriptPath = fileURLToPath(import.meta.url)
 const root = resolve(dirname(scriptPath), '..')
 const registryRelativePath = 'packages/shared/src/config-schema.ts'
 const appendixRelativePath =
-  'docs/superpowers/specs/2026-07-31-apollo-code-design/APPENDIX-C-config-schema.md'
+  'docs/superpowers/specs/2026-07-31-volund-code-design/APPENDIX-C-config-schema.md'
 
 /**
  * schema 已登记、但附录 C.2 尚无对应行的实现内建 key。每一项必须给出真实来源，

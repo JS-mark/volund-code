@@ -12,7 +12,7 @@ afterEach(async () => {
 })
 describe('EncryptedCredentialStore', () => {
   it('round trips using Argon2id and AES-GCM without plaintext on disk', async () => {
-    const dir = await mkdtemp(resolve(tmpdir(), 'apollo-auth-'))
+    const dir = await mkdtemp(resolve(tmpdir(), 'volund-auth-'))
     dirs.push(dir)
     const path = resolve(dir, 'credentials.enc'),
       store = new EncryptedCredentialStore(path, async () => 'pass')

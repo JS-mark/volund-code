@@ -1,4 +1,4 @@
-# apollo-code
+# volund-code
 
 ## 0.1.0
 
@@ -7,7 +7,7 @@
 - 322c399: Add atomic MultiEdit transactions, session-scoped file backups, conflict-safe restore and durable resume recovery.
 - ef83e9a: Add the versioned memory runtime, crash-safe local repository, scope policy, and production composition-root wiring.
 - 0fdd2db: Add the Chat `/memory` browser, search, paging, details, guarded editing, deletion, and pin controls while sharing Memory fact, recall, ACL, pre-write, cursor, and optimistic concurrency behavior with the CLI.
-- 51a8d26: Add the responsive Apollo Code startup status screen and stable bordered command input band.
+- 51a8d26: Add the responsive volund Code startup status screen and stable bordered command input band.
 - bca787c: Add permission-gated Memory plugin capabilities, attachment reference lifecycles, and local-only versioned import/export with dry-run conflict reports and crash rollback.
 - 3a6b644: Add a secret-safe read-only status view model, runtime aggregation adapter, and JSON-safe section formatter for the upcoming `/status` panel.
 - 340adfc: Add the L1 CLI and UI product shell with strict diagnostics, guarded workspace paths, sandbox disclosure, dangerous-mode warnings, and replaceable integration ports.
@@ -22,7 +22,7 @@
 - e9b0aea: Add a dynamic slash-command registry and connect plugin `commands.register` contributions to the interactive CLI with lifecycle-aware disposal.
 - 6ce20ca: Activate approved enabled plugins in the native sandbox host, bridge registered tool callbacks into live CLI sessions, dispose them across disable and uninstall, and add a secret-free real sandbox lifecycle E2E.
 - c6e155d: Replace the disconnected CLI shell with production L1 wiring for Runner, Anthropic, permissions, native sandbox workers, session JSONL resume, telemetry, auth, config health, and strict doctor checks.
-- 823ad19: Add an interactive session picker for `apollo resume`, including fuzzy search, resilient session discovery, and structured non-TTY errors.
+- 823ad19: Add an interactive session picker for `volund resume`, including fuzzy search, resilient session discovery, and structured non-TTY errors.
 - 5a4987c: Ship the Rolldown single-file CLI and the twelve L1 native release assets,
   with three-OS TypeScript, four-target native, escape, doctor, digest, and
   universal2 CI evidence. Linux arm64 QEMU evidence remains partial verification
@@ -127,22 +127,22 @@
 - Updated dependencies [84c87cb]
 - Updated dependencies [f4e0e08]
 - Updated dependencies [80edf03]
-  - @apollo-code/tools@0.1.0
-  - @apollo-code/storage@0.1.0
-  - @apollo-code/native-bridge@0.1.0
-  - @apollo-code/ui@0.1.0
-  - @apollo-code/plugin-sdk@0.1.0
-  - @apollo-code/plugin-runtime@0.1.0
-  - @apollo-code/router@0.1.0
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/core@0.1.0
-  - @apollo-code/provider-kit@0.1.0
-  - @apollo-code/auth@0.1.0
-  - @apollo-code/config@0.1.0
-  - @apollo-code/context@0.1.0
-  - @apollo-code/permission@0.1.0
-  - @apollo-code/telemetry@0.1.0
-  - @apollo-code/tool-kit@0.1.0
-  - @apollo-code/provider-anthropic@0.1.0
-  - @apollo-code/subagent@0.1.0
-  - @apollo-code/skills-runtime@0.1.0
+  - @volund/tools@0.1.0
+  - @volund/storage@0.1.0
+  - @volund/native-bridge@0.1.0
+  - @volund/ui@0.1.0
+  - @volund/plugin-sdk@0.1.0
+  - @volund/plugin-runtime@0.1.0
+  - @volund/router@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/core@0.1.0
+  - @volund/provider-kit@0.1.0
+  - @volund/auth@0.1.0
+  - @volund/config@0.1.0
+  - @volund/context@0.1.0
+  - @volund/permission@0.1.0
+  - @volund/telemetry@0.1.0
+  - @volund/tool-kit@0.1.0
+  - @volund/provider-anthropic@0.1.0
+  - @volund/subagent@0.1.0
+  - @volund/skills-runtime@0.1.0

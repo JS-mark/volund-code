@@ -1,4 +1,4 @@
-import type { CoreEvent, EventBus } from '@apollo-code/core'
+import type { CoreEvent, EventBus } from '@volund/core'
 import { useEffect } from 'react'
 
 export function useSessionEvents(

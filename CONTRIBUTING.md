@@ -1,8 +1,8 @@
-# Contributing to Apollo Code
+# Contributing to volund Code
 
-Thanks for your interest in Apollo Code! This document is the operational
+Thanks for your interest in volund Code! This document is the operational
 guide for contributors. **The design source of truth is the spec directory
-[`docs/superpowers/specs/2026-07-31-apollo-code-design/`](docs/superpowers/specs/2026-07-31-apollo-code-design/)
+[`docs/superpowers/specs/2026-07-31-volund-code-design/`](docs/superpowers/specs/2026-07-31-volund-code-design/)
 (split into `01`–`14` section files + `SANDBOX-COMPAT-r1.md`) and the engineering
 conventions in [`AGENT.md`](AGENT.md).** Please read both before contributing
 non-trivial changes.
@@ -25,7 +25,7 @@ non-trivial changes.
 ## Ways to contribute
 
 - **Bug reports** — open an issue with the bug template. Attach the output of
-  `apollo doctor` and reproduction steps.
+  `volund doctor` and reproduction steps.
 - **Bug fixes** — small fixes can go directly to a PR; larger fixes should
   reference an issue.
 - **New features** — open an RFC issue first (see [RFC process](#rfc-process)).
@@ -33,7 +33,7 @@ non-trivial changes.
 - **Providers** — v1 provider adapters live in this repo; propose new ones
   via RFC first.
 - **Plugins / Skills** — please keep out-of-tree and publish to npm under the
-  `apollo-plugin-*` / `apollo-skill-*` naming convention. The docs site
+  `volund-plugin-*` / `volund-skill-*` naming convention. The docs site
   will link a curated registry (see spec §13.2 `/plugins`).
 
 ## Prerequisites
@@ -48,12 +48,12 @@ Platform requirements: macOS 13+, Linux (glibc 2.31+), or Windows 10 22H2+.
 ## Setup
 
 ```bash
-gh repo clone <owner>/apollo-code
-cd apollo-code
+gh repo clone <owner>/volund-code
+cd volund-code
 pnpm install          # installs JS deps + downloads Rust toolchain (if managed)
 pnpm build            # builds all TS packages + Rust native addons
 pnpm test             # runs vitest across the workspace
-pnpm dev              # runs apollo CLI with hot rebuild
+pnpm dev              # runs volund CLI with hot rebuild
 ```
 
 Native builds land in `packages/native-bridge`. When editing Rust code, run
@@ -175,7 +175,7 @@ Run:
 
 ```bash
 pnpm test                    # workspace-wide
-pnpm --filter @apollo/core test
+pnpm --filter @volund/core test
 pnpm test:e2e
 cargo test --workspace       # Rust
 ```

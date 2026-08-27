@@ -80,7 +80,10 @@ export function TabbedListView(props: {
         {view.tabs.map((tab, index) => {
           const isActive = index === active
           return (
-            <Text key={tab.id} {...(isActive ? { color: 'cyan' as const, bold: true } : { dimColor: true })}>
+            <Text
+              key={tab.id}
+              {...(isActive ? { color: 'cyan' as const, bold: true } : { dimColor: true })}
+            >
               {isActive ? '[' : ' '}
               {tab.label}
               {isActive ? ']' : ' '}
@@ -108,10 +111,10 @@ export function TabbedListView(props: {
           </>
         )}
       </Box>
-      <Text dimColor>←/→ tab · type to search · ↑/↓ select · PgUp/PgDn page · Enter detail · Esc close</Text>
-      {!activeTab || !activeTab.entries.length ? (
-        <Text>Nothing to show.</Text>
-      ) : null}
+      <Text dimColor>
+        ←/→ tab · type to search · ↑/↓ select · PgUp/PgDn page · Enter detail · Esc close
+      </Text>
+      {!activeTab || !activeTab.entries.length ? <Text>Nothing to show.</Text> : null}
       {activeTab?.entries.length && !filtered.length ? (
         <Text>No entries match “{state.query}”.</Text>
       ) : null}

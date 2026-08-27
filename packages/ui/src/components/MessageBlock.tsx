@@ -12,15 +12,14 @@ export interface MessageBlockProps {
  * Label-free transcript rendering: a role marker column plus a hanging indent,
  * in the style of modern agent TUIs. `>` echoes user input (matching the input
  * prompt glyph), `⏺` marks assistant output, `·` marks system notes — no
- * YOU/APOLLO headers or boxes.
+ * YOU/VOLUND headers or boxes.
  *
  * §S3.3a：`/skill-name` 一次性调用的用户消息是 `<skill>` 全文（模型需要），
  * transcript 里折叠成一行摘要 + 行数提示，不刷屏。
  */
 export function MessageBlock({ entry }: MessageBlockProps) {
   const marker = roleMarker(entry.role)
-  const collapsed =
-    entry.role === 'user' ? collapseSkillInvocation(entry.text) : undefined
+  const collapsed = entry.role === 'user' ? collapseSkillInvocation(entry.text) : undefined
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>

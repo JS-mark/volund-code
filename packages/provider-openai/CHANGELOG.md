@@ -1,4 +1,4 @@
-# @apollo-code/provider-openai
+# @volund/provider-openai
 
 ## 0.1.0
 
@@ -21,5 +21,5 @@
 - Updated dependencies [02ebe86]
 - Updated dependencies [3816925]
 - Updated dependencies [01ffdbd]
-  - @apollo-code/shared@0.1.0
-  - @apollo-code/provider-kit@0.1.0
+  - @volund/shared@0.1.0
+  - @volund/provider-kit@0.1.0

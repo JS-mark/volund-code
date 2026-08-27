@@ -13,7 +13,7 @@ import {
   validateMemoryRecordAttachment,
 } from './memory-runtime'
 
-export const MEMORY_EXPORT_SCHEMA_VERSION = 'apollo.memory.export.v1' as const
+export const MEMORY_EXPORT_SCHEMA_VERSION = 'volund.memory.export.v1' as const
 const MEMORY_IMPORT_JOURNAL_VERSION = 1 as const
 export const MAX_MEMORY_ARCHIVE_BYTES = 16 * 1024 * 1024
 const MAX_ARCHIVE_RECORDS = 10_000

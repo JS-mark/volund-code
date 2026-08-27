@@ -1,5 +1,5 @@
-import type { ContentPart, Message } from '@apollo-code/provider-kit'
-import { EVENT_SCHEMAS, type EventName, type JsonValue } from '@apollo-code/shared'
+import type { ContentPart, Message } from '@volund/provider-kit'
+import { EVENT_SCHEMAS, type EventName, type JsonValue } from '@volund/shared'
 
 import { createSession, updateSession, type SessionState } from './session'
 

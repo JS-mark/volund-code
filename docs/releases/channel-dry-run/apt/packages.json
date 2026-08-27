@@ -6,7 +6,7 @@
     "releaseReady": false,
     "source": "docs/releases/l4-evidence.json"
   },
-  "package": "apollo-code",
+  "package": "volund-code",
   "version": "0.1.0-rc.1",
   "license": "Apache-2.0",
   "dependencies": [],
@@ -16,7 +16,7 @@
       "architecture": "amd64",
       "libc": "glibc",
       "format": "deb-dry-run",
-      "url": "https://example.invalid/apollo-code/releases/download/v0.1.0-rc.1/apollo-code-linux-x64-gnu.tar.gz",
+      "url": "https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-linux-x64-gnu.tar.gz",
       "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
       "tier": "None",
       "tierReason": "L4 native evidence is not authorized"
@@ -26,7 +26,7 @@
       "architecture": "arm64",
       "libc": "glibc",
       "format": "deb-dry-run",
-      "url": "https://example.invalid/apollo-code/releases/download/v0.1.0-rc.1/apollo-code-linux-arm64-gnu.tar.gz",
+      "url": "https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-linux-arm64-gnu.tar.gz",
       "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
       "tier": "None",
       "tierReason": "L4 native evidence is not authorized"
@@ -36,7 +36,7 @@
       "architecture": "amd64",
       "libc": "musl",
       "format": "portable-tarball",
-      "url": "https://example.invalid/apollo-code/releases/download/v0.1.0-rc.1/apollo-code-linux-x64-musl.tar.gz",
+      "url": "https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-linux-x64-musl.tar.gz",
       "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
       "tier": "None",
       "tierReason": "L4 native evidence is not authorized"
@@ -46,7 +46,7 @@
       "architecture": "arm64",
       "libc": "musl",
       "format": "portable-tarball",
-      "url": "https://example.invalid/apollo-code/releases/download/v0.1.0-rc.1/apollo-code-linux-arm64-musl.tar.gz",
+      "url": "https://example.invalid/volund-code/releases/download/v0.1.0-rc.1/volund-code-linux-arm64-musl.tar.gz",
       "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
       "tier": "None",
       "tierReason": "L4 native evidence is not authorized"

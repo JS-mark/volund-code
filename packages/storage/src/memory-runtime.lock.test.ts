@@ -52,7 +52,7 @@ vi.mock('node:fs/promises', async () => {
 })
 
 const roots: string[] = []
-const project = { kind: 'project', workspaceId: 'ws', projectId: 'apollo' } as const
+const project = { kind: 'project', workspaceId: 'ws', projectId: 'volund' } as const
 
 afterEach(async () => {
   lockState.path = ''
@@ -62,7 +62,7 @@ afterEach(async () => {
 })
 
 async function prepare(failures: { open?: string[]; rm?: string[] } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-lock-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-lock-'))
   roots.push(root)
   const file = join(root, 'memory', 'records.json')
   lockState.path = `${file}.lock`

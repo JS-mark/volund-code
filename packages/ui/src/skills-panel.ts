@@ -112,8 +112,5 @@ export function collapseSkillInvocation(text: string): CollapsedSkillInvocation 
 }
 
 function unescapeSkillAttribute(value: string): string {
-  return value
-    .replaceAll('&quot;', '"')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&amp;', '&')
+  return value.replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&amp;', '&')
 }

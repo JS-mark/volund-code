@@ -98,73 +98,73 @@ importers:
 
   apps/cli:
     dependencies:
-      '@apollo-code/auth':
+      '@volund/auth':
         specifier: workspace:*
         version: link:../../packages/auth
-      '@apollo-code/config':
+      '@volund/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@apollo-code/context':
+      '@volund/context':
         specifier: workspace:*
         version: link:../../packages/context
-      '@apollo-code/core':
+      '@volund/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@apollo-code/mcp-client':
+      '@volund/mcp-client':
         specifier: workspace:*
         version: link:../../packages/mcp-client
-      '@apollo-code/native-bridge':
+      '@volund/native-bridge':
         specifier: workspace:*
         version: link:../../packages/native-bridge
-      '@apollo-code/permission':
+      '@volund/permission':
         specifier: workspace:*
         version: link:../../packages/permission
-      '@apollo-code/plugin-runtime':
+      '@volund/plugin-runtime':
         specifier: workspace:*
         version: link:../../packages/plugin-runtime
-      '@apollo-code/plugin-sdk':
+      '@volund/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
-      '@apollo-code/provider-anthropic':
+      '@volund/provider-anthropic':
         specifier: workspace:*
         version: link:../../packages/provider-anthropic
-      '@apollo-code/provider-gemini':
+      '@volund/provider-gemini':
         specifier: workspace:*
         version: link:../../packages/provider-gemini
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../../packages/provider-kit
-      '@apollo-code/provider-ollama':
+      '@volund/provider-ollama':
         specifier: workspace:*
         version: link:../../packages/provider-ollama
-      '@apollo-code/provider-openai':
+      '@volund/provider-openai':
         specifier: workspace:*
         version: link:../../packages/provider-openai
-      '@apollo-code/router':
+      '@volund/router':
         specifier: workspace:*
         version: link:../../packages/router
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@apollo-code/skills-runtime':
+      '@volund/skills-runtime':
         specifier: workspace:*
         version: link:../../packages/skills-runtime
-      '@apollo-code/storage':
+      '@volund/storage':
         specifier: workspace:*
         version: link:../../packages/storage
-      '@apollo-code/subagent':
+      '@volund/subagent':
         specifier: workspace:*
         version: link:../../packages/subagent
-      '@apollo-code/telemetry':
+      '@volund/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
-      '@apollo-code/tool-kit':
+      '@volund/tool-kit':
         specifier: workspace:*
         version: link:../../packages/tool-kit
-      '@apollo-code/tools':
+      '@volund/tools':
         specifier: workspace:*
         version: link:../../packages/tools
-      '@apollo-code/ui':
+      '@volund/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       citty:
@@ -213,7 +213,7 @@ importers:
 
   packages/auth:
     dependencies:
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       hash-wasm:
@@ -232,7 +232,7 @@ importers:
 
   packages/config:
     dependencies:
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -248,7 +248,7 @@ importers:
 
   packages/context:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
     devDependencies:
@@ -264,16 +264,16 @@ importers:
 
   packages/core:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/router':
+      '@volund/router':
         specifier: workspace:*
         version: link:../router
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
-      '@apollo-code/tool-kit':
+      '@volund/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
       immer:
@@ -295,13 +295,13 @@ importers:
 
   packages/mcp-client:
     dependencies:
-      '@apollo-code/permission':
+      '@volund/permission':
         specifier: workspace:*
         version: link:../permission
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
-      '@apollo-code/tool-kit':
+      '@volund/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
     devDependencies:
@@ -345,7 +345,7 @@ importers:
 
   packages/permission:
     dependencies:
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       picomatch:
@@ -367,13 +367,13 @@ importers:
 
   packages/plugin-runtime:
     dependencies:
-      '@apollo-code/native-bridge':
+      '@volund/native-bridge':
         specifier: workspace:*
         version: link:../native-bridge
-      '@apollo-code/plugin-sdk':
+      '@volund/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
     devDependencies:
@@ -389,7 +389,7 @@ importers:
 
   packages/plugin-sdk:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
     devDependencies:
@@ -402,10 +402,10 @@ importers:
 
   packages/provider-anthropic:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -421,19 +421,19 @@ importers:
 
   packages/provider-contract-tests:
     dependencies:
-      '@apollo-code/provider-anthropic':
+      '@volund/provider-anthropic':
         specifier: workspace:*
         version: link:../provider-anthropic
-      '@apollo-code/provider-gemini':
+      '@volund/provider-gemini':
         specifier: workspace:*
         version: link:../provider-gemini
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/provider-ollama':
+      '@volund/provider-ollama':
         specifier: workspace:*
         version: link:../provider-ollama
-      '@apollo-code/provider-openai':
+      '@volund/provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
     devDependencies:
@@ -449,10 +449,10 @@ importers:
 
   packages/provider-gemini:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -468,7 +468,7 @@ importers:
 
   packages/provider-kit:
     dependencies:
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -484,10 +484,10 @@ importers:
 
   packages/provider-ollama:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -503,10 +503,10 @@ importers:
 
   packages/provider-openai:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -522,7 +522,7 @@ importers:
 
   packages/router:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
     devDependencies:
@@ -554,10 +554,10 @@ importers:
 
   packages/skills-runtime:
     dependencies:
-      '@apollo-code/core':
+      '@volund/core':
         specifier: workspace:*
         version: link:../core
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       yaml:
@@ -576,16 +576,16 @@ importers:
 
   packages/storage:
     dependencies:
-      '@apollo-code/core':
+      '@volund/core':
         specifier: workspace:*
         version: link:../core
-      '@apollo-code/permission':
+      '@volund/permission':
         specifier: workspace:*
         version: link:../permission
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       uuid:
@@ -604,13 +604,13 @@ importers:
 
   packages/subagent:
     dependencies:
-      '@apollo-code/core':
+      '@volund/core':
         specifier: workspace:*
         version: link:../core
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       uuid:
@@ -626,7 +626,7 @@ importers:
 
   packages/telemetry:
     dependencies:
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
       uuid:
@@ -645,10 +645,10 @@ importers:
 
   packages/testkit:
     dependencies:
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -664,13 +664,13 @@ importers:
 
   packages/tool-kit:
     dependencies:
-      '@apollo-code/permission':
+      '@volund/permission':
         specifier: workspace:*
         version: link:../permission
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -686,22 +686,22 @@ importers:
 
   packages/tools:
     dependencies:
-      '@apollo-code/native-bridge':
+      '@volund/native-bridge':
         specifier: workspace:*
         version: link:../native-bridge
-      '@apollo-code/permission':
+      '@volund/permission':
         specifier: workspace:*
         version: link:../permission
-      '@apollo-code/provider-kit':
+      '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
-      '@apollo-code/shared':
+      '@volund/shared':
         specifier: workspace:*
         version: link:../shared
-      '@apollo-code/subagent':
+      '@volund/subagent':
         specifier: workspace:*
         version: link:../subagent
-      '@apollo-code/tool-kit':
+      '@volund/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
     devDependencies:
@@ -717,12 +717,15 @@ importers:
 
   packages/ui:
     dependencies:
-      '@apollo-code/core':
-        specifier: workspace:*
-        version: link:../core
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.18
+      '@volund/core':
+        specifier: workspace:*
+        version: link:../core
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
       ink:
         specifier: 'catalog:'
         version: 7.1.1(@types/react@19.2.18)(react-devtools-core@7.0.1)(react@19.2.8)

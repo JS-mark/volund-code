@@ -42,7 +42,7 @@ void test('keeps native binaries on GitHub Releases and docs excluded from npm',
   assert.match(nativeWorkflow, /checksums\.sha256/)
   assert.equal(bridge.optionalDependencies, undefined)
   const changesets = await json('.changeset/config.json')
-  assert.ok(changesets.ignore.includes('@apollo-code/docs'))
+  assert.ok(changesets.ignore.includes('@volund/docs'))
 })
 
 void test('release automation versions through Changesets without bypassing external gates', async () => {
@@ -78,8 +78,12 @@ void test('npm binary publish stays manual, provenance-signed, and verifies befo
   assert.ok(workflow.indexOf('sha256sum -c') < workflow.indexOf('pack-standalone-npm'))
   assert.ok(workflow.indexOf('pack-standalone-npm') < workflow.indexOf('npm publish'))
   assert.ok(
-    workflow.indexOf('for dir in dist/npm/apollo-code-*/') <
-      workflow.indexOf('npm publish dist/npm/apollo-code'),
+    workflow.indexOf('for dir in dist/npm/volund-*/') <
+      workflow.indexOf('npm publish dist/npm/volund-cli'),
+  )
+  assert.ok(
+    workflow.indexOf('npm publish dist/npm/volund-cli') <
+      workflow.indexOf('npm publish dist/npm/volund-code'),
   )
 })
 

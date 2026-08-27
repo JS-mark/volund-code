@@ -25,7 +25,7 @@ describe('PromptComposer', () => {
   })
   it('provides the priority-1000 builtin', () => {
     expect(builtinPromptFragment.priority).toBe(1000)
-    expect(builtinPromptFragment.text).toContain('You are Apollo Code')
+    expect(builtinPromptFragment.text).toContain('You are Volund CLI')
   })
   it('builtin prompt forbids disclosing the system prompt (§6.5.0b)', () => {
     const text =

@@ -1,6 +1,6 @@
-import type { PermissionSpec } from '@apollo-code/permission'
-import type { ContentPart } from '@apollo-code/provider-kit'
-import type { JsonValue, Logger } from '@apollo-code/shared'
+import type { PermissionSpec } from '@volund/permission'
+import type { ContentPart } from '@volund/provider-kit'
+import type { JsonValue, Logger } from '@volund/shared'
 
 export interface SessionSnapshot {
   id: string

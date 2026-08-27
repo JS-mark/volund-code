@@ -8,7 +8,7 @@ import type {
   ProviderError,
   ProviderErrorCategory,
   ProviderRequest,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export interface CredentialPort {
   /** undefined = 调用方显式跳过认证（`[auth] skipAuth`，§8.4）：请求不带 x-api-key。 */
@@ -323,7 +323,7 @@ export async function* parseAnthropicSse(
 export class AnthropicClient implements ProviderClient {
   readonly name = 'anthropic'
   readonly capabilities = anthropicCapabilities
-  constructor(private readonly options: AnthropicClientOptions) { }
+  constructor(private readonly options: AnthropicClientOptions) {}
   async *stream(request: ProviderRequest, signal: AbortSignal): AsyncIterable<ProviderChunk> {
     const credential = await this.options.credentials.getCredential('anthropic')
     const response = await this.options.http.request({
@@ -356,5 +356,5 @@ export class AnthropicClient implements ProviderClient {
       )
     yield* parseAnthropicSse(response.body, signal)
   }
-  async dispose(): Promise<void> { }
+  async dispose(): Promise<void> {}
 }

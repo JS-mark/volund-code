@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-export const MEMORY_SCHEMA_VERSION = 'apollo.memory.v1'
+export const MEMORY_SCHEMA_VERSION = 'volund.memory.v1'
 
 export type MemoryScope =
   | { kind: 'global'; ownerId: string }

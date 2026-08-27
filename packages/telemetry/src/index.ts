@@ -1,7 +1,7 @@
 import { open, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { sanitize, type JsonValue, type Logger } from '@apollo-code/shared'
+import { sanitize, type JsonValue, type Logger } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 export interface TelemetryEvent {

@@ -3,12 +3,12 @@
 Start with a small, reviewable repository task:
 
 ```sh
-apollo chat "Read the failing test, make the smallest fix, run that test, and show me the diff."
+volund chat "Read the failing test, make the smallest fix, run that test, and show me the diff."
 ```
 
-Passing a prompt runs a one-shot chat turn. Running `apollo chat` without a
+Passing a prompt runs a one-shot chat turn. Running `volund chat` without a
 prompt in a TTY starts the Ink TUI for an interactive session with input history,
-slash commands, streaming output, and permission prompts. Apollo reads context,
+slash commands, streaming output, and permission prompts. Volund reads context,
 proposes permission-gated actions, streams provider output, and records the
 session locally. Inspect each permission prompt and the final diff. Run the
 project test yourself before committing.

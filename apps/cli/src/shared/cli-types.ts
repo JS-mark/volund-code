@@ -1,4 +1,4 @@
-import type { ApolloPorts } from '../ports'
+import type { VolundPorts } from '../ports'
 
 export interface CliResult {
   exitCode: number
@@ -24,7 +24,7 @@ export interface ParsedCliArgs {
 export interface CommandContext {
   args: ParsedCliArgs
   cwd: string
-  ports: ApolloPorts
+  ports: VolundPorts
 }
 
 export interface CommandDefinition {

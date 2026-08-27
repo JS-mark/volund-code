@@ -3,7 +3,7 @@ import { open, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { detectSecret } from '@apollo-code/shared'
+import { detectSecret } from '@volund/shared'
 
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const

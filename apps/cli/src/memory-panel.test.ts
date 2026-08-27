@@ -8,7 +8,7 @@ import {
   IndexingMemoryService,
   LocalKeywordMemoryIndex,
   LocalMemoryRepository,
-} from '@apollo-code/storage'
+} from '@volund/storage'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { runCli } from './cli'
@@ -23,7 +23,7 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-panel-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-panel-'))
   roots.push(root)
   let tick = 0
   const repository = new LocalMemoryRepository(join(root, 'records.json'))

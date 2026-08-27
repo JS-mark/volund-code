@@ -31,7 +31,7 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-index-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-index-'))
   roots.push(root)
   const repository = new LocalMemoryRepository(join(root, 'records.json'))
   let tick = 0
@@ -76,7 +76,7 @@ describe('local keyword memory index', () => {
   })
 
   it('runs lifecycle policy before index side effects and emits post/delete after commit', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-memory-hooks-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-memory-hooks-'))
     roots.push(root)
     const repository = new LocalMemoryRepository(join(root, 'records.json'))
     const index = new LocalKeywordMemoryIndex(join(root, 'index.json'))
@@ -281,7 +281,7 @@ describe('local keyword memory index', () => {
   })
 
   it('indexes and queries 5000 local records within the regression baseline', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-memory-index-perf-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-memory-index-perf-'))
     roots.push(root)
     const index = new LocalKeywordMemoryIndex(join(root, 'index.json'))
     const records: MemoryRecord[] = Array.from({ length: 5_000 }, (_, number) => ({

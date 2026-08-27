@@ -1,4 +1,4 @@
-# @apollo-code/context
+# @volund/context
 
 ## 0.1.0
 
@@ -19,4 +19,4 @@
 - Updated dependencies [568cb92]
 - Updated dependencies [3816925]
 - Updated dependencies [01ffdbd]
-  - @apollo-code/provider-kit@0.1.0
+  - @volund/provider-kit@0.1.0

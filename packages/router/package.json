@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/router",
+  "name": "@volund/router",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/provider-kit": "workspace:*"
+    "@volund/provider-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

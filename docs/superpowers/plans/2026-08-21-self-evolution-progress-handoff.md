@@ -1,4 +1,4 @@
-# Apollo Code · Self-Evolution / Plugin Kernel Progress Handoff
+# Volund CLI · Self-Evolution / Plugin Kernel Progress Handoff
 
 > **用途**：给后续模型或工程师继续当前工作。本文记录的是当前分支的工程事实、未提交改动归属、已完成审查、下一步和不可跨越的安全边界。
 >
@@ -10,13 +10,13 @@
 
 ## 1. 当前仓库状态
 
-- 工作目录：`/Users/mark/myself/code/apollo-code`
+- 工作目录：`/Users/mark/myself/code/volund-code`
 - 分支：`codex/self-evolution`
-- HEAD：PR #127（https://github.com/JS-mark/apollo-code/pull/127）远端同步，CI 26 pass / 2 skip / 0 fail，mergeable CLEAN。
+- HEAD：PR #127（https://github.com/JS-mark/volund-code/pull/127）远端同步，CI 26 pass / 2 skip / 0 fail，mergeable CLEAN。
 - **2026-08-23 用户决定：`packages/capability-contract`（ABI-00 bootstrap）从发布分支移除**（`32ef709` revert，含 .gitattributes/catalog/lockfile 回退）。工作未丢失：历史提交 `99c651e`（bootstrap）+ `1c0b3cf`（死导出清理）+ 本地分支 `abi00-bootstrap-backup`；R1–R4 独立复审（终局 0C/0I）与 frozen 证据（patch `e9e447ed…`、tree `5cd8c5b7…`）仍然有效，恢复时以 `abi00-bootstrap-backup` 为起点。移除后门禁全绿：test 51/51（包任务消失回到基线）、lint 546 回基线。
 - 另：本轮修复 PR 首个 CI 红灯——Windows 上 `O_NOFOLLOW` 为 no-op 导致 legacy 态 symlink 未拒（`0af243f` 改为可移植 lstat 预检）。
-- 工作树：ABI-00 切片提交后**完全干净**（rebase + push 后仍干净）。验证用 worktree `apollo-code-abi00-verify` 已创建、使用并在提交后移除。遗留：`apollo-code-abiimpl-verify`（更早会话的 detached worktree，内容已全部进入 ABI-00 提交）待用户确认后清理。
-- 验证用 worktree `/Users/mark/myself/code/apollo-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
+- 工作树：ABI-00 切片提交后**完全干净**（rebase + push 后仍干净）。验证用 worktree `volund-code-abi00-verify` 已创建、使用并在提交后移除。遗留：`volund-code-abiimpl-verify`（更早会话的 detached worktree，内容已全部进入 ABI-00 提交）待用户确认后清理。
+- 验证用 worktree `/Users/mark/myself/code/volund-code-{t1a,abi,s20}-verify` 已创建、使用并移除；其它 `rem-*` worktree 属于别的任务线，未触碰。
 - 禁止 amend、push、merge、tag、publish；除非用户另行明确授权。
 
 最近已提交：
@@ -86,7 +86,7 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 - **内容**：engine/production default-off（仅字面 own-property boolean `true`）；非 ENOENT 配置错误阻止 Runner；`[evolution]` 严格 schema；context 冻结 bounds + 整快照 cross constraint 原子投影；EvolutionStore bounded strict JSONL decoder（V1 写入、legacy-v0 兼容 provenance、future schema fail-closed、固定诊断码、路径构造前验证）；non-context persisted apply/rollback deny-only。
 - **独立 reviewer（通用 agent，非 writer）**：R1 发现 1 Important（`__proto__` TOML 段经 `assign()` 写入 `Object.prototype` 可绕过 exact-boolean 门）→ 修复（parser 魔术段拒绝 + 门 own-property 守卫 + 回归测试）→ R2 全量重审 **0 Critical / 0 Important**（2 Minor 留存见 §9.4）。
 - **Binding gates（isolated clean candidate tree）**：core 61/61、storage 73+1 skipped、shared 100/100、config 14/14、CLI 137/137；全仓 `turbo run test --force` 51/51、`typecheck --force` 55/55；脚本组 64/64；`verify:config-docs`、`verify:error-codes`、docs build（typedoc+vitepress）、format、lint（0 errors）、`git diff --check` 全绿。
-- **环境归因**：首次把候选树放在 `/tmp` 导致 CLI/shared 测试因 `validateWorkspacePath` 拒绝 `/private/tmp` 而失败——纯候选树位置问题，移到 `/Users/mark/myself/code/apollo-code-t1a-verify` 后全绿；非产品缺陷。
+- **环境归因**：首次把候选树放在 `/tmp` 导致 CLI/shared 测试因 `validateWorkspacePath` 拒绝 `/private/tmp` 而失败——纯候选树位置问题，移到 `/Users/mark/myself/code/volund-code-t1a-verify` 后全绿；非产品缺陷。
 
 ### 3.3 ABI-00 文档冻结 — `df4a2dd`（已提交）
 
@@ -103,7 +103,7 @@ df4a2dd docs(spec): freeze ABI-00 capability contract V1
 
 - **Frozen candidate**：staged patch SHA-256 `cee98232b57f6f7e86c3b38a889d0de88599b9d9852b09c32370a90902d8bff9`；verified candidate tree / commit tree `5eed000befb4db385aedc8ae7dfbb50ce29f7b2d`。
 - **范围**：恰好 3 个文件（A `20-harness.md`、M README §20 hunks、M §19 §20 navigation 行）。
-- **审计阻断全部修复**：HarnessSpec 改 domain-separated canonical digest（禁裸 SHA-256）+ `harnessBuild`/`activeCapabilities` 绑定；H-1…H-14 改为验收宪法口径并登记 H-2/H-8/H-12/H-13 证据缺口；driver 表修正为真实 CLI（`apollo chat "<prompt>" --json` / `--no-tui`，无 `-p`，无 stdin 管道 prompt，headless 权限 fail-closed deny）；`packages/hooks`、`packages/memory-runtime` 拆当前路径（plugin-runtime/storage）与目标归属（含 HookRegistry 契约目标归 core、当前代码不存在的如实标注）；§16 降级为冻结基线表述；★ 降为职责级；H3 拆分为 H3a（human-directed）/H3b（§18 K3，止于本地 branch + STAGED_DISABLED）。
+- **审计阻断全部修复**：HarnessSpec 改 domain-separated canonical digest（禁裸 SHA-256）+ `harnessBuild`/`activeCapabilities` 绑定；H-1…H-14 改为验收宪法口径并登记 H-2/H-8/H-12/H-13 证据缺口；driver 表修正为真实 CLI（`volund chat "<prompt>" --json` / `--no-tui`，无 `-p`，无 stdin 管道 prompt，headless 权限 fail-closed deny）；`packages/hooks`、`packages/memory-runtime` 拆当前路径（plugin-runtime/storage）与目标归属（含 HookRegistry 契约目标归 core、当前代码不存在的如实标注）；§16 降级为冻结基线表述；★ 降为职责级；H3 拆分为 H3a（human-directed）/H3b（§18 K3，止于本地 branch + STAGED_DISABLED）。
 - **独立 reviewer（非 writer）**：R1 **0C/0I**/1 Minor（driver 表状态列未对齐 §10/§16 词汇）→ 修复（改 `verified-local`（§16 基线））→ R2 **0C/0I/0M**。
 - **Binding gates**：build 27/27、test 51/51、typecheck 55/55、docs build、l1-docs+packlist 8/8、脚本组 56+8/64、lint 0 errors、format、`git diff --check` 全绿。
 
@@ -160,8 +160,8 @@ T1b 完成前，当前 JSONL 双写不能称为 crash-atomic 或 evidence-grade�
 **T1b 第一条可执行命令**（先读 T1a 已提交的实现）：
 
 ```bash
-git -C /Users/mark/myself/code/apollo-code show 6dd0b20 --stat && \
-sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution-store.ts
+git -C /Users/mark/myself/code/volund-code show 6dd0b20 --stat && \
+sed -n 1,120p /Users/mark/myself/code/volund-code/packages/storage/src/evolution-store.ts
 ```
 
 ## 8. 下一步执行顺序（更新）
@@ -192,7 +192,7 @@ sed -n 1,120p /Users/mark/myself/code/apollo-code/packages/storage/src/evolution
 
 历史决策必须准确解释：用户曾在“AI + 安全”轮次选择 `Cereward AI`，但该名称随后触发先前 clearance 否决门并停止落库，状态为 `WITHDRAWN / DO NOT USE`。`Evalistry` 被用户后续的“名字不好”推翻，`Rigorbind` 也未通过 clearance，三者都不是当前候选。用户随后加入 Everything is Plugin + Sandbox + Rust，使品牌语义重新打开。主 Logo 工作方向是 **Controlled Port**：可替换 capability cell + 连续 sandbox/K0 boundary + single logical K0 authority chokepoint；成品仍待用户视觉确认，Rust-enforced 声明仍须逐平台、逐 surface 取证。
 
-但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Apollo`。**等待用户确认的硬门**：全新名称更偏“可信边界”还是更偏“受控演进”？（推荐“可信边界”，把受控演进放入 tagline/feature narrative；不得复活旧候选。）
+但最终 identity tuple 尚未确认，不能猜测，更不能全局替换 `Volund`。**等待用户确认的硬门**：全新名称更偏“可信边界”还是更偏“受控演进”？（推荐“可信边界”，把受控演进放入 tagline/feature narrative；不得复活旧候选。）
 
 ## 10. 验证证据与常用命令
 

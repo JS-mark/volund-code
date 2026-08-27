@@ -17,14 +17,14 @@ import { connect as http2Connect, constants as http2Constants } from 'node:http2
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { connect as tlsConnect } from 'node:tls'
 import { basename, delimiter as pathDelimiter, dirname, join, resolve } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
+import { connect as tlsConnect } from 'node:tls'
 
-import { AuthManager, EncryptedCredentialStore } from '@apollo-code/auth'
-import { loadConfig, loadTomlFile, parseTomlFile } from '@apollo-code/config'
-import { SlidingWindowPolicy } from '@apollo-code/context'
+import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
+import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
+import { SlidingWindowPolicy } from '@volund/context'
 import {
   builtinPromptFragment,
   createSession,
@@ -35,24 +35,24 @@ import {
   replaySessionState,
   Runner,
   updateSession,
-} from '@apollo-code/core'
+} from '@volund/core'
 import type {
   ContextTunableParam,
   EvolutionPersistence,
   PromptComposer,
   RunnerToolPort,
   SessionState,
-} from '@apollo-code/core'
+} from '@volund/core'
 import {
   execSandbox,
   nativeProbes,
   probeSandbox,
   resolveBinary,
   standaloneArtifactDir,
-} from '@apollo-code/native-bridge'
-import type { SandboxTier } from '@apollo-code/native-bridge'
-import { PermissionManager } from '@apollo-code/permission'
-import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@apollo-code/permission'
+} from '@volund/native-bridge'
+import type { SandboxTier } from '@volund/native-bridge'
+import { PermissionManager } from '@volund/permission'
+import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@volund/permission'
 import {
   LEGACY_PLUGIN_UNAVAILABLE,
   PluginError,
@@ -60,40 +60,41 @@ import {
   activateLocalPlugin,
   validateManifest,
   satisfies,
-} from '@apollo-code/plugin-runtime'
+} from '@volund/plugin-runtime'
 import type {
   ActivatedLocalPlugin,
   CommandContribution,
   StatusTabContribution,
-} from '@apollo-code/plugin-runtime'
-import type { HookPipelineSignal } from '@apollo-code/plugin-runtime'
+} from '@volund/plugin-runtime'
+import type { HookPipelineSignal } from '@volund/plugin-runtime'
 import type {
   EffectiveEnvEntry,
   PluginInstallResult,
   PluginInventory,
   PluginInventoryEntry,
   PluginMemoryScope,
-} from '@apollo-code/plugin-sdk'
-import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
-import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
-import { OpenAIClient } from '@apollo-code/provider-openai'
-import { GeminiClient } from '@apollo-code/provider-gemini'
-import { OllamaClient, isLoopbackOllamaEndpoint } from '@apollo-code/provider-ollama'
-import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
-import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
-import type { RouterPolicy } from '@apollo-code/router'
+} from '@volund/plugin-sdk'
+import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
+import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
+import { GeminiClient } from '@volund/provider-gemini'
+import { InMemoryProviderRegistry } from '@volund/provider-kit'
+import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
+import { OpenAIClient } from '@volund/provider-openai'
+import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@volund/router'
+import type { RouterPolicy } from '@volund/router'
 import {
-  ApolloError,
+  VolundError,
   detectSecret,
   isCredentialKeyForSecretDetection,
   isProjectOverrideForbidden,
   normalizeForSecretDetection,
+  productIdentity,
   sanitize,
   type JsonValue,
   type Logger,
-} from '@apollo-code/shared'
-import { SkillsRuntime, defaultSkillSources } from '@apollo-code/skills-runtime'
-import type { SkillEntry } from '@apollo-code/skills-runtime'
+} from '@volund/shared'
+import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
+import type { SkillEntry } from '@volund/skills-runtime'
 import {
   AttachmentStore,
   BackupStore,
@@ -109,19 +110,14 @@ import {
   MemoryTransferService,
   PromptLoader,
   SessionStore,
-} from '@apollo-code/storage'
-import type { MemoryRecallService, MemoryService } from '@apollo-code/storage'
-import { SubagentDispatcher } from '@apollo-code/subagent'
-import {
-  LocalTelemetrySink,
-  Telemetry,
-  TelemetryLogger,
-  TelemetryStore,
-} from '@apollo-code/telemetry'
-import { ToolRegistry } from '@apollo-code/tool-kit'
-import type { NativeBridge, ToolContext } from '@apollo-code/tool-kit'
-import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@apollo-code/tools'
-import type { ToolHookDispatcher } from '@apollo-code/tools'
+} from '@volund/storage'
+import type { MemoryRecallService, MemoryService } from '@volund/storage'
+import { SubagentDispatcher } from '@volund/subagent'
+import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
+import { ToolRegistry } from '@volund/tool-kit'
+import type { NativeBridge, ToolContext } from '@volund/tool-kit'
+import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
+import type { ToolHookDispatcher } from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
@@ -132,7 +128,7 @@ import {
   formatPermissionTextForDisplay,
   formatPermissionValueForDisplay,
   validateStatusConfigValue,
-} from '@apollo-code/ui'
+} from '@volund/ui'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
@@ -150,7 +146,7 @@ import type {
   SkillsPanelController,
   SkillsPanelEntry,
   McpPanelEntry,
-} from '@apollo-code/ui'
+} from '@volund/ui'
 import { v7 as uuidv7 } from 'uuid'
 
 import {
@@ -159,14 +155,6 @@ import {
   scanSessionFile,
   scanSessionsDir,
 } from './commands/status/stats'
-import {
-  loadMcpServerConfigs,
-  McpManager,
-  removeMcpServerToml,
-  resolveSkillSpecToDirectories,
-  upsertMcpServerToml,
-} from './mcp'
-import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import {
   assignConfigValue,
   assertConfigKeyValue,
@@ -177,8 +165,14 @@ import {
   writeConfigFile,
 } from './config-edit'
 import { createHistoryPort } from './history'
-import type { McpPort, SkillPort } from './ports'
-import { SkillSlashCommands } from './skill-commands'
+import {
+  loadMcpServerConfigs,
+  McpManager,
+  removeMcpServerToml,
+  resolveSkillSpecToDirectories,
+  upsertMcpServerToml,
+} from './mcp'
+import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import {
   fetchMarketIndex,
@@ -193,14 +187,16 @@ import {
 } from './plugin-market'
 import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
 import type { LocalPluginStateEntry } from './plugin-state'
+import type { McpPort, SkillPort } from './ports'
 import type {
-  ApolloPorts,
+  VolundPorts,
   InteractiveSession,
   PermissionInteractionMode,
   PluginCompatibilityDiagnostic,
   SessionPort,
 } from './ports'
 import type { AppIdentity } from './shared/app-identity'
+import { SkillSlashCommands } from './skill-commands'
 import { DirectoryTrustStore } from './trust'
 
 export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
@@ -315,34 +311,34 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
     },
     model: input.model
       ? {
-        status: 'available',
-        provider: sanitize(input.model.provider),
-        model: sanitize(input.model.model),
-        liteModel:
-          input.model.liteModel === null
-            ? { status: 'disabled' }
-            : input.model.liteModel === undefined
-              ? statusUnavailable('lite_model_unavailable')
-              : { status: 'available', value: sanitize(input.model.liteModel) },
-        reasoningModel:
-          input.model.reasoningModel === null
-            ? { status: 'disabled' }
-            : input.model.reasoningModel === undefined
-              ? statusUnavailable('reasoning_model_unavailable')
-              : { status: 'available', value: sanitize(input.model.reasoningModel) },
-        source: input.model.source,
-      }
+          status: 'available',
+          provider: sanitize(input.model.provider),
+          model: sanitize(input.model.model),
+          liteModel:
+            input.model.liteModel === null
+              ? { status: 'disabled' }
+              : input.model.liteModel === undefined
+                ? statusUnavailable('lite_model_unavailable')
+                : { status: 'available', value: sanitize(input.model.liteModel) },
+          reasoningModel:
+            input.model.reasoningModel === null
+              ? { status: 'disabled' }
+              : input.model.reasoningModel === undefined
+                ? statusUnavailable('reasoning_model_unavailable')
+                : { status: 'available', value: sanitize(input.model.reasoningModel) },
+          source: input.model.source,
+        }
       : {
-        status: 'not_available',
-        source: 'derived_unreliable',
-        reason: { code: 'current_model_source_unavailable' },
-      },
+          status: 'not_available',
+          source: 'derived_unreliable',
+          reason: { code: 'current_model_source_unavailable' },
+        },
     runtime: {
       sandbox: sandbox
         ? {
-          status: 'available',
-          value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
-        }
+            status: 'available',
+            value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
+          }
         : statusUnavailable('sandbox_probe_unavailable'),
       filesystem: sandbox
         ? sandbox.features.filesystem
@@ -358,11 +354,11 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
         input.dangerousPermissions === undefined
           ? statusUnavailable('permission_mode_unavailable')
           : {
-            status: 'available',
-            value: input.dangerousPermissions
-              ? { mode: 'bypassed', source: 'flag' }
-              : { mode: 'ask', source: 'default' },
-          },
+              status: 'available',
+              value: input.dangerousPermissions
+                ? { mode: 'bypassed', source: 'flag' }
+                : { mode: 'ask', source: 'default' },
+            },
       memory: input.memoryMode
         ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
         : statusUnavailable('memory_adapter_unavailable'),
@@ -385,21 +381,21 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
     capabilities: {
       mcpServers: input.mcpServers
         ? {
-          status: 'available',
-          value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
-        }
+            status: 'available',
+            value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
+          }
         : statusUnavailable('mcp_discovery_adapter_unavailable'),
       skills: input.skills
         ? {
-          status: 'available',
-          value: { count: input.skills.length, names: sanitize([...input.skills]) },
-        }
+            status: 'available',
+            value: { count: input.skills.length, names: sanitize([...input.skills]) },
+          }
         : statusUnavailable('skills_discovery_adapter_unavailable'),
       plugins: input.plugins
         ? {
-          status: 'available',
-          value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
-        }
+            status: 'available',
+            value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
+          }
         : statusUnavailable('plugins_discovery_adapter_unavailable'),
     },
     usage: {
@@ -544,7 +540,7 @@ export class RuntimeSessionPort implements SessionPort {
       await this.#runner!.run(input.prompt)
     } else {
       if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
-      for (; ;) {
+      for (;;) {
         const prompt = await promptLineMaybe('> ')
         if (prompt === undefined) break
         const trimmed = prompt.trim()
@@ -782,7 +778,7 @@ export class FileInputHistoryStore {
     readonly maxBytes = 1024 * 1024,
     readonly maxEntries = 1000,
     readonly maxInputBytes = 8 * 1024,
-  ) { }
+  ) {}
 
   async append(input: string): Promise<void> {
     const value = input.trim()
@@ -854,8 +850,8 @@ function serializeHistory(records: readonly { at: string; input: string }[]): st
 function resolveProxyUrl(target: URL): string | undefined {
   const byProtocol =
     target.protocol === 'https:' || target.protocol === 'wss:'
-      ? process.env.HTTPS_PROXY ?? process.env.https_proxy
-      : process.env.HTTP_PROXY ?? process.env.http_proxy
+      ? (process.env.HTTPS_PROXY ?? process.env.https_proxy)
+      : (process.env.HTTP_PROXY ?? process.env.http_proxy)
   if (!byProtocol) return undefined
   if (shouldBypassProxy(target)) return undefined
   return byProtocol
@@ -890,7 +886,10 @@ function proxyTlsOptions(servername: string): {
     const extraCa = process.env.NODE_EXTRA_CA_CERTS
     if (extraCa) {
       ca = []
-      for (const p of extraCa.split(pathDelimiter).map((s) => s.trim()).filter(Boolean)) {
+      for (const p of extraCa
+        .split(pathDelimiter)
+        .map((s) => s.trim())
+        .filter(Boolean)) {
         try {
           ca.push(readFileSync(p))
         } catch {
@@ -909,13 +908,21 @@ export function resetProxyTlsCache(): void {
 }
 
 // 建立 CONNECT 隧道，返回可用于 https.request / http2.connect 的裸套接字。
-async function openProxyTunnel(proxyUrl: string, target: URL, signal: AbortSignal): Promise<NetSocket> {
+async function openProxyTunnel(
+  proxyUrl: string,
+  target: URL,
+  signal: AbortSignal,
+): Promise<NetSocket> {
   const proxy = new URL(proxyUrl)
   const targetPort = target.port || (target.protocol === 'https:' ? '443' : '80')
-  const socket = netConnect(
-    { host: proxy.hostname, port: Number(proxy.port || (proxy.protocol === 'https:' ? 443 : 80)) },
-  )
-  if (signal.aborted) { socket.destroy(); throw new Error('proxy_tunnel_aborted') }
+  const socket = netConnect({
+    host: proxy.hostname,
+    port: Number(proxy.port || (proxy.protocol === 'https:' ? 443 : 80)),
+  })
+  if (signal.aborted) {
+    socket.destroy()
+    throw new Error('proxy_tunnel_aborted')
+  }
   const onAbort = () => socket.destroy()
   signal.addEventListener('abort', onAbort, { once: true })
   await new Promise<void>((resolve, reject) => {
@@ -932,8 +939,14 @@ async function openProxyTunnel(proxyUrl: string, target: URL, signal: AbortSigna
         if (idx === -1) return
         socket.off('data', onData)
         const statusLine = buf.slice(0, buf.indexOf('\r\n'))
-        if (/^HTTP\/1\.[01] 2\d\d /.test(statusLine)) { settled = true; resolve() }
-        else { settled = true; socket.destroy(); reject(new Error(`proxy_tunnel_rejected: ${statusLine}`)) }
+        if (/^HTTP\/1\.[01] 2\d\d /.test(statusLine)) {
+          settled = true
+          resolve()
+        } else {
+          settled = true
+          socket.destroy()
+          reject(new Error(`proxy_tunnel_rejected: ${statusLine}`))
+        }
       }
       socket.on('data', onData)
     })
@@ -996,15 +1009,15 @@ function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {
   //   createConnection 返回的 socket 上再做一次 TLS（双重加密）。
   // http:// → 裸隧道 socket 直接喂 http.request 的 createConnection。
   // 两条路径都走 Node 原生 HTTP 解析器，支持流式 SSE / chunked。
-  return openProxyTunnel(proxyUrl, url, input.signal)
-    .then(
-      (socket) =>
-        new Promise<HttpResponse>((resolve, reject) => {
-          const onAbort = (): void => {
-            socket.destroy()
-          }
-          input.signal.addEventListener('abort', onAbort, { once: true })
-          const establishSocket = url.protocol === 'https:'
+  return openProxyTunnel(proxyUrl, url, input.signal).then(
+    (socket) =>
+      new Promise<HttpResponse>((resolve, reject) => {
+        const onAbort = (): void => {
+          socket.destroy()
+        }
+        input.signal.addEventListener('abort', onAbort, { once: true })
+        const establishSocket =
+          url.protocol === 'https:'
             ? new Promise<NetSocket>((res, rej) => {
                 const tlsSock = tlsConnect({
                   socket,
@@ -1014,38 +1027,37 @@ function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {
                 tlsSock.once('error', rej)
               })
             : Promise.resolve(socket)
-          establishSocket
-            .then((sock) => {
-              // socket 已 TLS 包装时，用 http: 协议 URL（http.request 不认 https:），
-              // createConnection 返回已加密 socket，HTTP 明文在 TLS 层上传输。
-              const reqUrl = url.protocol === 'https:'
-                ? `http://${url.host}${url.pathname}${url.search}`
-                : url
-              const req = httpRequest(
-                reqUrl,
-                {
-                  method: input.method,
-                  headers: input.headers,
-                  createConnection: () => sock,
-                },
-                (response) => {
-                  // 代理隧道响应完成后销毁 socket，释放代理连接（否则 server.close 挂起）。
-                  response.once('end', () => sock.destroy())
-                  handler(response, onAbort, resolve)
-                },
-              )
-              req.once('error', (cause) => {
-                input.signal.removeEventListener('abort', onAbort)
-                reject(cause)
-              })
-              req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
-            })
-            .catch((cause) => {
+        establishSocket
+          .then((sock) => {
+            // socket 已 TLS 包装时，用 http: 协议 URL（http.request 不认 https:），
+            // createConnection 返回已加密 socket，HTTP 明文在 TLS 层上传输。
+            const reqUrl =
+              url.protocol === 'https:' ? `http://${url.host}${url.pathname}${url.search}` : url
+            const req = httpRequest(
+              reqUrl,
+              {
+                method: input.method,
+                headers: input.headers,
+                createConnection: () => sock,
+              },
+              (response) => {
+                // 代理隧道响应完成后销毁 socket，释放代理连接（否则 server.close 挂起）。
+                response.once('end', () => sock.destroy())
+                handler(response, onAbort, resolve)
+              },
+            )
+            req.once('error', (cause) => {
               input.signal.removeEventListener('abort', onAbort)
               reject(cause)
             })
-        }),
-    )
+            req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+          })
+          .catch((cause) => {
+            input.signal.removeEventListener('abort', onAbort)
+            reject(cause)
+          })
+      }),
+  )
 }
 
 const { HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, NGHTTP2_CANCEL } =
@@ -1083,60 +1095,62 @@ export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse
           })
         })
       : Promise.resolve(undefined)
-    establish.then((tunneledSocket) => {
-      const session = tunneledSocket
-        ? http2Connect(url.origin, { createConnection: () => tunneledSocket })
-        : http2Connect(url.origin)
-      session.once('error', (cause) => {
-        if (!responded) {
-          session.destroy()
-          reject(cause)
-        }
-      })
-      const stream = session.request({
-        [HTTP2_HEADER_METHOD]: input.method,
-        [HTTP2_HEADER_PATH]: `${url.pathname}${url.search}`,
-        // http2 禁传连接级 header；:authority 由 session 权威值自动生成。
-        ...Object.fromEntries(
-          Object.entries(input.headers).filter(
-            ([key]) => !H2_FORBIDDEN_HEADERS.has(key.toLowerCase()),
-          ),
-        ),
-      })
-      const onAbort = () => stream.close(NGHTTP2_CANCEL)
-      if (input.signal.aborted) onAbort()
-      else input.signal.addEventListener('abort', onAbort, { once: true })
-      stream.once('error', (cause) => {
-        if (!responded) {
-          responded = true
-          input.signal.removeEventListener('abort', onAbort)
-          session.destroy()
-          reject(cause)
-        }
-      })
-      stream.once('response', (headers) => {
-        responded = true
-        const flat: Record<string, string> = {}
-        for (const [key, value] of Object.entries(headers)) {
-          if (key.startsWith(':') || value === undefined) continue
-          flat[key] = Array.isArray(value) ? value.join(',') : value
-        }
-        const body = (async function* () {
-          try {
-            for await (const chunk of stream) yield Buffer.from(chunk)
-          } finally {
-            input.signal.removeEventListener('abort', onAbort)
-            session.close()
+    establish
+      .then((tunneledSocket) => {
+        const session = tunneledSocket
+          ? http2Connect(url.origin, { createConnection: () => tunneledSocket })
+          : http2Connect(url.origin)
+        session.once('error', (cause) => {
+          if (!responded) {
+            session.destroy()
+            reject(cause)
           }
-        })()
-        resolve({
-          status: Number(headers[HTTP2_HEADER_STATUS] ?? 0),
-          headers: flat,
-          body,
         })
+        const stream = session.request({
+          [HTTP2_HEADER_METHOD]: input.method,
+          [HTTP2_HEADER_PATH]: `${url.pathname}${url.search}`,
+          // http2 禁传连接级 header；:authority 由 session 权威值自动生成。
+          ...Object.fromEntries(
+            Object.entries(input.headers).filter(
+              ([key]) => !H2_FORBIDDEN_HEADERS.has(key.toLowerCase()),
+            ),
+          ),
+        })
+        const onAbort = () => stream.close(NGHTTP2_CANCEL)
+        if (input.signal.aborted) onAbort()
+        else input.signal.addEventListener('abort', onAbort, { once: true })
+        stream.once('error', (cause) => {
+          if (!responded) {
+            responded = true
+            input.signal.removeEventListener('abort', onAbort)
+            session.destroy()
+            reject(cause)
+          }
+        })
+        stream.once('response', (headers) => {
+          responded = true
+          const flat: Record<string, string> = {}
+          for (const [key, value] of Object.entries(headers)) {
+            if (key.startsWith(':') || value === undefined) continue
+            flat[key] = Array.isArray(value) ? value.join(',') : value
+          }
+          const body = (async function* () {
+            try {
+              for await (const chunk of stream) yield Buffer.from(chunk)
+            } finally {
+              input.signal.removeEventListener('abort', onAbort)
+              session.close()
+            }
+          })()
+          resolve({
+            status: Number(headers[HTTP2_HEADER_STATUS] ?? 0),
+            headers: flat,
+            body,
+          })
+        })
+        stream.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
       })
-      stream.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
-    }).catch(reject)
+      .catch(reject)
   })
 }
 const H2_FORBIDDEN_HEADERS = new Set([
@@ -1452,8 +1466,8 @@ export async function requestPermission(input: {
   events: EventBus
   interactionMode: PermissionInteractionMode
   interactivePermissionPrompt:
-  | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-  | undefined
+    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
+    | undefined
   request: PermissionRequest
   /** Deterministic test seam; production always uses the real terminal predicate. */
   terminalIsInteractive?: () => boolean
@@ -1580,7 +1594,7 @@ export function createProductionToolPermissionChain(
 }
 
 export interface ProductionOptions {
-  apolloHome?: string
+  volundHome?: string
   identity: Readonly<AppIdentity>
   model?: string
 }
@@ -1588,7 +1602,7 @@ export interface ProductionOptions {
 function diagnosticRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-const LEGACY_PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+const LEGACY_PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
 function assertLegacyPluginName(name: string): void {
   if (!LEGACY_PLUGIN_NAME.test(name))
     throw new PluginError('plugin_path_escape', 'invalid plugin target')
@@ -1598,7 +1612,7 @@ async function readContainedPluginDiagnostic(
   pluginRoot: string,
   name: string,
   storedVersion: string,
-  apolloVersion: string,
+  volundVersion: string,
 ): Promise<{
   version: string
   permissions: readonly string[]
@@ -1653,7 +1667,7 @@ async function readContainedPluginDiagnostic(
   const permissionsRecord = diagnosticRecord(manifest.permissions)
     ? manifest.permissions
     : undefined
-  const rawPermissions = permissionsRecord?.apollo
+  const rawPermissions = permissionsRecord?.volund
   if (Array.isArray(rawPermissions) && rawPermissions.length > permissionLimit)
     return invalid(
       'Manifest permissions exceed diagnostic limits; legacy activation remains unavailable.',
@@ -1672,26 +1686,26 @@ async function readContainedPluginDiagnostic(
   }
   const engines = diagnosticRecord(manifest.engines) ? manifest.engines : undefined
   const range =
-    typeof engines?.apollo === 'string' && engines.apollo.length <= 256 ? engines.apollo : undefined
+    typeof engines?.volund === 'string' && engines.volund.length <= 256 ? engines.volund : undefined
   const compatibility: PluginCompatibilityDiagnostic = range
-    ? satisfies(apolloVersion, range)
+    ? satisfies(volundVersion, range)
       ? {
-        status: 'compatible',
-        detail: `Declared Apollo engine range is compatible with ${apolloVersion}.`,
-      }
+          status: 'compatible',
+          detail: `Declared legacy volund engine range is compatible with ${volundVersion}.`,
+        }
       : {
-        status: 'incompatible',
-        detail: `Declared Apollo engine range is incompatible with ${apolloVersion}; legacy activation remains unavailable.`,
-      }
+          status: 'incompatible',
+          detail: `Declared legacy volund engine range is incompatible with ${volundVersion}; legacy activation remains unavailable.`,
+        }
     : {
-      status: 'invalid',
-      detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
-    }
+        status: 'invalid',
+        detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
+      }
   return {
     version:
       typeof manifest.version === 'string' &&
-        manifest.version.length <= 128 &&
-        /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
+      manifest.version.length <= 128 &&
+      /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
         ? manifest.version
         : safeStoredVersion,
     permissions,
@@ -1749,11 +1763,11 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
           : options.sessionId
             ? sessionMemoryScope(options.cwd, options.sessionId)
             : (() => {
-              throw new MemoryError(
-                'memory_scope_denied',
-                'Session memory requires an active session',
-              )
-            })()
+                throw new MemoryError(
+                  'memory_scope_denied',
+                  'Session memory requires an active session',
+                )
+              })()
     const auditPath = join(options.home, 'memory', 'audit.jsonl')
     const writeOperation = ['create', 'update', 'delete'].includes(operation)
     if (writeOperation) {
@@ -1881,7 +1895,8 @@ export function registerPluginCommands(
       )
     } catch (error) {
       onWarn(
-        `Plugin command /${command.name} from ${plugin} not registered: ${error instanceof Error ? error.message : String(error)
+        `Plugin command /${command.name} from ${plugin} not registered: ${
+          error instanceof Error ? error.message : String(error)
         }`,
       )
     }
@@ -1974,15 +1989,15 @@ export async function readEffectiveEnv(
 /**
  * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）。与 native 资产同一
  * 解析惯例（resolver.ts standaloneArtifactDir）：standalone 先看
- * APOLLO_STANDALONE_ASSET_DIR，否则取产物旁——bun --compile 后是 execPath 旁，
+ * VOLUND_STANDALONE_ASSET_DIR，否则取产物旁——bun --compile 后是 execPath 旁，
  * dist 单文件布局是 dist/plugins/，源码布局（vitest）是 apps/cli/plugins/。
  * 取第一个存在的候选，不存在 → undefined（无内置插件）。
  */
 export function builtinPluginRoot(): string | undefined {
   const here = standaloneArtifactDir(import.meta.url, process.execPath)
   const candidates = [
-    process.env.APOLLO_STANDALONE_ASSET_DIR
-      ? join(process.env.APOLLO_STANDALONE_ASSET_DIR, 'plugins')
+    process.env.VOLUND_STANDALONE_ASSET_DIR
+      ? join(process.env.VOLUND_STANDALONE_ASSET_DIR, 'plugins')
       : undefined,
     join(here, 'plugins'),
     join(here, '..', 'plugins'),
@@ -1994,7 +2009,7 @@ export function builtinPluginRoot(): string | undefined {
 /**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
- * 值可含 [env] 段写入 process.env 的配置）透传进 apollo-sandbox——Rust 侧
+ * 值可含 [env] 段写入 process.env 的配置）透传进 volund-sandbox——Rust 侧
  * env_clear 后只注入 permissions.env.read 白名单内的名字，宿主其余环境不进沙箱。
  * `env` 绝不与宿主全量环境合并（tool-kit NativeBridge 契约）。
  */
@@ -2025,8 +2040,8 @@ export function createSandboxNativeBridge(options: {
   }
 }
 
-export function createProductionPorts(options: ProductionOptions): ApolloPorts {
-  const home = options.apolloHome ?? process.env.APOLLO_HOME ?? join(homedir(), '.apollo')
+export function createProductionPorts(options: ProductionOptions): VolundPorts {
+  const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
@@ -2047,9 +2062,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   const localPluginStateReady = localPluginState.init()
   void localPluginStateReady.catch(() => undefined)
   // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件路径：内置（apps/cli/plugins/，
-  // 随产物分发）、dev（~/.apollo/plugins-dev + APOLLO_DEV_PLUGINS）、市场
-  // （[plugins] market 下载到 ~/.apollo/plugins/<name>/）三个发现源、同一条链路——
-  // 经 apollo-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
+  // 随产物分发）、dev（~/.volund/plugins-dev + VOLUND_DEV_PLUGINS）、市场
+  // （[plugins] market 下载到 ~/.volund/plugins/<name>/）三个发现源、同一条链路——
+  // 经 volund-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
   // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
   // legacy plugins/plugins.json 继续 deny-only；本地三源只由同级
   // plugin-state.v2.json 决定 approved/enabled，绝不从安装目录推断为可执行。
@@ -2065,7 +2080,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   // applyEnv 应用过的 [env] 键值（前置解析后）：readEffectiveEnv 的精确比较基准，
   // 保证 /env 的 effective 判定与启动时实际写入 process.env 的值一致。
   let appliedEnvEntries: Record<string, string> | undefined
-  // 插件 render 回调里 apollo.session.getUsage() 读到的值：最近一次 /status 组装的
+  // 插件 render 回调里 volund.session.getUsage() 读到的值：最近一次 /status 组装的
   // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
   let lastSessionUsage: StatusPanelData['usage']
   const localPluginHub = {
@@ -2077,9 +2092,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
   }
   // 市场索引缓存（/plugins 反复打开不重复拉取；install/uninstall 后失效）。
-  let marketIndexCache:
-    | { source: string; fetchedAt: number; index: MarketIndex }
-    | undefined
+  let marketIndexCache: { source: string; fetchedAt: number; index: MarketIndex } | undefined
   const MARKET_INDEX_TTL_MS = 60_000
   // 桥 RPC 10s 超时（plugin_host.mjs）：安装整体 deadline 控制在 9s 内，
   // 保证宿主先给出明确结果，而不是插件侧先报 bridge call timed out。
@@ -2120,7 +2133,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       throw new PluginError('plugin_disabled', `${manifest.name} is installed but disabled`)
     const activated = await activateLocalPlugin({
       dir: resolved,
-      apolloVersion: options.identity.version,
+      volundVersion: options.identity.version,
       dataDirRoot: join(home, source === 'market' ? 'plugins-data' : 'plugins-dev-data'),
       ...(integrity ? { integrity } : {}),
       services: {
@@ -2128,10 +2141,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         getSessionUsage: () =>
           lastSessionUsage
             ? {
-              inputTokens: lastSessionUsage.tokens.input,
-              outputTokens: lastSessionUsage.tokens.output,
-              cost: lastSessionUsage.costUSD,
-            }
+                inputTokens: lastSessionUsage.tokens.input,
+                outputTokens: lastSessionUsage.tokens.output,
+                cost: lastSessionUsage.costUSD,
+              }
             : null,
         // /env 等内置插件的数据源：宿主侧重读 config.toml [env] 段并与
         // process.env 对比（沙箱内读不到主进程环境）。
@@ -2216,7 +2229,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     )
     return inventoryEntry(await localPluginState.discover(manifest, current.source, current.dir))
   }
-  /** apollo.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
+  /** volund.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
   async function pluginInventory(): Promise<PluginInventory> {
     let registry: PluginInventory['market']['registry']
     try {
@@ -2224,7 +2237,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       if (!source)
         registry = {
           error:
-            'no market configured — add `[plugins] market = "https://…/index.json"` to ~/.apollo/config.toml',
+            'no market configured — add `[plugins] market = "https://…/index.json"` to ~/.volund/config.toml',
         }
       else {
         const index = await cachedMarketIndex(source)
@@ -2247,12 +2260,12 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       market: { installed: await inventorySnapshot('market'), registry },
     }
   }
-  /** apollo.plugins.install：只下载、校验、登记。批准与启用必须由后续显式命令完成。 */
+  /** volund.plugins.install：只下载、校验、登记。批准与启用必须由后续显式命令完成。 */
   async function installMarketPlugin(input: string): Promise<PluginInstallResult> {
     const name = normalizePluginName(input)
     const source = await readMarketSource(home)
     if (!source)
-      throw new Error('no market configured — set [plugins] market in ~/.apollo/config.toml')
+      throw new Error('no market configured — set [plugins] market in ~/.volund/config.toml')
     if (!isLocalMarketSource(source))
       throw new PluginError(
         'plugin_registry_signature_required',
@@ -2269,7 +2282,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       home,
       source,
       entry,
-      apolloVersion: options.identity.version,
+      volundVersion: options.identity.version,
       signal: deadline,
     })
     const lifecycle = await localPluginState.discover(installed.manifest, 'market', installed.dir)
@@ -2309,8 +2322,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     return inventoryEntry(await localPluginState.setEnabled(inspected.name, false))
   }
   /**
-   * apollo.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
-   * 摘除）+ 删除 ~/.apollo/plugins/<name>/。仅市场插件可卸载：内置随产物分发、
+   * volund.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
+   * 摘除）+ 删除 ~/.volund/plugins/<name>/。仅市场插件可卸载：内置随产物分发、
    * dev 目录归开发者管理，命中这两类时给出明确拒绝而不是裸 plugin_not_installed。
    */
   async function uninstallMarketPlugin(input: string): Promise<{ name: string }> {
@@ -2320,11 +2333,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const source = loaded?.source ?? state?.source
     if (source === 'builtin')
       throw new Error(
-        `${name} is a builtin plugin shipped with the Apollo artifact; it cannot be uninstalled`,
+        `${name} is a builtin plugin shipped with the ${productIdentity.shortName} artifact; it cannot be uninstalled`,
       )
     if (source === 'dev')
       throw new Error(
-        `${name} is a dev plugin (from ~/.apollo/plugins-dev/ or APOLLO_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
+        `${name} is a dev plugin (from ~/.volund/plugins-dev/ or VOLUND_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
       )
     await unloadPlugin(name)
     await uninstallMarketDir(home, name)
@@ -2334,11 +2347,11 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
   }
   // 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：内置插件发现源是
   // 产物自带的 apps/cli/plugins/<name>/；dev 插件发现源是正式约定目录
-  // ~/.apollo/plugins-dev/<name>/ 自动发现（含 manifest.json 的子目录才激活，单个
-  // 失败不阻塞启动），APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的
-  // 额外路径；市场插件装在 ~/.apollo/plugins/<name>/（带 apollo-market.json 完整性
-  // 映射，激活期重验）。数据目录在 ~/.apollo/plugins-dev-data/<name>/（市场插件为
-  // ~/.apollo/plugins-data/<name>/），与插件代码目录分离（沙箱内代码只读）。
+  // ~/.volund/plugins-dev/<name>/ 自动发现（含 manifest.json 的子目录才激活，单个
+  // 失败不阻塞启动），VOLUND_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的
+  // 额外路径；市场插件装在 ~/.volund/plugins/<name>/（带 volund-market.json 完整性
+  // 映射，激活期重验）。数据目录在 ~/.volund/plugins-dev-data/<name>/（市场插件为
+  // ~/.volund/plugins-data/<name>/），与插件代码目录分离（沙箱内代码只读）。
   const localPlugins = {
     async activateLocal(dir: string) {
       return activateLocal(dir, 'dev')
@@ -2374,7 +2387,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       return this.loadLocalPluginsFrom(candidates, 'builtin')
     },
     /**
-     * 市场插件：~/.apollo/plugins/<name>/ 自动发现（dot 目录
+     * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录
      * 跳过——staging 与 legacy 状态文件不在此列，但防御性排除；无 manifest.json
      * 的目录跳过）。发现只登记；approved + enabled 后才逐文件重验并激活。
      */
@@ -2407,7 +2420,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           )
           const lifecycle = await localPluginState.discover(manifest, 'market', resolve(candidate))
           if (!isPluginApproved(lifecycle) || !lifecycle.enabled) continue
-          loaded.push(await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)))
+          loaded.push(
+            await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)),
+          )
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           failed.push({ dir: candidate, error: message })
@@ -2431,7 +2446,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     async disablePlugin(input: string) {
       return disablePlugin(input)
     },
-    async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {      const loaded: { name: string; statusTabs: number }[] = []
+    async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {
+      const loaded: { name: string; statusTabs: number }[] = []
       const failed: { dir: string; error: string }[] = []
       for (const candidate of candidates) {
         try {
@@ -2454,7 +2470,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     },
     /**
      * 卸载市场插件（端口面，管理命令/未来 CLI 子命令用；桥上经
-     * apollo.plugins.uninstall 走同一实现）：热生效——停用、摘命令与页签、
+     * volund.plugins.uninstall 走同一实现）：热生效——停用、摘命令与页签、
      * 删目录，当前会话立即可见。内置/dev 插件明确拒绝（见实现内说明）。
      */
     async uninstallMarketPlugin(input: string) {
@@ -2510,9 +2526,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       throw error
     }
     const section = config.auth
-    return section && typeof section === 'object' && !Array.isArray(section)
-      ? (section)
-      : {}
+    return section && typeof section === 'object' && !Array.isArray(section) ? section : {}
   }
   /** login 的 verify 请求要打向配置的网关（§8.3 provider.<name>.baseUrl），否则网关 key 在官方端点上必然 4xx。 */
   const readAnthropicBaseUrl = async (): Promise<string | undefined> => {
@@ -2560,8 +2574,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       const config = await loadTomlFile(join(home, 'config.toml'), {
         onWarning: (message) => logger.warn(message),
       })
-      for (const name of disabledNamesFrom(config.skills))
-        skillsDisabled.add(name)
+      for (const name of disabledNamesFrom(config.skills)) skillsDisabled.add(name)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -2581,7 +2594,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     const servers = await loadMcpServerConfigs({
-      apolloHome: home,
+      volundHome: home,
       cwd,
       onWarning: (message) => logger.warn(message),
     })
@@ -2691,17 +2704,17 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       }
     },
   }
-  // ── SKILLS-MCPS-r1 §S3.7：CLI 管理命令族端口（apollo skill / apollo mcp）────────
+  // ── SKILLS-MCPS-r1 §S3.7：CLI 管理命令族端口（volund skill / volund mcp）────────
   /** CLI 一次性进程用：按当前 cwd 的多作用域源构造发现 runtime（无会话 composer）。 */
   async function listingSkillsRuntime(): Promise<SkillsRuntime> {
     await ensureSkillsConfig()
     return new SkillsRuntime({
       sources: defaultSkillSources({
-        apolloHome: home,
+        volundHome: home,
         userHome: homedir(),
         cwd: process.cwd(),
       }),
-      apolloVersion: options.identity.version,
+      volundVersion: options.identity.version,
       composer: new DefaultPromptComposer(),
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
@@ -2794,10 +2807,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     async list() {
       const manager = await ensureMcpManager(process.cwd())
       // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
-      await Promise.race([
-        manager.connect(),
-        new Promise((resolve) => setTimeout(resolve, 4000)),
-      ])
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
       const snapshot = manager.snapshot().map((entry) => ({
         name: entry.name,
         transport: entry.transport,
@@ -2815,7 +2825,9 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       try {
         const { entry } = await manager.inspect(name)
         if (entry.status !== 'connected')
-          throw new Error(`mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`)
+          throw new Error(
+            `mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`,
+          )
         return { protocolVersion: entry.protocolVersion ?? 'unknown' }
       } finally {
         await manager.close()
@@ -2839,7 +2851,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     async add(input) {
       const file =
         input.scope === 'project'
-          ? join(process.cwd(), '.apollo', 'mcp.toml')
+          ? join(process.cwd(), '.volund', 'mcp.toml')
           : join(home, 'mcp.toml')
       await upsertMcpServerToml({
         file,
@@ -2864,10 +2876,10 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     async remove(name, scope) {
       const files =
         scope === 'project'
-          ? [join(process.cwd(), '.apollo', 'mcp.toml')]
+          ? [join(process.cwd(), '.volund', 'mcp.toml')]
           : scope === 'user'
             ? [join(home, 'mcp.toml')]
-            : [join(process.cwd(), '.apollo', 'mcp.toml'), join(home, 'mcp.toml')]
+            : [join(process.cwd(), '.volund', 'mcp.toml'), join(home, 'mcp.toml')]
       for (const file of files) if (await removeMcpServerToml({ file, name })) return { file }
       throw new Error(`MCP server not configured: ${name}`)
     },
@@ -2956,10 +2968,15 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         : undefined
     // provider.<name> 通用读取：openai / gemini 的 baseUrl、ollama 的 endpoint。
     // 仅当配置了对应条目时才实例化 client 并注册——未配置的 provider 不占资源、不报错。
-    function readProviderEntry(name: 'openai' | 'gemini' | 'ollama'): Record<string, unknown> | undefined {
-      if (!providerSection || typeof providerSection !== 'object' || Array.isArray(providerSection)) return undefined
+    function readProviderEntry(
+      name: 'openai' | 'gemini' | 'ollama',
+    ): Record<string, unknown> | undefined {
+      if (!providerSection || typeof providerSection !== 'object' || Array.isArray(providerSection))
+        return undefined
       const entry = providerSection[name]
-      return entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : undefined
+      return entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>)
+        : undefined
     }
     const openaiEntry = readProviderEntry('openai')
     const openaiBaseUrl =
@@ -2981,16 +2998,16 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     const preferencesSection = userConfig.preferences
     const preferencesModel =
       preferencesSection &&
-        typeof preferencesSection === 'object' &&
-        !Array.isArray(preferencesSection) &&
-        typeof preferencesSection.model === 'string'
+      typeof preferencesSection === 'object' &&
+      !Array.isArray(preferencesSection) &&
+      typeof preferencesSection.model === 'string'
         ? preferencesSection.model.replace(/^anthropic\//, '')
         : undefined
     const providerModel =
       anthropicEntry &&
-        typeof anthropicEntry === 'object' &&
-        !Array.isArray(anthropicEntry) &&
-        typeof anthropicEntry.model === 'string'
+      typeof anthropicEntry === 'object' &&
+      !Array.isArray(anthropicEntry) &&
+      typeof anthropicEntry.model === 'string'
         ? anthropicEntry.model
         : undefined
     const configuredModel = preferencesModel ?? providerModel
@@ -3004,7 +3021,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     registerRuntimeMemoryPrompts(composer, memory, state)
     const promptLoader = new PromptLoader({
       cwd: state.cwd,
-      apolloHome: home,
+      volundHome: home,
       permissions: permissionRequests,
     })
     await promptLoader.registerProject(composer)
@@ -3013,8 +3030,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     // （composer 是 per-session 的）；主会话最先创建，面板取 [...set][0]。
     await ensureSkillsConfig()
     const skills = new SkillsRuntime({
-      sources: defaultSkillSources({ apolloHome: home, userHome: homedir(), cwd: state.cwd }),
-      apolloVersion: options.identity.version,
+      sources: defaultSkillSources({ volundHome: home, userHome: homedir(), cwd: state.cwd }),
+      volundVersion: options.identity.version,
       composer,
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
@@ -3088,7 +3105,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
             return value
           },
         },
-        http: http as unknown as import('@apollo-code/provider-openai').HttpPort,
+        http: http as unknown as import('@volund/provider-openai').HttpPort,
         attachments,
         ...(openaiBaseUrl ? { baseUrl: openaiBaseUrl } : {}),
       })
@@ -3108,7 +3125,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
             return value
           },
         },
-        http: http as unknown as import('@apollo-code/provider-gemini').HttpPort,
+        http: http as unknown as import('@volund/provider-gemini').HttpPort,
         model: 'gemini-2.0-flash',
         attachments,
         ...(geminiBaseUrl ? { baseUrl: geminiBaseUrl } : {}),
@@ -3124,7 +3141,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       const endpoint = ollamaEndpoint ?? 'http://127.0.0.1:11434'
       if (isLoopbackOllamaEndpoint(endpoint)) {
         const ollama = new OllamaClient({
-          http: http as unknown as import('@apollo-code/provider-ollama').HttpPort,
+          http: http as unknown as import('@volund/provider-ollama').HttpPort,
           endpoint,
           attachments,
         })
@@ -3162,8 +3179,8 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         : undefined
     const passThroughEnv = Array.isArray(toolsConfig.pass_through_env)
       ? toolsConfig.pass_through_env.filter(
-        (name): name is string => typeof name === 'string' && name !== '',
-      )
+          (name): name is string => typeof name === 'string' && name !== '',
+        )
       : undefined
     const registry = new ToolRegistry()
     for (const tool of builtinTools({
@@ -3219,7 +3236,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       cwd: () => runner.state.cwd,
       onViolation: async ({ tier, reason }) => {
         await telemetry.violation({
-          mechanism: 'apollo-sandbox',
+          mechanism: 'volund-sandbox',
           tier,
           operation: 'sandbox-exec',
           decision: 'deny',
@@ -3300,7 +3317,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         const features = value.features
         return {
           tier: value.tier,
-          mechanism: typeof features.mechanism === 'string' ? features.mechanism : 'apollo-sandbox',
+          mechanism: typeof features.mechanism === 'string' ? features.mechanism : 'volund-sandbox',
           features: {
             filesystem: Boolean(features.filesystem ?? value.tier !== 'none'),
             network: Boolean(features.network),
@@ -3315,7 +3332,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
     identity: options.identity,
     version: options.identity.version,
     session,
-    // §11.3.4 `apollo history`：会话档案的只读检视 + 导入/清理；list 复用
+    // §11.3.4 `volund history`：会话档案的只读检视 + 导入/清理；list 复用
     // session port 的 replay 派生，两个入口不会出现两份候选逻辑。
     history: createHistoryPort({
       sessionsDir: join(home, 'sessions'),
@@ -3364,7 +3381,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         if (await localPluginState.get(name))
           throw new PluginError(
             'plugin_lifecycle_authority_mismatch',
-            `${name} is managed by plugin-state.v2.json; use /plugins uninstall ${name.replace(/^apollo-plugin-/, '')}`,
+            `${name} is managed by plugin-state.v2.json; use /plugins uninstall ${name.replace(/^volund-plugin-/, '')}`,
           )
         await pluginsReady
         await plugins.uninstall(name)
@@ -3518,7 +3535,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       async health(cwd) {
         try {
           const warnings: string[] = []
-          for (const path of [join(home, 'config.toml'), join(cwd, '.apollo', 'config.toml')]) {
+          for (const path of [join(home, 'config.toml'), join(cwd, '.volund', 'config.toml')]) {
             try {
               await access(path)
               // r13-I4 §8.3：未知 key warn + 忽略；已知 key 类型错 → fail（file + key + 期望类型）
@@ -3569,7 +3586,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         return runtimeStatusData(home, options, { ...input, includeStats: true }, localPluginHub)
       },
       /**
-       * §11.3.3 `apollo config list` 的合并视图：user + project 两层文件经
+       * §11.3.3 `volund config list` 的合并视图：user + project 两层文件经
        * loadConfig 的层合并与 projectOverride forbidden 过滤。这是只读检视
        * （同 health 的 parse-only），不等于会话生效语义——会话还叠加 defaults
        * /env/flags 与项目配置信任门。
@@ -3582,7 +3599,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
           throw error
         })
-        const project = await loadTomlFile(join(cwd, '.apollo', 'config.toml'), {
+        const project = await loadTomlFile(join(cwd, '.volund', 'config.toml'), {
           onWarning: (message) => warnings.push(message),
         }).catch((error: unknown) => {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
@@ -3601,14 +3618,12 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
       async setValue({ cwd, key, value, project }) {
         if (project && isProjectOverrideForbidden(key))
-          throw new ApolloError(
+          throw new VolundError(
             'config_project_forbidden',
             `'${key}' cannot be set in project config (data-flow gate, §8.3.1)`,
           )
         assertConfigKeyValue(key, value)
-        const file = project
-          ? join(cwd, '.apollo', 'config.toml')
-          : join(home, 'config.toml')
+        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
         const config = await readConfigFileOrEmpty(file)
         assignConfigValue(config, key, value)
         await writeConfigFile(file, config)
@@ -3616,9 +3631,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       },
       async unsetValue({ cwd, key, project }) {
         // unset 不做 forbidden 门：从 project 配置里移除 forbidden key 是清理，应当允许。
-        const file = project
-          ? join(cwd, '.apollo', 'config.toml')
-          : join(home, 'config.toml')
+        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
         const config = await readConfigFileOrEmpty(file)
         const removed = deleteConfigValue(config, key)
         if (removed) await writeConfigFile(file, config)
@@ -3627,7 +3640,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       filePaths({ cwd }: { cwd: string }) {
         return {
           user: join(home, 'config.toml'),
-          project: join(cwd, '.apollo', 'config.toml'),
+          project: join(cwd, '.volund', 'config.toml'),
         }
       },
     },
@@ -3655,7 +3668,7 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
         const info = await probeSandbox()
         const features = info.features as Record<string, unknown>
         const mechanism =
-          typeof features.mechanism === 'string' ? features.mechanism : 'apollo-sandbox'
+          typeof features.mechanism === 'string' ? features.mechanism : 'volund-sandbox'
         const abi = typeof features.abi === 'string' ? features.abi : 'unknown'
         const disclosure = {
           tier: info.tier,
@@ -3704,8 +3717,8 @@ async function runtimeStatusData(
   }
   const preferences =
     config.preferences &&
-      typeof config.preferences === 'object' &&
-      !Array.isArray(config.preferences)
+    typeof config.preferences === 'object' &&
+    !Array.isArray(config.preferences)
       ? (config.preferences as Record<string, JsonValue>)
       : {}
   const authSection =
@@ -3720,8 +3733,8 @@ async function runtimeStatusData(
       : undefined
   const anthropicEntry =
     providerSection?.anthropic &&
-      typeof providerSection.anthropic === 'object' &&
-      !Array.isArray(providerSection.anthropic)
+    typeof providerSection.anthropic === 'object' &&
+    !Array.isArray(providerSection.anthropic)
       ? (providerSection.anthropic as Record<string, JsonValue>)
       : undefined
   const providerModel = typeof anthropicEntry?.model === 'string' ? anthropicEntry.model : undefined

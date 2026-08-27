@@ -1,71 +1,73 @@
 # CLI 参考
 
+`volund` 是标准命令。A 阶段兼容窗口期内，旧 `volund` 可执行命令仍作为别名保留；下文示例统一使用新名称。
+
 ## 自适应运行时调优（L2）
 
-`apollo evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`apollo evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。新会话缺省使用内置 context 默认值；只有 `~/.apollo/config.toml` 中精确的 boolean `[evolution] enabled = true` 才进入已有 context tuning 读取路径。配置缺失或 false 时保持关闭；语法错误、不可读或错类型配置会在读取 tuning 前阻止 Runner 启动。这个兼容开关不会启动自动 observation/validation；关闭时 `show` 与 `rollback` 仍可使用。
+`volund evolution show [--namespace context] [--since <date>]` 查看经过脱敏、仅追加的本地调优审计；`volund evolution rollback [--namespace context] [--to <timestamp>]` 将 context 参数恢复到上一次或指定时间点。新会话缺省使用内置 context 默认值；只有 `~/.volund/config.toml` 中精确的 boolean `[evolution] enabled = true` 才进入已有 context tuning 读取路径。配置缺失或 false 时保持关闭；语法错误、不可读或错类型配置会在读取 tuning 前阻止 Runner 启动。这个兼容开关不会启动自动 observation/validation；关闭时 `show` 与 `rollback` 仍可使用。
 
-| 命令                           | 用途                                         |
-| ------------------------------ | -------------------------------------------- |
-| `apollo` / `apollo chat`       | 启动交互式或单次编程会话。                   |
-| `apollo login <provider>`      | 验证并安全保存 provider 凭据。               |
-| `apollo logout <provider>`     | 删除已保存的 provider 凭据。                 |
-| `apollo config <action>`       | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。   |
-| `apollo history <action>`      | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。 |
-| `apollo resume <session-id>`   | 从最后一个持久化 turn 边界恢复。             |
-| `apollo restore <session-id>`  | 回滚该会话修改过的文件。                     |
-| `apollo doctor [--strict]`     | 检查配置、凭据、原生包和沙箱状态。           |
-| `apollo memory <action>`       | 管理长期记忆、pinned 上下文和本地搜索索引。  |
-| `apollo plugin <action>`       | 检查或清理本地插件；旧版安装与启用暂不可用。 |
-| `apollo skill <action>`        | 安装、列出、查看、启停、卸载 prompt skill。                                    |
-| `apollo mcp <action>`          | 添加、列出、测试、启停、删除、查看 MCP server。                                |
-| `apollo hook list`             | 列出内置 hooks。                             |
+| 命令                          | 用途                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `volund` / `volund chat`      | 启动交互式或单次编程会话。                                                 |
+| `volund login <provider>`     | 验证并安全保存 provider 凭据。                                             |
+| `volund logout <provider>`    | 删除已保存的 provider 凭据。                                               |
+| `volund config <action>`      | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。               |
+| `volund history <action>`     | 查看与管理已保存会话（`list`/`show`/`search`/`export`/`import`/`clear`）。 |
+| `volund resume <session-id>`  | 从最后一个持久化 turn 边界恢复。                                           |
+| `volund restore <session-id>` | 回滚该会话修改过的文件。                                                   |
+| `volund doctor [--strict]`    | 检查配置、凭据、原生包和沙箱状态。                                         |
+| `volund memory <action>`      | 管理长期记忆、pinned 上下文和本地搜索索引。                                |
+| `volund plugin <action>`      | 检查或清理本地插件；旧版安装与启用暂不可用。                               |
+| `volund skill <action>`       | 安装、列出、查看、启停、卸载 prompt skill。                                |
+| `volund mcp <action>`         | 添加、列出、测试、启停、删除、查看 MCP server。                            |
+| `volund hook list`            | 列出内置 hooks。                                                           |
 
 旧版 v1 插件的安装、启用和激活目前在生产环境中暂不可用，并以 `plugin_legacy_activation_unavailable` 失败；只有 Catalog v2、经验证的 capability ABI 和显式安全复审完成后才可重新开放。启动时会把可解析的旧 `enabled:true` 记录解释为 disabled，且不会加载插件。`plugin list [--json]`、`plugin doctor <name>`、`plugin disable <name>` 和 `plugin uninstall <name>` 仍可用于安全检查与清理。插件命令在 `--json` 失败时只向 stdout 依次写入 `error`、`final` 两条 NDJSON 事件，stderr 为空。
-| `apollo version` | 输出版本。 |
-| `apollo help` | 显示帮助。 |
+| `volund version` | 输出版本。 |
+| `volund help` | 显示帮助。 |
 
 常用模式包括 `--no-tui`、`--json` 和 `--no-color`。非交互运行不会加载项目配置，除非显式传入 `--trust-project-config`。危险沙箱绕过参数会被审计，并要求显式确认。
 
-运行 `apollo help <command>` 或 `apollo <command> --help` 可查看具体命令的子命令与参数说明。
+运行 `volund help <command>` 或 `volund <command> --help` 可查看具体命令的子命令与参数说明。
 
 ## 配置
 
 ```sh
-apollo config list [--json]
-apollo config get <key>
-apollo config set <key> <value> [--project]
-apollo config unset <key> [--project]
-apollo config path [--project]
-apollo config edit [--project]
+volund config list [--json]
+volund config get <key>
+volund config set <key> <value> [--project]
+volund config unset <key> [--project]
+volund config path [--project]
+volund config edit [--project]
 ```
 
-`list` 打印 user + project 两层文件合并后的配置；被数据流向门禁止的项目级 key（附录 C.2 `projectOverride: forbidden`，以及任何 `*.baseUrl`/`*.endpoint`/`*_api_key`）会被过滤并给出警告。`set` 默认写用户级配置，`--project` 写 `<cwd>/.apollo/config.toml`；未知 key 和类型不匹配的值会按 config schema 拒绝。值先按 JSON 字面量解析（`40` → 数字、`true` → 布尔），否则按字符串。`edit` 用 `$EDITOR`（或 `$VISUAL`、`vi`）打开配置文件并在保存后校验；需要交互式终端。
+`list` 打印 user + project 两层文件合并后的配置；被数据流向门禁止的项目级 key（附录 C.2 `projectOverride: forbidden`，以及任何 `*.baseUrl`/`*.endpoint`/`*_api_key`）会被过滤并给出警告。`set` 默认写用户级配置，`--project` 写 `<cwd>/.volund/config.toml`；未知 key 和类型不匹配的值会按 config schema 拒绝。值先按 JSON 字面量解析（`40` → 数字、`true` → 布尔），否则按字符串。`edit` 用 `$EDITOR`（或 `$VISUAL`、`vi`）打开配置文件并在保存后校验；需要交互式终端。
 
 ## 会话历史
 
 ```sh
-apollo history list [--limit N] [--since <date>] [--project] [--json]
-apollo history show <session-id> [--json]
-apollo history search <query> [--limit N]
-apollo history export <session-id> [-o file] [--json]
-apollo history import <file>
-apollo history clear (--all | --older-than <date>) [--yes]
+volund history list [--limit N] [--since <date>] [--project] [--json]
+volund history show <session-id> [--json]
+volund history search <query> [--limit N]
+volund history export <session-id> [-o file] [--json]
+volund history import <file>
+volund history clear (--all | --older-than <date>) [--yes]
 ```
 
-这组命令管理已保存的会话档案（`~/.apollo/sessions/*.jsonl`），与交互式输入行历史无关。`search` 是对消息文本的本地关键词匹配，不做 embedding、不发网络请求。`export` 默认输出 markdown，`--json` 输出带版本的 JSON 文档；`import` 还原这种 JSON 导出，且拒绝覆盖已存在的会话。`clear` 删除会话文件，与 `memory delete` 一样，非交互环境必须传 `--yes`。
+这组命令管理已保存的会话档案（`~/.volund/sessions/*.jsonl`），与交互式输入行历史无关。`search` 是对消息文本的本地关键词匹配，不做 embedding、不发网络请求。`export` 默认输出 markdown，`--json` 输出带版本的 JSON 文档；`import` 还原这种 JSON 导出，且拒绝覆盖已存在的会话。`clear` 删除会话文件，与 `memory delete` 一样，非交互环境必须传 `--yes`。
 
 ## Memory
 
 ```sh
-apollo memory list [--scope workspace|project|both] [--tag <tag>] [--source user|agent|evolution|import] [--pinned] [--limit <n>] [--cursor <cursor>]
-apollo memory get <id> [--scope workspace|project|both]
-apollo memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
-apollo memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
-apollo memory delete <id> [--yes]
-apollo memory pin <id>
-apollo memory unpin <id>
-apollo memory export [--scope workspace|project|both] > memory.json
-apollo memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
+volund memory list [--scope workspace|project|both] [--tag <tag>] [--source user|agent|evolution|import] [--pinned] [--limit <n>] [--cursor <cursor>]
+volund memory get <id> [--scope workspace|project|both]
+volund memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
+volund memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
+volund memory delete <id> [--yes]
+volund memory pin <id>
+volund memory unpin <id>
+volund memory export [--scope workspace|project|both] > memory.json
+volund memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
 `global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `pinned 降序、updatedAt 降序、id 升序` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
@@ -80,21 +82,21 @@ Pinned memory 以固定行数/token 预算进入每次 provider 请求。优先�
 
 面板打开时 Chat 输入被禁用，Esc 关闭后恢复；面板键盘事件不会进入 Chat history。失败或并发冲突会保留当前记录和草稿；搜索结果在详情与 mutation 前重新通过事实服务回读。`--json`、`--no-tui`、stdin/stdout 任一非 TTY 时都不会打开 Ink 或等待按键。窄终端和 no-color 仍保留 `>`、`[P]`、`Error:`、`Modified` 等文字标识。
 
-使用 `apollo restore <session-id> --dry-run` 可预览回滚。每次 `Write`、`Edit` 和 `MultiEdit` 修改文件前都会生成会话级备份；如果文件在 Apollo 编辑后又被修改，restore 会拒绝覆盖。备份默认保留七天，总量限制为 500 MB。
+使用 `volund restore <session-id> --dry-run` 可预览回滚。每次 `Write`、`Edit` 和 `MultiEdit` 修改文件前都会生成会话级备份；如果文件在 Volund 编辑后又被修改，restore 会拒绝覆盖。备份默认保留七天，总量限制为 500 MB。
 
 Resume 会把未完成的 turn 标记为 aborted，并从新 turn 继续；不会重新执行中断的 provider 或工具调用。
 
 ## 本地 Memory 搜索与恢复
 
 ```sh
-apollo memory search <query> [--scope workspace|project|session] [--limit 10] [--tag tag] [--json]
-apollo memory doctor [--strict] [--json]
-apollo memory reindex [--check] [--force] [--batch-size 250] [--json]
+volund memory search <query> [--scope workspace|project|session] [--limit 10] [--tag tag] [--json]
+volund memory doctor [--strict] [--json]
+volund memory reindex [--check] [--force] [--batch-size 250] [--json]
 ```
 
 搜索仅使用本地关键词，不会调用 embedding 或网络。索引候选始终通过带 scope 策略的事实服务回读，因此不会返回过期、已删除、幽灵或越权条目。`memory doctor` 只读；`memory reindex --check` 仅报告是否需要重建。实际重建使用跨进程锁，全部批次成功后才原子发布新 generation。`--force` 会重建健康索引并可清理陈旧锁，但不会抢占仍存活进程持有的锁。
 
-Memory 归档使用版本化的 `apollo.memory.export.v1` JSON 格式。Export 通过 ACL 读取指定
+Memory 归档使用版本化的 `volund.memory.export.v1` JSON 格式。Export 通过 ACL 读取指定
 scope，只导出 attachment 引用而不复制二进制。Import 默认 `skip`，会报告全部冲突，
 支持无写入的 `--dry-run`，并用 journal 在失败或中断后回滚。导入记录的 provenance 固定为
 `source: import`；原始 provenance 仅作为不可信 `importedFrom` 信息保留，不能提升权限。
@@ -102,7 +104,7 @@ scope，只导出 attachment 引用而不复制二进制。Import 默认 `skip`�
 
 ## Role 路由
 
-Role 路由在受信任的全局 `~/.apollo/config.toml` 中配置。Role 只负责选择显式 provider/model 候选链；失败分类、冷却、重试上限、时间/费用预算以及工具调用 turn sticky 仍统一由 `FallbackRouter` 执行。
+Role 路由在受信任的全局 `~/.volund/config.toml` 中配置。Role 只负责选择显式 provider/model 候选链；失败分类、冷却、重试上限、时间/费用预算以及工具调用 turn sticky 仍统一由 `FallbackRouter` 执行。
 
 ```toml
 [router]
@@ -134,8 +136,8 @@ Provider plugin 注册后不会自动进入 role/fallback 候选池。必须在 
 
 ## 插件
 
-legacy v1 的安装、启用与激活仍保持 `plugin_legacy_activation_unavailable` 的 deny-only 状态；旧 `~/.apollo/plugins/plugins.json` 只用于安全检查与清理，不会加载代码。
+legacy v1 的安装、启用与激活仍保持 `plugin_legacy_activation_unavailable` 的 deny-only 状态；旧 `~/.volund/plugins/plugins.json` 只用于安全检查与清理，不会加载代码。
 
-交互式 Chat 的 `/plugins` 使用独立的 v2 生命周期。市场安装只下载、校验并登记，绝不立即激活。先执行 `/plugins inspect <name>` 检查完整权限和 permission hash，再执行 `/plugins approve <name> <permission-hash>` 与 `/plugins enable <name>`。版本或权限 hash 变化会撤销批准并自动禁用；`/plugins disable <name>` 可在不卸载的情况下热停用。唯一持久状态源是原子写入的 `~/.apollo/plugin-state.v2.json`，它不读取或改写 legacy `plugins.json`。
+交互式 Chat 的 `/plugins` 使用独立的 v2 生命周期。市场安装只下载、校验并登记，绝不立即激活。先执行 `/plugins inspect <name>` 检查完整权限和 permission hash，再执行 `/plugins approve <name> <permission-hash>` 与 `/plugins enable <name>`。版本或权限 hash 变化会撤销批准并自动禁用；`/plugins disable <name>` 可在不卸载的情况下热停用。唯一持久状态源是原子写入的 `~/.volund/plugin-state.v2.json`，它不读取或改写 legacy `plugins.json`。
 
 HTTPS 市场索引当前可以浏览，但在发布者签名、吊销和可信 key root 端到端接通前，远程安装会以 `plugin_registry_signature_required` fail closed。回环 HTTP 只允许本地开发和测试执行安装。HTTPS 与文件 digest 证明的是传输完整性，不是发布者身份。

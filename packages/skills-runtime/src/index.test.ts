@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
-import { DefaultPromptComposer } from '@apollo-code/core'
+import { DefaultPromptComposer } from '@volund/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SkillsRuntime, defaultSkillSources } from './index'
@@ -12,13 +12,13 @@ afterEach(async () =>
   Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))),
 )
 async function fixture() {
-  const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+  const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
   dirs.push(root)
   const skill = resolve(root, 'skills', 'testing')
   await mkdir(resolve(skill, 'references'), { recursive: true })
   await writeFile(
     resolve(skill, 'SKILL.md'),
-    `---\nname: testing\ndescription: Test projects safely\napolloVersion: ^1.0.0\nversion: 1.2.0\nactivation:\n  manual: true\nresources:\n  - references/details.md\n---\n# Testing\nRun focused tests.`,
+    `---\nname: testing\ndescription: Test projects safely\nvolundVersion: ^1.0.0\nversion: 1.2.0\nactivation:\n  manual: true\nresources:\n  - references/details.md\n---\n# Testing\nRun focused tests.`,
   )
   await writeFile(resolve(skill, 'references/details.md'), 'Never skip failures.')
   return { root, skill }
@@ -34,7 +34,7 @@ describe('SkillsRuntime', () => {
     const installRoot = resolve(root, 'installed')
     const runtime = new SkillsRuntime({
       skillsDir: installRoot,
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer: new DefaultPromptComposer(),
     })
     expect((await runtime.installFromDirectory(skill)).name).toBe('testing')
@@ -46,7 +46,7 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
     })
     expect(await runtime.discover()).toEqual([
@@ -72,24 +72,24 @@ describe('SkillsRuntime', () => {
     await writeFile(resolve(root, 'secret.md'), 'secret')
     await writeFile(
       resolve(skill, 'SKILL.md'),
-      `---\nname: testing\ndescription: Test projects safely\napolloVersion: ^2.0.0\nresources:\n  - ../../secret.md\n---\nBody`,
+      `---\nname: testing\ndescription: Test projects safely\nvolundVersion: ^2.0.0\nresources:\n  - ../../secret.md\n---\nBody`,
     )
     const warning = vi.fn()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer: new DefaultPromptComposer(),
       onWarning: warning,
     })
     await runtime.discover()
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('requires Apollo'))
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('requires volund'))
     await expect(runtime.activate('testing')).rejects.toThrow('escapes skill directory')
   })
 
-  it('discovers standard agent skills without apolloVersion (SKILLS-MCPS-r1)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+  it('discovers standard agent skills without volundVersion (SKILLS-MCPS-r1)', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
-    // anthropics/skills 风格：仅标准字段，无 apolloVersion。
+    // anthropics/skills 风格：仅标准字段，无 volundVersion。
     await writeSkill(
       resolve(root, 'skills'),
       'pdf-processing',
@@ -99,21 +99,21 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
     })
     const discovered = await runtime.discover()
     expect(discovered).toHaveLength(1)
     expect(discovered[0]!.name).toBe('pdf-processing')
-    expect(discovered[0]).not.toHaveProperty('apolloVersion')
+    expect(discovered[0]).not.toHaveProperty('volundVersion')
     expect(await runtime.activate('pdf-processing')).toBe(true)
   })
 
   it('shadows same-name skills across scopes instead of failing (SKILLS-MCPS-r1)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
     await writeSkill(
-      resolve(root, 'project', '.apollo', 'skills'),
+      resolve(root, 'project', '.volund', 'skills'),
       'git-flow',
       'name: git-flow\ndescription: Project git flow',
       'Project body.',
@@ -127,10 +127,10 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       sources: [
-        { dir: resolve(root, 'project', '.apollo', 'skills'), scope: 'project' },
+        { dir: resolve(root, 'project', '.volund', 'skills'), scope: 'project' },
         { dir: resolve(root, 'home', 'skills'), scope: 'user' },
       ],
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
     })
     const discovered = await runtime.discover()
@@ -151,20 +151,16 @@ describe('SkillsRuntime', () => {
   })
 
   it('marks skills with invalid standard fields as broken, not fatal (SKILLS-MCPS-r1)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
     await writeSkill(resolve(root, 'skills'), 'mismatch', 'name: other-name\ndescription: x')
     await writeSkill(resolve(root, 'skills'), 'no-description', 'name: no-description')
     await writeSkill(resolve(root, 'skills'), 'Bad_Name', 'name: Bad_Name\ndescription: x')
-    await writeSkill(
-      resolve(root, 'skills'),
-      'fine',
-      'name: fine\ndescription: works',
-    )
+    await writeSkill(resolve(root, 'skills'), 'fine', 'name: fine\ndescription: works')
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
     })
     expect((await runtime.discover()).map((skill) => skill.name)).toEqual(['fine'])
@@ -179,7 +175,7 @@ describe('SkillsRuntime', () => {
   })
 
   it('hides disabled and disable-model-invocation skills from the model (SKILLS-MCPS-r1)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
     await writeSkill(resolve(root, 'skills'), 'hidden', 'name: hidden\ndescription: h')
     await writeSkill(resolve(root, 'skills'), 'off', 'name: off\ndescription: o')
@@ -190,7 +186,7 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
       disabled: new Set(['hidden']),
     })
@@ -206,7 +202,7 @@ describe('SkillsRuntime', () => {
   })
 
   it('drops descriptions from the tail when the index budget is exceeded (SKILLS-MCPS-r1)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
     for (let index = 0; index < 4; index++)
       await writeSkill(
@@ -217,7 +213,7 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
       indexBudgetChars: 260,
     })
@@ -231,7 +227,7 @@ describe('SkillsRuntime', () => {
   })
 
   it('readInvocation returns the body without frontmatter and no prompt fragment (§S3.3a)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
     dirs.push(root)
     await writeSkill(
       resolve(root, 'skills'),
@@ -243,7 +239,7 @@ describe('SkillsRuntime', () => {
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
       skillsDir: resolve(root, 'skills'),
-      apolloVersion: '1.0.0',
+      volundVersion: '1.0.0',
       composer,
     })
     await runtime.discover()
@@ -260,14 +256,14 @@ describe('SkillsRuntime', () => {
 
   it('orders default skill sources project-first with interop paths last (SKILLS-MCPS-r1)', () => {
     const sources = defaultSkillSources({
-      apolloHome: '/home/mark/.apollo',
+      volundHome: '/home/mark/.volund',
       userHome: '/home/mark',
       cwd: '/work/repo',
     })
     expect(sources.map((source) => source.dir)).toEqual([
-      '/work/repo/.apollo/skills',
+      '/work/repo/.volund/skills',
       '/work/repo/.agents/skills',
-      '/home/mark/.apollo/skills',
+      '/home/mark/.volund/skills',
       '/home/mark/.agents/skills',
     ])
     expect(sources[0]!.scope).toBe('project')
@@ -277,23 +273,26 @@ describe('SkillsRuntime', () => {
   })
 })
 
-  it('installs into the requested scope (SKILLS-MCPS-r1 §S3.2)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skills-'))
-    dirs.push(root)
-    await writeSkill(resolve(root, 'src'), 'deploy', 'name: deploy\ndescription: deploys')
-    const project = resolve(root, 'ws', '.apollo', 'skills')
-    const runtime = new SkillsRuntime({
-      sources: [{ dir: project, scope: 'project' }, { dir: resolve(root, 'home'), scope: 'user' }],
-      apolloVersion: '1.0.0',
-      composer: new DefaultPromptComposer(),
-    })
-    const installed = await runtime.installFromDirectory(resolve(root, 'src', 'deploy'), {
-      scope: 'project',
-    })
-    expect(installed.scope).toBe('project')
-    expect(await readFile(resolve(project, 'deploy', 'SKILL.md'), 'utf8')).toContain('deploys')
-    // 默认仍装 user
-    await writeSkill(resolve(root, 'src2'), 'audit', 'name: audit\ndescription: audits')
-    const userInstalled = await runtime.installFromDirectory(resolve(root, 'src2', 'audit'))
-    expect(userInstalled.scope).toBe('user')
+it('installs into the requested scope (SKILLS-MCPS-r1 §S3.2)', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
+  dirs.push(root)
+  await writeSkill(resolve(root, 'src'), 'deploy', 'name: deploy\ndescription: deploys')
+  const project = resolve(root, 'ws', '.volund', 'skills')
+  const runtime = new SkillsRuntime({
+    sources: [
+      { dir: project, scope: 'project' },
+      { dir: resolve(root, 'home'), scope: 'user' },
+    ],
+    volundVersion: '1.0.0',
+    composer: new DefaultPromptComposer(),
   })
+  const installed = await runtime.installFromDirectory(resolve(root, 'src', 'deploy'), {
+    scope: 'project',
+  })
+  expect(installed.scope).toBe('project')
+  expect(await readFile(resolve(project, 'deploy', 'SKILL.md'), 'utf8')).toContain('deploys')
+  // 默认仍装 user
+  await writeSkill(resolve(root, 'src2'), 'audit', 'name: audit\ndescription: audits')
+  const userInstalled = await runtime.installFromDirectory(resolve(root, 'src2', 'audit'))
+  expect(userInstalled.scope).toBe('user')
+})

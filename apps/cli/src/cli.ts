@@ -1,14 +1,14 @@
 import { basename, dirname } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
-import { ErrorCodes, sanitize, validateWorkspacePath } from '@apollo-code/shared'
+import { ErrorCodes, productIdentity, sanitize, validateWorkspacePath } from '@volund/shared'
 import {
   PermissionPromptController,
   renderPrivacyDisclosure,
   renderSandboxDisclosure,
   renderSecurityBanner,
   statusPanelFromWelcome,
-} from '@apollo-code/ui'
+} from '@volund/ui'
 import type {
   DangerousMode,
   SandboxDisclosure,
@@ -16,13 +16,13 @@ import type {
   WelcomeModelStatus,
   WelcomePanelData,
   WelcomeSandboxStatus,
-} from '@apollo-code/ui'
+} from '@volund/ui'
 import { parseArgs } from 'citty'
 
 import { CommandRegistry } from './app/command-registry'
 import { createCommand, renderGlobalUsage } from './command'
-import { doctorCommand } from './commands/doctor'
 import { createConfigCommand } from './commands/config'
+import { doctorCommand } from './commands/doctor'
 import { actionStyleCommands, commandUsage } from './commands/help'
 import { createHistoryCommand } from './commands/history'
 import { createMemoryCommand } from './commands/memory'
@@ -31,7 +31,7 @@ import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
 import { createMemoryPanelController } from './memory-panel'
 import { projectMemoryScope } from './memory-scope'
-import type { ApolloPorts } from './ports'
+import type { VolundPorts } from './ports'
 import type { CliIo, CliResult, ParsedCliArgs } from './shared/cli-types'
 
 const defaultInteractiveModel = 'anthropic/claude-sonnet-4-20250514'
@@ -100,11 +100,11 @@ const defaultIo: CliIo = {
 }
 export async function runCli(
   rawArgs: string[],
-  ports: ApolloPorts,
+  ports: VolundPorts,
   io: CliIo = defaultIo,
 ): Promise<CliResult> {
   const command = createCommand(ports.identity)
-  // Per-command help (spec §11.3 `apollo help [command]`). Help must short-circuit
+  // Per-command help (spec §11.3 `volund help [command]`). Help must short-circuit
   // before sandbox probing, trust checks, or session startup. Tokens after `--`
   // belong to a subprocess (mcp add passthrough), so help flags are only scanned
   // before it; a bare `help` positional only counts for action-style commands,
@@ -121,7 +121,7 @@ export async function runCli(
       ? {
           exitCode: 2,
           stdout: '',
-          stderr: `Unknown command: ${topic}. Run 'apollo help' to list commands.`,
+          stderr: `Unknown command: ${topic}. Run '${productIdentity.commandName} help' to list commands.`,
         }
       : { exitCode: 0, stdout: usage, stderr: '' }
   }
@@ -311,7 +311,8 @@ export async function runCli(
       }
     }
     if (action === 'add') {
-      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      if (!ports.mcp)
+        return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
       const parsed = parseMcpAddArgs(rawArgs.slice(rawArgs.indexOf('add') + 1))
       if (parsed.error)
         return args.json
@@ -325,11 +326,14 @@ export async function runCli(
         return { exitCode: 0, stdout, stderr }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        return args.json ? jsonFailure(message, 1, 'mcp_add_failed') : { exitCode: 1, stdout, stderr: message }
+        return args.json
+          ? jsonFailure(message, 1, 'mcp_add_failed')
+          : { exitCode: 1, stdout, stderr: message }
       }
     }
     if (action === 'remove' || action === 'enable' || action === 'disable') {
-      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      if (!ports.mcp)
+        return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
       const name = args._[2]
       if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
       const scope = args.scope === 'project' || args.scope === 'user' ? args.scope : undefined
@@ -346,13 +350,16 @@ export async function runCli(
         return { exitCode: 0, stdout, stderr }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        return args.json ? jsonFailure(message, 1, 'mcp_action_failed') : { exitCode: 1, stdout, stderr: message }
+        return args.json
+          ? jsonFailure(message, 1, 'mcp_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
       }
     }
     return { exitCode: 2, stdout, stderr: `Unknown mcp action: ${action}` }
   }
   if (subcommand === 'skill') {
-    if (!ports.skill) return { exitCode: 2, stdout, stderr: 'skill integration port is not connected' }
+    if (!ports.skill)
+      return { exitCode: 2, stdout, stderr: 'skill integration port is not connected' }
     const action = args._[1] ?? 'list'
     const scope = args.scope === 'project' || args.scope === 'user' ? args.scope : undefined
     try {
@@ -371,7 +378,13 @@ export async function runCli(
       }
       if (action === 'install') {
         const spec = args._[2]
-        if (!spec) return { exitCode: 2, stdout, stderr: 'skill install requires a source (local dir, git URL, github:owner/repo, or owner/repo)' }
+        if (!spec)
+          return {
+            exitCode: 2,
+            stdout,
+            stderr:
+              'skill install requires a source (local dir, git URL, github:owner/repo, or owner/repo)',
+          }
         const installed = await ports.skill.install(spec, scope ? { scope } : undefined)
         stdout += args.json
           ? `${JSON.stringify(installed)}\n`
@@ -400,7 +413,9 @@ export async function runCli(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return args.json ? jsonFailure(message, 1, 'skill_command_failed') : { exitCode: 1, stdout, stderr: message }
+      return args.json
+        ? jsonFailure(message, 1, 'skill_command_failed')
+        : { exitCode: 1, stdout, stderr: message }
     }
     return { exitCode: 2, stdout, stderr: `Unknown skill action: ${action}` }
   }
@@ -611,7 +626,7 @@ export async function runCli(
   // [env] 段（§8.3 / 附录 C）：会话级环境变量在信任门与 native probes 之前写入
   // process.env，之后 spawn 的子进程（native worker / 插件宿主 / MCP stdio）都能
   // 继承到配置值。管理类子命令（doctor/status/...）已在上方 dispatch 走掉、不经
-  // 此处，因此 [env] 类型错时 apollo doctor 仍可用于诊断（C.1：类型错启动 fail）。
+  // 此处，因此 [env] 类型错时 volund doctor 仍可用于诊断（C.1：类型错启动 fail）。
   try {
     await ports.config.applyEnv?.()
   } catch (error) {
@@ -780,8 +795,8 @@ export async function runCli(
         : await ports.session.startInteractive!({ cwd })
       // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件装载：内置插件（产物自带
       // 的 apps/cli/plugins/，如 /env、/plugins）先装载；dev 插件随后
-      // （~/.apollo/plugins-dev 约定目录 + APOLLO_DEV_PLUGINS=<dir>[,<dir>...] 的
-      // 仓库内开发路径）；市场插件最后（~/.apollo/plugins/<name>/，装自 [plugins]
+      // （~/.volund/plugins-dev 约定目录 + VOLUND_DEV_PLUGINS=<dir>[,<dir>...] 的
+      // 仓库内开发路径）；市场插件最后（~/.volund/plugins/<name>/，装自 [plugins]
       // market，激活时逐文件重验 digest）。单个失败不阻塞 REPL。插件激活失败必须
       // 进 TUI 可见的启动系统消息（notices）——只写 stderr 的话要等 REPL 退出才
       // 显示，/env 这类命令就会静默缺失成 "Unknown slash command"。
@@ -792,7 +807,7 @@ export async function runCli(
           startupNotices.push(
             `Builtin plugin ${basename(failure.dir)} failed to activate: ${failure.error}`,
           )
-        const extraDirs = (process.env.APOLLO_DEV_PLUGINS ?? '')
+        const extraDirs = (process.env.VOLUND_DEV_PLUGINS ?? '')
           .split(',')
           .map((dir) => dir.trim())
           .filter(Boolean)
@@ -876,7 +891,7 @@ export async function runCli(
           ? {
               resume: {
                 list: () => ports.session.list!(),
-                resume: async (candidate: import('@apollo-code/ui').SessionCandidate) => {
+                resume: async (candidate: import('@volund/ui').SessionCandidate) => {
                   const resumed = await ports.session.resumeInteractive!(candidate.id)
                   return {
                     cwd: resumed.cwd ?? candidate.cwd,
@@ -898,7 +913,7 @@ export async function runCli(
         ...(ports.config.updatePreference
           ? {
               statusPanelController: {
-                update: (id: string, value: import('@apollo-code/ui').StatusValue) =>
+                update: (id: string, value: import('@volund/ui').StatusValue) =>
                   ports.config.updatePreference!(id, value, { cwd, sessionId: interactive.id }),
                 // /status 打开时刷新：Usage/Stats 显示打开时刻的用量而不是启动快照。
                 ...(ports.config.status
@@ -946,7 +961,7 @@ function welcomeSandboxFrom(probe: SandboxDisclosure): WelcomeSandboxStatus {
 async function buildWelcomePanelData(input: {
   cwd: string
   dangerousPermissions: boolean
-  ports: ApolloPorts
+  ports: VolundPorts
   sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel: string
@@ -975,7 +990,7 @@ async function buildWelcomePanelData(input: {
     mcp,
     history: {
       status: 'available',
-      path: 'apollo input history',
+      path: 'volund input history',
       entries: 0,
       maxEntries: 1000,
     },
@@ -1018,7 +1033,7 @@ function buildModelPicker(currentModelId: string, configuredModel?: string) {
   return { currentModelId, models: [...extra, ...builtins] }
 }
 
-async function welcomeConfig(ports: ApolloPorts, cwd: string): Promise<WelcomePanelData['config']> {
+async function welcomeConfig(ports: VolundPorts, cwd: string): Promise<WelcomePanelData['config']> {
   try {
     const health = await ports.config.health(cwd)
     if (health.valid === false)
@@ -1030,7 +1045,7 @@ async function welcomeConfig(ports: ApolloPorts, cwd: string): Promise<WelcomePa
         },
         project: {
           status: 'blocked',
-          path: `${cwd}/.apollo/config.toml`,
+          path: `${cwd}/.volund/config.toml`,
           trusted: false,
           reason: { code: 'config_invalid', message: health.detail },
         },
@@ -1055,7 +1070,7 @@ async function welcomeConfig(ports: ApolloPorts, cwd: string): Promise<WelcomePa
   }
 }
 
-async function welcomeMcp(ports: ApolloPorts): Promise<WelcomePanelData['mcp']> {
+async function welcomeMcp(ports: VolundPorts): Promise<WelcomePanelData['mcp']> {
   if (!ports.mcp)
     return {
       status: 'unavailable',
@@ -1099,13 +1114,11 @@ function jsonFailure(
   }
   return { exitCode, stdout: `${JSON.stringify(error)}\n${JSON.stringify(final)}\n`, stderr: '' }
 }
-
-
 /**
- * SKILLS-MCPS-r1 §S3.7：`apollo mcp add` 的手动解析（citty 不支持 `--` 透传与
+ * SKILLS-MCPS-r1 §S3.7：`volund mcp add` 的手动解析（citty 不支持 `--` 透传与
  * 重复 flag）。形态（业界惯例）：
- *   apollo mcp add [-s user|project] [-e K=V]... <name> -- <command> [args...]
- *   apollo mcp add [-t http|sse] [-s scope] [-H 'K: v']... <name> <url>
+ *   volund mcp add [-s user|project] [-e K=V]... <name> -- <command> [args...]
+ *   volund mcp add [-t http|sse] [-s scope] [-H 'K: v']... <name> <url>
  */
 export function parseMcpAddArgs(tokens: readonly string[]): {
   input?: import('./ports').McpAddInput

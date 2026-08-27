@@ -1,5 +1,5 @@
-import type { SkillEntry } from '@apollo-code/skills-runtime'
-import type { MutableSlashCommandRegistry, SlashSubmitView } from '@apollo-code/ui'
+import type { SkillEntry } from '@volund/skills-runtime'
+import type { MutableSlashCommandRegistry, SlashSubmitView } from '@volund/ui'
 
 /**
  * SKILLS-MCPS-r1 §S3.3a：每个可被用户调用的 skill 自动注册为同名 slash 命令

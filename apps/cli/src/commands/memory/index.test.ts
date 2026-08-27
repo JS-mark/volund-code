@@ -7,7 +7,7 @@ import {
   LocalMemoryRepository,
   MemoryError,
   MemoryTransferService,
-} from '@apollo-code/storage'
+} from '@volund/storage'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from '../../cli'
@@ -27,7 +27,7 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-cli-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-cli-'))
   roots.push(root)
   let tick = 0
   const memory = new DefaultMemoryService(
@@ -42,7 +42,7 @@ async function fixture() {
   return { root, memory, ports }
 }
 
-describe('apollo memory', () => {
+describe('volund memory', () => {
   it('supports add, filtered cursor listing, get, update, pin, and unpin as stable JSON', async () => {
     const { ports } = await fixture()
     const added = await runCli(
@@ -255,7 +255,7 @@ describe('apollo memory', () => {
     const { ports } = await fixture()
     const result = await runCli(['memory', '--help'], ports, nonInteractive)
     expect(result).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(result.stdout).toContain('apollo memory <command>')
+    expect(result.stdout).toContain('volund memory <command>')
     expect(result.stdout).toContain('--cursor')
   })
 
@@ -277,7 +277,7 @@ describe('apollo memory', () => {
       nonInteractive,
     )
     expect(JSON.parse(exported.stdout)).toMatchObject({
-      schemaVersion: 'apollo.memory.export.v1',
+      schemaVersion: 'volund.memory.export.v1',
       records: [{ id: 'portable' }],
     })
 

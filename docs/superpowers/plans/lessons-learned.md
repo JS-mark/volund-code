@@ -38,9 +38,9 @@
 
 ### LL-5 worktree 不能放 /tmp：macOS realpath 守卫会让部分测试预存失败
 - 类别：环境陷阱｜日期：2026-08-16｜来源：r13 批次 1（REM-54 验收发现）
-- 问题：git worktree 建在 `/tmp/apollo-rem/*` 时，`packages/shared/path-guard` 与 `apps/cli` 共 37 例测试预存失败（干净 base 上可复现），易被误判为 REM 引入的回归。
+- 问题：git worktree 建在 `/tmp/volund-rem/*` 时，`packages/shared/path-guard` 与 `apps/cli` 共 37 例测试预存失败（干净 base 上可复现），易被误判为 REM 引入的回归。
 - 根因：macOS `/tmp` 是 `/private/tmp` 的 symlink，`fs.realpath(PWD)` 与字符串 cwd 不一致，触发仓库的 path-guard 安全守卫（`--cwd` 归一化规则 W6）。
-- 规则：并行执行用的 worktree 一律放真实路径目录（如 `~/apollo-worktrees/`），禁用 `/tmp`；验收时若见 path-guard/cli 失败，先在干净 base 复现排除环境因素再定性。
+- 规则：并行执行用的 worktree 一律放真实路径目录（如 `~/volund-worktrees/`），禁用 `/tmp`；验收时若见 path-guard/cli 失败，先在干净 base 复现排除环境因素再定性。
 - 状态：active
 
 ### LL-6 执行 agent 的 DoD 必须含仓库 CI 等价命令（format/lint/跨平台），且 lint error 提取要用 `x` 标记

@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { McpPanel } from './components/McpPanel'
 import { MessageBlock } from './components/MessageBlock'
 import { SkillsPanel } from './components/SkillsPanel'
+import type { McpPanelController, SkillsPanelController } from './index'
 import { mcpListCommandView } from './mcp-panel'
 import { collapseSkillInvocation, skillsListCommandView } from './skills-panel'
 import { renderInteractiveApp } from './tui'
-import type { McpPanelController, SkillsPanelController } from './index'
 
 class MemoryWriteStream extends Writable {
   columns = 100
@@ -52,7 +52,7 @@ function fakeSkillsController() {
           name: 'pdf-tools',
           description: 'PDF processing',
           scope: 'project',
-          source: '/repo/.apollo/skills/pdf-tools',
+          source: '/repo/.volund/skills/pdf-tools',
           status: 'active',
           version: '2.1.0',
         },
@@ -128,12 +128,14 @@ async function flush(app: { waitUntilRenderFlush(): Promise<unknown> }, times = 
 /** 异步动作（开关/详情装载）完成没有固定帧数——轮询直到条件成立（每 20ms 查一次，2s 封顶）。 */
 async function until(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 2000
-  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
+  while (!predicate() && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
 describe('skill invocation transcript collapse (§S3.3a)', () => {
   it('collapses a <skill> invocation user message to a one-line summary', () => {
-    const full = '<skill name="git-flow" directory="/skills/git-flow">\nline one\nline two\nline three\n</skill>\n\nwrite a commit message for src/foo.ts and the surrounding changes'
+    const full =
+      '<skill name="git-flow" directory="/skills/git-flow">\nline one\nline two\nline three\n</skill>\n\nwrite a commit message for src/foo.ts and the surrounding changes'
     const collapsed = collapseSkillInvocation(full)!
     expect(collapsed.name).toBe('git-flow')
     expect(collapsed.task.length).toBeLessThanOrEqual(60)

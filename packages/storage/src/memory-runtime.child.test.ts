@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 
 import { DefaultMemoryService, LocalMemoryRepository } from './memory-runtime'
 
-const file = process.env.APOLLO_MEMORY_CHILD_FILE
-const gate = process.env.APOLLO_MEMORY_CHILD_GATE
-const id = process.env.APOLLO_MEMORY_CHILD_ID
+const file = process.env.VOLUND_MEMORY_CHILD_FILE
+const gate = process.env.VOLUND_MEMORY_CHILD_GATE
+const id = process.env.VOLUND_MEMORY_CHILD_ID
 
 describe.skipIf(!file || !gate || !id)('memory runtime child writer', () => {
   it('commits one record after both processes are ready', async () => {

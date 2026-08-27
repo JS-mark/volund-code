@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DefaultPromptComposer } from '@apollo-code/core'
+import { DefaultPromptComposer } from '@volund/core'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { MemoryPromptProvider } from './memory-prompt-provider'
@@ -10,11 +10,11 @@ import { DefaultMemoryService, LocalMemoryRepository } from './memory-runtime'
 
 const roots: string[] = []
 const workspace = { kind: 'workspace', workspaceId: 'local' } as const
-const project = { kind: 'project', workspaceId: 'local', projectId: 'apollo' } as const
+const project = { kind: 'project', workspaceId: 'local', projectId: 'volund' } as const
 const session = {
   kind: 'session',
   workspaceId: 'local',
-  projectId: 'apollo',
+  projectId: 'volund',
   sessionId: 'session-1',
 } as const
 
@@ -23,7 +23,7 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-prompt-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-prompt-'))
   roots.push(root)
   let tick = 0
   const memory = new DefaultMemoryService(

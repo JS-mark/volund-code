@@ -2,9 +2,9 @@ import { Box, Text, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { filterListEntries, type CommandListEntry } from '../list-picker'
-import { truncateTerminal, wrapTerminalLines } from '../memory-panel'
 import type { McpPanelController, McpPanelEntry } from '../mcp-panel'
 import { mcpPanelStatusGlyph } from '../mcp-panel'
+import { truncateTerminal, wrapTerminalLines } from '../memory-panel'
 import { PanelFrame } from './PanelFrame'
 
 const PAGE_SIZE = 10
@@ -178,7 +178,10 @@ export function McpPanel({
     const viewport = detailViewport(terminalRows)
     const visible = lines.slice(detailScroll, detailScroll + viewport)
     return (
-      <PanelFrame footer="↑/↓ scroll · Enter/Esc back to list" title={`MCP Servers · ${current?.name ?? ''}`}>
+      <PanelFrame
+        footer="↑/↓ scroll · Enter/Esc back to list"
+        title={`MCP Servers · ${current?.name ?? ''}`}
+      >
         <Box flexDirection="column">
           {visible.map((line, index) => (
             <Text key={index}>{truncateTerminal(line || ' ', terminalColumns - 6)}</Text>
@@ -211,7 +214,9 @@ export function McpPanel({
             const color = noColor ? undefined : STATUS_COLOR[entry.status]
             return (
               <Box key={item.id} gap={1}>
-                <Text {...(selectedRow ? { color: 'cyan' as const } : {})}>{selectedRow ? '▸' : ' '}</Text>
+                <Text {...(selectedRow ? { color: 'cyan' as const } : {})}>
+                  {selectedRow ? '▸' : ' '}
+                </Text>
                 <Text {...(color ? { color } : {})}>{glyph}</Text>
                 <Text {...(color ? { color } : {})} wrap="truncate">
                   {truncateTerminal(

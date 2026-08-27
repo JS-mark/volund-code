@@ -1,4 +1,5 @@
-import type { CoreEvent, EventBus } from '@apollo-code/core'
+import type { CoreEvent, EventBus } from '@volund/core'
+import { productIdentity } from '@volund/shared'
 import { Box, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -24,16 +25,16 @@ import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { CommandListEntry, CommandListView } from './list-picker'
 import { isCommandListView } from './list-picker'
 import type { McpPanelController } from './mcp-panel'
+import { mcpListCommandView } from './mcp-panel'
 import type { MemoryPanelController } from './memory-panel'
 import type { ModelPickerState, SubmitOptions } from './model-picker'
 import type { PermissionPromptController } from './permission'
+import type { SessionCandidate } from './session-picker'
 import { skillsListCommandView } from './skills-panel'
 import type { SkillsPanelController } from './skills-panel'
-import type { SessionCandidate } from './session-picker'
 import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
 import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
-import { mcpListCommandView } from './mcp-panel'
 import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export interface TranscriptEntry {
@@ -65,10 +66,10 @@ export interface SlashSubmitView {
 export function isSlashSubmitView(value: unknown): value is SlashSubmitView {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      (value as { kind?: unknown }).kind === 'submit' &&
-      typeof (value as { text?: unknown }).text === 'string' &&
-      (value as { text: string }).text !== '',
+    typeof value === 'object' &&
+    (value as { kind?: unknown }).kind === 'submit' &&
+    typeof (value as { text?: unknown }).text === 'string' &&
+    (value as { text: string }).text !== '',
   )
 }
 
@@ -248,8 +249,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     ? () => activeSession.onInterrupt?.()
     : options.onInterrupt
   const activeOnSubmit = activeSession
-    ? (input: string, submitOptions?: SubmitOptions) =>
-      activeSession.onSubmit(input, submitOptions)
+    ? (input: string, submitOptions?: SubmitOptions) => activeSession.onSubmit(input, submitOptions)
     : options.onSubmit
 
   const flushPendingToTranscript = useCallback(
@@ -309,9 +309,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => {
             const withFlushed = flushed
               ? {
-                ...current,
-                pendingAssistantText: current.pendingAssistantText + flushed,
-              }
+                  ...current,
+                  pendingAssistantText: current.pendingAssistantText + flushed,
+                }
               : current
             return applyInteractiveEvent(withFlushed, event)
           })
@@ -322,9 +322,9 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setState((current) => {
             const withFlushed = flushed
               ? {
-                ...current,
-                pendingAssistantText: current.pendingAssistantText + flushed,
-              }
+                  ...current,
+                  pendingAssistantText: current.pendingAssistantText + flushed,
+                }
               : current
             return applyInteractiveEvent(flushPendingToTranscript(withFlushed, event.id), event)
           })
@@ -418,173 +418,173 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       },
       options.undo
         ? {
-          name: 'undo',
-          order: 40,
-          description: 'Undo the last side-effecting tool (single step)',
-          run: async () => {
-            setShowWelcome(false)
-            setStatusPanelOpen(false)
-            const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
-            if (!outcome.undone) {
-              appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
+            name: 'undo',
+            order: 40,
+            description: 'Undo the last side-effecting tool (single step)',
+            run: async () => {
+              setShowWelcome(false)
+              setStatusPanelOpen(false)
+              const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
+              if (!outcome.undone) {
+                appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
+                setState((current) => ({
+                  ...current,
+                  status: UNDO_NOTHING_MESSAGE,
+                  statusLevel: 'warning',
+                }))
+                return
+              }
+              appendSystemMessage(setState, undoTranscriptMessage(outcome))
               setState((current) => ({
                 ...current,
-                status: UNDO_NOTHING_MESSAGE,
-                statusLevel: 'warning',
+                status: outcome.warnings.length
+                  ? 'undo restored with warnings (may have overwritten manual changes)'
+                  : `undid ${outcome.paths.length} file(s)`,
+                statusLevel: outcome.warnings.length ? 'warning' : 'muted',
               }))
-              return
-            }
-            appendSystemMessage(setState, undoTranscriptMessage(outcome))
-            setState((current) => ({
-              ...current,
-              status: outcome.warnings.length
-                ? 'undo restored with warnings (may have overwritten manual changes)'
-                : `undid ${outcome.paths.length} file(s)`,
-              statusLevel: outcome.warnings.length ? 'warning' : 'muted',
-            }))
-          },
-        }
+            },
+          }
         : unavailableSlashCommand('undo', 'Undo the last side-effecting tool (single step)', 40),
       welcome
         ? {
-          name: 'status',
-          order: 50,
-          description: 'Show runtime status',
-          run: () => {
-            setShowWelcome(false)
-            setModelPickerOpen(false)
-            setStatusPanelOpen(true)
-            setState((current) => ({
-              ...current,
-              status: 'status',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'status',
+            order: 50,
+            description: 'Show runtime status',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'status',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('status', 'Show runtime status', 50),
       unavailableSlashCommand('context', 'Show context status', 60),
       unavailableSlashCommand('compact', 'Compact conversation context', 70),
       options.memory
         ? {
-          name: 'memory',
-          order: 80,
-          description: 'Browse and manage memory',
-          run: () => {
-            setShowWelcome(false)
-            setModelPickerOpen(false)
-            setStatusPanelOpen(false)
-            setSkillsPanelOpen(false)
-            setMcpPanelOpen(false)
-            setResumeCandidates(undefined)
-            setMemoryOpen(true)
-            setState((current) => ({
-              ...current,
-              status: 'memory',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'memory',
+            order: 80,
+            description: 'Browse and manage memory',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              setResumeCandidates(undefined)
+              setMemoryOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'memory',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('memory', 'Browse and manage memory', 80),
       options.resume
         ? {
-          name: 'resume',
-          order: 90,
-          description: 'Resume a saved session',
-          run: async () => {
-            setShowWelcome(false)
-            setModelPickerOpen(false)
-            setStatusPanelOpen(false)
-            setResumeError(undefined)
-            setResumeCandidates(await options.resume!.list())
-            setState((current) => ({
-              ...current,
-              status: 'select session',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'resume',
+            order: 90,
+            description: 'Resume a saved session',
+            run: async () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setResumeError(undefined)
+              setResumeCandidates(await options.resume!.list())
+              setState((current) => ({
+                ...current,
+                status: 'select session',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('resume', 'Resume a saved session', 90),
       hasModelPicker
         ? {
-          name: 'model',
-          order: 100,
-          description: 'Switch model',
-          run: () => {
-            setShowWelcome(false)
-            setStatusPanelOpen(false)
-            setModelPickerOpen(true)
-            setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
-            setState((current) => ({
-              ...current,
-              status: 'select model',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'model',
+            order: 100,
+            description: 'Switch model',
+            run: () => {
+              setShowWelcome(false)
+              setStatusPanelOpen(false)
+              setModelPickerOpen(true)
+              setActiveModelId(currentModelId || firstAvailableModelId(options.modelPicker!.models))
+              setState((current) => ({
+                ...current,
+                status: 'select model',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('model', 'Switch model', 100),
       options.skills
         ? {
-          name: 'skills',
-          order: 110,
-          description: 'Browse and manage skills',
-          run: async ({ args }) => {
-            setShowWelcome(false)
-            setModelPickerOpen(false)
-            setStatusPanelOpen(false)
-            setMemoryOpen(false)
-            setSkillsPanelOpen(false)
-            setMcpPanelOpen(false)
-            if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
-            setSkillsPanelOpen(true)
-            setState((current) => ({
-              ...current,
-              status: 'skills',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'skills',
+            order: 110,
+            description: 'Browse and manage skills',
+            run: async ({ args }) => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
+              setSkillsPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'skills',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('skills', 'Browse and manage skills', 110),
       options.mcp
         ? {
-          name: 'mcp',
-          order: 120,
-          description: 'Browse and manage MCP servers',
-          run: async ({ args }) => {
-            setShowWelcome(false)
-            setModelPickerOpen(false)
-            setStatusPanelOpen(false)
-            setMemoryOpen(false)
-            setSkillsPanelOpen(false)
-            setMcpPanelOpen(false)
-            if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
-            setMcpPanelOpen(true)
-            setState((current) => ({
-              ...current,
-              status: 'mcp',
-              statusLevel: 'muted',
-            }))
-          },
-        }
+            name: 'mcp',
+            order: 120,
+            description: 'Browse and manage MCP servers',
+            run: async ({ args }) => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
+              setMcpPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'mcp',
+                statusLevel: 'muted',
+              }))
+            },
+          }
         : unavailableSlashCommand('mcp', 'Browse and manage MCP servers', 120),
       options.skills
         ? {
-          name: 'skill',
-          order: 130,
-          description: 'Activate, deactivate, or show a skill',
-          run: async ({ args }) => {
-            const [verb, name] = args
-            if (verb === 'activate' && name) {
-              setShowWelcome(false)
-              return options.skills!.setActive(name, true)
-            }
-            if (verb === 'deactivate' && name) return options.skills!.setActive(name, false)
-            if (verb === 'show' && name) {
-              setShowWelcome(false)
-              return options.skills!.show(name)
-            }
-            return 'usage: /skill activate|deactivate|show <name> (browse with /skills)'
-          },
-        }
+            name: 'skill',
+            order: 130,
+            description: 'Activate, deactivate, or show a skill',
+            run: async ({ args }) => {
+              const [verb, name] = args
+              if (verb === 'activate' && name) {
+                setShowWelcome(false)
+                return options.skills!.setActive(name, true)
+              }
+              if (verb === 'deactivate' && name) return options.skills!.setActive(name, false)
+              if (verb === 'show' && name) {
+                setShowWelcome(false)
+                return options.skills!.show(name)
+              }
+              return 'usage: /skill activate|deactivate|show <name> (browse with /skills)'
+            },
+          }
         : unavailableSlashCommand('skill', 'Activate, deactivate, or show a skill', 130),
     ]
     return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
@@ -628,7 +628,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       }
       history={historyEntries}
       initialValue={options.initialInput ?? ''}
-      placeholder="Ask Apollo to inspect, change, test, or explain this repo"
+      placeholder={`Ask ${productIdentity.shortName} to inspect, change, test, or explain this repo`}
       slashCommands={slashCommands}
       terminalColumns={terminalSize.columns}
       onSubmit={async (input) => {
@@ -879,7 +879,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               appendSystemMessage(
                 setState,
                 entry.detail ??
-                `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
+                  `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
               )
             }}
           />
@@ -896,7 +896,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               appendSystemMessage(
                 setState,
                 entry.detail ??
-                `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
+                  `${entry.label}${entry.value ? ` = ${entry.value}` : ''}${entry.status ? `  [${entry.status}]` : ''}`,
               )
             }}
           />
@@ -961,7 +961,7 @@ function unavailableSlashCommand(name: string, description: string, order: numbe
     description,
     order,
     available: false,
-    run: () => { },
+    run: () => {},
   }
 }
 

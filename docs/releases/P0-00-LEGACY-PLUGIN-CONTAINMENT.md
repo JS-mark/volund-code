@@ -42,8 +42,8 @@ Every plugin `--json` failure emits exactly `error` then `final` on stdout with 
 ## Verification commands
 
 ```text
-pnpm --filter @apollo-code/plugin-runtime test
-pnpm --filter apollo-code test
+pnpm --filter @volund/plugin-runtime test
+pnpm --filter volund-cli test
 pnpm typecheck
 pnpm verify:error-codes
 pnpm check:event-schemas
@@ -54,7 +54,7 @@ pnpm format:check
 git diff --check
 ```
 
-Package tests exercise data-only capability contracts and `ApolloBridge` behavior directly; no test
+Package tests exercise data-only capability contracts and `VolundBridge` behavior directly; no test
 authority or executable legacy host is shipped. Production integration covers install/enable deny,
 read-time effective-disabled projection with no rewrite, malformed-state containment, Memory-policy
 dormancy, safe cleanup operations, exact CLI machine/text output, bounded doctor disclosure, and the

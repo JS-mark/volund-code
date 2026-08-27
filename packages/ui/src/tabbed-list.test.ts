@@ -62,9 +62,7 @@ describe('tabbedListKey（键盘交互）', () => {
     expect(state.active).toBe(0)
     // 边界钳制
     expect(nextState(tabbedListKey({ ...state, active: 0 }, sections, 'ArrowLeft')).active).toBe(0)
-    expect(
-      nextState(tabbedListKey({ ...state, active: 2 }, sections, 'ArrowRight')).active,
-    ).toBe(2)
+    expect(nextState(tabbedListKey({ ...state, active: 2 }, sections, 'ArrowRight')).active).toBe(2)
   })
 
   it('Enter selects from the active tab after filtering', () => {

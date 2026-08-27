@@ -9,7 +9,7 @@ import type {
   ProviderErrorCategory,
   ProviderRequest,
   ToolSchema,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export interface CredentialPort {
   getCredential(providerId: 'gemini'): Promise<string>

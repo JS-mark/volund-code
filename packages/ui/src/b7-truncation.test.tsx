@@ -1,6 +1,6 @@
 import { PassThrough, Writable } from 'node:stream'
 
-import type { CoreEvent } from '@apollo-code/core'
+import type { CoreEvent } from '@volund/core'
 import { render } from 'ink'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'

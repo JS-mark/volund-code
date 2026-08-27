@@ -9,9 +9,9 @@ import type {
   EmbeddingAuthorizationStatus,
   EmbeddingProvider,
   Message,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
-export const SEMANTIC_INDEX_SCHEMA_VERSION = 'apollo.semantic-index.v1'
+export const SEMANTIC_INDEX_SCHEMA_VERSION = 'volund.semantic-index.v1'
 
 export interface SemanticIndexEmbeddingMeta {
   readonly provider: string

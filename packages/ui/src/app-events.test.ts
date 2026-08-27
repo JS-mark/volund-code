@@ -1,4 +1,4 @@
-import type { CoreEvent } from '@apollo-code/core'
+import type { CoreEvent } from '@volund/core'
 import { describe, expect, it } from 'vitest'
 
 import type { InteractiveAppState } from './app'

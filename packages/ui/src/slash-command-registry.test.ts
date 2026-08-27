@@ -12,7 +12,7 @@ const command = (name: string, aliases?: readonly string[]) => ({
 describe('MutableSlashCommandRegistry', () => {
   it('normalizes names, aliases and sorts builtins before plugins', () => {
     const registry = new MutableSlashCommandRegistry()
-    registry.register(command('/Zulu'), { kind: 'plugin', plugin: 'apollo-plugin-z' })
+    registry.register(command('/Zulu'), { kind: 'plugin', plugin: 'volund-plugin-z' })
     registry.register(command('help', ['/H']), { kind: 'builtin' })
 
     expect(registry.snapshot().map(({ name }) => name)).toEqual(['help', 'zulu'])
@@ -22,23 +22,24 @@ describe('MutableSlashCommandRegistry', () => {
 
   it('floats ordered commands above the unordered tail (order is the primary key)', () => {
     const registry = new MutableSlashCommandRegistry()
-    registry.register(command('zulu'), { kind: 'plugin', plugin: 'apollo-plugin-z' })
-    registry.register(command('alpha'), { kind: 'plugin', plugin: 'apollo-plugin-a' })
-    registry.register({ ...command('plugins'), order: 5 }, {
-      kind: 'plugin',
-      plugin: 'apollo-plugin-manager',
-    })
-    registry.register({ ...command('env'), order: -1 }, {
-      kind: 'plugin',
-      plugin: 'apollo-plugin-env',
-    })
+    registry.register(command('zulu'), { kind: 'plugin', plugin: 'volund-plugin-z' })
+    registry.register(command('alpha'), { kind: 'plugin', plugin: 'volund-plugin-a' })
+    registry.register(
+      { ...command('plugins'), order: 5 },
+      {
+        kind: 'plugin',
+        plugin: 'volund-plugin-manager',
+      },
+    )
+    registry.register(
+      { ...command('env'), order: -1 },
+      {
+        kind: 'plugin',
+        plugin: 'volund-plugin-env',
+      },
+    )
 
-    expect(registry.snapshot().map(({ name }) => name)).toEqual([
-      'env',
-      'plugins',
-      'alpha',
-      'zulu',
-    ])
+    expect(registry.snapshot().map(({ name }) => name)).toEqual(['env', 'plugins', 'alpha', 'zulu'])
   })
 
   it('rejects invalid names, aliases and conflicts including builtin aliases', () => {
@@ -60,7 +61,7 @@ describe('MutableSlashCommandRegistry', () => {
     const unsubscribe = registry.subscribe(listener)
     const dispose = registry.register(command('hello'), {
       kind: 'plugin',
-      plugin: 'apollo-plugin-example',
+      plugin: 'volund-plugin-example',
     })
 
     expect(registry.snapshot()).toHaveLength(1)
@@ -77,10 +78,10 @@ describe('MutableSlashCommandRegistry', () => {
     const run = vi.fn()
     registry.register(
       { name: '/greet', description: 'Greet someone', run },
-      { kind: 'plugin', plugin: 'apollo-plugin-example' },
+      { kind: 'plugin', plugin: 'volund-plugin-example' },
     )
 
-    await registry.snapshot()[0]?.run({ name: 'greet', args: ['Apollo'], raw: '/greet Apollo' })
-    expect(run).toHaveBeenCalledWith({ name: 'greet', args: ['Apollo'], raw: '/greet Apollo' })
+    await registry.snapshot()[0]?.run({ name: 'greet', args: ['volund'], raw: '/greet volund' })
+    expect(run).toHaveBeenCalledWith({ name: 'greet', args: ['volund'], raw: '/greet volund' })
   })
 })

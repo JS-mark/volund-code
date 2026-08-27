@@ -45,11 +45,11 @@ function legacyPluginBypasses(source: string, file = 'fixture.ts'): string[] {
     const index = match.index ?? 0
     if (specifier.includes('/test-only/') || specifier.includes('/internal/legacy-test-'))
       report(index, 'production cannot import the legacy test harness or its authority')
-    if (specifier === '@apollo-code/plugin-runtime')
+    if (specifier === '@volund/plugin-runtime')
       for (const binding of importedBindings(clause))
         if (binding === 'PluginRuntime' || binding === '*' || binding === 'default')
           report(index, `forbidden plugin-runtime import: ${binding}`)
-    if (specifier === '@apollo-code/native-bridge')
+    if (specifier === '@volund/native-bridge')
       for (const binding of importedBindings(clause))
         if (binding === 'startPluginHost' || binding === '*' || binding === 'default')
           report(index, `forbidden plugin host import: ${binding}`)
@@ -57,7 +57,7 @@ function legacyPluginBypasses(source: string, file = 'fixture.ts'): string[] {
 
   const rules: Array<[RegExp, string]> = [
     [
-      /\b(?:import|require)\s*\(\s*['"](?:@apollo-code\/(?:plugin-runtime|native-bridge)|[^'"]*\/test-only\/)[^'"]*['"]\s*\)/g,
+      /\b(?:import|require)\s*\(\s*['"](?:@volund\/(?:plugin-runtime|native-bridge)|[^'"]*\/test-only\/)[^'"]*['"]\s*\)/g,
       'dynamic legacy plugin dependency is forbidden',
     ],
     [/\bPluginRuntime\b/g, 'PluginRuntime is forbidden in production CLI sources'],
@@ -71,7 +71,7 @@ function legacyPluginBypasses(source: string, file = 'fixture.ts'): string[] {
       'production reopen option is forbidden',
     ],
     [
-      /APOLLO_.*(?:LEGACY_PLUGIN|PLUGIN_(?:ACTIVATION|ENABLE|REOPEN))/gi,
+      /volund_.*(?:LEGACY_PLUGIN|PLUGIN_(?:ACTIVATION|ENABLE|REOPEN))/gi,
       'environment/config reopen key is forbidden',
     ],
     [
@@ -127,12 +127,12 @@ describe('CLI dependency boundaries', () => {
 
   it('detects aliases, namespace access, dynamic imports, and hidden reopen controls', () => {
     const fixtures = [
-      `import { PluginRuntime as PR } from '@apollo-code/plugin-runtime'; new PR()`,
-      `import * as plugins from '@apollo-code/plugin-runtime'; new plugins.PluginRuntime()`,
-      `const plugins = await import('@apollo-code/plugin-runtime')`,
-      `import { startPluginHost as start } from '@apollo-code/native-bridge'; start({})`,
+      `import { PluginRuntime as PR } from '@volund/plugin-runtime'; new PR()`,
+      `import * as plugins from '@volund/plugin-runtime'; new plugins.PluginRuntime()`,
+      `const plugins = await import('@volund/plugin-runtime')`,
+      `import { startPluginHost as start } from '@volund/native-bridge'; start({})`,
       `interface ProductionOptions { pluginHostStart?: unknown }`,
-      `const key = 'APOLLO_LEGACY_PLUGIN_REOPEN'`,
+      `const key = 'VOLUND_LEGACY_PLUGIN_REOPEN'`,
       `async function createChildRunner() { return injected.loadEnabled() }`,
     ]
     for (const fixture of fixtures) expect(legacyPluginBypasses(fixture)).not.toEqual([])

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * createSandboxNativeBridge（runtime.ts）的契约测试：Bash 工具算好的最小 env
- * 必须原样透传进 apollo-sandbox（r13-I11 之前生产桥把 env 参数整个丢弃），
+ * 必须原样透传进 volund-sandbox（r13-I11 之前生产桥把 env 参数整个丢弃），
  * 且 permissions.env.read 白名单与注入的 key 一一对应——Rust 侧 env_clear 后
- * 只注入白名单内的名字（crates/apollo-sandbox profile.rs ExecRequest::validate）。
+ * 只注入白名单内的名字（crates/volund-sandbox profile.rs ExecRequest::validate）。
  */
 const { execSandbox } = vi.hoisted(() => ({ execSandbox: vi.fn() }))
 
-vi.mock('@apollo-code/native-bridge', () => ({ execSandbox }))
+vi.mock('@volund/native-bridge', () => ({ execSandbox }))
 
 const { createSandboxNativeBridge } = await import('./runtime')
 

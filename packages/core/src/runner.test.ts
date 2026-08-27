@@ -1,5 +1,5 @@
-import type { ContextPolicy, ProviderChunk, ProviderClient } from '@apollo-code/provider-kit'
-import type { RouterPolicy } from '@apollo-code/router'
+import type { ContextPolicy, ProviderChunk, ProviderClient } from '@volund/provider-kit'
+import type { RouterPolicy } from '@volund/router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { EventBus } from './event-bus'

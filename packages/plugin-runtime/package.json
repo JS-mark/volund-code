@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/plugin-runtime",
+  "name": "@volund/plugin-runtime",
   "version": "0.1.0",
   "files": [
     "dist/index.d.ts",
@@ -20,9 +20,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/native-bridge": "workspace:*",
-    "@apollo-code/plugin-sdk": "workspace:*",
-    "@apollo-code/provider-kit": "workspace:*"
+    "@volund/native-bridge": "workspace:*",
+    "@volund/plugin-sdk": "workspace:*",
+    "@volund/provider-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

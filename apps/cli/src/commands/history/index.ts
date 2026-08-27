@@ -7,16 +7,15 @@ function failure(exitCode: number, message: string): CliResult {
 }
 
 /**
- * §11.3.4 `apollo history`：session 会话档案（~/.apollo/sessions/*.jsonl）的
- * list/show/search/export/import/clear。与输入行历史（~/.apollo/history）无关。
+ * §11.3.4 `volund history`：session 会话档案（~/.volund/sessions/*.jsonl）的
+ * list/show/search/export/import/clear。与输入行历史（~/.volund/history）无关。
  */
 export function createHistoryCommand(io: CliIo): CommandDefinition {
   return {
     name: 'history',
     async run({ args, cwd, ports }) {
       const history = ports.history
-      if (!history)
-        return failure(2, 'history integration port is not connected')
+      if (!history) return failure(2, 'history integration port is not connected')
       const action = args._[1] ?? 'list'
       try {
         if (action === 'list') {
@@ -68,7 +67,11 @@ export function createHistoryCommand(io: CliIo): CommandDefinition {
           const output = args.o ?? args.output
           if (output) {
             await writeFile(String(output), content, 'utf8')
-            return { exitCode: 0, stdout: `Exported session ${id} to ${String(output)}\n`, stderr: '' }
+            return {
+              exitCode: 0,
+              stdout: `Exported session ${id} to ${String(output)}\n`,
+              stderr: '',
+            }
           }
           return { exitCode: 0, stdout: content, stderr: '' }
         }
@@ -113,7 +116,9 @@ export function createHistoryCommand(io: CliIo): CommandDefinition {
           if (args.yes !== true) {
             if (args.json || args.noTui || !io.isInteractiveTerminal?.() || !io.confirm)
               return failure(2, 'history clear requires --yes outside an interactive terminal')
-            const scope = all ? 'ALL saved sessions' : `sessions older than ${olderThan!.toISOString()}`
+            const scope = all
+              ? 'ALL saved sessions'
+              : `sessions older than ${olderThan!.toISOString()}`
             if (!(await io.confirm(`Delete ${scope}?`)))
               return failure(2, 'History was not cleared')
           }

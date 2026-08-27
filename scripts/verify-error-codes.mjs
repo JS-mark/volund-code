@@ -9,34 +9,34 @@ const sourceRoots = ['apps', 'packages']
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts'])
 const registryRelativePath = 'packages/shared/src/error-codes.ts'
 const appendixRelativePath =
-  'docs/superpowers/specs/2026-07-31-apollo-code-design/APPENDIX-B-error-codes.md'
+  'docs/superpowers/specs/2026-07-31-volund-code-design/APPENDIX-B-error-codes.md'
 
 /**
  * 登记在表、但静态规则扫不到 emit 字面量的码。每一项必须给出真实来源，
  * 否则等同于绕过登记制——verify 会对豁免项本身做"必须在表"校验。
  */
 export const emittedWithoutLiteral = new Map([
-  ['APOLLO_SUBAGENT_DEPTH_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
-  ['APOLLO_SUBAGENT_CONCURRENCY_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
+  ['VOLUND_SUBAGENT_DEPTH_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
+  ['VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', 'packages/subagent/src/index.ts resourceError() 实参'],
   ['plugin_internal_error', 'apps/cli/src/cli.ts plugin JSON unknown-error fallback'],
   ['memory_unknown', 'packages/ui/src/memory-panel.ts memoryPanelError 兜底'],
   ['memory_index_corrupt', 'packages/storage/src/memory-index.ts 快照读取三元缺省码'],
-  // normalizeError 的 `APOLLO_${category.toUpperCase()}` 动态工厂（shared/src/errors.ts）
-  ['APOLLO_NETWORK', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_AUTH', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_RATE_LIMIT', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_QUOTA', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_CONTENT_FILTER', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_MODEL_NOT_FOUND', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_SERVER', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_CONTEXT_LENGTH', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_STREAM_TRUNCATED', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_PROTOCOL', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_PERMISSION', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_SANDBOX', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_TIMEOUT', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_CANCELLED', 'normalizeError APOLLO_<CATEGORY> 工厂'],
-  ['APOLLO_UNKNOWN', 'normalizeError APOLLO_<CATEGORY> 工厂'],
+  // normalizeError 的 `volund_${category.toUpperCase()}` 动态工厂（shared/src/errors.ts）
+  ['VOLUND_NETWORK', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_AUTH', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_RATE_LIMIT', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_QUOTA', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_CONTENT_FILTER', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_MODEL_NOT_FOUND', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_SERVER', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_CONTEXT_LENGTH', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_STREAM_TRUNCATED', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_PROTOCOL', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_PERMISSION', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_SANDBOX', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_TIMEOUT', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_CANCELLED', 'normalizeError volund_<CATEGORY> 工厂'],
+  ['VOLUND_UNKNOWN', 'normalizeError volund_<CATEGORY> 工厂'],
 ])
 
 const legacyHostRemovalGate = Object.freeze({

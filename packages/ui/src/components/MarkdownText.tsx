@@ -170,9 +170,7 @@ function renderBlock(token: Token, key: number): ReactNode {
 export function formatCodeBlock(code: string): string {
   const lines = code.replace(/\n$/, '').split('\n')
   const width = Math.max(0, ...lines.map((line) => stringWidth(line)))
-  return lines
-    .map((line) => line + ' '.repeat(Math.max(0, width - stringWidth(line))))
-    .join('\n')
+  return lines.map((line) => line + ' '.repeat(Math.max(0, width - stringWidth(line)))).join('\n')
 }
 
 function renderList(list: Tokens.List, key: number): ReactNode {

@@ -1,9 +1,9 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { parseTomlFile, validateConfig } from '@apollo-code/config'
-import type { JsonValue } from '@apollo-code/shared'
-import { ApolloError } from '@apollo-code/shared'
+import { parseTomlFile, validateConfig } from '@volund/config'
+import type { JsonValue } from '@volund/shared'
+import { VolundError } from '@volund/shared'
 
 import { serializeToml } from './mcp'
 
@@ -22,9 +22,9 @@ const forbiddenKeySegments: ReadonlySet<string> = new Set(['__proto__', 'constru
 
 function assertSafeKey(key: string): void {
   if (!/^[\w@.-]+$/.test(key) || key.split('.').some((part) => part === ''))
-    throw new ApolloError('config_unknown_key', `Malformed config key: '${key}'`)
+    throw new VolundError('config_unknown_key', `Malformed config key: '${key}'`)
   if (key.split('.').some((part) => forbiddenKeySegments.has(part)))
-    throw new ApolloError('config_invalid', `forbidden config key segment in '${key}'`)
+    throw new VolundError('config_invalid', `forbidden config key segment in '${key}'`)
 }
 
 /** dot-path 写入（如 `provider.anthropic.model`），中间层按需建表。 */
@@ -85,7 +85,7 @@ export function assertConfigKeyValue(key: string, value: JsonValue): void {
   assignConfigValue(probe, key, value)
   const { warnings } = validateConfig(probe, { file: 'command line' })
   if (warnings.length > 0)
-    throw new ApolloError(
+    throw new VolundError(
       'config_unknown_key',
       `Unknown config key: '${key}'. See the config schema reference for known keys.`,
     )

@@ -35,10 +35,10 @@ jobs:
       - name: Assert Rolldown single-bin output
         shell: bash
         run: |
-          test -f apps/cli/dist/apollo.js
+          test -f apps/cli/dist/volund.js
           test "$(find apps/cli/dist -type f -name '*.js' | wc -l | tr -d ' ')" = 1
-          head -n 1 apps/cli/dist/apollo.js | grep -Fx '#!/usr/bin/env node'
+          head -n 1 apps/cli/dist/volund.js | grep -Fx '#!/usr/bin/env node'
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.runner }}
-          path: apps/cli/dist/apollo.js
+          path: apps/cli/dist/volund.js

@@ -1,13 +1,13 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { glob, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { createInterface } from 'node:readline'
 import { basename, join } from 'node:path'
+import { createInterface } from 'node:readline'
 
-import { replaySessionState } from '@apollo-code/core'
-import type { SessionState } from '@apollo-code/core'
-import { SessionStore } from '@apollo-code/storage'
-import type { StoredEvent } from '@apollo-code/storage'
-import type { SessionCandidate } from '@apollo-code/ui'
+import { replaySessionState } from '@volund/core'
+import type { SessionState } from '@volund/core'
+import { SessionStore } from '@volund/storage'
+import type { StoredEvent } from '@volund/storage'
+import type { SessionCandidate } from '@volund/ui'
 
 import type { HistoryMessage, HistoryPort, HistorySessionDetail, HistorySearchHit } from './ports'
 
@@ -30,7 +30,7 @@ function notFound(id: string): Error {
 }
 
 /**
- * §11.3.4 `apollo history` 的生产端口。会话档案是 ~/.apollo/sessions/<id>.jsonl
+ * §11.3.4 `volund history` 的生产端口。会话档案是 ~/.volund/sessions/<id>.jsonl
  * 事件流（附录 D）；读取一律走事件 replay（与 resume / session.list 同一条
  * 派生链），不引入第二份解释逻辑。
  */
@@ -54,7 +54,10 @@ export function createHistoryPort(input: {
     })
     const messages: HistoryMessage[] = replay.state.messages.flatMap((message) => {
       const text = messageFullText(message.content)
-      if (!text || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'system'))
+      if (
+        !text ||
+        (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'system')
+      )
         return []
       return [{ role: message.role, text }]
     })
@@ -92,7 +95,8 @@ export function createHistoryPort(input: {
         return `${JSON.stringify(
           { version: 1, sessionId: id, exportedAt: new Date().toISOString(), events },
           null,
-          2 )}\n`
+          2,
+        )}\n`
       const lines = [
         `# Session ${detail.id}`,
         '',

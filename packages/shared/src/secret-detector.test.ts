@@ -23,8 +23,8 @@ describe('detectSecret', () => {
     ['jwt', `eyJ${'F'.repeat(8)}.${'A'.repeat(12)}.${'K'.repeat(12)}`],
     ['authorization_header', `Authorization: Bearer ${'FAKE'.repeat(4)}`],
     ['authorization_header', `Proxy-Authorization = Basic ${'RkFLRQ=='.repeat(2)}`],
-    ['credential_uri', `postgresql://apollo:${'FAKE'.repeat(3)}@db.example.test/main`],
-    ['credential_uri', 'redis://apollo:p@cache.example.test/0'],
+    ['credential_uri', `postgresql://volund:${'FAKE'.repeat(3)}@db.example.test/main`],
+    ['credential_uri', 'redis://volund:p@cache.example.test/0'],
     ['credential_assignment', `client_secret => ${'FAKE'.repeat(3)}`],
     ['private_key', '-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----'],
   ])('classifies %s without retaining the matching value', (kind, value) => {

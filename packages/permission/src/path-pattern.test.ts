@@ -24,7 +24,7 @@ let home: string | undefined
 let userProfile: string | undefined
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'apollo-path-pattern-')))
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'volund-path-pattern-')))
   home = process.env.HOME
   userProfile = process.env.USERPROFILE
 })

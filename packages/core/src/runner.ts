@@ -8,9 +8,9 @@ import type {
   StopReason,
   ToolSchema,
   Usage,
-} from '@apollo-code/provider-kit'
-import type { RouterDecision, RouterHint, RouterPolicy } from '@apollo-code/router'
-import type { EventContent, JsonValue } from '@apollo-code/shared'
+} from '@volund/provider-kit'
+import type { RouterDecision, RouterHint, RouterPolicy } from '@volund/router'
+import type { EventContent, JsonValue } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 import { EventBus } from './event-bus'

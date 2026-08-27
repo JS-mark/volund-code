@@ -1,3 +1,5 @@
+import { productIdentity } from '@volund/shared'
+
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
 export * from './permission-display'
 export * from './components/welcome/index'
@@ -278,8 +280,8 @@ export function renderSandboxDisclosure(probe: SandboxDisclosure): string {
 export function renderPrivacyDisclosure(): string {
   return [
     'Before we start:',
-    'Apollo saves session logs locally.',
-    'Apollo does not send analytics anywhere by default.',
+    `${productIdentity.shortName} saves session logs locally.`,
+    `${productIdentity.shortName} does not send analytics anywhere by default.`,
     'Prompts and code are sent only through the provider you choose.',
   ].join('\n')
 }

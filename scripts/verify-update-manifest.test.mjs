@@ -31,10 +31,10 @@ void test('verifies the fixture manifest, artifact digest, signature and rollbac
 })
 
 void test('fails closed on artifact digest mismatch', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-update-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-update-'))
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    await writeFile(join(root, 'artifacts/apollo-code-darwin-arm64.txt'), 'tampered\n')
+    await writeFile(join(root, 'artifacts/volund-code-darwin-arm64.txt'), 'tampered\n')
     const manifest = await load()
     await assert.rejects(() => verifyUpdateManifest(manifest, root), /digest mismatch/)
   } finally {

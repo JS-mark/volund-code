@@ -6,8 +6,8 @@ const execFileAsync = promisify(execFile)
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import type { McpTransport } from '@apollo-code/mcp-client'
-import { ToolRegistry } from '@apollo-code/tool-kit'
+import type { McpTransport } from '@volund/mcp-client'
+import { ToolRegistry } from '@volund/tool-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -129,12 +129,12 @@ describe('parseMcpServerEntries', () => {
 
 describe('loadMcpServerConfigs', () => {
   it('merges project mcp.toml, interop .mcp.json and user mcp.toml by priority', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-mcp-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
     dirs.push(root)
     const home = join(root, 'home')
     const project = join(root, 'project')
     await mkdir(join(home), { recursive: true })
-    await mkdir(join(project, '.apollo'), { recursive: true })
+    await mkdir(join(project, '.volund'), { recursive: true })
     await writeFile(
       join(home, 'mcp.toml'),
       [
@@ -146,7 +146,7 @@ describe('loadMcpServerConfigs', () => {
       ].join('\n'),
     )
     await writeFile(
-      join(project, '.apollo', 'mcp.toml'),
+      join(project, '.volund', 'mcp.toml'),
       ['[mcp_servers.shared]', 'command = "project-cmd"', ''].join('\n'),
     )
     await writeFile(
@@ -158,13 +158,13 @@ describe('loadMcpServerConfigs', () => {
         },
       }),
     )
-    const configs = await loadMcpServerConfigs({ apolloHome: home, cwd: project })
+    const configs = await loadMcpServerConfigs({ volundHome: home, cwd: project })
     expect(configs.map((config) => `${config.name}:${config.scope}`)).toEqual([
       'interop:project',
       'shared:project',
       'useronly:user',
     ])
-    // 同名：project .apollo/mcp.toml > project .mcp.json > user mcp.toml
+    // 同名：project .volund/mcp.toml > project .mcp.json > user mcp.toml
     const shared = configs.find((config) => config.name === 'shared')!
     expect(shared.transport).toEqual(
       expect.objectContaining({ kind: 'stdio', command: 'project-cmd' }),
@@ -175,26 +175,26 @@ describe('loadMcpServerConfigs', () => {
     )
   })
   it('expands env vars in command/args/env/url and expands env sections in TOML', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-mcp-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
     dirs.push(root)
     const home = join(root, 'home')
     await mkdir(home, { recursive: true })
-    process.env.APOLLO_TEST_MCP_CMD = 'resolved-cmd'
-    process.env.APOLLO_TEST_MCP_URL = 'https://env.example.com'
+    process.env.VOLUND_TEST_MCP_CMD = 'resolved-cmd'
+    process.env.VOLUND_TEST_MCP_URL = 'https://env.example.com'
     await writeFile(
       join(home, 'mcp.toml'),
       [
         '[mcp_servers.envdriven]',
-        'command = "${APOLLO_TEST_MCP_CMD}"',
-        'args = ["--flag", "${APOLLO_TEST_MCP_CMD}"]',
+        'command = "${VOLUND_TEST_MCP_CMD}"',
+        'args = ["--flag", "${VOLUND_TEST_MCP_CMD}"]',
         '[mcp_servers.envdriven.env]',
-        'TOKEN = "${APOLLO_TEST_MCP_URL:-none}"',
+        'TOKEN = "${VOLUND_TEST_MCP_URL:-none}"',
         '[mcp_servers.urlserver]',
-        'url = "${APOLLO_TEST_MCP_URL}/mcp"',
+        'url = "${VOLUND_TEST_MCP_URL}/mcp"',
         '',
       ].join('\n'),
     )
-    const configs = await loadMcpServerConfigs({ apolloHome: home, cwd: root })
+    const configs = await loadMcpServerConfigs({ volundHome: home, cwd: root })
     const driven = configs.find((config) => config.name === 'envdriven')!
     expect(driven.transport).toEqual({
       kind: 'stdio',
@@ -206,8 +206,8 @@ describe('loadMcpServerConfigs', () => {
     expect(urlServer.transport).toEqual(
       expect.objectContaining({ kind: 'http', url: 'https://env.example.com/mcp' }),
     )
-    delete process.env.APOLLO_TEST_MCP_CMD
-    delete process.env.APOLLO_TEST_MCP_URL
+    delete process.env.VOLUND_TEST_MCP_CMD
+    delete process.env.VOLUND_TEST_MCP_URL
   })
 })
 
@@ -314,7 +314,7 @@ describe('McpManager', () => {
 
 describe('McpManager diagnostics log (§S3.6)', () => {
   it('writes JSONL lifecycle events and server stderr lines to logPath', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-mcp-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
     dirs.push(root)
     const logPath = join(root, 'mcp.log')
     const stderrLines: string[] = []
@@ -344,7 +344,7 @@ describe('McpManager diagnostics log (§S3.6)', () => {
     expect(ok).toEqual(expect.objectContaining({ server: 'demo', tools: 2 }))
   })
   it('logs failures and needs-auth as structured events', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-mcp-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
     dirs.push(root)
     const logPath = join(root, 'mcp.log')
     const manager = new McpManager({
@@ -358,15 +358,18 @@ describe('McpManager diagnostics log (§S3.6)', () => {
     await manager.logsFlushed()
     await manager.close()
     await manager.logsFlushed()
-    const events = (await readFile(logPath, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line).event)
+    const events = (await readFile(logPath, 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line).event)
     expect(events).toContain('connect.needs-auth')
     expect(events).toContain('connect.failed')
   })
 })
 
-describe('mcp.toml write path (§S3.7 apollo mcp add/remove)', () => {
+describe('mcp.toml write path (§S3.7 volund mcp add/remove)', () => {
   it('upserts stdio and http servers, round-trips through loadMcpServerConfigs, and removes them', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-mcp-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
     dirs.push(root)
     const home = join(root, 'home')
     const file = join(home, 'mcp.toml')
@@ -385,7 +388,7 @@ describe('mcp.toml write path (§S3.7 apollo mcp add/remove)', () => {
         legacySse: true,
       },
     })
-    let configs = await loadMcpServerConfigs({ apolloHome: home, cwd: root })
+    let configs = await loadMcpServerConfigs({ volundHome: home, cwd: root })
     expect(configs.map((config) => config.name)).toEqual(['demo', 'remote'])
     expect(configs[0]!.transport).toEqual({
       kind: 'stdio',
@@ -405,13 +408,13 @@ describe('mcp.toml write path (§S3.7 apollo mcp add/remove)', () => {
       name: 'demo',
       transport: { kind: 'stdio', command: 'node', args: ['server.js'], env: {} },
     })
-    configs = await loadMcpServerConfigs({ apolloHome: home, cwd: root })
+    configs = await loadMcpServerConfigs({ volundHome: home, cwd: root })
     expect(configs.find((config) => config.name === 'demo')!.transport).toEqual(
       expect.objectContaining({ command: 'node' }),
     )
     expect(await removeMcpServerToml({ file, name: 'demo' })).toBe(true)
     expect(await removeMcpServerToml({ file, name: 'demo' })).toBe(false)
-    configs = await loadMcpServerConfigs({ apolloHome: home, cwd: root })
+    configs = await loadMcpServerConfigs({ volundHome: home, cwd: root })
     expect(configs.map((config) => config.name)).toEqual(['remote'])
   })
   it('resolveSkillSpecToDirectories passes local paths through untouched', async () => {
@@ -423,11 +426,13 @@ describe('mcp.toml write path (§S3.7 apollo mcp add/remove)', () => {
 
 describe('resolveSkillSpecToDirectories nested git repos (SKILLS-MCPS-r1.8)', () => {
   it('installs every SKILL.md in a nested repo structure (plugins/<name>/skills/…)', async () => {
-    const root = await mkdtemp(resolve(tmpdir(), 'apollo-skill-repo-'))
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skill-repo-'))
     dirs.push(root)
     const repo = join(root, 'repo')
     // 复刻 anthropics/claude-plugins-official:plugins/skill-creator/skills/skill-creator
-    await mkdir(join(repo, 'plugins', 'skill-creator', 'skills', 'skill-creator'), { recursive: true })
+    await mkdir(join(repo, 'plugins', 'skill-creator', 'skills', 'skill-creator'), {
+      recursive: true,
+    })
     await writeFile(
       join(repo, 'plugins', 'skill-creator', 'skills', 'skill-creator', 'SKILL.md'),
       '---\nname: skill-creator\ndescription: Create skills\n---\nBody.',
@@ -439,10 +444,16 @@ describe('resolveSkillSpecToDirectories nested git repos (SKILLS-MCPS-r1.8)', ()
     )
     await execFileAsync('git', ['init', '-q'], { cwd: repo })
     await execFileAsync('git', ['add', '-A'], { cwd: repo })
-    await execFileAsync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: repo })
+    await execFileAsync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init'],
+      { cwd: repo },
+    )
     const { directories, cleanup } = await resolveSkillSpecToDirectories(`file://${repo}`)
     await cleanup()
-    const names = directories.map((dir) => dir.split('/').pop()).toSorted((a, b) => a!.localeCompare(b!))
+    const names = directories
+      .map((dir) => dir.split('/').pop())
+      .toSorted((a, b) => a!.localeCompare(b!))
     expect(names).toEqual(['pdf-tools', 'skill-creator'])
   })
 })

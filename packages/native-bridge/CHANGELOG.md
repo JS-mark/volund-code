@@ -1,4 +1,4 @@
-# @apollo-code/native-bridge
+# @volund/native-bridge
 
 ## 0.1.0
 

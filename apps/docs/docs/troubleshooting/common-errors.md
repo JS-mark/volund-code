@@ -2,11 +2,11 @@
 
 ## Exit code 1
 
-The command or input is invalid. Run `apollo help` and correct the request.
+The command or input is invalid. Run `volund help` and correct the request.
 
 ## Exit code 2
 
-A system dependency or provider failed. Run `apollo doctor` and inspect sanitized diagnostics.
+A system dependency or provider failed. Run `volund doctor` and inspect sanitized diagnostics.
 
 ## Exit code 3
 
@@ -25,6 +25,6 @@ especially dangerous because prompts and tool data cross the network unencrypted
 Project-level config cannot override provider `baseUrl` or `endpoint` values.
 
 Redirects are not followed. If a proxy is required, configure its final HTTPS URL
-at user scope and approve that exact endpoint. `apollo doctor` integrations should
+at user scope and approve that exact endpoint. `volund doctor` integrations should
 use the Ollama version probe (`GET /api/version`) and report tool support only for
 Ollama 0.3 or newer.

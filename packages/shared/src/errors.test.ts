@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { ApolloNormalizedError, normalizeError } from './errors'
+import { VolundNormalizedError, normalizeError } from './errors'
 
 describe('normalized errors', () => {
   it('preserves the complete stable taxonomy', () => {
-    const categories: ApolloNormalizedError['category'][] = [
+    const categories: VolundNormalizedError['category'][] = [
       'network',
       'auth',
       'rate_limit',
@@ -46,7 +46,7 @@ describe('normalized errors', () => {
 
   it('does not expose raw causes through JSON serialization', () => {
     const cause = new Error('token=private')
-    const error = new ApolloNormalizedError({
+    const error = new VolundNormalizedError({
       category: 'unknown',
       code: 'UNKNOWN',
       message: 'failed',

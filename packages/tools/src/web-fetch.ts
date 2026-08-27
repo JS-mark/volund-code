@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
 
-import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
+import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 export interface WebFetchInput {
   url: string

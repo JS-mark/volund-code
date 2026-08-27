@@ -1,8 +1,8 @@
 {
-  "name": "apollo-plugin-community-example",
+  "name": "volund-plugin-community-example",
   "version": "0.0.1",
   "type": "module",
   "main": "index.mjs",
-  "engines": { "apollo": "^0.0.0" },
-  "permissions": { "apollo": ["tools.register"] }
+  "engines": { "volund": "^0.0.0" },
+  "permissions": { "volund": ["tools.register"] }
 }

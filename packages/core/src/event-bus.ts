@@ -1,4 +1,4 @@
-import { EVENT_NAMES, EVENT_SCHEMAS, type EventName, type JsonValue } from '@apollo-code/shared'
+import { EVENT_NAMES, EVENT_SCHEMAS, type EventName, type JsonValue } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
 /**

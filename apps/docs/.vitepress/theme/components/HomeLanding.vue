@@ -2,7 +2,7 @@
 import { withBase } from 'vitepress'
 import { computed } from 'vue'
 
-import ApolloScene from './ApolloScene.vue'
+import VolundScene from './VolundScene.vue'
 
 const props = defineProps({ locale: { type: String, default: 'en' } })
 const isZh = computed(() => props.locale === 'zh')
@@ -10,10 +10,10 @@ const localizedPath = (path) => withBase(`${isZh.value ? '/zh' : ''}${path}`)
 
 const copy = {
   en: {
-    release: 'L1 release candidate · open source',
-    title: 'Code at the',
-    titleAccent: 'speed of thought.',
-    lede: 'Apollo is a model-agnostic coding agent for your terminal. Bring the provider. Keep the context. Approve every side effect.',
+    release: 'VOLUND CLI · OPEN SOURCE',
+    title: 'The AI coding CLI',
+    titleAccent: 'forged for coders.',
+    lede: 'Volund is a model-agnostic AI coding CLI for your terminal. Bring the provider. Keep the context. Approve every side effect.',
     docs: 'Read the docs',
     source: 'View source',
     preRelease: 'pre-release',
@@ -21,11 +21,11 @@ const copy = {
     controlLabel: 'THE CONTROL PLANE',
     controlTitle: 'One agent.\nNo black box.',
     controlBody:
-      'Apollo separates reasoning from execution. Models can propose. The permission layer decides. The sandbox contains. Every step stays visible in your terminal.',
+      'Volund separates reasoning from execution. Models can propose. The permission layer decides. The sandbox contains. Every step stays visible in your terminal.',
     securityLink: 'Explore the security model →',
     rail: [
       ['YOU', 'intent'],
-      ['APOLLO', 'context + loop'],
+      ['VOLUND', 'context + loop'],
       ['ROUTER', 'your provider'],
       ['SANDBOX', 'controlled action'],
     ],
@@ -58,10 +58,10 @@ const copy = {
     footerSecurity: 'Security',
   },
   zh: {
-    release: 'L1 发布候选 · 开源',
-    title: '让代码跟上',
-    titleAccent: '思考的速度。',
-    lede: 'Apollo 是运行在终端中的模型无关编程智能体。自选模型，保留上下文，每一个副作用都由你确认。',
+    release: 'VOLUND CLI · 开源',
+    title: '为 coder 锻造的',
+    titleAccent: 'AI 编程 CLI。',
+    lede: 'Volund 是运行在终端中的模型无关 AI 编程 CLI。自选模型，保留上下文，每一个副作用都由你确认。',
     docs: '阅读文档',
     source: '查看源码',
     preRelease: '预发布',
@@ -69,11 +69,11 @@ const copy = {
     controlLabel: '控制平面',
     controlTitle: '一个智能体。\n没有黑箱。',
     controlBody:
-      'Apollo 将推理与执行分离：模型负责提出方案，权限层负责决策，沙箱负责隔离。每一步都清晰呈现在终端中。',
+      'Volund 将推理与执行分离：模型负责提出方案，权限层负责决策，沙箱负责隔离。每一步都清晰呈现在终端中。',
     securityLink: '了解安全模型 →',
     rail: [
       ['你', '任务意图'],
-      ['APOLLO', '上下文 + 循环'],
+      ['VOLUND', '上下文 + 循环'],
       ['路由器', '你的模型'],
       ['沙箱', '受控执行'],
     ],
@@ -99,7 +99,7 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
 </script>
 
 <template>
-  <main class="apollo-home">
+  <main class="volund-home">
     <section class="hero-grid" aria-labelledby="hero-title">
       <div class="hero-copy">
         <div class="release-kicker">
@@ -114,29 +114,29 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
           <a class="primary-action" :href="localizedPath('/docs/getting-started/install')">
             {{ t.docs }} <span aria-hidden="true">↗</span>
           </a>
-          <a class="text-action" href="https://github.com/JS-mark/apollo-code">
+          <a class="text-action" href="https://github.com/JS-mark/volund-code">
             {{ t.source }} <span aria-hidden="true">→</span>
           </a>
         </div>
         <div class="install-command" aria-label="Installation command">
           <span class="prompt-mark">$</span>
-          <code>npm install --global apollo-code</code>
+          <code>npm install --global volund-cli</code>
           <span class="command-note">{{ t.preRelease }}</span>
         </div>
       </div>
 
-      <div class="hero-visual" aria-label="Apollo terminal session preview">
-        <ApolloScene />
+      <div class="hero-visual" aria-label="Volund terminal session preview">
+        <VolundScene />
         <div class="terminal-shell">
           <div class="terminal-bar">
             <div class="terminal-controls" aria-hidden="true"><i></i><i></i><i></i></div>
-            <span>apollo · ~/workspace</span>
+            <span>volund · ~/workspace</span>
             <span class="terminal-tier">TIER / FULL</span>
           </div>
           <div class="terminal-body">
             <p>
               <span class="term-muted">14:08:31</span>
-              <span class="term-accent">apollo</span> analyze the failing test
+              <span class="term-accent">volund</span> analyze the failing test
             </p>
             <p class="term-system">◆ Reading repository context <span>12 files</span></p>
             <p class="term-system">◆ Provider selected <span>anthropic / claude</span></p>
@@ -170,7 +170,7 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
         <p>{{ t.controlBody }}</p>
         <a :href="localizedPath('/docs/concepts/security-model')">{{ t.securityLink }}</a>
       </div>
-      <div class="architecture-rail" role="img" aria-label="Apollo Code system flow">
+      <div class="architecture-rail" role="img" aria-label="Volund CLI system flow">
         <template v-for="(node, index) in t.rail" :key="node[0]">
           <div class="rail-node" :class="{ 'rail-user': index === 0, 'rail-sandbox': index === 3 }">
             <span>0{{ index + 1 }}</span
@@ -207,18 +207,18 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
       </div>
     </section>
 
-    <footer class="apollo-footer">
+    <footer class="volund-footer">
       <a class="footer-brand" :href="localizedPath('/')">
-        <img :src="withBase('/apollo-mark.svg')" alt="" width="28" height="28" />
-        <span>APOLLO CODE</span>
+        <img :src="withBase('/volund-mark.svg')" alt="" width="28" height="28" />
+        <span>VOLUND CLI</span>
       </a>
       <p>{{ t.footer }}</p>
       <div>
         <a :href="localizedPath('/docs/getting-started/install')">{{ t.footerDocs }}</a>
-        <a href="https://github.com/JS-mark/apollo-code/blob/main/SECURITY.md">{{
+        <a href="https://github.com/JS-mark/volund-code/blob/main/SECURITY.md">{{
           t.footerSecurity
         }}</a>
-        <a href="https://github.com/JS-mark/apollo-code">GitHub</a>
+        <a href="https://github.com/JS-mark/volund-code">GitHub</a>
       </div>
     </footer>
   </main>

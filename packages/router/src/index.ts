@@ -1,4 +1,4 @@
-import type { ProviderClient, ProviderError, ProviderRegistry } from '@apollo-code/provider-kit'
+import type { ProviderClient, ProviderError, ProviderRegistry } from '@volund/provider-kit'
 
 export interface RouterSessionSnapshot {
   id: string

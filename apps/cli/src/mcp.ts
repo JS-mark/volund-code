@@ -1,10 +1,19 @@
 import { execFile } from 'node:child_process'
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { parseTomlFile } from '@apollo-code/config'
+import { parseTomlFile } from '@volund/config'
 import {
   HttpSseTransport,
   McpClient,
@@ -12,17 +21,17 @@ import {
   mcpToolName,
   type McpToolDescription,
   type McpTransport,
-} from '@apollo-code/mcp-client'
-import type { JsonValue } from '@apollo-code/shared'
-import type { Tool, ToolRegistry } from '@apollo-code/tool-kit'
+} from '@volund/mcp-client'
+import { productIdentity, type JsonValue } from '@volund/shared'
+import type { Tool, ToolRegistry } from '@volund/tool-kit'
 
 /**
  * SKILLS-MCPS-r1 §S3.5：MCP 配置装载 + 连接管理（原生实现，不经插件桥）。
  *
  * 配置来源（优先级高 → 低，同名整条覆盖、不合并字段）：
- * 1. `<cwd>/.apollo/mcp.toml`（TOML，`[mcp_servers.<name>]` 表）
+ * 1. `<cwd>/.volund/mcp.toml`（TOML，`[mcp_servers.<name>]` 表）
  * 2. `<cwd>/.mcp.json`（业界互操作，顶层 `mcpServers` 键；只读导入）
- * 3. `<apolloHome>/mcp.toml`（用户级）
+ * 3. `<volundHome>/mcp.toml`（用户级）
  *
  * 项目级目录的信任由会话级目录信任门兜底（cli.ts 在未信任目录上拒绝启动任何
  * 会话），因此此处不再单独设门。
@@ -58,13 +67,16 @@ export function expandMcpEnv(
   env: Record<string, string | undefined>,
   onUnresolved?: (name: string) => void,
 ): string {
-  return value.replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (raw, name, fallback) => {
-    const resolved = env[name]
-    if (resolved !== undefined) return resolved
-    if (fallback !== undefined) return fallback
-    onUnresolved?.(name)
-    return ''
-  })
+  return value.replaceAll(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g,
+    (raw, name, fallback) => {
+      const resolved = env[name]
+      if (resolved !== undefined) return resolved
+      if (fallback !== undefined) return fallback
+      onUnresolved?.(name)
+      return ''
+    },
+  )
 }
 
 function asRecord(value: JsonValue | undefined): Record<string, JsonValue> | undefined {
@@ -108,7 +120,8 @@ export function parseMcpServerEntries(
       const headers: Record<string, string> = {}
       const rawHeaders = asRecord(entry.headers)
       for (const [key, value] of Object.entries(rawHeaders ?? {}))
-        if (typeof value === 'string') headers[key] = expandMcpEnv(value, env, report(options, name))
+        if (typeof value === 'string')
+          headers[key] = expandMcpEnv(value, env, report(options, name))
       out.push({
         name,
         scope: options.scope,
@@ -164,11 +177,13 @@ export function parseMcpServerEntries(
 
 function report(options: { onWarning?: McpLoadWarning }, name: string) {
   return (variable: string) =>
-    options.onWarning?.(`mcp: server '${name}' references unset variable ${variable}; expanded to ''`)
+    options.onWarning?.(
+      `mcp: server '${name}' references unset variable ${variable}; expanded to ''`,
+    )
 }
 
 export async function loadMcpServerConfigs(input: {
-  apolloHome: string
+  volundHome: string
   cwd: string
   onWarning?: McpLoadWarning
 }): Promise<McpServerConfig[]> {
@@ -179,9 +194,9 @@ export async function loadMcpServerConfigs(input: {
   }> = [
     {
       scope: 'project',
-      source: join(input.cwd, '.apollo', 'mcp.toml'),
+      source: join(input.cwd, '.volund', 'mcp.toml'),
       section: async () => {
-        const path = join(input.cwd, '.apollo', 'mcp.toml')
+        const path = join(input.cwd, '.volund', 'mcp.toml')
         return mcpTomlSection(await parseTomlFile(path), path, input.onWarning)
       },
     },
@@ -207,9 +222,9 @@ export async function loadMcpServerConfigs(input: {
     },
     {
       scope: 'user',
-      source: join(input.apolloHome, 'mcp.toml'),
+      source: join(input.volundHome, 'mcp.toml'),
       section: async () => {
-        const path = join(input.apolloHome, 'mcp.toml')
+        const path = join(input.volundHome, 'mcp.toml')
         return mcpTomlSection(await parseTomlFile(path), path, input.onWarning)
       },
     },
@@ -394,7 +409,11 @@ export class McpManager {
     await Promise.all([...this.#states.values()].map((state) => this.#disconnectState(state)))
   }
   async #settled(name: string): Promise<void> {
-    for (let attempt = 0; attempt < 100 && this.#states.get(name)?.status === 'connecting'; attempt++)
+    for (
+      let attempt = 0;
+      attempt < 100 && this.#states.get(name)?.status === 'connecting';
+      attempt++
+    )
       await new Promise((resolve) => setTimeout(resolve, 50))
   }
   async #connectState(state: ServerState): Promise<void> {
@@ -403,7 +422,11 @@ export class McpManager {
     if (this.#closed) return
     state.status = 'connecting'
     state.detail = undefined
-    this.#log('connect.start', { server: state.config.name, scope: state.config.scope, transport: transportSummary(state.config) })
+    this.#log('connect.start', {
+      server: state.config.name,
+      scope: state.config.scope,
+      transport: transportSummary(state.config),
+    })
     this.#options.onStateChange?.()
     try {
       const transport = this.#options.transportFactory
@@ -420,7 +443,11 @@ export class McpManager {
         typeof init.protocolVersion === 'string' ? init.protocolVersion : undefined
       state.tools = await client.listTools()
       state.status = 'connected'
-      this.#log('connect.ok', { server: state.config.name, ...(state.protocolVersion ? { protocol: state.protocolVersion } : {}), tools: state.tools.length })
+      this.#log('connect.ok', {
+        server: state.config.name,
+        ...(state.protocolVersion ? { protocol: state.protocolVersion } : {}),
+        tools: state.tools.length,
+      })
       for (const [registry] of this.#registries) this.#registerStateTools(state, registry)
       this.#options.onStateChange?.()
     } catch (error) {
@@ -430,7 +457,7 @@ export class McpManager {
       // HTTP 401/403 → needs-auth（OAuth 流程在 SM-07；当前可引导手动 header 配置）。
       if (/\bHTTP 40[13]\b/.test(message)) {
         state.status = 'needs-auth'
-        state.detail = 'authentication required (configure headers or use apollo mcp login once SM-07 lands)'
+        state.detail = `authentication required (configure headers or use ${productIdentity.commandName} mcp login once SM-07 lands)`
       } else {
         state.status = 'failed'
         state.detail = message
@@ -493,7 +520,10 @@ export class McpManager {
   }
 }
 
-function createTransport(config: McpServerConfig, log: (event: string, fields: Record<string, JsonValue>) => void): McpTransport {
+function createTransport(
+  config: McpServerConfig,
+  log: (event: string, fields: Record<string, JsonValue>) => void,
+): McpTransport {
   if (config.transport.kind === 'stdio')
     return new StdioTransport({
       command: config.transport.command,
@@ -520,14 +550,14 @@ export function transportSummary(config: McpServerConfig): string {
   }
 }
 
-// ── mcp.toml 写入面（§S3.7 `apollo mcp add/remove`）───────────────────────────
+// ── mcp.toml 写入面（§S3.7 `volund mcp add/remove`）───────────────────────────
 
 const execFileAsync = promisify(execFile)
 
 /**
  * 通用 TOML 序列化（与 parseTomlFile 的 JSON 值方言配对）：标量/数组以
  * `key = <JSON>` 输出，嵌套对象递归为 `[section.sub]` 表；顶层标量先行。
- * 只覆盖 apollo 产出的配置形状（字符串/数字/布尔/数组/嵌套 record）。
+ * 只覆盖 volund 产出的配置形状（字符串/数字/布尔/数组/嵌套 record）。
  */
 export function serializeToml(config: Record<string, JsonValue>): string {
   const lines: string[] = []
@@ -595,7 +625,7 @@ function serverTomlEntry(transport: McpTransportConfig): Record<string, JsonValu
   return entry
 }
 
-/** `apollo mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */
+/** `volund mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */
 export async function upsertMcpServerToml(input: {
   file: string
   name: string
@@ -614,11 +644,8 @@ export async function upsertMcpServerToml(input: {
   await atomicWrite(input.file, serializeToml(config))
 }
 
-/** `apollo mcp remove`：删除条目；不存在返回 false。 */
-export async function removeMcpServerToml(input: {
-  file: string
-  name: string
-}): Promise<boolean> {
+/** `volund mcp remove`：删除条目；不存在返回 false。 */
+export async function removeMcpServerToml(input: { file: string; name: string }): Promise<boolean> {
   const config = await readTomlOrEmpty(input.file)
   const servers = config.mcp_servers
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return false
@@ -631,7 +658,7 @@ export async function removeMcpServerToml(input: {
 }
 
 /**
- * `apollo skill install`：spec 解析为待安装目录（git URL → 临时 clone；
+ * `volund skill install`：spec 解析为待安装目录（git URL → 临时 clone；
  * 根有 SKILL.md 装 root，否则装一层子目录里所有带 SKILL.md 的——skills 仓库
  * 惯例是一个 repo 捆多个 skill）。支持 `<path>`、`github:owner/repo`、
  * `owner/repo`（GitHub 简写）、完整 git URL。临时目录由调用方负责清理。
@@ -643,7 +670,16 @@ export async function removeMcpServerToml(input: {
  * 等嵌套结构。
  */
 async function collectSkillDirectories(root: string): Promise<string[]> {
-  const SKIP = new Set(['node_modules', 'vendor', 'dist', 'build', 'out', 'target', 'coverage', '__pycache__'])
+  const SKIP = new Set([
+    'node_modules',
+    'vendor',
+    'dist',
+    'build',
+    'out',
+    'target',
+    'coverage',
+    '__pycache__',
+  ])
   const found: string[] = []
   const walk = async (dir: string): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true })
@@ -676,14 +712,10 @@ export async function resolveSkillSpecToDirectories(
   if (!isGitSpec) return { directories: [spec], cleanup: async () => {} }
   let url = spec
   if (spec.startsWith('github:')) url = `https://github.com/${spec.slice('github:'.length)}.git`
-  else if (
-    !spec.startsWith('https://') &&
-    !spec.startsWith('git@') &&
-    !spec.startsWith('file://')
-  )
+  else if (!spec.startsWith('https://') && !spec.startsWith('git@') && !spec.startsWith('file://'))
     url = `https://github.com/${spec}.git`
   options.onInfo?.(`cloning ${url}`)
-  const temporary = await mkdtemp(join(tmpdir(), 'apollo-skill-'))
+  const temporary = await mkdtemp(join(tmpdir(), 'volund-skill-'))
   const cleanup = () => rm(temporary, { recursive: true, force: true })
   try {
     await execFileAsync('git', ['clone', '--quiet', '--depth', '1', url, temporary], {

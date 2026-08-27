@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/mcp-client",
+  "name": "@volund/mcp-client",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,9 +17,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/permission": "workspace:*",
-    "@apollo-code/shared": "workspace:*",
-    "@apollo-code/tool-kit": "workspace:*"
+    "@volund/permission": "workspace:*",
+    "@volund/shared": "workspace:*",
+    "@volund/tool-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

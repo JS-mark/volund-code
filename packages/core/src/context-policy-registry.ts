@@ -4,7 +4,7 @@ import type {
   ContextPolicyContributor,
   ContextPolicyRegistration,
   ContextPolicySpec,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export class ContextPolicyRegistry implements ContextPolicyContributor {
   readonly #policies = new Map<string, ContextPolicySpec>()

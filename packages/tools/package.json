@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/tools",
+  "name": "@volund/tools",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,12 +17,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/native-bridge": "workspace:*",
-    "@apollo-code/permission": "workspace:*",
-    "@apollo-code/provider-kit": "workspace:*",
-    "@apollo-code/shared": "workspace:*",
-    "@apollo-code/subagent": "workspace:*",
-    "@apollo-code/tool-kit": "workspace:*"
+    "@volund/native-bridge": "workspace:*",
+    "@volund/permission": "workspace:*",
+    "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*",
+    "@volund/subagent": "workspace:*",
+    "@volund/tool-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

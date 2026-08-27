@@ -16,7 +16,7 @@ export interface NativeResolution {
   error?: 'unsupported-platform' | 'missing' | 'tampered'
 }
 
-const releaseRepository = 'JS-mark/apollo-code'
+const releaseRepository = 'JS-mark/volund-code'
 
 export function packageTriple(
   platform: NodeJS.Platform,
@@ -40,7 +40,7 @@ function runtimeLibc(): 'glibc' | 'musl' | undefined {
 }
 
 export function releaseAssetName(kind: BinaryKind, triple: string): string {
-  return `apollo-${kind}-${triple}${triple.startsWith('win32-') ? '.exe' : ''}`
+  return `volund-${kind}-${triple}${triple.startsWith('win32-') ? '.exe' : ''}`
 }
 
 /**
@@ -77,7 +77,7 @@ async function verifiedPath(path: string, expected: string): Promise<boolean> {
 
 async function bundledBinary(kind: BinaryKind, triple: string): Promise<string | null> {
   const root =
-    process.env.APOLLO_STANDALONE_ASSET_DIR ??
+    process.env.VOLUND_STANDALONE_ASSET_DIR ??
     join(standaloneArtifactDir(import.meta.url, process.execPath), 'native')
   const manifestPath = join(root, 'manifest.json')
   try {
@@ -103,16 +103,16 @@ async function fetchReleaseBinary(
   kind: BinaryKind,
   triple: string,
 ): Promise<{ path: string; source: 'cache' | 'download' } | null> {
-  const version = process.env.APOLLO_VERSION ?? packageVersion
+  const version = process.env.VOLUND_VERSION ?? packageVersion
   if (!version || version === '0.0.0') return null
 
   const tag = version.startsWith('v') ? version : `v${version}`
   const assetName = releaseAssetName(kind, triple)
   const releaseBase =
-    process.env.APOLLO_NATIVE_RELEASE_BASE_URL ??
+    process.env.VOLUND_NATIVE_RELEASE_BASE_URL ??
     `https://github.com/${releaseRepository}/releases/download/${tag}`
   const cacheRoot =
-    process.env.APOLLO_NATIVE_CACHE_DIR ?? join(homedir(), '.cache', 'apollo-code', 'native')
+    process.env.VOLUND_NATIVE_CACHE_DIR ?? join(homedir(), '.cache', 'volund-code', 'native')
   const targetDirectory = join(cacheRoot, tag, triple)
   const binaryPath = join(targetDirectory, assetName)
   const checksumPath = join(cacheRoot, tag, 'checksums.sha256')
@@ -169,7 +169,7 @@ async function fetchReleaseBinary(
 }
 
 export async function resolveBinaryDetailed(kind: BinaryKind): Promise<NativeResolution> {
-  const override = process.env[`APOLLO_NATIVE_${kind.toUpperCase()}_BINARY`]
+  const override = process.env[`VOLUND_NATIVE_${kind.toUpperCase()}_BINARY`]
   if (override) {
     await access(override)
     return { kind, path: override, source: 'override', target: null }

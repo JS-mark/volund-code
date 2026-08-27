@@ -21,7 +21,7 @@ describe('telemetry', () => {
   })
 
   it('records the bounded violation schema and aggregates decisions without guessing no-sample success', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'apollo-telemetry-'))
+    const dir = await mkdtemp(join(tmpdir(), 'volund-telemetry-'))
     paths.push(dir)
     const path = join(dir, 'events.jsonl')
     const telemetry = new Telemetry(new LocalTelemetrySink(path))
@@ -39,7 +39,7 @@ describe('telemetry', () => {
   })
 
   it('ignores damaged JSONL and redacts again during export', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'apollo-telemetry-'))
+    const dir = await mkdtemp(join(tmpdir(), 'volund-telemetry-'))
     paths.push(dir)
     const path = join(dir, 'events.jsonl')
     const telemetry = new Telemetry(new LocalTelemetrySink(path))

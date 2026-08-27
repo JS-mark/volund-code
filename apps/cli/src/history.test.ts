@@ -2,9 +2,8 @@ import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { SessionCandidate } from '@volund/ui'
 import { afterEach, describe, expect, it } from 'vitest'
-
-import type { SessionCandidate } from '@apollo-code/ui'
 
 import { createHistoryPort } from './history'
 
@@ -16,13 +15,7 @@ afterEach(async () =>
 const sessionA = '018f2d3a-0000-7000-8000-00000000000a'
 const sessionB = '018f2d3a-0000-7000-8000-00000000000b'
 
-function event(
-  id: string,
-  sessionId: string,
-  type: string,
-  at: string,
-  payload: unknown,
-): string {
+function event(id: string, sessionId: string, type: string, at: string, payload: unknown): string {
   return JSON.stringify({ v: 1, id, type, sessionId, at, payload })
 }
 
@@ -59,7 +52,7 @@ function historyPort(
 
 describe('createHistoryPort', () => {
   it('shows a session conversation via event replay', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-history-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-history-'))
     fixtures.push(root)
     await seedSession(root, sessionA, {
       messages: [
@@ -82,7 +75,7 @@ describe('createHistoryPort', () => {
   })
 
   it('exports markdown and JSON, and imports a JSON export back', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-history-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-history-'))
     fixtures.push(root)
     await seedSession(root, sessionA, { messages: [['user', 'hello world']] })
     const port = historyPort(root)
@@ -108,7 +101,7 @@ describe('createHistoryPort', () => {
   })
 
   it('searches message text locally, most-recent session first, honoring the limit', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-history-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-history-'))
     fixtures.push(root)
     await seedSession(root, sessionA, { messages: [['user', 'Rename the Foobar widget']] })
     await seedSession(root, sessionB, {
@@ -129,7 +122,7 @@ describe('createHistoryPort', () => {
   })
 
   it('clears sessions by --all or --older-than', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-history-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-history-'))
     fixtures.push(root)
     await seedSession(root, sessionA)
     await seedSession(root, sessionB)

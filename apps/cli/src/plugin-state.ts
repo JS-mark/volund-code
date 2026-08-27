@@ -1,8 +1,8 @@
 import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { PluginError, permissionHash } from '@apollo-code/plugin-runtime'
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import { PluginError, permissionHash } from '@volund/plugin-runtime'
+import type { PluginManifest } from '@volund/plugin-sdk'
 
 export type LocalPluginSource = 'builtin' | 'dev' | 'market'
 
@@ -23,7 +23,7 @@ interface LocalPluginStateFile {
   readonly plugins: Record<string, LocalPluginStateEntry>
 }
 
-const PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+const PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
 const SHA256 = /^[a-f0-9]{64}$/
 const MAX_STATE_BYTES = 1024 * 1024
 const MAX_PLUGINS = 1024
@@ -47,7 +47,8 @@ function parseEntry(name: string, value: unknown): LocalPluginStateEntry {
     Number(value.failures) < 0 ||
     (value.approvedVersion !== undefined && typeof value.approvedVersion !== 'string') ||
     (value.approvedPermissionHash !== undefined &&
-      (typeof value.approvedPermissionHash !== 'string' || !SHA256.test(value.approvedPermissionHash)))
+      (typeof value.approvedPermissionHash !== 'string' ||
+        !SHA256.test(value.approvedPermissionHash)))
   )
     throw new PluginError('plugin_state_invalid', `invalid v2 lifecycle entry: ${name}`)
   return {
@@ -213,6 +214,4 @@ export class LocalPluginStateStore {
 }
 
 export const isPluginApproved = (entry: LocalPluginStateEntry): boolean =>
-  entry.approvedVersion === entry.version &&
-  entry.approvedPermissionHash === entry.permissionHash
-
+  entry.approvedVersion === entry.version && entry.approvedPermissionHash === entry.permissionHash

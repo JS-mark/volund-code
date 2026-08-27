@@ -1,23 +1,23 @@
 /**
- * apollo-plugin-status-demo — PLUGIN-STATUS-UI-r1 契约的活样例。
+ * volund-plugin-status-demo — PLUGIN-STATUS-UI-r1 契约的活样例。
  *
  * 纯 ESM 单文件、零依赖（插件沙箱里没有 node_modules）。activate 里注册两个
  * /status 页签；render 由 K0 在面板打开 / 按 r 时经桥回调，数据实时取。
- * 注意：桥上一切 apollo.* 调用都是异步 RPC，必须 await。
+ * 注意：桥上一切 volund.* 调用都是异步 RPC，必须 await。
  *
- * 开发装载（不经 Catalog）：APOLLO_DEV_PLUGINS=<本目录> apollo
+ * 开发装载（不经 Catalog）：VOLUND_DEV_PLUGINS=<本目录> volund
  */
-export async function activate(apollo) {
+export async function activate(volund) {
   let renders = 0
   const startedAt = Date.now()
 
-  await apollo.ui.status.registerTab({
+  await volund.ui.status.registerTab({
     id: 'plugin-demo',
     label: 'Plug',
     render: async () => {
       renders += 1
-      const usage = await apollo.session.getUsage()
-      // 注：沙箱桥暂不提供 apollo.plugin 元数据（属性访问不会触发 RPC），
+      const usage = await volund.session.getUsage()
+      // 注：沙箱桥暂不提供 volund.plugin 元数据（属性访问不会触发 RPC），
       // 插件身份由插件自身硬编码。
       return {
         kind: 'rows',
@@ -25,7 +25,7 @@ export async function activate(apollo) {
           {
             title: 'Plugin tab (sandboxed)',
             rows: [
-              ['Plugin', 'apollo-plugin-status-demo@0.1.0'],
+              ['Plugin', 'volund-plugin-status-demo@0.1.0'],
               ['Renders', renders],
               ['Alive for', `${Math.round((Date.now() - startedAt) / 1000)}s`],
               [
@@ -43,7 +43,7 @@ export async function activate(apollo) {
     },
   })
 
-  await apollo.ui.status.registerTab({
+  await volund.ui.status.registerTab({
     id: 'plugin-demo-pulse',
     label: 'Pulse',
     render: () => {
@@ -64,5 +64,5 @@ export async function activate(apollo) {
     },
   })
 
-  await apollo.log.info('status-demo activated')
+  await volund.log.info('status-demo activated')
 }

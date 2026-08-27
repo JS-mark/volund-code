@@ -51,16 +51,16 @@ describe('PluginBridgeServer（fd3 桥协议 v1）', () => {
     reply({ method: 'host.ready', params: {} })
     await expect(ready).resolves.toEqual({})
 
-    reply({ id: 1, method: 'apollo.ui.status.registerTab', params: { id: 't', label: 'L' } })
+    reply({ id: 1, method: 'volund.ui.status.registerTab', params: { id: 't', label: 'L' } })
     await tick()
-    expect(seen).toEqual([['apollo.ui.status.registerTab', { id: 't', label: 'L' }]])
+    expect(seen).toEqual([['volund.ui.status.registerTab', { id: 't', label: 'L' }]])
     server.close()
   })
 
   it('answers plugin requests with a result frame', async () => {
     const { server, hostRequests, reply } = fakePluginSide()
     server.onRequest = () => ({ answer: 42 })
-    reply({ id: 7, method: 'apollo.session.getUsage' })
+    reply({ id: 7, method: 'volund.session.getUsage' })
     await tick()
     const response = hostRequests.find((frame) => frame.id === 7)
     expect(response).toMatchObject({ id: 7, result: { answer: 42 } })
@@ -76,7 +76,7 @@ describe('PluginBridgeServer（fd3 桥协议 v1）', () => {
     }
     reply({
       id: 1,
-      method: 'apollo.ui.status.registerTab',
+      method: 'volund.ui.status.registerTab',
       params: { id: 't', label: 'L', render: { $callback: 'callback-9' } },
     })
     await tick()
@@ -97,7 +97,7 @@ describe('PluginBridgeServer（fd3 桥协议 v1）', () => {
     server.onRequest = () => {
       throw new Error('boom')
     }
-    reply({ id: 3, method: 'apollo.ui.status.registerTab', params: {} })
+    reply({ id: 3, method: 'volund.ui.status.registerTab', params: {} })
     await tick()
     const response = hostRequests.find((frame) => frame.id === 3) as unknown as {
       error: { message: string }
@@ -124,7 +124,7 @@ describe('PluginBridgeServer（fd3 桥协议 v1）', () => {
     const pending = server.invokeCallback(new PluginCallbackRef('callback-1'))
     const rejection = expect(pending).rejects.toMatchObject({ code: 'plugin_bridge_protocol' })
     replyRaw(
-      JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 99, id: 5, method: 'apollo.log.info' }),
+      JSON.stringify({ jsonrpc: '2.0', bridgeVersion: 99, id: 5, method: 'volund.log.info' }),
     )
     await tick()
     expect(dispatched).toBe(false)

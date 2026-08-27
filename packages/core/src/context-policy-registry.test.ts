@@ -1,4 +1,4 @@
-import type { ContextCtx, ContextPolicy } from '@apollo-code/provider-kit'
+import type { ContextCtx, ContextPolicy } from '@volund/provider-kit'
 import { describe, expect, it } from 'vitest'
 
 import { ContextPolicyRegistry } from './context-policy-registry'

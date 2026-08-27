@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ApolloError } from '@apollo-code/shared'
+import { VolundError } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { loadConfig, loadTomlFile, validateConfig, type Config } from './index'
@@ -22,6 +22,7 @@ describe('config layering', () => {
       warning,
     })
     expect(result.config.model).toBe('e')
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     expect(result.config.provider as object | undefined).toBeUndefined()
     expect(warning).toHaveBeenCalledWith('provider.x.baseUrl')
     expect(warning).toHaveBeenCalledWith('provider.x.endpoint')
@@ -55,9 +56,9 @@ describe('unknown key policy (§8.3 / appendix C.1, r13-I4)', () => {
   it('warns and ignores an unknown top-level section (e.g. [context] typoed)', () => {
     const { config, warnings } = validateConfig(
       { contex: { policy: 'sliding' }, context: { policy: 'summary' } },
-      { file: '/home/u/.apollo/config.toml' },
+      { file: '/home/u/.volund/config.toml' },
     )
-    expect(warnings).toEqual(["unknown config key 'contex' in /home/u/.apollo/config.toml ignored"])
+    expect(warnings).toEqual(["unknown config key 'contex' in /home/u/.volund/config.toml ignored"])
     expect(config.contex).toBeUndefined()
     expect(config.context).toEqual({ policy: 'summary' })
   })
@@ -106,12 +107,13 @@ describe('unknown key policy (§8.3 / appendix C.1, r13-I4)', () => {
     } catch (error) {
       thrown = error
     }
-    expect(thrown).toBeInstanceOf(ApolloError)
-    const apolloError = thrown as ApolloError
-    expect(apolloError.code).toBe('config_invalid')
-    expect(apolloError.message).toContain('/x/config.toml')
-    expect(apolloError.message).toContain("key 'context.max_tokens'")
-    expect(apolloError.message).toContain('expected number, received string')
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const volundError = thrown as VolundError
+    expect(thrown).toBeInstanceOf(VolundError)
+    expect(volundError.code).toBe('config_invalid')
+    expect(volundError.message).toContain('/x/config.toml')
+    expect(volundError.message).toContain("key 'context.max_tokens'")
+    expect(volundError.message).toContain('expected number, received string')
   })
   it('fails (not warns) when a dynamic provider entry has a non-object value', () => {
     expect(() => validateConfig({ provider: { anthropic: 'claude' } }, { file: 'f.toml' })).toThrow(
@@ -126,7 +128,7 @@ describe('unknown key policy (§8.3 / appendix C.1, r13-I4)', () => {
 })
 describe('loadTomlFile', () => {
   it('parses, warns on unknown keys, and strips them from the result', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'apollo-config-'))
+    const directory = await mkdtemp(join(tmpdir(), 'volund-config-'))
     const path = join(directory, 'config.toml')
     await writeFile(
       path,
@@ -157,7 +159,7 @@ describe('loadTomlFile', () => {
 })
 describe('prototype pollution guard', () => {
   it('rejects magic key segments in TOML instead of writing to Object.prototype', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'apollo-config-pollution-'))
+    const directory = await mkdtemp(join(tmpdir(), 'volund-config-pollution-'))
     const path = join(directory, 'config.toml')
     for (const source of [
       '[__proto__]\nenabled = true\n',

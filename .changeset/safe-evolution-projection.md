@@ -1,9 +1,9 @@
 ---
-'@apollo-code/core': minor
-'apollo-code': minor
-'@apollo-code/shared': minor
-'@apollo-code/config': minor
-'@apollo-code/storage': minor
+'@volund/core': minor
+'volund-cli': minor
+'@volund/shared': minor
+'@volund/config': minor
+'@volund/storage': minor
 ---
 
 Make adaptive runtime tuning default-off and harden its persistence boundary. Configuration now

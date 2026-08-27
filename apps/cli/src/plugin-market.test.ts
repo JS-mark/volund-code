@@ -1,15 +1,14 @@
 import { createHash } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
-import { PluginError } from '@apollo-code/plugin-runtime'
+import { probeSandbox, resolveBinary } from '@volund/native-bridge'
+import { PluginError } from '@volund/plugin-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createProductionPorts } from './runtime'
 import {
   fetchMarketIndex,
   installFromMarket,
@@ -23,25 +22,27 @@ import {
   uninstallMarketDir,
   type MarketPluginEntry,
 } from './plugin-market'
+import { createProductionPorts } from './runtime'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const dirs: string[] = []
 const servers: Server[] = []
 afterEach(async () => {
-  for (const server of servers.splice(0)) await new Promise((resolveClose) => server.close(resolveClose))
+  for (const server of servers.splice(0))
+    await new Promise((resolveClose) => server.close(resolveClose))
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
 async function fixtureHome() {
-  const home = await mkdtemp(join(tmpdir(), 'apollo-market-'))
+  const home = await mkdtemp(join(tmpdir(), 'volund-market-'))
   dirs.push(home)
   return home
 }
 
 async function sandboxAvailable(): Promise<boolean> {
   // 本地 cargo 构建兜底（开发机）；CI 无沙箱时跳过。
-  if (!process.env.APOLLO_NATIVE_SANDBOX_BINARY)
-    process.env.APOLLO_NATIVE_SANDBOX_BINARY = join(repoRoot, 'target', 'debug', 'apollo-sandbox')
+  if (!process.env.VOLUND_NATIVE_SANDBOX_BINARY)
+    process.env.VOLUND_NATIVE_SANDBOX_BINARY = join(repoRoot, 'target', 'debug', 'volund-sandbox')
   try {
     const binary = await resolveBinary('sandbox')
     if (!binary) return false
@@ -52,20 +53,20 @@ async function sandboxAvailable(): Promise<boolean> {
 }
 
 const helloManifest = {
-  name: 'apollo-plugin-hello',
+  name: 'volund-plugin-hello',
   version: '1.0.0',
   type: 'module',
   main: 'index.mjs',
-  engines: { apollo: '^0.1.0' },
-  permissions: { apollo: ['commands.register', 'log.write'] },
+  engines: { volund: '^0.1.0' },
+  permissions: { volund: ['commands.register', 'log.write'] },
 }
-const helloEntry = `export async function activate(apollo) {
-  await apollo.commands.register({
+const helloEntry = `export async function activate(volund) {
+  await volund.commands.register({
     name: 'hello',
     description: 'Say hello from a market plugin',
     handler: async () => 'hello from the market',
   })
-  await apollo.log.info('apollo-plugin-hello activated')
+  await volund.log.info('volund-plugin-hello activated')
 }
 `
 const sha256 = (value: string): `sha256-${string}` =>
@@ -80,10 +81,10 @@ async function marketServer(options?: { corrupt?: boolean; manifest?: object }) 
     schemaVersion: 1,
     plugins: [
       {
-        name: 'apollo-plugin-hello',
+        name: 'volund-plugin-hello',
         version: '1.0.0',
         description: 'Demo market plugin',
-        publisher: 'apollo fixtures',
+        publisher: 'volund fixtures',
         files: [
           { path: 'manifest.json', digest: sha256(manifestJson) },
           { path: 'index.mjs', digest: sha256(helloEntry) },
@@ -97,9 +98,9 @@ async function marketServer(options?: { corrupt?: boolean; manifest?: object }) 
       response.end(body)
     }
     if (request.url === '/index.json') return send(`${JSON.stringify(index, null, 2)}\n`)
-    if (request.url === '/apollo-plugin-hello/manifest.json')
+    if (request.url === '/volund-plugin-hello/manifest.json')
       return send(manifestJson, 'application/json')
-    if (request.url === '/apollo-plugin-hello/index.mjs')
+    if (request.url === '/volund-plugin-hello/index.mjs')
       return send(servedEntry, 'text/javascript')
     response.writeHead(404)
     response.end('not found')
@@ -113,7 +114,7 @@ async function marketServer(options?: { corrupt?: boolean; manifest?: object }) 
 
 async function marketEntry(source: string): Promise<MarketPluginEntry> {
   const index = await fetchMarketIndex(source)
-  const entry = index.plugins.find((plugin) => plugin.name === 'apollo-plugin-hello')
+  const entry = index.plugins.find((plugin) => plugin.name === 'volund-plugin-hello')
   if (!entry) throw new Error('fixture entry missing')
   return entry
 }
@@ -158,14 +159,14 @@ describe('market executable trust boundary', () => {
         home: await fixtureHome(),
         source: 'https://registry.example/index.json',
         entry: {
-          name: 'apollo-plugin-example',
+          name: 'volund-plugin-example',
           version: '1.0.0',
           files: [
             { path: 'manifest.json', digest: sha256('{}') },
             { path: 'index.mjs', digest: sha256('') },
           ],
         },
-        apolloVersion: '0.1.0',
+        volundVersion: '0.1.0',
       }),
     ).rejects.toThrow('plugin_registry_signature_required')
   })
@@ -186,7 +187,7 @@ describe('parseMarketIndex（索引形状校验）', () => {
         schemaVersion: 1,
         plugins: [
           {
-            name: 'apollo-plugin-x',
+            name: 'volund-plugin-x',
             version: '1.0.0',
             files: [{ path: '../escape.mjs', digest: sha256('x') }],
           },
@@ -198,7 +199,7 @@ describe('parseMarketIndex（索引形状校验）', () => {
         schemaVersion: 1,
         plugins: [
           {
-            name: 'apollo-plugin-x',
+            name: 'volund-plugin-x',
             version: '1.0.0',
             files: [{ path: 'index.mjs', digest: 'md5-abc' }],
           },
@@ -210,7 +211,7 @@ describe('parseMarketIndex（索引形状校验）', () => {
         schemaVersion: 1,
         plugins: [
           {
-            name: 'apollo-plugin-x',
+            name: 'volund-plugin-x',
             version: '1.0.0',
             files: [{ path: 'a.mjs', digest: sha256('a') }],
           },
@@ -222,7 +223,7 @@ describe('parseMarketIndex（索引形状校验）', () => {
         schemaVersion: 1,
         plugins: [
           {
-            name: 'apollo-plugin-x',
+            name: 'volund-plugin-x',
             version: '1.0.0',
             files: [
               { path: 'manifest.json', digest: sha256('m') },
@@ -236,15 +237,15 @@ describe('parseMarketIndex（索引形状校验）', () => {
 })
 
 describe('installFromMarket（安装链路）', () => {
-  it('downloads, verifies digests, and lands in ~/.apollo/plugins/<name>/', async () => {
+  it('downloads, verifies digests, and lands in ~/.volund/plugins/<name>/', async () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    const installed = await installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })
-    expect(installed.name).toBe('apollo-plugin-hello')
-    expect(installed.dir).toBe(join(marketInstallRoot(home), 'apollo-plugin-hello'))
+    const installed = await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    expect(installed.name).toBe('volund-plugin-hello')
+    expect(installed.dir).toBe(join(marketInstallRoot(home), 'volund-plugin-hello'))
     const manifest = JSON.parse(await readFile(join(installed.dir, 'manifest.json'), 'utf8'))
-    expect(manifest.name).toBe('apollo-plugin-hello')
+    expect(manifest.name).toBe('volund-plugin-hello')
     // 安装元数据落盘，装载期完整性映射可读
     const integrity = await readMarketIntegrity(installed.dir)
     expect(Object.keys(integrity).sort()).toEqual(['index.mjs', 'manifest.json'])
@@ -259,9 +260,9 @@ describe('installFromMarket（安装链路）', () => {
     const home = await fixtureHome()
     const source = await marketServer({ corrupt: true })
     const entry = await marketEntry(source)
-    await expect(installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })).rejects.toThrow(
-      /digest mismatch/,
-    )
+    await expect(
+      installFromMarket({ home, source, entry, volundVersion: '0.1.0' }),
+    ).rejects.toThrow(/digest mismatch/)
     const root = marketInstallRoot(home)
     expect((await readdir(root)).filter((name) => name !== 'plugins.json')).toEqual([])
   })
@@ -269,35 +270,35 @@ describe('installFromMarket（安装链路）', () => {
   it('rejects engine-incompatible manifests from the index', async () => {
     const home = await fixtureHome()
     const source = await marketServer({
-      manifest: { ...helloManifest, engines: { apollo: '^9.0.0' } },
+      manifest: { ...helloManifest, engines: { volund: '^9.0.0' } },
     })
     const entry = await marketEntry(source)
-    await expect(installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })).rejects.toThrow(
-      /does not satisfy/,
-    )
+    await expect(
+      installFromMarket({ home, source, entry, volundVersion: '0.1.0' }),
+    ).rejects.toThrow(/does not satisfy/)
   })
 
   it('replaces an existing install and uninstalls market plugins only', async () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })
+    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
     // 再装一遍 = 换新（目录重建）
-    await installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })
-    await uninstallMarketDir(home, 'apollo-plugin-hello')
+    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    await uninstallMarketDir(home, 'volund-plugin-hello')
     await expect(
-      readMarketIntegrity(join(marketInstallRoot(home), 'apollo-plugin-hello')),
+      readMarketIntegrity(join(marketInstallRoot(home), 'volund-plugin-hello')),
     ).resolves.toEqual({})
     // 非 market 目录（手放的）不允许 uninstall
-    await mkdir(join(marketInstallRoot(home), 'apollo-plugin-plain'), { recursive: true })
-    await expect(uninstallMarketDir(home, 'apollo-plugin-plain')).rejects.toThrow(
+    await mkdir(join(marketInstallRoot(home), 'volund-plugin-plain'), { recursive: true })
+    await expect(uninstallMarketDir(home, 'volund-plugin-plain')).rejects.toThrow(
       'plugin_not_installed',
     )
   })
 
   it('normalizes bare short names', () => {
-    expect(normalizePluginName('hello')).toBe('apollo-plugin-hello')
-    expect(normalizePluginName('apollo-plugin-hello')).toBe('apollo-plugin-hello')
+    expect(normalizePluginName('hello')).toBe('volund-plugin-hello')
+    expect(normalizePluginName('volund-plugin-hello')).toBe('volund-plugin-hello')
   })
 })
 
@@ -309,16 +310,16 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     await mkdir(join(root, 'not-a-plugin'), { recursive: true })
     await mkdir(join(root, '.staging-leftover'), { recursive: true })
     // 带元数据但被篡改的插件：verifyBundle 在沙箱启动前拒载
-    const pluginDir = join(root, 'apollo-plugin-hello')
+    const pluginDir = join(root, 'volund-plugin-hello')
     await mkdir(pluginDir, { recursive: true })
     await writeFile(join(pluginDir, 'manifest.json'), `${JSON.stringify(helloManifest, null, 2)}\n`)
     await writeFile(join(pluginDir, 'index.mjs'), helloEntry)
     await writeFile(
-      join(pluginDir, 'apollo-market.json'),
+      join(pluginDir, 'volund-market.json'),
       `${JSON.stringify(
         {
           schemaVersion: 1,
-          name: 'apollo-plugin-hello',
+          name: 'volund-plugin-hello',
           version: '1.0.0',
           source: 'https://registry.example/index.json',
           installedAt: '2026-08-25T00:00:00.000Z',
@@ -331,7 +332,7 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
         2,
       )}\n`,
     )
-    const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
     expect(loaded).toEqual([])
     expect(failed).toEqual([])
@@ -350,8 +351,8 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })
-    const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
+    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
     try {
       const { loaded, failed } = await ports.localPlugins!.loadMarketPlugins()
       expect(failed).toEqual([])
@@ -373,8 +374,8 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     const home = await fixtureHome()
     const source = await marketServer()
     const entry = await marketEntry(source)
-    await installFromMarket({ home, source, entry, apolloVersion: '0.1.0' })
-    const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
+    await installFromMarket({ home, source, entry, volundVersion: '0.1.0' })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
     try {
       const first = await ports.localPlugins!.loadMarketPlugins()
       expect(first.loaded).toEqual([])
@@ -383,11 +384,11 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
       await ports.localPlugins!.enablePlugin('hello')
       // 热：已装载（沙箱进程活着）状态下卸载——停用 + 删目录，同会话生效
       await expect(ports.localPlugins!.uninstallMarketPlugin('hello')).resolves.toEqual({
-        name: 'apollo-plugin-hello',
+        name: 'volund-plugin-hello',
       })
-      await expect(readdir(join(marketInstallRoot(home), 'apollo-plugin-hello'))).rejects.toMatchObject(
-        { code: 'ENOENT' },
-      )
+      await expect(
+        readdir(join(marketInstallRoot(home), 'volund-plugin-hello')),
+      ).rejects.toMatchObject({ code: 'ENOENT' })
       const second = await ports.localPlugins!.loadMarketPlugins()
       expect(second.loaded).toEqual([])
       expect(second.failed).toEqual([])
@@ -403,25 +404,25 @@ describe('loadMarketPlugins（启动发现与显式启用）', () => {
     }
     const home = await fixtureHome()
     // dev 插件：plugins-dev 约定目录放一个最小插件
-    const devDir = join(home, 'plugins-dev', 'apollo-plugin-hello')
+    const devDir = join(home, 'plugins-dev', 'volund-plugin-hello')
     await mkdir(devDir, { recursive: true })
     await writeFile(join(devDir, 'manifest.json'), `${JSON.stringify(helloManifest, null, 2)}\n`)
     await writeFile(join(devDir, 'index.mjs'), helloEntry)
-    const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
     try {
       const builtin = await ports.localPlugins!.loadBuiltinPlugins()
       expect(builtin.failed).toEqual([])
-      await expect(ports.localPlugins!.uninstallMarketPlugin('apollo-plugin-env')).rejects.toThrow(
+      await expect(ports.localPlugins!.uninstallMarketPlugin('volund-plugin-env')).rejects.toThrow(
         /builtin plugin.*cannot be uninstalled/,
       )
       const dev = await ports.localPlugins!.loadDevPlugins()
-      expect(dev.loaded.map((item) => item.name)).toEqual(['apollo-plugin-hello'])
+      expect(dev.loaded.map((item) => item.name)).toEqual(['volund-plugin-hello'])
       await expect(ports.localPlugins!.uninstallMarketPlugin('hello')).rejects.toThrow(
         /dev plugin.*remove its directory and restart/,
       )
       // 目录原样保留（卸载不碰 dev 目录）
       await expect(readFile(join(devDir, 'manifest.json'), 'utf8')).resolves.toContain(
-        'apollo-plugin-hello',
+        'volund-plugin-hello',
       )
     } finally {
       await ports.localPlugins!.deactivateAll()

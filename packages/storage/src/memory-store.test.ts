@@ -20,7 +20,7 @@ afterEach(async () => {
 })
 
 async function store() {
-  const root = await mkdtemp(resolve(tmpdir(), 'apollo-scoped-memory-'))
+  const root = await mkdtemp(resolve(tmpdir(), 'volund-scoped-memory-'))
   roots.push(root)
   return new ScopedMemoryStore(root, () => 123)
 }

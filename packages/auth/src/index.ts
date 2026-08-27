@@ -1,4 +1,4 @@
-import { sanitize } from '@apollo-code/shared'
+import { sanitize } from '@volund/shared'
 export interface AuthTelemetry {
   emit(name: string, source: string, payload: Record<string, unknown>): Promise<void>
 }

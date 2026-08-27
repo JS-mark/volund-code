@@ -63,7 +63,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function stringArrayOf(record: Record<string, unknown>, key: string): readonly string[] | undefined {
+function stringArrayOf(
+  record: Record<string, unknown>,
+  key: string,
+): readonly string[] | undefined {
   const value = record[key]
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return undefined
   return value as string[]
@@ -168,7 +171,11 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
         return
       }
       const switchTab =
-        key.tab || key.leftArrow || key.rightArrow ? (key.leftArrow || (key.shift && key.tab) ? -1 : 1) : 0
+        key.tab || key.leftArrow || key.rightArrow
+          ? key.leftArrow || (key.shift && key.tab)
+            ? -1
+            : 1
+          : 0
       if (switchTab !== 0 && requests.length > 1) {
         const next = (activeIndex + switchTab + requests.length) % requests.length
         setActiveIndex(next)
@@ -193,7 +200,10 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
 
   if (!request) return null
 
-  const innerWidth = Math.max(MIN_INNER_WIDTH, Math.min((stdout?.columns ?? 80) - 6, MAX_INNER_WIDTH))
+  const innerWidth = Math.max(
+    MIN_INNER_WIDTH,
+    Math.min((stdout?.columns ?? 80) - 6, MAX_INNER_WIDTH),
+  )
   const specRows = request.display.approvable
     ? summarizeSpec(request.spec).flatMap((line) => layoutSpecLine(line, innerWidth))
     : [fallbackRow(request.display.spec)]
@@ -262,11 +272,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
       ) : null}
       <Box flexDirection="column" marginTop={1}>
         {visibleRows.map((row, index) => (
-          <Text
-            {...(row.dim ? { color: 'gray' } : {})}
-            key={`row:${index}`}
-            wrap="truncate"
-          >
+          <Text {...(row.dim ? { color: 'gray' } : {})} key={`row:${index}`} wrap="truncate">
             <Text color={row.dim ? 'gray' : 'cyanBright'} key="gutter">
               {row.gutter}
             </Text>
@@ -333,9 +339,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
   )
 }
 
-function optionsFor(
-  request: InteractivePermissionRequest | undefined,
-): readonly DecisionOption[] {
+function optionsFor(request: InteractivePermissionRequest | undefined): readonly DecisionOption[] {
   if (!request) return DECISION_OPTIONS
   if (!request.display.approvable) return DECISION_OPTIONS.filter((o) => o.id === 'deny')
   return DECISION_OPTIONS
@@ -371,7 +375,10 @@ function visibleTabs(
 ): TabEntry[] {
   if (requests.length <= MAX_VISIBLE_TABS)
     return requests.map((request, index) => ({ index, kind: 'tab', request }))
-  let start = Math.max(0, Math.min(activeIndex - Math.floor(MAX_VISIBLE_TABS / 2), requests.length - MAX_VISIBLE_TABS))
+  let start = Math.max(
+    0,
+    Math.min(activeIndex - Math.floor(MAX_VISIBLE_TABS / 2), requests.length - MAX_VISIBLE_TABS),
+  )
   const end = start + MAX_VISIBLE_TABS
   const entries: TabEntry[] = []
   if (start > 0) entries.push({ key: 'left', kind: 'ellipsis' })

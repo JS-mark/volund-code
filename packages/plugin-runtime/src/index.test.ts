@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  APOLLO_BRIDGE_CAPABILITIES,
+  VOLUND_BRIDGE_CAPABILITIES,
   BridgeRuntime,
   createRpcGuard,
   PluginManager,
@@ -18,15 +18,15 @@ import {
   verifyPluginRegistryMetadata,
 } from './index'
 const manifest = {
-  name: 'apollo-plugin-test',
+  name: 'volund-plugin-test',
   version: '1.0.0',
-  engines: { apollo: '^1.0.0' },
+  engines: { volund: '^1.0.0' },
   main: 'index.js',
   type: 'module',
-  permissions: { apollo: ['tools.register'], net: false },
+  permissions: { volund: ['tools.register'], net: false },
 } as const
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-plugin-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-plugin-'))
   await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest))
   await writeFile(join(root, 'index.js'), 'export default {}')
   return root
@@ -51,7 +51,7 @@ describe('plugin runtime', () => {
     ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('publishes an exhaustive ApolloBridge capability matrix with test entry points', () => {
+  it('publishes an exhaustive VolundBridge capability matrix with test entry points', () => {
     const expected = [
       'tools.register',
       'tools.unregister',
@@ -106,12 +106,12 @@ describe('plugin runtime', () => {
       'auth.getAuthHeaders',
       'auth.getSigningEnvKeys',
     ]
-    expect(APOLLO_BRIDGE_CAPABILITIES.map(({ method }) => method)).toEqual(expected)
-    expect(new Set(APOLLO_BRIDGE_CAPABILITIES.map(({ method }) => method)).size).toBe(
+    expect(VOLUND_BRIDGE_CAPABILITIES.map(({ method }) => method)).toEqual(expected)
+    expect(new Set(VOLUND_BRIDGE_CAPABILITIES.map(({ method }) => method)).size).toBe(
       expected.length,
     )
-    expect(APOLLO_BRIDGE_CAPABILITIES.every(({ test }) => test.length > 0)).toBe(true)
-    expect(APOLLO_BRIDGE_CAPABILITIES.find(({ method }) => method === 'call')).toMatchObject({
+    expect(VOLUND_BRIDGE_CAPABILITIES.every(({ test }) => test.length > 0)).toBe(true)
+    expect(VOLUND_BRIDGE_CAPABILITIES.find(({ method }) => method === 'call')).toMatchObject({
       status: 'unsupported',
       reason: expect.any(String),
     })
@@ -124,7 +124,7 @@ describe('plugin runtime', () => {
     version: manifest.version,
     source: 'https://registry.fixture.invalid/',
     bundle: {
-      url: 'https://registry.fixture.invalid/bundles/apollo-plugin-test-1.0.0.tgz',
+      url: 'https://registry.fixture.invalid/bundles/volund-plugin-test-1.0.0.tgz',
       digest: registryDigest,
     },
     signature: { keyId: 'fixture-key', value: 'fixture-signature' },
@@ -199,7 +199,7 @@ describe('plugin runtime', () => {
         {
           ...manifest,
           contributes: { ui },
-          permissions: { ...manifest.permissions, apollo: ['tools.register', 'ui.contribute'] },
+          permissions: { ...manifest.permissions, volund: ['tools.register', 'ui.contribute'] },
         },
         '1.0.0',
       ).contributes?.ui,
@@ -212,7 +212,7 @@ describe('plugin runtime', () => {
         {
           ...manifest,
           contributes: { ui: [{ ...ui[0], surface: 'sidebar' }] },
-          permissions: { ...manifest.permissions, apollo: ['ui.contribute'] },
+          permissions: { ...manifest.permissions, volund: ['ui.contribute'] },
         },
         '1.0.0',
       ),
@@ -222,7 +222,7 @@ describe('plugin runtime', () => {
         {
           ...manifest,
           contributes: { ui: [{ ...ui[0], component: 'file://evil.js' }] },
-          permissions: { ...manifest.permissions, apollo: ['ui.contribute'] },
+          permissions: { ...manifest.permissions, volund: ['ui.contribute'] },
         },
         '1.0.0',
       ),
@@ -244,15 +244,15 @@ describe('plugin runtime', () => {
   })
   it('contains legacy production activation until Catalog v2 can issue receipts', async () => {
     const source = await fixture(),
-      root = await mkdtemp(join(tmpdir(), 'apollo-contained-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-contained-data-')),
+      root = await mkdtemp(join(tmpdir(), 'volund-contained-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'volund-contained-data-')),
       confirm = vi.fn(async () => true),
       manager = new PluginManager(root, '1.0.0', confirm)
     await manager.init()
     await expect(manager.install(join(root, 'missing-source'))).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
-    await expect(manager.setEnabled('apollo-plugin-missing', true)).rejects.toMatchObject({
+    await expect(manager.setEnabled('volund-plugin-missing', true)).rejects.toMatchObject({
       code: 'plugin_legacy_activation_unavailable',
     })
     expect(confirm).not.toHaveBeenCalled()
@@ -293,7 +293,7 @@ describe('plugin runtime', () => {
     expect(manager.list()).toEqual({})
   })
   it('rejects inherited and invalid approval keys before any mutation', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-approval-keys-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-approval-keys-'))
     await writeFile(
       join(root, 'plugins.json'),
       JSON.stringify({
@@ -319,8 +319,8 @@ describe('plugin runtime', () => {
         'prototype',
         '',
         '../outside',
-        'apollo-plugin-',
-        String.raw`apollo-plugin-a\outside`,
+        'volund-plugin-',
+        String.raw`volund-plugin-a\outside`,
       ]) {
         await expect(manager.setEnabled(name, false)).rejects.toMatchObject({
           code: 'plugin_path_escape',
@@ -333,10 +333,10 @@ describe('plugin runtime', () => {
         })
       }
 
-      await expect(manager.setEnabled('apollo-plugin-missing', false)).rejects.toMatchObject({
+      await expect(manager.setEnabled('volund-plugin-missing', false)).rejects.toMatchObject({
         code: 'plugin_not_installed',
       })
-      await expect(manager.recordFailure('apollo-plugin-missing')).resolves.toBe(false)
+      await expect(manager.recordFailure('volund-plugin-missing')).resolves.toBe(false)
       await manager.setEnabled(manifest.name, false)
       expect(manager.list()[manifest.name]).toMatchObject({ enabled: false, failures: 0 })
       expect(Object.getPrototypeOf(manager.list())).toBeNull()
@@ -357,7 +357,7 @@ describe('plugin runtime', () => {
     expect(Object.getOwnPropertyDescriptors(Object)).toEqual(objectConstructorBefore)
   })
   it('rejects symlinked and oversized legacy state before parsing', async () => {
-    const symlinkRoot = await mkdtemp(join(tmpdir(), 'apollo-state-symlink-'))
+    const symlinkRoot = await mkdtemp(join(tmpdir(), 'volund-state-symlink-'))
     const outside = join(symlinkRoot, 'outside.json')
     await writeFile(outside, JSON.stringify({ approvals: {} }))
     await symlink(outside, join(symlinkRoot, 'plugins.json'))
@@ -366,7 +366,7 @@ describe('plugin runtime', () => {
       code: 'plugin_legacy_activation_unavailable',
     })
 
-    const oversizedRoot = await mkdtemp(join(tmpdir(), 'apollo-state-oversized-'))
+    const oversizedRoot = await mkdtemp(join(tmpdir(), 'volund-state-oversized-'))
     await writeFile(join(oversizedRoot, 'plugins.json'), 'x'.repeat(1024 * 1024 + 1))
     const oversizedManager = new PluginManager(oversizedRoot, '1.0.0', async () => true)
     await expect(oversizedManager.init()).rejects.toMatchObject({
@@ -379,7 +379,7 @@ describe('plugin runtime', () => {
       JSON.stringify({
         approvals: Object.fromEntries(
           Array.from({ length: 1025 }, (_, index) => [
-            `apollo-plugin-state-${index}`,
+            `volund-plugin-state-${index}`,
             { version: '1.0.0', permissionHash: 'hash', enabled: true, failures: 0 },
           ]),
         ),
@@ -463,7 +463,7 @@ describe('plugin runtime', () => {
       }),
     ],
   ])('rejects legacy state containing %s', async (_reason, serialized) => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-state-bounds-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-state-bounds-'))
     await writeFile(join(root, 'plugins.json'), serialized)
     const manager = new PluginManager(root, '1.0.0', async () => true)
 
@@ -473,7 +473,7 @@ describe('plugin runtime', () => {
     expect(Object.keys(manager.list())).toEqual([])
   })
   it('rejects invalid failure thresholds and never overflows persisted failure counts', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-failure-threshold-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-failure-threshold-'))
     await writeFile(
       join(root, 'plugins.json'),
       JSON.stringify({
@@ -502,7 +502,7 @@ describe('plugin runtime', () => {
     expect(reloaded.list()[manifest.name]?.failures).toBe(1_000_000)
   })
   it('projects stale enabled legacy records disabled without rewriting state', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-stale-enabled-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-stale-enabled-'))
     const statePath = join(root, 'plugins.json')
     const initial = {
       formatVersion: 1,
@@ -514,13 +514,13 @@ describe('plugin runtime', () => {
           failures: 7,
           receipt: { issuer: 'legacy-registry', serial: 41 },
         },
-        'apollo-plugin-second': {
+        'volund-plugin-second': {
           version: '2.0.0',
           permissionHash: 'second-hash',
           enabled: true,
           failures: 2,
         },
-        'apollo-plugin-already-disabled': {
+        'volund-plugin-already-disabled': {
           version: '3.0.0',
           permissionHash: 'disabled-hash',
           enabled: false,
@@ -555,8 +555,8 @@ describe('plugin runtime', () => {
     expect((await stat(statePath)).mtimeMs).toBe(beforeInit.mtimeMs)
   })
   it('fails malformed production state closed with a stable diagnostic and zero activation', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-')),
-      dataRoot = await mkdtemp(join(tmpdir(), 'apollo-malformed-state-data-')),
+    const root = await mkdtemp(join(tmpdir(), 'volund-malformed-state-')),
+      dataRoot = await mkdtemp(join(tmpdir(), 'volund-malformed-state-data-')),
       manager = new PluginManager(root, '1.0.0', async () => true)
     await writeFile(join(root, 'plugins.json'), '{ definitely-not-json')
 
@@ -590,7 +590,7 @@ describe('plugin runtime', () => {
     await expect(runtime.loadEnabled()).resolves.toEqual([])
   })
   it('does not touch a migration temp path while projecting legacy state disabled', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-no-migration-write-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-no-migration-write-'))
     await writeFile(
       join(root, 'plugins.json'),
       JSON.stringify({
@@ -623,7 +623,7 @@ describe('plugin runtime', () => {
   })
 
   it('exposes permission-gated bridge namespaces and immutable session snapshots', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'apollo-bridge-'))
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-bridge-'))
     await writeFile(join(cwd, 'allowed.txt'), 'ok')
     const logs: unknown[] = [],
       storage = new Map<string, unknown>(),
@@ -674,7 +674,7 @@ describe('plugin runtime', () => {
         fs: { read: [cwd], write: [cwd] },
         bash: { allowlist: ['git *'] },
         net: { allowlist: ['api.example.com'] },
-        apollo: [
+        volund: [
           'tools.register',
           'hooks.on',
           'session.read',
@@ -734,7 +734,7 @@ describe('plugin runtime', () => {
   })
 
   it('orders hooks by priority, short-circuits veto, enforces kv quota and timeout', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'apollo-hooks-')),
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-hooks-')),
       calls: string[] = []
     const runtime = new BridgeRuntime(
       {
@@ -756,7 +756,7 @@ describe('plugin runtime', () => {
       },
       { timeoutMs: 10, hookKvBytes: 20 },
     )
-    const hookManifest = { ...manifest, permissions: { apollo: ['hooks.on'] } } as const
+    const hookManifest = { ...manifest, permissions: { volund: ['hooks.on'] } } as const
     const bridge = runtime.create(hookManifest, cwd, 'tool-1')
     bridge.hooks.on(
       'preToolUse',
@@ -790,7 +790,7 @@ describe('plugin runtime', () => {
   })
 
   it('dispatches memory hooks only to plugins authorized for the exact scope', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'apollo-memory-hooks-')),
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-memory-hooks-')),
       seen: Array<{ plugin: string; payload: unknown }> = []
     const runtime = new BridgeRuntime({
       session: { id: 's', cwd, messages: [], usage: { inputTokens: 0, outputTokens: 0 } },
@@ -812,15 +812,15 @@ describe('plugin runtime', () => {
     const project = runtime.create(
       {
         ...manifest,
-        permissions: { apollo: ['hooks.on'], memory: { read: ['project'] } },
+        permissions: { volund: ['hooks.on'], memory: { read: ['project'] } },
       },
       cwd,
     )
     const session = runtime.create(
       {
         ...manifest,
-        name: 'apollo-plugin-session-policy',
-        permissions: { apollo: ['hooks.on'], memory: { read: ['session'] } },
+        name: 'volund-plugin-session-policy',
+        permissions: { volund: ['hooks.on'], memory: { read: ['session'] } },
       },
       cwd,
     )
@@ -864,7 +864,7 @@ describe('plugin runtime', () => {
       },
     ])
     const unscoped = runtime.create(
-      { ...manifest, name: 'apollo-plugin-unscoped', permissions: { apollo: ['hooks.on'] } },
+      { ...manifest, name: 'volund-plugin-unscoped', permissions: { volund: ['hooks.on'] } },
       cwd,
     )
     expect(() => unscoped.hooks.on('memory.preWrite', () => undefined)).toThrow(
@@ -876,8 +876,8 @@ describe('plugin runtime', () => {
   })
 
   it('rejects symlink escapes and stops after 500 calls per turn', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'apollo-escape-')),
-      outside = await mkdtemp(join(tmpdir(), 'apollo-outside-'))
+    const cwd = await mkdtemp(join(tmpdir(), 'volund-escape-')),
+      outside = await mkdtemp(join(tmpdir(), 'volund-outside-'))
     await writeFile(join(outside, 'secret'), 'secret')
     await symlink(join(outside, 'secret'), join(cwd, 'link'))
     const runtime = new BridgeRuntime({
@@ -898,7 +898,7 @@ describe('plugin runtime', () => {
       log: () => undefined,
     })
     const bridge = runtime.create(
-      { ...manifest, permissions: { fs: { read: [cwd] }, apollo: ['fs.read', 'session.read'] } },
+      { ...manifest, permissions: { fs: { read: [cwd] }, volund: ['fs.read', 'session.read'] } },
       cwd,
       'turn',
     )

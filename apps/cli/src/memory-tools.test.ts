@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DefaultMemoryService, LocalMemoryRepository } from '@apollo-code/storage'
-import type { ToolContext } from '@apollo-code/tool-kit'
+import { DefaultMemoryService, LocalMemoryRepository } from '@volund/storage'
+import type { ToolContext } from '@volund/tool-kit'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { projectMemoryScope } from './memory-scope'
@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-tools-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-tools-'))
   roots.push(root)
   const memory = new DefaultMemoryService(new LocalMemoryRepository(join(root, 'records.json')))
   const tools = new Map(createMemoryTools(memory).map((tool) => [tool.name, tool]))

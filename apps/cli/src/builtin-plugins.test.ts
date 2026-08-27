@@ -3,14 +3,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
-import { activateLocalPlugin, type ActivatedLocalPlugin } from '@apollo-code/plugin-runtime'
+import { probeSandbox, resolveBinary } from '@volund/native-bridge'
+import { activateLocalPlugin, type ActivatedLocalPlugin } from '@volund/plugin-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { builtinPluginRoot, createProductionPorts, readEffectiveEnv } from './runtime'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
-const envPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'apollo-plugin-env')
+const envPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-env')
 
 const dirs: string[] = []
 const handles: ActivatedLocalPlugin[] = []
@@ -21,8 +21,8 @@ afterEach(async () => {
 
 async function sandboxAvailable(): Promise<boolean> {
   // 本地 cargo 构建兜底（开发机）；CI 无沙箱时跳过。
-  if (!process.env.APOLLO_NATIVE_SANDBOX_BINARY)
-    process.env.APOLLO_NATIVE_SANDBOX_BINARY = join(repoRoot, 'target', 'debug', 'apollo-sandbox')
+  if (!process.env.VOLUND_NATIVE_SANDBOX_BINARY)
+    process.env.VOLUND_NATIVE_SANDBOX_BINARY = join(repoRoot, 'target', 'debug', 'volund-sandbox')
   try {
     const binary = await resolveBinary('sandbox')
     if (!binary) return false
@@ -34,50 +34,50 @@ async function sandboxAvailable(): Promise<boolean> {
 
 describe('builtinPluginRoot（内置插件目录解析）', () => {
   it('resolves apps/cli/plugins from the source layout', () => {
-    const previous = process.env.APOLLO_STANDALONE_ASSET_DIR
-    delete process.env.APOLLO_STANDALONE_ASSET_DIR
+    const previous = process.env.VOLUND_STANDALONE_ASSET_DIR
+    delete process.env.VOLUND_STANDALONE_ASSET_DIR
     try {
       expect(builtinPluginRoot()).toBe(join(repoRoot, 'apps', 'cli', 'plugins'))
     } finally {
-      if (previous !== undefined) process.env.APOLLO_STANDALONE_ASSET_DIR = previous
+      if (previous !== undefined) process.env.VOLUND_STANDALONE_ASSET_DIR = previous
     }
   })
 
-  it('prefers APOLLO_STANDALONE_ASSET_DIR/plugins when it exists', async () => {
-    const assets = await mkdtemp(join(tmpdir(), 'apollo-standalone-assets-'))
+  it('prefers VOLUND_STANDALONE_ASSET_DIR/plugins when it exists', async () => {
+    const assets = await mkdtemp(join(tmpdir(), 'volund-standalone-assets-'))
     dirs.push(assets)
     await mkdir(join(assets, 'plugins'), { recursive: true })
-    const previous = process.env.APOLLO_STANDALONE_ASSET_DIR
-    process.env.APOLLO_STANDALONE_ASSET_DIR = assets
+    const previous = process.env.VOLUND_STANDALONE_ASSET_DIR
+    process.env.VOLUND_STANDALONE_ASSET_DIR = assets
     try {
       expect(builtinPluginRoot()).toBe(join(assets, 'plugins'))
     } finally {
-      if (previous === undefined) delete process.env.APOLLO_STANDALONE_ASSET_DIR
-      else process.env.APOLLO_STANDALONE_ASSET_DIR = previous
+      if (previous === undefined) delete process.env.VOLUND_STANDALONE_ASSET_DIR
+      else process.env.VOLUND_STANDALONE_ASSET_DIR = previous
     }
   })
 })
 
-describe('apollo-plugin-env（内置 /env，沙箱端到端）', () => {
+describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
   it('activates through loadBuiltinPlugins and answers /env across the bridge', async () => {
     if (!(await sandboxAvailable())) {
       console.warn('sandbox unavailable; skipping builtin plugin e2e')
       return
     }
-    const home = await mkdtemp(join(tmpdir(), 'apollo-builtin-env-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-env-'))
     dirs.push(home)
     await writeFile(
       join(home, 'config.toml'),
-      '[env]\nAPOLLO_E2E_ENV = "wired-through-config"\n[tools]\npass_through_env = ["APOLLO_E2E_ENV"]\n',
+      '[env]\nVOLUND_E2E_ENV = "wired-through-config"\n[tools]\npass_through_env = ["VOLUND_E2E_ENV"]\n',
     )
-    const ports = createProductionPorts({ apolloHome: home, identity: { version: '0.1.0' } })
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
     const { loaded, failed } = await ports.localPlugins!.loadBuiltinPlugins()
     try {
       expect(failed).toEqual([])
       // 目录发现顺序依文件系统而定，按名排序断言
       expect(loaded.map((item) => item.name).sort()).toEqual([
-        'apollo-plugin-env',
-        'apollo-plugin-manager',
+        'volund-plugin-env',
+        'volund-plugin-manager',
       ])
     } finally {
       await ports.localPlugins!.deactivateAll()
@@ -85,27 +85,27 @@ describe('apollo-plugin-env（内置 /env，沙箱端到端）', () => {
   }, 30_000)
   it('formats effective / pending / passthrough states as a list view for the /env panel', async () => {
     if (!(await sandboxAvailable())) return
-    const home = await mkdtemp(join(tmpdir(), 'apollo-builtin-env-output-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-env-output-'))
     dirs.push(home)
     await writeFile(
       join(home, 'config.toml'),
-      '[env]\nAPOLLO_E2E_EFFECTIVE = "yes"\nAPOLLO_E2E_PENDING = "later"\n[tools]\npass_through_env = ["APOLLO_E2E_EFFECTIVE"]\n',
+      '[env]\nVOLUND_E2E_EFFECTIVE = "yes"\nVOLUND_E2E_PENDING = "later"\n[tools]\npass_through_env = ["VOLUND_E2E_EFFECTIVE"]\n',
     )
-    const previousEffective = process.env.APOLLO_E2E_EFFECTIVE
-    const previousPending = process.env.APOLLO_E2E_PENDING
-    process.env.APOLLO_E2E_EFFECTIVE = 'yes'
-    delete process.env.APOLLO_E2E_PENDING
-    const dataDir = await mkdtemp(join(tmpdir(), 'apollo-plugin-data-'))
+    const previousEffective = process.env.VOLUND_E2E_EFFECTIVE
+    const previousPending = process.env.VOLUND_E2E_PENDING
+    process.env.VOLUND_E2E_EFFECTIVE = 'yes'
+    delete process.env.VOLUND_E2E_PENDING
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-data-'))
     dirs.push(dataDir)
     try {
       const activated = await activateLocalPlugin({
         dir: envPluginDir,
-        apolloVersion: '0.1.0',
+        volundVersion: '0.1.0',
         dataDirRoot: dataDir,
         services: { getEffectiveEnv: () => readEffectiveEnv(home) },
       })
       handles.push(activated)
-      expect(activated.manifest.name).toBe('apollo-plugin-env')
+      expect(activated.manifest.name).toBe('volund-plugin-env')
       const command = activated.commands.find((candidate) => candidate.name === 'env')
       expect(command).toBeDefined()
       const output = await command!.run([])
@@ -114,31 +114,31 @@ describe('apollo-plugin-env（内置 /env，沙箱端到端）', () => {
       const view = output as {
         entries: { id: string; value?: string; status?: string; detail?: string }[]
       }
-      const effective = view.entries.find((entry) => entry.id === 'APOLLO_E2E_EFFECTIVE')
+      const effective = view.entries.find((entry) => entry.id === 'VOLUND_E2E_EFFECTIVE')
       expect(effective).toMatchObject({
         value: 'yes',
         status: 'effective · sandbox: passed through',
       })
-      expect(effective?.detail).toContain('APOLLO_E2E_EFFECTIVE = "yes"')
-      const pending = view.entries.find((entry) => entry.id === 'APOLLO_E2E_PENDING')
+      expect(effective?.detail).toContain('VOLUND_E2E_EFFECTIVE = "yes"')
+      const pending = view.entries.find((entry) => entry.id === 'VOLUND_E2E_PENDING')
       expect(pending?.status).toContain('pending')
       expect(pending?.detail).toContain('not present in process.env')
     } finally {
-      if (previousEffective === undefined) delete process.env.APOLLO_E2E_EFFECTIVE
-      else process.env.APOLLO_E2E_EFFECTIVE = previousEffective
-      if (previousPending !== undefined) process.env.APOLLO_E2E_PENDING = previousPending
+      if (previousEffective === undefined) delete process.env.VOLUND_E2E_EFFECTIVE
+      else process.env.VOLUND_E2E_EFFECTIVE = previousEffective
+      if (previousPending !== undefined) process.env.VOLUND_E2E_PENDING = previousPending
     }
   }, 30_000)
 
   it('prints setup guidance when no [env] section is configured', async () => {
     if (!(await sandboxAvailable())) return
-    const home = await mkdtemp(join(tmpdir(), 'apollo-builtin-env-empty-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-env-empty-'))
     dirs.push(home)
-    const dataDir = await mkdtemp(join(tmpdir(), 'apollo-plugin-data-'))
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-data-'))
     dirs.push(dataDir)
     const activated = await activateLocalPlugin({
       dir: envPluginDir,
-      apolloVersion: '0.1.0',
+      volundVersion: '0.1.0',
       dataDirRoot: dataDir,
       services: { getEffectiveEnv: () => readEffectiveEnv(home) },
     })
@@ -149,8 +149,8 @@ describe('apollo-plugin-env（内置 /env，沙箱端到端）', () => {
   }, 30_000)
 })
 
-describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
-  const managerDir = join(repoRoot, 'apps', 'cli', 'plugins', 'apollo-plugin-manager')
+describe('volund-plugin-manager（内置 /plugins，沙箱端到端）', () => {
+  const managerDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-manager')
 
   async function activateManager(
     home: string,
@@ -158,7 +158,7 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
   ) {
     const activated = await activateLocalPlugin({
       dir: managerDir,
-      apolloVersion: '0.1.0',
+      volundVersion: '0.1.0',
       dataDirRoot: join(home, 'plugins-dev-data'),
       services,
     })
@@ -173,15 +173,15 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
       console.warn('sandbox unavailable; skipping /plugins e2e')
       return
     }
-    const home = await mkdtemp(join(tmpdir(), 'apollo-manager-tabs-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-manager-tabs-'))
     dirs.push(home)
     const command = await activateManager(home, {
       listPlugins: async () => ({
         builtin: [
           {
-            name: 'apollo-plugin-env',
+            name: 'volund-plugin-env',
             version: '0.1.0',
-            dir: '/opt/apollo/plugins/apollo-plugin-env',
+            dir: '/opt/volund/plugins/volund-plugin-env',
             source: 'builtin',
             commands: 1,
             statusTabs: 0,
@@ -202,7 +202,7 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
     expect(view.kind).toBe('tabs')
     expect(view.title).toContain('Plugins')
     expect(view.tabs.map((tab) => tab.id)).toEqual(['builtin', 'dev', 'market'])
-    expect(view.tabs[0]!.entries.map((entry) => entry.id)).toEqual(['apollo-plugin-env'])
+    expect(view.tabs[0]!.entries.map((entry) => entry.id)).toEqual(['volund-plugin-env'])
     // dev 空态给指引条目；market 未配置给配置指引
     expect(view.tabs[1]!.entries[0]!.id).toBe('__dev_empty')
     expect(view.tabs[2]!.entries[0]!.id).toBe('__market_unavailable')
@@ -210,11 +210,11 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
 
   it('reports guidance when installing without a configured market', async () => {
     if (!(await sandboxAvailable())) return
-    const home = await mkdtemp(join(tmpdir(), 'apollo-manager-install-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-manager-install-'))
     dirs.push(home)
     const command = await activateManager(home, {
       installMarketPlugin: async () => {
-        throw new Error('no market configured — set [plugins] market in ~/.apollo/config.toml')
+        throw new Error('no market configured — set [plugins] market in ~/.volund/config.toml')
       },
     })
     const output = (await command.run(['install', 'hello'])) as string
@@ -224,19 +224,19 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
 
   it('keeps installs inactive and requires the exact inspect/approve/enable sequence', async () => {
     if (!(await sandboxAvailable())) return
-    const home = await mkdtemp(join(tmpdir(), 'apollo-manager-lifecycle-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-manager-lifecycle-'))
     dirs.push(home)
     const hash = 'a'.repeat(64)
     const calls: string[] = []
     const entry = {
-      name: 'apollo-plugin-hello',
+      name: 'volund-plugin-hello',
       version: '1.0.0',
-      dir: join(home, 'plugins', 'apollo-plugin-hello'),
+      dir: join(home, 'plugins', 'volund-plugin-hello'),
       source: 'market' as const,
       commands: 0,
       statusTabs: 0,
       lifecycle: { permissionHash: hash, approved: false, enabled: false, loaded: false },
-      permissions: { apollo: ['log.write'] },
+      permissions: { volund: ['log.write'] },
     }
     const command = await activateManager(home, {
       installMarketPlugin: async () => ({
@@ -271,18 +271,16 @@ describe('apollo-plugin-manager（内置 /plugins，沙箱端到端）', () => {
 
   it('hot-uninstall reports success, and builtin/dev rejections carry explicit reasons', async () => {
     if (!(await sandboxAvailable())) return
-    const home = await mkdtemp(join(tmpdir(), 'apollo-manager-uninstall-'))
+    const home = await mkdtemp(join(tmpdir(), 'volund-manager-uninstall-'))
     dirs.push(home)
     const uninstall = await activateManager(home, {
-      uninstallMarketPlugin: async () => ({ name: 'apollo-plugin-hello' }),
+      uninstallMarketPlugin: async () => ({ name: 'volund-plugin-hello' }),
     })
-    expect(await uninstall.run(['uninstall', 'hello'])).toContain(
-      'Uninstalled apollo-plugin-hello',
-    )
+    expect(await uninstall.run(['uninstall', 'hello'])).toContain('Uninstalled volund-plugin-hello')
     const rejecting = await activateManager(home, {
       uninstallMarketPlugin: async () => {
         throw new Error(
-          'apollo-plugin-env is a builtin plugin shipped with the Apollo artifact; it cannot be uninstalled',
+          'volund-plugin-env is a builtin plugin shipped with the Volund artifact; it cannot be uninstalled',
         )
       },
     })

@@ -1,4 +1,4 @@
-# @apollo-code/permission
+# @volund/permission
 
 ## 0.1.0
 
@@ -15,4 +15,4 @@
 - Updated dependencies [976eb21]
 - Updated dependencies [344f874]
 - Updated dependencies [02ebe86]
-  - @apollo-code/shared@0.1.0
+  - @volund/shared@0.1.0

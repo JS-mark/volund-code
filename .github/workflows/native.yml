@@ -20,9 +20,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
-          - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
-          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
+          - {
+              runner: macos-14,
+              target: aarch64-apple-darwin,
+              verification: native,
+            }
+          - {
+              runner: macos-15-intel,
+              target: x86_64-apple-darwin,
+              verification: native,
+            }
+          - {
+              runner: ubuntu-24.04,
+              target: x86_64-unknown-linux-gnu,
+              verification: native,
+            }
           - {
               runner: ubuntu-24.04,
               target: aarch64-unknown-linux-gnu,
@@ -38,8 +50,16 @@ jobs:
               target: aarch64-unknown-linux-musl,
               verification: partial-verified,
             }
-          - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: native }
-          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: native }
+          - {
+              runner: windows-2022,
+              target: x86_64-pc-windows-msvc,
+              verification: native,
+            }
+          - {
+              runner: windows-11-arm,
+              target: aarch64-pc-windows-msvc,
+              verification: native,
+            }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +87,7 @@ jobs:
       - if: ${{ !contains(matrix.target, 'musl') }}
         run: cargo build --workspace --release --target ${{ matrix.target }}
       - if: runner.os == 'Linux' && matrix.verification == 'native'
-        run: target/${{ matrix.target }}/release/apollo-sandbox --verify-bwrap-digest
+        run: target/${{ matrix.target }}/release/volund-sandbox --verify-bwrap-digest
       - if: matrix.verification == 'native' && runner.os != 'Windows'
         run: cargo test --workspace --target ${{ matrix.target }}
       - uses: pnpm/action-setup@v4
@@ -86,23 +106,23 @@ jobs:
       # on constrained Windows runners (0xC0000142 DLL initialization failure).
       - if: runner.os == 'Windows'
         name: Build CLI dependency graph serially on Windows
-        run: pnpm turbo run build --filter=apollo-code... --concurrency=1
+        run: pnpm turbo run build --filter=volund-cli... --concurrency=1
       - if: runner.os != 'Windows'
         name: Build CLI dependency graph
-        run: pnpm turbo run build --filter=apollo-code...
+        run: pnpm turbo run build --filter=volund-cli...
       - name: Export target artifact paths
         shell: bash
         run: |
           extension=''
           case '${{ matrix.target }}' in *windows*) extension='.exe' ;; esac
-          echo "APOLLO_NATIVE_SANDBOX_BINARY=target/${{ matrix.target }}/release/apollo-sandbox$extension" >> "$GITHUB_ENV"
-          echo "APOLLO_NATIVE_SEARCH_BINARY=target/${{ matrix.target }}/release/apollo-search$extension" >> "$GITHUB_ENV"
-          echo "APOLLO_NATIVE_FS_BINARY=target/${{ matrix.target }}/release/apollo-fs$extension" >> "$GITHUB_ENV"
+          echo "VOLUND_NATIVE_SANDBOX_BINARY=target/${{ matrix.target }}/release/volund-sandbox$extension" >> "$GITHUB_ENV"
+          echo "VOLUND_NATIVE_SEARCH_BINARY=target/${{ matrix.target }}/release/volund-search$extension" >> "$GITHUB_ENV"
+          echo "VOLUND_NATIVE_FS_BINARY=target/${{ matrix.target }}/release/volund-fs$extension" >> "$GITHUB_ENV"
       - name: Run strict doctor against sandbox-capable target artifacts
         shell: bash
         env:
           ANTHROPIC_API_KEY: ci-doctor-placeholder
-        run: node apps/cli/dist/apollo.js doctor --strict --json
+        run: node apps/cli/dist/volund.js doctor --strict --json
       - name: Stage GitHub Release assets
         shell: bash
         run: |
@@ -120,16 +140,16 @@ jobs:
           case '${{ matrix.target }}' in *windows*) extension='.exe' ;; esac
           mkdir -p release-assets
           for kind in sandbox search fs; do
-            cp "target/${{ matrix.target }}/release/apollo-$kind$extension" "release-assets/apollo-$kind-$suffix$extension"
+            cp "target/${{ matrix.target }}/release/volund-$kind$extension" "release-assets/volund-$kind-$suffix$extension"
           done
       - run: echo '${{ matrix.verification }}' > native-verification.txt
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/release/apollo-sandbox*
-            target/${{ matrix.target }}/release/apollo-search*
-            target/${{ matrix.target }}/release/apollo-fs*
+            target/${{ matrix.target }}/release/volund-sandbox*
+            target/${{ matrix.target }}/release/volund-search*
+            target/${{ matrix.target }}/release/volund-fs*
             native-verification.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -151,8 +171,8 @@ jobs:
         run: |
           mkdir universal2
           for kind in sandbox search fs; do
-            lipo -create "arm64/target/aarch64-apple-darwin/release/apollo-$kind" "x64/target/x86_64-apple-darwin/release/apollo-$kind" -output "universal2/apollo-$kind"
-            lipo "universal2/apollo-$kind" -verify_arch arm64 x86_64
+            lipo -create "arm64/target/aarch64-apple-darwin/release/volund-$kind" "x64/target/x86_64-apple-darwin/release/volund-$kind" -output "universal2/volund-$kind"
+            lipo "universal2/volund-$kind" -verify_arch arm64 x86_64
           done
       - uses: actions/upload-artifact@v4
         with:
@@ -174,13 +194,13 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y osslsigncode
-          key_path="$RUNNER_TEMP/apollo-code-ci.key"
-          cert_path="$RUNNER_TEMP/apollo-code-ci.pem"
+          key_path="$RUNNER_TEMP/volund-code-ci.key"
+          cert_path="$RUNNER_TEMP/volund-code-ci.pem"
           openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
-            -subj '/CN=Apollo Code CI (NON-PRODUCTION)' \
+            -subj '/CN=volund Code CI (NON-PRODUCTION)' \
             -addext 'extendedKeyUsage=codeSigning' \
             -keyout "$key_path" -out "$cert_path"
-          mapfile -t binaries < <(find artifact/target -type f -name 'apollo-*.exe' -print)
+          mapfile -t binaries < <(find artifact/target -type f -name 'volund-*.exe' -print)
           if [[ ${#binaries[@]} -ne 3 ]]; then
             echo "Expected 3 Windows binaries, found ${#binaries[@]}" >&2
             exit 1
@@ -188,7 +208,7 @@ jobs:
           for binary in "${binaries[@]}"; do
             signed="$binary.signed"
             osslsigncode sign -h sha256 -certs "$cert_path" -key "$key_path" \
-              -n 'Apollo Code CI (NON-PRODUCTION)' -in "$binary" -out "$signed"
+              -n 'volund Code CI (NON-PRODUCTION)' -in "$binary" -out "$signed"
             osslsigncode verify -CAfile "$cert_path" -in "$signed"
             mv "$signed" "$binary"
           done
@@ -224,7 +244,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      - run: crates/apollo-sandbox/scripts/rebuild-bwrap.sh --check
+      - run: crates/volund-sandbox/scripts/rebuild-bwrap.sh --check
 
   standalone:
     name: Assemble standalone binaries (bun --compile, 7 targets)
@@ -244,7 +264,7 @@ jobs:
           # Pin to the version standalone builds are validated against locally.
           bun-version: '1.3.6'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run build --filter=apollo-code...
+      - run: pnpm turbo run build --filter=volund-cli...
       - uses: actions/download-artifact@v4
         with:
           pattern: release-assets-*
@@ -260,7 +280,15 @@ jobs:
   github-release:
     name: Publish versioned native Release assets
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [native, universal2, signing-smoke, notarization-gate, bwrap-reproducibility, standalone]
+    needs:
+      [
+        native,
+        universal2,
+        signing-smoke,
+        notarization-gate,
+        bwrap-reproducibility,
+        standalone,
+      ]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -276,7 +304,7 @@ jobs:
           path: standalone-assets
       - name: Generate checksum manifest
         working-directory: release-assets
-        run: sha256sum apollo-* > checksums.sha256
+        run: sha256sum volund-* > checksums.sha256
       - name: Create release and upload immutable assets
         env:
           GH_TOKEN: ${{ github.token }}

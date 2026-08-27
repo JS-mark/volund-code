@@ -1,6 +1,6 @@
 # Security model
 
-Apollo treats file writes, commands, and network access as explicit side effects. The permission layer decides first; destructive commands and plugin execution then use the Rust sandbox. Apollo discloses one process-wide tier:
+Volund treats file writes, commands, and network access as explicit side effects. The permission layer decides first; destructive commands and plugin execution then use the Rust sandbox. Volund discloses one process-wide tier:
 
 - **Full**: all required isolation mechanisms are active.
 - **Partial**: useful isolation is active with stated limitations.
@@ -13,11 +13,11 @@ Never infer a tier from a successful build. Use the runtime probe and read its l
 
 Trusted instruction sources are the system prompt and instructions you enter directly. Files, tool results, web content, MCP responses, subagent output, and memory are untrusted data, even when they contain text that looks like an instruction.
 
-Apollo marks such content with an encoded `<untrusted source="...">` wrapper before it reaches the model. The wrapper is source-traceable and cannot be closed by embedded text, but model compliance is best-effort rather than a security boundary. Permission checks and sandboxing remain necessary.
+Volund marks such content with an encoded `<untrusted source="...">` wrapper before it reaches the model. The wrapper is source-traceable and cannot be closed by embedded text, but model compliance is best-effort rather than a security boundary. Permission checks and sandboxing remain necessary.
 
 Treat requests inside untrusted content to reveal secrets, weaken safeguards, run unrelated commands, or contact unexpected hosts as injection attempts. Deny the permission, inspect the source, and restate the intended task in your own words.
 
-Credentials belong only in Apollo's masked login flow. Apollo sanitizes auth telemetry and keeps telemetry local by default.
+Credentials belong only in Volund's masked login flow. Volund sanitizes auth telemetry and keeps telemetry local by default.
 
 ## WebFetch network boundary
 
@@ -25,7 +25,7 @@ WebFetch asks for permission by canonical HTTP(S) origin. A session or project g
 origin does not grant another origin, including redirect targets. URL credentials and non-HTTP
 schemes are rejected.
 
-Before every connection and redirect hop, Apollo resolves the hostname and rejects the request if
+Before every connection and redirect hop, Volund resolves the hostname and rejects the request if
 any answer is loopback, private, link-local, reserved, multicast, documentation-only, or a cloud
 metadata address. The connection is pinned to the validated address so DNS cannot change between
 validation and socket creation. Responses are limited by time, request rate, redirect count,

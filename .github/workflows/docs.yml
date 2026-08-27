@@ -42,8 +42,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @apollo-code/docs test
-      - run: pnpm --filter @apollo-code/docs build
+      - run: pnpm --filter @volund/docs test
+      - run: pnpm --filter @volund/docs build
       - if: github.event_name == 'push'
         uses: actions/configure-pages@v5
         with:

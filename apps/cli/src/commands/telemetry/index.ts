@@ -1,4 +1,4 @@
-import { renderTelemetryPanel } from '@apollo-code/ui'
+import { renderTelemetryPanel } from '@volund/ui'
 
 import type { CommandDefinition } from '../../shared/cli-types'
 

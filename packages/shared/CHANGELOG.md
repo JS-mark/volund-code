@@ -1,4 +1,4 @@
-# @apollo-code/shared
+# @volund/shared
 
 ## 0.1.0
 

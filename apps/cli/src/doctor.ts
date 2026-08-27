@@ -4,7 +4,9 @@ import { access } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { ApolloPorts, DoctorHealth, PluginAvailability } from './ports'
+import { productIdentity } from '@volund/shared'
+
+import type { VolundPorts, DoctorHealth, PluginAvailability } from './ports'
 
 const execFileAsync = promisify(execFile)
 const GH_VERSION_TIMEOUT_MS = 5000
@@ -77,43 +79,52 @@ interface McpHealth {
 }
 export async function runDoctor(
   cwd: string,
-  ports: ApolloPorts,
+  ports: VolundPorts,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DoctorCheck[]> {
-  const [native, auth, config, telemetry, gh, plugin, evolution, skillsHealth, mcpHealth] = await Promise.all([
-    ports.native.health(),
-    ports.auth.health(),
-    ports.config.health(cwd),
-    ports.telemetry.health(),
-    detectGhCli(env),
-    ports.plugin?.availability(),
-    ports.evolution?.health?.().catch(
-      (error): DoctorHealth => ({
-        valid: false,
-        detail: `evolution health check failed: ${error instanceof Error ? error.message : String(error)}`,
-      }),
-    ),
-    ports.skill?.list().then(
-      (skills): SkillsHealth => ({
-        total: skills.length,
-        broken: skills.filter((skill) => skill.status === 'broken').length,
-        disabled: skills.filter((skill) => skill.status === 'disabled').length,
-      }),
-      (error): SkillsHealth => ({
-        total: 0, broken: 0, disabled: 0, error: error instanceof Error ? error.message : String(error),
-      }),
-    ),
-    ports.mcp?.list().then(
-      (servers): McpHealth => ({
-        total: servers.length,
-        connected: servers.filter((server) => server.status === 'connected').length,
-        failed: servers.filter((server) => server.status === 'failed' || server.status === 'needs-auth').length,
-      }),
-      (error): McpHealth => ({
-        total: 0, connected: 0, failed: 0, error: error instanceof Error ? error.message : String(error),
-      }),
-    ),
-  ])
+  const [native, auth, config, telemetry, gh, plugin, evolution, skillsHealth, mcpHealth] =
+    await Promise.all([
+      ports.native.health(),
+      ports.auth.health(),
+      ports.config.health(cwd),
+      ports.telemetry.health(),
+      detectGhCli(env),
+      ports.plugin?.availability(),
+      ports.evolution?.health?.().catch(
+        (error): DoctorHealth => ({
+          valid: false,
+          detail: `evolution health check failed: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+      ),
+      ports.skill?.list().then(
+        (skills): SkillsHealth => ({
+          total: skills.length,
+          broken: skills.filter((skill) => skill.status === 'broken').length,
+          disabled: skills.filter((skill) => skill.status === 'disabled').length,
+        }),
+        (error): SkillsHealth => ({
+          total: 0,
+          broken: 0,
+          disabled: 0,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+      ports.mcp?.list().then(
+        (servers): McpHealth => ({
+          total: servers.length,
+          connected: servers.filter((server) => server.status === 'connected').length,
+          failed: servers.filter(
+            (server) => server.status === 'failed' || server.status === 'needs-auth',
+          ).length,
+        }),
+        (error): McpHealth => ({
+          total: 0,
+          connected: 0,
+          failed: 0,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+    ])
   let writable = true
   try {
     await access(cwd, constants.W_OK)
@@ -126,7 +137,7 @@ export async function runDoctor(
       ok: Number(process.versions.node.split('.')[0]) >= 20,
       detail: process.versions.node,
     },
-    { name: 'apollo version', ok: true, detail: ports.identity.version },
+    { name: `${productIdentity.commandName} version`, ok: true, detail: ports.identity.version },
     {
       name: 'native sandbox',
       ok: native.sandbox,

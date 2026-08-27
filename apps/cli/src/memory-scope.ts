@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import type { MemoryRecordScope } from '@apollo-code/storage'
+import type { MemoryRecordScope } from '@volund/storage'
 
 export const LOCAL_MEMORY_WORKSPACE_ID = 'local'
 

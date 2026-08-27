@@ -10,8 +10,8 @@ import type {
   StopReason,
   ToolSchema,
   Usage,
-} from '@apollo-code/provider-kit'
-import type { JsonValue } from '@apollo-code/shared'
+} from '@volund/provider-kit'
+import type { JsonValue } from '@volund/shared'
 
 /**
  * A declarative chunk script served by {@link MockProvider}.

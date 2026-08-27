@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/skills-runtime",
+  "name": "@volund/skills-runtime",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,8 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/core": "workspace:*",
-    "@apollo-code/shared": "workspace:*",
+    "@volund/core": "workspace:*",
+    "@volund/shared": "workspace:*",
     "yaml": "catalog:"
   },
   "devDependencies": {

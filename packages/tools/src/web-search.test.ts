@@ -1,4 +1,4 @@
-import { PermissionManager } from '@apollo-code/permission'
+import { PermissionManager } from '@volund/permission'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToolExecutor } from './index'

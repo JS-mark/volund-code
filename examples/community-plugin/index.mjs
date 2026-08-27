@@ -1,6 +1,6 @@
-export async function activate(apollo) {
-  return apollo.tools.register({
-    name: 'plugin:apollo-plugin-community-example:community.echo',
+export async function activate(volund) {
+  return volund.tools.register({
+    name: 'plugin:volund-plugin-community-example:community.echo',
     description: 'Returns a local string without filesystem or network access.',
     inputSchema: {
       type: 'object',

@@ -1,6 +1,6 @@
 # L4 release evidence
 
-Apollo Code publishes a deterministic 8-target × 3-tier sandbox evidence matrix from the versioned `l4-evidence.schema.json` contract. The canonical generated matrix lives in `docs/releases/L4-EVIDENCE-MATRIX.md` in the repository.
+Volund CLI publishes a deterministic 8-target × 3-tier sandbox evidence matrix from the versioned `l4-evidence.schema.json` contract. The canonical generated matrix lives in `docs/releases/L4-EVIDENCE-MATRIX.md` in the repository.
 
 The matrix keeps build, native runtime, escape, signing, and notarization evidence separate. It also distinguishes native, cross, QEMU, and real-hardware execution. Missing, malformed, conflicting, or stale evidence blocks a stable release; a successful build never substitutes for a native escape result or an external signing gate.
 

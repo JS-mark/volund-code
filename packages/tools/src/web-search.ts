@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
-import { sanitize } from '@apollo-code/shared'
-import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
+import { sanitize } from '@volund/shared'
+import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 export interface WebSearchInput {
   query: string

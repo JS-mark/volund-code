@@ -1,6 +1,6 @@
 import { PassThrough, Writable } from 'node:stream'
 
-import { EventBus } from '@apollo-code/core'
+import { EventBus } from '@volund/core'
 import { render } from 'ink'
 import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -323,15 +323,15 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('Apollo Code  v0.0.0-test')
+    expect(stdout.output).toContain('Volund CLI  v0.0.0-test')
     expect(stdout.output).toContain('Session')
     expect(stdout.output).toContain('session-1234')
     expect(stdout.output).toContain('Model')
     expect(stdout.output).toContain('runtime resolved')
     expect(stdout.output).toContain('MCP')
     expect(stdout.output).toContain('1 connected / 2 configured')
-    expect(stdout.output).toMatch(/>\s*▌Ask Apollo/)
-    expect(stdout.output).not.toContain('apollo >')
+    expect(stdout.output).toMatch(/>\s*▌Ask Volund/)
+    expect(stdout.output).not.toContain('volund >')
     expect(stdout.output).toContain('agent ready')
     expect(stdout.output).toContain('mode auto')
     expect(stdout.output).toContain('thinking off')
@@ -403,8 +403,8 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
 
     expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout}`)
-    expect(stdout.output).toMatch(/>\s*▌Ask Apollo/)
-    expect(stdout.output).not.toContain('apollo >')
+    expect(stdout.output).toMatch(/>\s*▌Ask Volund/)
+    expect(stdout.output).not.toContain('volund >')
     expect(stdout.output).toContain('agent ready')
     expect(stdout.output).not.toContain('Ready. Start with a message or /help.')
   })
@@ -570,7 +570,7 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('Apollo')
+    expect(stdout.output).toContain('Volund')
     expect(stdout.output).toContain('/repo')
     expect(stdout.output).toContain('> hello')
     expect(stdout.output).toContain('pong')
@@ -867,7 +867,7 @@ describe('renderInteractiveApp', () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 100
     const input = render(
-      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 100 }),
+      createElement(InputBox, { placeholder: 'Ask volund', terminalColumns: 100 }),
       {
         debug: true,
         interactive: false,
@@ -881,8 +881,8 @@ describe('renderInteractiveApp', () => {
     input.unmount()
     await input.waitUntilExit()
 
-    expect(stdout.output).toContain('> ▌Ask Apollo')
-    expect(stdout.output).not.toContain('apollo >')
+    expect(stdout.output).toContain('> ▌Ask volund')
+    expect(stdout.output).not.toContain('volund >')
     expect(stdout.output).toContain('─')
     expect(stdout.output).not.toMatch(/[┌┐└┘│]/)
     expect(stdout.output).toContain('Enter send / Shift+Enter newline')
@@ -892,7 +892,7 @@ describe('renderInteractiveApp', () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 100
     const input = render(
-      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 100 }),
+      createElement(InputBox, { placeholder: 'Ask volund', terminalColumns: 100 }),
       {
         debug: true,
         interactive: false,
@@ -907,8 +907,8 @@ describe('renderInteractiveApp', () => {
     input.unmount()
     await input.waitUntilExit()
 
-    expect(stdout.output).toContain('> ▌Ask Apollo')
-    expect(stdout.output).toContain('>  Ask Apollo')
+    expect(stdout.output).toContain('> ▌Ask volund')
+    expect(stdout.output).toContain('>  Ask volund')
   })
 
   it('keeps the cursor visible at the end of typed input', async () => {
@@ -942,7 +942,7 @@ describe('renderInteractiveApp', () => {
           {
             cwd: '/repo',
             id: 'session-1234567890',
-            title: 'Apollo session',
+            title: 'volund session',
             updatedAt: '2026-08-10T00:00:00Z',
           },
         ],
@@ -968,7 +968,7 @@ describe('renderInteractiveApp', () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 60
     const input = render(
-      createElement(InputBox, { placeholder: 'Ask Apollo', terminalColumns: 60 }),
+      createElement(InputBox, { placeholder: 'Ask volund', terminalColumns: 60 }),
       {
         debug: true,
         interactive: false,
@@ -982,7 +982,7 @@ describe('renderInteractiveApp', () => {
     input.unmount()
     await input.waitUntilExit()
 
-    expect(stdout.output).toContain('Ask Apollo')
+    expect(stdout.output).toContain('Ask volund')
     expect(stdout.output).not.toContain('Enter send / Shift+Enter newline')
   })
 
@@ -1204,9 +1204,7 @@ describe('renderInteractiveApp', () => {
       {
         cwd: '/repo',
         // 内置号段：undo=40、status=50 —— order 45 应落在两者之间
-        slashCommands: [
-          { name: 'midway', order: 45, description: 'Interleaves', run: () => {} },
-        ],
+        slashCommands: [{ name: 'midway', order: 45, description: 'Interleaves', run: () => {} }],
       },
       {
         debug: true,
@@ -1284,13 +1282,13 @@ describe('renderInteractiveApp', () => {
                   label: 'Built-in (2)',
                   entries: [
                     {
-                      id: 'apollo-plugin-env',
+                      id: 'volund-plugin-env',
                       label: 'env',
                       value: '0.1.0',
                       status: 'loaded · 1 cmd',
-                      detail: 'apollo-plugin-env @ 0.1.0\nsource: builtin',
+                      detail: 'volund-plugin-env @ 0.1.0\nsource: builtin',
                     },
-                    { id: 'apollo-plugin-manager', label: 'manager', value: '0.1.0' },
+                    { id: 'volund-plugin-manager', label: 'manager', value: '0.1.0' },
                   ],
                 },
                 {
@@ -1298,11 +1296,11 @@ describe('renderInteractiveApp', () => {
                   label: 'Market (1)',
                   entries: [
                     {
-                      id: 'apollo-plugin-hello',
+                      id: 'volund-plugin-hello',
                       label: 'hello',
                       value: '1.0.0',
                       status: 'available · demo',
-                      detail: 'apollo-plugin-hello @ 1.0.0\nInstall with: /plugins install hello',
+                      detail: 'volund-plugin-hello @ 1.0.0\nInstall with: /plugins install hello',
                     },
                   ],
                 },
@@ -1355,7 +1353,7 @@ describe('renderInteractiveApp', () => {
       {
         cwd: '/repo',
         notices: [
-          'Builtin plugin apollo-plugin-env failed to activate: sandbox unavailable; refusing unsandboxed execution',
+          'Builtin plugin volund-plugin-env failed to activate: sandbox unavailable; refusing unsandboxed execution',
         ],
       },
       {
@@ -1372,7 +1370,7 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
     // 插件激活失败发生在 REPL 渲染前——必须直接可见，而不是攒到 stderr 退出才显示。
     expect(stdout.output).toContain(
-      'Builtin plugin apollo-plugin-env failed to activate: sandbox unavailable',
+      'Builtin plugin volund-plugin-env failed to activate: sandbox unavailable',
     )
   })
 
@@ -1423,7 +1421,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('qz')
   })
 
-  it('renders conversation entries as marker + text, without YOU/APOLLO labels', async () => {
+  it('renders conversation entries as marker + text, without YOU/volund labels', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
     const transcript = render(
@@ -1449,7 +1447,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('> fix the flaky test')
     expect(stdout.output).toContain('⏺ looking at the spec now')
     expect(stdout.output).not.toContain('YOU')
-    expect(stdout.output).not.toContain('APOLLO')
+    expect(stdout.output).not.toContain('volund')
   })
 
   it('shows a live streaming status with phase, token estimate, and esc hint', async () => {
@@ -1717,7 +1715,18 @@ describe('renderInteractiveApp', () => {
     const permissions = new PermissionPromptController()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
-    const longCommand = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+    const longCommand = [
+      'one',
+      'two',
+      'three',
+      'four',
+      'five',
+      'six',
+      'seven',
+      'eight',
+      'nine',
+      'ten',
+    ]
       .map((word, index) => `echo step ${index} ${word}`)
       .join('\n')
     const app = renderInteractiveApp(
@@ -2073,7 +2082,7 @@ describe('renderInteractiveApp', () => {
       sandbox: {
         status: 'available',
         tier: 'partial',
-        mechanism: 'apollo-sandbox',
+        mechanism: 'volund-sandbox',
         filesystem: 'isolated',
         network: 'unavailable',
       },

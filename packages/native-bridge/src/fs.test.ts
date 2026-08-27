@@ -51,7 +51,7 @@ describe('native fs reads during probing (r13-P1)', () => {
 
   it('readLarge serves local files through the JS fallback while probing', async () => {
     availability.fs = 'probing'
-    const dir = await mkdtemp(join(tmpdir(), 'apollo-fs-'))
+    const dir = await mkdtemp(join(tmpdir(), 'volund-fs-'))
     const path = join(dir, 'note.txt')
     await writeFile(path, 'hello probing', 'utf8')
     await expect(readLarge(path)).resolves.toBe('hello probing')

@@ -1,6 +1,0 @@
-{
-  "name": "apollo-plugin-sandbox-e2e",
-  "version": "0.0.0",
-  "type": "module",
-  "main": "community-plugin.mjs"
-}

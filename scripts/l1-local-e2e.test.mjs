@@ -7,7 +7,7 @@ import test from 'node:test'
 import { promisify } from 'node:util'
 
 const execute = promisify(execFile)
-const cli = new URL('../apps/cli/dist/apollo.js', import.meta.url)
+const cli = new URL('../apps/cli/dist/volund.js', import.meta.url)
 
 async function run(args, home) {
   try {
@@ -15,7 +15,7 @@ async function run(args, home) {
       cwd: path.dirname(cli.pathname),
       env: {
         PATH: process.env.PATH,
-        APOLLO_HOME: home,
+        VOLUND_HOME: home,
         NO_COLOR: '1',
       },
     })
@@ -26,7 +26,7 @@ async function run(args, home) {
 }
 
 void test('built CLI exposes honest no-secret JSON and no-TUI roots', async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), 'apollo-l1-e2e-'))
+  const home = await mkdtemp(path.join(os.tmpdir(), 'volund-l1-e2e-'))
   try {
     const status = await run(['status', '--json'], home)
     assert.equal(status.code, 0)

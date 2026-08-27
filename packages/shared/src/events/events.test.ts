@@ -90,13 +90,13 @@ describe('envelope (附录 D.1)', () => {
 })
 
 describe('per-event payload schemas', () => {
-  it('session.started: cwd required, configHash/apolloVersion optional', () => {
+  it('session.started: cwd required, configHash/volundVersion optional', () => {
     expect(sessionStartedPayloadSchema.parse({ cwd: '/repo' })).toEqual({ cwd: '/repo' })
     expect(
       sessionStartedPayloadSchema.parse({
         cwd: '/repo',
         configHash: 'abc123',
-        apolloVersion: '0.1.0',
+        volundVersion: '0.1.0',
       }),
     ).toBeTruthy()
     expect(sessionStartedPayloadSchema.safeParse({}).success).toBe(false)
@@ -371,7 +371,7 @@ describe('per-event payload schemas', () => {
     expect(errorRaisedPayloadSchema.parse({ code: 'provider_request_failed' })).toBeTruthy()
     expect(
       errorRaisedPayloadSchema.parse({
-        code: 'APOLLO_SUBAGENT_DEPTH_EXCEEDED',
+        code: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED',
         category: 'resource_exhausted',
         context: { depth: 4, max: 3 },
       }),
@@ -381,7 +381,7 @@ describe('per-event payload schemas', () => {
         code: 'builtin_hook_payload_too_large',
         context: {
           domain: 'builtin',
-          hook: 'apollo.secret-scan',
+          hook: 'volund.secret-scan',
           event: 'preToolUse',
           limitBytes: 1_048_576,
           rawBytes: 1_048_577,

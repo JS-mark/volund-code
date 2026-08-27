@@ -1,4 +1,4 @@
-import { createSession, EventBus, type Runner } from '@apollo-code/core'
+import { createSession, EventBus, type Runner } from '@volund/core'
 import { describe, expect, it, vi } from 'vitest'
 
 import { SubagentDispatcher } from './index'
@@ -84,7 +84,7 @@ describe('SubagentDispatcher', () => {
     for (const depth of [0, 1, 2])
       await expect(dispatcher.dispatch(parent(depth), { prompt: 'ok' })).resolves.toBeDefined()
     await expect(dispatcher.dispatch(parent(3), { prompt: 'no' })).rejects.toMatchObject({
-      code: 'APOLLO_SUBAGENT_DEPTH_EXCEEDED',
+      code: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED',
     })
   })
 
@@ -120,7 +120,7 @@ describe('SubagentDispatcher', () => {
     const first = dispatcher.dispatch(parent(), { prompt: 'one' })
     await vi.waitFor(() => expect(dispatcher.activeCount).toBe(1))
     await expect(dispatcher.dispatch(parent(), { prompt: 'two' })).rejects.toMatchObject({
-      code: 'APOLLO_SUBAGENT_CONCURRENCY_EXCEEDED',
+      code: 'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED',
     })
     release()
     await first

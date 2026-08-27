@@ -1,3 +1,4 @@
+import { productIdentity } from '@volund/shared'
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 
@@ -37,7 +38,9 @@ export function StatsView({ stats, columns }: StatsViewProps) {
     return (
       <Box flexDirection="column" minHeight={7}>
         <StatsSubviewTabs view={view} />
-        <Text dimColor>No session history found yet — stats build up as you use Apollo</Text>
+        <Text dimColor>
+          No session history found yet — stats build up as you use {productIdentity.shortName}
+        </Text>
       </Box>
     )
   const overview = stats.ranges[range]

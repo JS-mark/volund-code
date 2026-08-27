@@ -112,7 +112,7 @@ export interface CommandTabsSection {
   readonly entries: readonly CommandListEntry[]
 }
 /**
- * [env] 配置段的单条生效快照（`apollo.env.getEffective` 的返回元素，宿主侧
+ * [env] 配置段的单条生效快照（`volund.env.getEffective` 的返回元素，宿主侧
  * 计算）：configured 是配置值经前置解析（`~` / `${VAR}`）后的应用值，actual
  * 是当前 process.env 里的实际值（null = 未设置）；status = effective（一致）/
  * overridden（被外部改写）/ pending（尚未应用，如未经 applyEnv 的一次性子命令）。
@@ -127,9 +127,9 @@ export interface EffectiveEnvEntry {
   readonly sandboxPassthrough: boolean
 }
 /**
- * 宿主侧装载清单的单个插件（`apollo.plugins.list` 的返回元素，宿主侧计算）：
- * source = builtin（产物自带）/ dev（~/.apollo/plugins-dev + APOLLO_DEV_PLUGINS）/
- * market（市场安装到 ~/.apollo/plugins 的插件）。
+ * 宿主侧装载清单的单个插件（`volund.plugins.list` 的返回元素，宿主侧计算）：
+ * source = builtin（产物自带）/ dev（~/.volund/plugins-dev + VOLUND_DEV_PLUGINS）/
+ * market（市场安装到 ~/.volund/plugins 的插件）。
  */
 export interface PluginInventoryEntry {
   readonly name: string
@@ -161,7 +161,9 @@ export interface PluginInventory {
   readonly market: {
     readonly installed: readonly PluginInventoryEntry[]
     /** registry 缺省未配置 / 拉取失败时为 { error }，面板负责解释。 */
-    readonly registry: { source: string; plugins: readonly PluginMarketListing[] } | { error: string }
+    readonly registry:
+      | { source: string; plugins: readonly PluginMarketListing[] }
+      | { error: string }
   }
 }
 export interface PluginInstallResult {
@@ -244,9 +246,9 @@ export interface PluginStatusSectionSpec {
 
 export interface PluginManifest {
   kind?: 'plugin' | 'provider'
-  name: `apollo-plugin-${string}`
+  name: `volund-plugin-${string}`
   version: string
-  engines: { apollo: string }
+  engines: { volund: string }
   main: string
   type: 'module'
   contributes?: { ui?: readonly PluginUiContribution[]; [key: string]: unknown }
@@ -273,7 +275,7 @@ export interface PluginManifest {
     fs?: { read?: readonly string[]; write?: readonly string[] }
     bash?: { allowlist: readonly string[] }
     net?: false | { allowlist: readonly string[] }
-    apollo: readonly string[]
+    volund: readonly string[]
     memory?: {
       read?: readonly PluginMemoryScope[]
       write?: boolean
@@ -328,7 +330,7 @@ export interface PluginMemoryBridge {
 /** Versioned, data-only metadata returned by a plugin registry. */
 export interface PluginRegistryMetadata {
   schemaVersion: 1
-  name: `apollo-plugin-${string}`
+  name: `volund-plugin-${string}`
   version: string
   source: string
   bundle: {
@@ -345,7 +347,7 @@ export interface PluginRegistryMetadata {
 /** The signed payload excludes the signature bytes but binds every trust decision field. */
 export interface PluginRegistrySignedPayload {
   schemaVersion: 1
-  name: `apollo-plugin-${string}`
+  name: `volund-plugin-${string}`
   version: string
   source: string
   bundle: PluginRegistryMetadata['bundle']
@@ -357,8 +359,8 @@ export type {
   ProviderChunk,
   ProviderClient,
   ProviderRequest,
-} from '@apollo-code/provider-kit'
-export interface ApolloBridge {
+} from '@volund/provider-kit'
+export interface VolundBridge {
   readonly apiVersion: '1.0'
   readonly plugin: Readonly<{ name: string; version: string; dataDir: string }>
   readonly tools: {
@@ -378,16 +380,16 @@ export interface ApolloBridge {
   readonly commands: { register(spec: CommandSpec): Disposable }
   /**
    * [env] 配置段的生效视图（宿主侧数据，沙箱内读不到 process.env）。
-   * 需要 manifest `permissions.apollo` 包含 `'env.read'`（deny-by-default）。
+   * 需要 manifest `permissions.volund` 包含 `'env.read'`（deny-by-default）。
    * 仅本地（dev / 内置）通道提供；冻结中的 legacy Catalog 路径不实现，
-   * 插件侧应 `apollo.env?.getEffective()` 或 try/catch 降级。
+   * 插件侧应 `volund.env?.getEffective()` 或 try/catch 降级。
    */
   readonly env?: {
     getEffective(): Promise<readonly EffectiveEnvEntry[]>
   }
   /**
    * 插件装载清单与市场管理（宿主侧数据 + 宿主侧动作；沙箱内无网络，市场索引
-   * 的拉取/安装都由宿主完成）。需要 manifest `permissions.apollo` 包含
+   * 的拉取/安装都由宿主完成）。需要 manifest `permissions.volund` 包含
    * `'plugins.read'`（list / inspect）与 `'plugins.manage'`（install / approve /
    * enable / disable / uninstall），
    * deny-by-default。仅本地（内置 / dev / 市场）通道提供；插件侧应判空降级。
@@ -431,7 +433,7 @@ export interface ApolloBridge {
     notify(message: string, level?: 'info' | 'warn' | 'error'): void
     /**
      * /status 面板贡献（PLUGIN-STATUS-UI-r1）。需要 manifest
-     * `permissions.apollo` 包含 `'ui.status'`（deny-by-default）。
+     * `permissions.volund` 包含 `'ui.status'`（deny-by-default）。
      */
     readonly status: {
       registerTab(spec: PluginStatusTabSpec): Disposable
@@ -454,9 +456,9 @@ export interface ApolloBridge {
   /** Low-level transport retained for sandbox hosts. Prefer the typed namespaces above. */
   call<T = unknown>(method: string, params?: unknown): Promise<T>
 }
-export interface ApolloPlugin {
-  activate(apollo: ApolloBridge): void | Promise<void>
+export interface VolundPlugin {
+  activate(volund: VolundBridge): void | Promise<void>
   deactivate?(): void | Promise<void>
 }
-export const definePlugin = <T extends ApolloPlugin>(plugin: T): T => plugin
+export const definePlugin = <T extends VolundPlugin>(plugin: T): T => plugin
 export const defineTool = <T>(tool: T): T => tool

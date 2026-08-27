@@ -12,7 +12,7 @@ import {
 
 void test('isErrorCodeLiteral accepts snake_case and UPPER_SNAKE with at least two segments', () => {
   assert.equal(isErrorCodeLiteral('tool_loop_exhausted'), true)
-  assert.equal(isErrorCodeLiteral('APOLLO_UNSAFE_CWD'), true)
+  assert.equal(isErrorCodeLiteral('VOLUND_UNSAFE_CWD'), true)
   assert.equal(isErrorCodeLiteral('single'), false)
   assert.equal(isErrorCodeLiteral('has space'), false)
   assert.equal(isErrorCodeLiteral('camelCase'), false)

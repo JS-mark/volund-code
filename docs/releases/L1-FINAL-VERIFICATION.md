@@ -29,7 +29,7 @@ Do not begin the acceptance run until all items below are true:
 - Every L1 remediation PR is merged; each linked issue and residual risk has an owner.
 - CI can execute the TypeScript matrix and all four L1 native targets:
   `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, and `linux-arm64-gnu`.
-- An authorized operator has configured the Anthropic credential through Apollo's
+- An authorized operator has configured the Anthropic credential through Volund CLI's
   verified, masked login flow in a private interactive environment.
 - Credential values must not appear in shell arguments, environment dumps,
   telemetry exports, screenshots, issue comments, commits, or PR bodies.
@@ -96,7 +96,7 @@ For each target, record evidence separately:
 | --- | --- |
 | Target identity | OS, architecture, libc where applicable, OS/kernel version, runner type |
 | Artifact identity | Package name/version, archive checksum, source revision |
-| Strict doctor | Full sanitized output and exit code from `apollo doctor --strict` |
+| Strict doctor | Full sanitized output and exit code from `volund doctor --strict` |
 | Sandbox probe | Tier, mechanism, features, known limitations |
 | Escape suite | Suite revision, tests passed/total, `escape.pass_ratio`, durable log URL |
 | Native workers | Real search/fs/sandbox binaries discovered and exercised |
@@ -130,7 +130,7 @@ and evidence templates, but they must not change `L1-DOGFOOD.md` to `PASS`.
 
 Choose a small, real, reviewable defect in a repository the operator may modify.
 Before starting, write down only the public task description and expected test;
-do not pre-author the patch. The task must require Apollo to:
+do not pre-author the patch. The task must require Volund CLI to:
 
 1. read the relevant source and failing test;
 2. propose or perform an edit;
@@ -140,9 +140,9 @@ do not pre-author the patch. The task must require Apollo to:
 
 ### Run conditions
 
-- Start from the frozen Apollo candidate and a clean task-repository branch.
-- Run `apollo doctor --strict`; all required checks must pass before prompting.
-- Use the real Anthropic provider resolved through Apollo auth.
+- Start from the frozen Volund CLI candidate and a clean task-repository branch.
+- Run `volund doctor --strict`; all required checks must pass before prompting.
+- Use the real Anthropic provider resolved through Volund CLI auth.
 - Keep sandboxing and the normal permission chain enabled.
 - Do not paste a credential into the prompt, command line, source, config,
   screenshot, session export, issue, commit, or PR.

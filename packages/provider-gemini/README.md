@@ -1,6 +1,6 @@
-# `@apollo-code/provider-gemini`
+# `@volund/provider-gemini`
 
-Gemini `generateContent` adapter for Apollo Code. The package maps the provider-neutral
+Gemini `generateContent` adapter for Volund CLI. The package maps the provider-neutral
 message and tool contracts to Gemini REST requests and normalizes SSE responses back to
 `ProviderChunk` values.
 

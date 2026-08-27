@@ -18,6 +18,9 @@ export const TARGETS = [
 const SHA256 = /^[a-f0-9]{64}$/
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const safe = (value) => JSON.stringify(String(value))
+const displayName = 'Volund CLI'
+const commandName = 'volund'
+const description = 'Open, model-agnostic AI coding CLI'
 
 export function validateChannelInput(input) {
   const errors = []
@@ -60,10 +63,10 @@ export function validateChannelInput(input) {
 }
 
 const yaml = (input, assets) =>
-  `# ${input.disclosure}\nPackageIdentifier: ApolloCode.ApolloCode\nPackageVersion: ${input.version}\nPackageLocale: en-US\nPublisher: Apollo Code\nPackageName: Apollo Code\nLicense: ${input.license}\nShortDescription: Multi-provider terminal coding agent\nManifestType: singleton\nManifestVersion: 1.9.0\nInstallers:\n${assets
+  `# ${input.disclosure}\nPackageIdentifier: VolundCode.VolundCode\nPackageVersion: ${input.version}\nPackageLocale: en-US\nPublisher: ${displayName}\nPackageName: ${displayName}\nLicense: ${input.license}\nShortDescription: ${description}\nManifestType: singleton\nManifestVersion: 1.9.0\nInstallers:\n${assets
     .map(
       (asset) =>
-        `  - Architecture: ${asset.target.includes('arm64') ? 'arm64' : 'x64'}\n    InstallerType: zip\n    InstallerUrl: ${asset.url}\n    InstallerSha256: ${asset.sha256.toUpperCase()}\n    NestedInstallerType: portable\n    NestedInstallerFiles:\n      - RelativeFilePath: apollo.exe\n        PortableCommandAlias: apollo\n    # Tier: ${asset.tier}; ${asset.tierReason}`,
+        `  - Architecture: ${asset.target.includes('arm64') ? 'arm64' : 'x64'}\n    InstallerType: zip\n    InstallerUrl: ${asset.url}\n    InstallerSha256: ${asset.sha256.toUpperCase()}\n    NestedInstallerType: portable\n    NestedInstallerFiles:\n      - RelativeFilePath: volund.exe\n        PortableCommandAlias: ${commandName}\n    # Tier: ${asset.tier}; ${asset.tierReason}`,
     )
     .join('\n')}\n`
 
@@ -76,17 +79,19 @@ export function renderChannelFiles(input) {
   const linux = TARGETS.filter((target) => target.startsWith('linux-')).map((target) =>
     byTarget.get(target),
   )
-  const formula = `# ${input.disclosure}\nclass ApolloCode < Formula\n  desc "Multi-provider terminal coding agent"\n  homepage "https://github.com/JS-mark/apollo-code"\n  version ${safe(input.version)}\n  license ${safe(input.license)}\n\n${mac
+  const formula = `# ${input.disclosure}\nclass VolundCode < Formula\n  desc ${safe(`${displayName} — ${description}`)}\n  homepage "https://github.com/JS-mark/volund-code"\n  version ${safe(input.version)}\n  license ${safe(input.license)}\n\n${mac
     .map(
       (asset) =>
         `  on_${asset.target.includes('arm64') ? 'arm' : 'intel'} do\n    url ${safe(asset.url)}\n    sha256 ${safe(asset.sha256)}\n    # Tier: ${asset.tier}; ${asset.tierReason}\n  end`,
     )
-    .join('\n\n')}\n\n  def install\n    bin.install "apollo"\n  end\nend\n`
+    .join(
+      '\n\n',
+    )}\n\n  def install\n    bin.install "volund"\n    bin.install_symlink "volund" => "${commandName}"\n  end\nend\n`
   const apt = {
     schemaVersion: 1,
     disclosure: input.disclosure,
     evidenceGate: input.evidenceGate,
-    package: 'apollo-code',
+    package: 'volund-code',
     version: input.version,
     license: input.license,
     dependencies: input.dependencies,
@@ -106,8 +111,8 @@ export function renderChannelFiles(input) {
       .map((asset) => `${asset.sha256}  ${new URL(asset.url).pathname.split('/').at(-1)}`)
       .join('\n') + '\n'
   return new Map([
-    ['homebrew/Formula/apollo-code.rb', formula],
-    ['winget/ApolloCode.ApolloCode.yaml', yaml(input, windows)],
+    ['homebrew/Formula/volund-code.rb', formula],
+    ['winget/VolundCode.VolundCode.yaml', yaml(input, windows)],
     ['apt/packages.json', `${JSON.stringify(apt, null, 2)}\n`],
     ['checksums.sha256', checksums],
   ])

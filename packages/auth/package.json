@@ -1,5 +1,5 @@
 {
-  "name": "@apollo-code/auth",
+  "name": "@volund/auth",
   "version": "0.1.0",
   "files": [
     "dist"
@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@apollo-code/shared": "workspace:*",
+    "@volund/shared": "workspace:*",
     "hash-wasm": "^4.12.0"
   },
   "devDependencies": {

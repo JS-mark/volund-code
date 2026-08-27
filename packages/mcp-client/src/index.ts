@@ -1,9 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
-import type { PermissionSpec } from '@apollo-code/permission'
-import type { JsonValue } from '@apollo-code/shared'
-import type { Tool, ToolContext, ToolRegistry, ToolResult } from '@apollo-code/tool-kit'
+import type { PermissionSpec } from '@volund/permission'
+import type { JsonValue } from '@volund/shared'
+import type { Tool, ToolContext, ToolRegistry, ToolResult } from '@volund/tool-kit'
 
 export const MCP_PROTOCOL_VERSION = '2025-03-26'
 const DEFAULT_LIMIT = 4 * 1024 * 1024
@@ -62,7 +62,9 @@ export class StdioTransport implements McpTransport {
       onClose(
         code === 0
           ? undefined
-          : new Error(`MCP server exited (${code ?? signal})${tail ? `; stderr tail: ${tail}` : ''}`),
+          : new Error(
+              `MCP server exited (${code ?? signal})${tail ? `; stderr tail: ${tail}` : ''}`,
+            ),
       )
     })
   }
@@ -156,7 +158,7 @@ export class HttpSseTransport implements McpTransport {
         params: {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: 'apollo-code', version: '0.0.0' },
+          clientInfo: { name: 'volund-cli', version: '0.0.0' },
         },
       }),
       signal: this.#abort!.signal,
@@ -260,7 +262,7 @@ export class McpClient {
     const result = await this.request('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: 'apollo-code', version: '0.0.0' },
+      clientInfo: { name: 'volund-cli', version: '0.0.0' },
     })
     await this.notify('notifications/initialized')
     this.#started = true

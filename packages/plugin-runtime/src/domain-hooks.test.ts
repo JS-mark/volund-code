@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
+import type { PluginManifest } from '@volund/plugin-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -13,12 +13,12 @@ import {
 } from './index'
 
 const manifest: PluginManifest = {
-  name: 'apollo-plugin-git-helper',
+  name: 'volund-plugin-git-helper',
   version: '1.0.0',
-  engines: { apollo: '0.1.0' },
+  engines: { volund: '0.1.0' },
   main: 'index.js',
   type: 'module',
-  permissions: { apollo: ['hooks.on'] },
+  permissions: { volund: ['hooks.on'] },
 }
 
 function stubHost(log: (level: string, message: string) => void = () => {}): BridgeHost {
@@ -65,7 +65,7 @@ const jsonBytes = (value: unknown) => Buffer.from(canonicalJson(value), 'utf8')
 const jsonDigest = (value: unknown) =>
   `sha256:${createHash('sha256').update(jsonBytes(value)).digest('hex')}`
 const taggedBytesPayload = (bytes: Buffer) =>
-  Buffer.from(`{"bytes":{"$apollo.bytes.v1":"${bytes.toString('base64')}"}}`, 'utf8')
+  Buffer.from(`{"bytes":{"$volund.bytes.v1":"${bytes.toString('base64')}"}}`, 'utf8')
 const sha256Digest = (bytes: Uint8Array) =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 const payloadAtSerializedBytes = (bytes: number, suffix = '') => {
@@ -98,7 +98,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     expect(signals[0]).toMatchObject({
       kind: 'builtin_hook_timeout',
       domain: 'builtin',
-      hook: 'apollo.builtin',
+      hook: 'volund.builtin',
       event: 'preToolUse',
       timeoutMs: HOOK_HANDLER_TIMEOUT_MS,
     })
@@ -154,7 +154,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       expect.objectContaining({
         kind: 'builtin_hook_error',
         code: 'builtin_hook_error',
-        hook: 'apollo.builtin',
+        hook: 'volund.builtin',
         message: 'scanner crashed',
       }),
     ])
@@ -188,7 +188,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
           kind: 'hook_skipped',
           code: 'hook_skipped',
           domain,
-          hook: domain === 'plugin' ? manifest.name : `apollo.${domain}`,
+          hook: domain === 'plugin' ? manifest.name : `volund.${domain}`,
           event: 'preToolUse',
           cause: 'error',
           message: cloneErrorMessage,
@@ -224,7 +224,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
             },
           })
         },
-        { name: 'apollo.malformed' },
+        { name: 'volund.malformed' },
       )
       runtime.registerHostHook('project', 'preToolUse', later)
       const signals: HookPipelineSignal[] = []
@@ -244,7 +244,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
           kind: 'builtin_hook_error',
           code: 'builtin_hook_error',
           domain: 'builtin',
-          hook: 'apollo.malformed',
+          hook: 'volund.malformed',
           event: 'preToolUse',
           message: trapMessage,
         },
@@ -282,7 +282,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
           kind: 'hook_skipped',
           code: 'hook_skipped',
           domain,
-          hook: domain === 'plugin' ? manifest.name : `apollo.${domain}`,
+          hook: domain === 'plugin' ? manifest.name : `volund.${domain}`,
           event: 'preToolUse',
           cause: 'error',
           message: trapMessage,
@@ -325,10 +325,10 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     })
     runtime.registerHostHook('builtin', 'preToolUse', () => {
       calls.push('builtin')
-      return { veto: true, reason: 'blocked by apollo.secret-scan' }
+      return { veto: true, reason: 'blocked by volund.secret-scan' }
     })
     const outcome = await runtime.runDomainHooks('preToolUse', { tool: 'Bash' })
-    expect(outcome).toEqual({ veto: true, reason: 'blocked by apollo.secret-scan' })
+    expect(outcome).toEqual({ veto: true, reason: 'blocked by volund.secret-scan' })
     expect(calls).toEqual(['builtin'])
   })
 
@@ -407,7 +407,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
   it('vetoes an oversized builtin payload before a dangerous tail can bypass the scanner', async () => {
     const runtime = new BridgeRuntime(stubHost())
     const handler = vi.fn()
-    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'apollo.secret-scan' })
+    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'volund.secret-scan' })
     const signals: HookPipelineSignal[] = []
     const dangerousTail = ' api_key=top-secret; rm -rf /'
     const payload = {
@@ -426,7 +426,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
         kind: 'builtin_hook_payload_too_large',
         code: 'builtin_hook_payload_too_large',
         domain: 'builtin',
-        hook: 'apollo.secret-scan',
+        hook: 'volund.secret-scan',
         event: 'preToolUse',
         limitBytes: BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES,
         rawBytes: jsonBytes(payload).byteLength,
@@ -625,7 +625,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     const runtime = new BridgeRuntime(stubHost())
     const handler = vi.fn()
     const signals: HookPipelineSignal[] = []
-    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'apollo.secret-scan' })
+    runtime.registerHostHook('builtin', 'preToolUse', handler, { name: 'volund.secret-scan' })
     const outcome = await runtime.runDomainHooks('preToolUse', make(), {
       report: (signal) => signals.push(signal),
     })
@@ -637,7 +637,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       expect.objectContaining({
         kind: 'builtin_hook_error',
         code: 'builtin_hook_error',
-        hook: 'apollo.secret-scan',
+        hook: 'volund.secret-scan',
         event: 'preToolUse',
       }),
     ])
@@ -880,10 +880,10 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       'builtin',
       'preToolUse',
       () => ({ value: payloadAtSerializedBytes(BUILTIN_HOOK_PAYLOAD_LIMIT_BYTES + 1) }),
-      { name: 'apollo.first', priority: 1000 },
+      { name: 'volund.first', priority: 1000 },
     )
     runtime.registerHostHook('builtin', 'preToolUse', second, {
-      name: 'apollo.second',
+      name: 'volund.second',
       priority: 999,
     })
     const signals: HookPipelineSignal[] = []
@@ -899,7 +899,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     expect(signals).toEqual([
       expect.objectContaining({
         kind: 'builtin_hook_payload_too_large',
-        hook: 'apollo.first',
+        hook: 'volund.first',
         scanStatus: 'not_started',
         decision: 'veto',
       }),
@@ -937,7 +937,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
     expect(signals).toEqual([
       expect.objectContaining({
         kind: 'builtin_hook_payload_too_large',
-        hook: 'apollo.builtin',
+        hook: 'volund.builtin',
         scanStatus: 'not_started',
         decision: 'veto',
       }),
@@ -983,7 +983,7 @@ describe('domain-aware hook dispatch (r13-I10, REM-52)', () => {
       })
       expect(outcome?.veto).toBe(true)
       expect(outcome?.reason).toBe(
-        'builtin hook apollo.builtin on preToolUse payload serialization failed (fail-closed)',
+        'builtin hook volund.builtin on preToolUse payload serialization failed (fail-closed)',
       )
       expect(signals).toEqual([
         expect.objectContaining({

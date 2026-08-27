@@ -1,4 +1,4 @@
-import type { ApolloErrorCategory, JsonValue } from '@apollo-code/shared'
+import type { VolundErrorCategory, JsonValue } from '@volund/shared'
 
 export interface Usage {
   input: number
@@ -7,7 +7,7 @@ export interface Usage {
   cacheWrite?: number
   costUSD?: number
 }
-export type ProviderErrorCategory = ApolloErrorCategory
+export type ProviderErrorCategory = VolundErrorCategory
 export interface ProviderError extends Error {
   provider: string
   model?: string

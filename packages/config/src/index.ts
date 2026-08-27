@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
 import {
-  ApolloError,
+  VolundError,
   ConfigSchema,
   isProjectOverrideForbidden,
   type JsonValue,
-} from '@apollo-code/shared'
+} from '@volund/shared'
 export type Config = Record<string, JsonValue>
 export type TrustDecision = 'allow-project' | 'allow-once' | 'deny'
 export interface ConfigLayerOptions {
@@ -43,7 +43,7 @@ function flatten(
 function assign(out: Config, key: string, value: JsonValue) {
   const parts = key.split('.')
   if (parts.some((part) => forbiddenKeySegments.has(part)))
-    throw new ApolloError('config_invalid', `forbidden config key segment in '${key}'`)
+    throw new VolundError('config_invalid', `forbidden config key segment in '${key}'`)
   let cursor = out
   for (const part of parts.slice(0, -1)) {
     const next = cursor[part]
@@ -129,7 +129,7 @@ export interface ConfigValidationResult {
 /**
  * r13-I4 未知 key 策略（§8.3 / 附录 C.1）：
  * - 未知 key（顶层未知 section 与已知 section 内未知 key）→ warn + 忽略（向前兼容）；
- * - 已知 key 类型错 → 抛 `config_invalid`（ApolloError，含文件 + key + 期望类型）。
+ * - 已知 key 类型错 → 抛 `config_invalid`（VolundError，含文件 + key + 期望类型）。
  */
 export function validateConfig(
   input: Config,
@@ -159,7 +159,7 @@ export function validateConfig(
     }
   }
   if (typeErrors.length > 0)
-    throw new ApolloError(
+    throw new VolundError(
       'config_invalid',
       `invalid config in ${options.file}: ${typeErrors.join('; ')}`,
     )

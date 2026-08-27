@@ -1,0 +1,13 @@
+OpenAI Codex
+Copyright 2025 OpenAI
+
+This project includes code derived from [Ratatui](https://github.com/ratatui/ratatui), licensed under the MIT license.
+Copyright (c) 2016-2022 Florian Dehau
+Copyright (c) 2023-2025 The Ratatui Developers
+
+Bubblewrap 0.11.2
+Copyright (C) 2016 Alexander Larsson
+The bundled Linux payload is built from Bubblewrap source under the
+GNU Lesser General Public License, version 2 or later. The complete license
+and source used for the build are retained under
+crates/volund-sandbox/resources/bwrap/source/.

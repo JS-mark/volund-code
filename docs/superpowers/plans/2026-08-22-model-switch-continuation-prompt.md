@@ -13,7 +13,7 @@
 
 【项目目标】
 
-将 Apollo Code 演进为一个可发布的、自有 Agent Harness：
+将 volund Code 演进为一个可发布的、自有 Agent Harness：
 
 - Everything extensible is a capability plugin; the K0 security kernel is not.
 - AI capability 可通过受控 Self-Development 流程改进；
@@ -31,7 +31,7 @@
 
 【工作区快照】
 
-- cwd: /Users/mark/myself/code/apollo-code
+- cwd: /Users/mark/myself/code/volund-code
 - branch: codex/self-evolution
 - snapshot base：分支已 rebase 到 origin/main（37e4f14）并为 PR #127；`packages/capability-contract` 已应用户决定移除（32ef709），工作保留于历史与本地分支 `abi00-bootstrap-backup`
 - 提交本提示词更新后，实际 HEAD 应是该基线的后代（含一个 docs(progress) commit）；启动时必须读取并审查后续 commits，不能把 2ab8aee 当成永远不变的 current HEAD。
@@ -44,11 +44,11 @@
    - docs/superpowers/plans/2026-08-21-self-evolution-progress-handoff.md
    - docs/superpowers/plans/2026-08-22-brand-identity-and-migration.md
    - docs/superpowers/plans/2026-08-20-plugin-kernel-implementation.md
-   - docs/superpowers/specs/2026-07-31-apollo-code-design/15-self-evolution.md
-   - docs/superpowers/specs/2026-07-31-apollo-code-design/18-self-development.md
-   - docs/superpowers/specs/2026-07-31-apollo-code-design/19-plugin-kernel.md
-   - docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md
-   - docs/superpowers/specs/2026-07-31-apollo-code-design/20-harness.md
+   - docs/superpowers/specs/2026-07-31-volund-code-design/15-self-evolution.md
+   - docs/superpowers/specs/2026-07-31-volund-code-design/18-self-development.md
+   - docs/superpowers/specs/2026-07-31-volund-code-design/19-plugin-kernel.md
+   - docs/superpowers/specs/2026-07-31-volund-code-design/19a-capability-contract.md
+   - docs/superpowers/specs/2026-07-31-volund-code-design/20-harness.md
 2. 只读运行 git status --short --branch、git rev-parse HEAD、git log --oneline -8。
 3. 若 actual branch 不是 codex/self-evolution，只报告并核实原因，禁止自动 checkout；分支变化可能属于用户或另一任务。
 4. 若 actual HEAD 不是 snapshot base 的后代，先判断是后续有效进展还是意外漂移；更新 handoff，不能直接恢复旧版本。
@@ -77,7 +77,7 @@
 
 【下一步严格顺序】
 
-1. ~~ABI-00 bootstrap contract package~~ 已完成并经 R4 0C/0I，但 2026-08-23 用户决定从发布分支移除（32ef709）；恢复起点 = 本地分支 `abi00-bootstrap-backup`。**registry 阶段暂停，等用户重决策**。若恢复，下一步：ABI-00 registry/generator 阶段——bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus，输入是已冻结的 §19a 与 2ab8aee 的 bootstrap 原语。补齐暂缓/登记 Minor：D/E/N 表 InvocationDecisionProof parent 行（机器推导）、RECONCILING ledger 边集、packlist test 构件排除、corpus metadata expectedRole 对齐、duplicate offset 语义说明。第一条命令：`git show 2ab8aee --stat && sed -n 1,80p docs/superpowers/specs/2026-07-31-apollo-code-design/19a-capability-contract.md`。随后进入 P0 Rust reference monitor。
+1. ~~ABI-00 bootstrap contract package~~ 已完成并经 R4 0C/0I，但 2026-08-23 用户决定从发布分支移除（32ef709）；恢复起点 = 本地分支 `abi00-bootstrap-backup`。**registry 阶段暂停，等用户重决策**。若恢复，下一步：ABI-00 registry/generator 阶段——bootstrap meta-schema + single versioned registry + TS/Rust 生成器 + large-recipe corpus，输入是已冻结的 §19a 与 2ab8aee 的 bootstrap 原语。补齐暂缓/登记 Minor：D/E/N 表 InvocationDecisionProof parent 行（机器推导）、RECONCILING ledger 边集、packlist test 构件排除、corpus metadata expectedRole 对齐、duplicate offset 语义说明。第一条命令：`git show 2ab8aee --stat && sed -n 1,80p docs/superpowers/specs/2026-07-31-volund-code-design/19a-capability-contract.md`。随后进入 P0 Rust reference monitor。
 2. 品牌 discovery/freeze 并行准备（只读）；最终 identity 是用户硬门。
 3. ~~T1b~~ 已完成（5c85d82）。历史任务卡（不再执行）：
    - 已按合同完成并提交（5c85d82）；EACCES/decoder 边角/TuningMemoryStore id join 等 T1a Minor 已随该提交吸收。
@@ -92,13 +92,13 @@
 
 【品牌状态】
 
-- Canonical identity: UNDECIDED；Apollo Code 仍是迁移 placeholder。
+- Canonical identity: UNDECIDED；volund Code 仍是迁移 placeholder。
 - 用户明确要求：AI + 安全 + 极简；Everything is Plugin + Sandbox + Rust。
 - 精确原则：Everything extensible is a capability plugin; the K0 security kernel is not.
 - Cereward AI = WITHDRAWN / DO NOT USE；Evalistry = REJECTED；Rigorbind = CLEARANCE-REJECTED / DO NOT USE。
 - Controlled Port 只是待用户视觉确认的工作方向：capability cell + continuous K0 boundary + single logical K0 authority chokepoint。
 - Rust-enforced 必须逐平台、逐 effect surface 取证；Memory/UI 当前只能按事实称 Rust-authorized + TS effect semantics。
-- 不允许全局替换 Apollo。v1 wire/event/error/schema/plugin identifiers、历史 evidence/digest/signature/artifact/tag 必须冻结或通过 v2/alias/migrator 演进。
+- 不允许全局替换 volund。v1 wire/event/error/schema/plugin identifiers、历史 evidence/digest/signature/artifact/tag 必须冻结或通过 v2/alias/migrator 演进。
 - BRAND-DISCOVERY/FREEZE 可并行；实际 BRAND-MIGRATE 依赖 cleared identity + CAT-02；BRAND-VERIFY 通过后才可接 ABI runtime production wiring。
 - 等待用户确认的硬门：全新名称更偏“可信边界”还是更偏“受控演进”？（推荐“可信边界”，受控演进放入 tagline；不得复活旧候选。）
 
@@ -132,7 +132,7 @@
 如果之后切换回来，只需发送：
 
 ```text
-继续 /Users/mark/myself/code/apollo-code。先完整读取：
+继续 /Users/mark/myself/code/volund-code。先完整读取：
 1. docs/superpowers/plans/2026-08-21-self-evolution-progress-handoff.md
 2. docs/superpowers/plans/2026-08-22-model-switch-continuation-prompt.md
 3. docs/superpowers/plans/2026-08-22-brand-identity-and-migration.md

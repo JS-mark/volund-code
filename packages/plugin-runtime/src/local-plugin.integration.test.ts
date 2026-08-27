@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { probeSandbox, resolveBinary } from '@apollo-code/native-bridge'
+import { probeSandbox, resolveBinary } from '@volund/native-bridge'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { activateLocalPlugin, type ActivatedLocalPlugin } from './local-plugin'
@@ -21,9 +21,9 @@ afterEach(async () => {
 
 async function sandboxAvailable(): Promise<boolean> {
   // 本地 cargo 构建兜底（开发机）；CI 无沙箱时跳过。
-  const debugBinary = join(repoRoot, 'target', 'debug', 'apollo-sandbox')
-  if (!process.env.APOLLO_NATIVE_SANDBOX_BINARY)
-    process.env.APOLLO_NATIVE_SANDBOX_BINARY = debugBinary
+  const debugBinary = join(repoRoot, 'target', 'debug', 'volund-sandbox')
+  if (!process.env.VOLUND_NATIVE_SANDBOX_BINARY)
+    process.env.VOLUND_NATIVE_SANDBOX_BINARY = debugBinary
   try {
     const binary = await resolveBinary('sandbox')
     if (!binary) return false
@@ -35,21 +35,21 @@ async function sandboxAvailable(): Promise<boolean> {
 }
 
 describe('activateLocalPlugin（沙箱插件宿主端到端）', () => {
-  it('loads the demo plugin through apollo-sandbox and renders its status tabs', async () => {
+  it('loads the demo plugin through volund-sandbox and renders its status tabs', async () => {
     if (!(await sandboxAvailable())) {
       console.warn('sandbox unavailable; skipping plugin host e2e')
       return
     }
-    const dataDir = await mkdtemp(join(tmpdir(), 'apollo-plugin-data-'))
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-data-'))
     dirs.push(dataDir)
     const activated = await activateLocalPlugin({
       dir: demoPluginDir,
-      apolloVersion: '0.1.0',
+      volundVersion: '0.1.0',
       dataDirRoot: dataDir,
       services: { getSessionUsage: () => ({ inputTokens: 12, outputTokens: 34, cost: 0.5 }) },
     })
     handles.push(activated)
-    expect(activated.manifest.name).toBe('apollo-plugin-status-demo')
+    expect(activated.manifest.name).toBe('volund-plugin-status-demo')
     expect(activated.statusTabs.map((tab) => tab.id)).toEqual(['plugin-demo', 'plugin-demo-pulse'])
 
     // render 经 callback.invoke 回到沙箱进程取值
@@ -59,7 +59,7 @@ describe('activateLocalPlugin（沙箱插件宿主端到端）', () => {
     }
     expect(rowsBody.kind).toBe('rows')
     const flat = rowsBody.sections.flatMap((section) => section.rows)
-    expect(flat).toContainEqual(['Plugin', 'apollo-plugin-status-demo@0.1.0'])
+    expect(flat).toContainEqual(['Plugin', 'volund-plugin-status-demo@0.1.0'])
     expect(flat).toContainEqual(['Session tokens', '12 in / 34 out'])
 
     const heatmapBody = (await activated.statusTabs[1]!.render()) as {
@@ -73,25 +73,25 @@ describe('activateLocalPlugin（沙箱插件宿主端到端）', () => {
 
   it('surfaces a clear error when the plugin entry throws during activation', async () => {
     if (!(await sandboxAvailable())) return
-    const dir = await mkdtemp(join(tmpdir(), 'apollo-plugin-bad-'))
+    const dir = await mkdtemp(join(tmpdir(), 'volund-plugin-bad-'))
     dirs.push(dir)
     const { writeFile } = await import('node:fs/promises')
     await writeFile(
       join(dir, 'manifest.json'),
       JSON.stringify({
-        name: 'apollo-plugin-bad',
+        name: 'volund-plugin-bad',
         version: '1.0.0',
         type: 'module',
         main: 'index.mjs',
-        engines: { apollo: '^0.1.0' },
-        permissions: { apollo: ['ui.status'] },
+        engines: { volund: '^0.1.0' },
+        permissions: { volund: ['ui.status'] },
       }),
     )
     await writeFile(join(dir, 'index.mjs'), 'throw new Error("boom")')
     await expect(
       activateLocalPlugin({
         dir,
-        apolloVersion: '0.1.0',
+        volundVersion: '0.1.0',
         dataDirRoot: join(dir, 'data-root'),
         services: {},
         handshakeTimeoutMs: 5_000,

@@ -8,7 +8,7 @@ Memory keyword recall must remain fast without turning a derived search structur
 
 ## Decision
 
-`@apollo-code/storage` defines separate `MemoryIndex`, `MemoryIndexMaintenance`, `MemoryRecallService`, and `MemoryMaintenanceService` ports. `LocalKeywordMemoryIndex` stores schema version 1, a unique generation, a source fingerprint, source update tokens, and normalized keyword frequencies. It stores no complete memory body. The adapter performs no network or embedding calls.
+`@volund/storage` defines separate `MemoryIndex`, `MemoryIndexMaintenance`, `MemoryRecallService`, and `MemoryMaintenanceService` ports. `LocalKeywordMemoryIndex` stores schema version 1, a unique generation, a source fingerprint, source update tokens, and normalized keyword frequencies. It stores no complete memory body. The adapter performs no network or embedding calls.
 
 `IndexingMemoryService` is the production `MemoryService`. It writes a dirty marker before each fact mutation, persists the fact through the existing atomic repository, incrementally upserts or removes the returned full record, then clears the marker. Startup compares the index fingerprint with all active facts and safely rebuilds a missing, dirty, stale, or corrupt index.
 

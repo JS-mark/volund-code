@@ -9,7 +9,7 @@ import type {
   ContextSnapshot,
   Message,
   ProviderClient,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export interface TokenCounter {
   countTokens(text: string, model: string): number | Promise<number>

@@ -21,8 +21,8 @@ void test('publishes all native binaries as versioned GitHub Release assets', as
     readFile(new URL('pnpm-workspace.yaml', root), 'utf8'),
   ])
   assert.match(workflow, /tags: \['v\*'\]/)
-  assert.match(workflow, /release-assets\/apollo-\$kind-\$suffix\$extension/)
-  assert.match(workflow, /sha256sum apollo-\* > checksums\.sha256/)
+  assert.match(workflow, /release-assets\/volund-\$kind-\$suffix\$extension/)
+  assert.match(workflow, /sha256sum volund-\* > checksums\.sha256/)
   assert.match(workflow, /gh release upload/)
   assert.doesNotMatch(bridge, /optionalDependencies/)
   assert.doesNotMatch(workspace, /platforms\/\*/)
@@ -43,12 +43,12 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   )
   assert.match(
     nativeWorkflow,
-    /runner\.os == 'Windows'[\s\S]*pnpm turbo run build --filter=apollo-code\.\.\. --concurrency=1/,
+    /runner\.os == 'Windows'[\s\S]*pnpm turbo run build --filter=volund-cli\.\.\. --concurrency=1/,
     'Windows native jobs must avoid concurrent Node DLL initialization failures',
   )
   assert.match(
     nativeWorkflow,
-    /runner\.os != 'Windows'[\s\S]*pnpm turbo run build --filter=apollo-code\.\.\./,
+    /runner\.os != 'Windows'[\s\S]*pnpm turbo run build --filter=volund-cli\.\.\./,
     'native jobs must not start the independent TypeDoc/VitePress build in parallel',
   )
   assert.doesNotMatch(nativeWorkflow, /runner\.os == 'Windows'[\s\S]{0,120}docs/)
@@ -64,7 +64,7 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   assert.match(escapeWorkflow, /name: Record verification evidence\s+shell: bash\s+run:/)
 
   const windowsTier2 = await readFile(
-    new URL('crates/apollo-sandbox/tests/escape/windows-tier2.ps1', root),
+    new URL('crates/volund-sandbox/tests/escape/windows-tier2.ps1', root),
     'utf8',
   )
   assert.match(escapeWorkflow, /verification: native-tier2/)
@@ -77,7 +77,7 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
 
   const graviton = await readFile(new URL('.github/workflows/graviton-evidence.yml', root), 'utf8')
   assert.match(graviton, /workflow_dispatch:/)
-  assert.match(graviton, /self-hosted, linux, arm64, apollo-graviton/)
+  assert.match(graviton, /self-hosted, linux, arm64, volund-graviton/)
   assert.match(graviton, /candidate_sha=.*inputs\.candidate_sha/)
   assert.match(graviton, /exit_code=/)
 

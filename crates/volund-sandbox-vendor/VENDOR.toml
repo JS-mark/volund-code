@@ -1,0 +1,54 @@
+schema = 1
+upstream = "https://github.com/openai/codex"
+revision = "ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff"
+license = "Apache-2.0"
+copyright = "Copyright 2025 OpenAI"
+
+# The three upstream sandbox components reviewed for the L1 adapter boundary.
+# windows-sandbox-rs is provenance-only until the L2 Windows milestone.
+components = [
+  "codex-rs/sandboxing",
+  "codex-rs/linux-sandbox",
+  "codex-rs/windows-sandbox-rs",
+]
+
+[[files]]
+path = "upstream/sandboxing/src/seatbelt_base_policy.sbpl"
+component = "codex-rs/sandboxing"
+sha256 = "9a7a181ac5fab3e8fcecfeeec280f8b0d4fd60c852cf71cdf3b5c65d02401e0c"
+usage = "compiled into the L1 macOS profile generator"
+
+[[files]]
+path = "upstream/sandboxing/src/restricted_read_only_platform_defaults.sbpl"
+component = "codex-rs/sandboxing"
+sha256 = "3365fee8421135a25bf1c7bcc36f637961024dbbaa1e97d94acb41265090e02f"
+usage = "macOS loader/runtime defaults; broad temporary-directory writes are removed by the adapter"
+
+[[files]]
+path = "upstream/linux-sandbox/src/bundled_bwrap.rs"
+component = "codex-rs/linux-sandbox"
+sha256 = "a87780f4a20d8cc4efa507054bb9ac539084ed5bc404d53d87bc3f29c26eced5"
+usage = "auditable upstream reference for bundled bwrap discovery and digest semantics"
+
+[[files]]
+path = "upstream/windows-sandbox-rs/src/lib.rs"
+component = "codex-rs/windows-sandbox-rs"
+sha256 = "4fa052f4b2c6953fb5a0f764e90d25b6c5efd25703b0be12148e752b0d27c655"
+usage = "provenance snapshot only; Windows implementation remains L2"
+
+# Maximum codex workspace crates volund may import for this boundary. CI can
+# compare this allowlist; adding an entry requires an explicit security review.
+workspace_crate_allowlist = [
+  "codex-install-context",
+  "codex-network-proxy",
+  "codex-process-hardening",
+  "codex-protocol",
+  "codex-sandboxing",
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+  "codex-utils-path-uri",
+  "codex-utils-pty",
+  "codex-utils-string",
+  "codex-windows-sandbox",
+  "codex-otel",
+]

@@ -4,7 +4,7 @@
   "baseBranch": "main",
   "commit": false,
   "fixed": [],
-  "ignore": ["@apollo-code/docs", "@apollo-code/provider-contract-tests"],
+  "ignore": ["@volund/docs", "@volund/provider-contract-tests"],
   "linked": [],
   "privatePackages": {
     "version": true,

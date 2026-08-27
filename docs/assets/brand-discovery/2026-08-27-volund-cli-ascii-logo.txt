@@ -1,0 +1,65 @@
+VOLUND CLI / ASCII IDENTITY PROTOTYPE V2 / HAMMER / 2026-08-27
+
+PRIMARY WORDMARK
+
+V[>_]LUND  CLI
+  ||
+
+Meaning:
+- [>_] replaces the O in VOLUND.
+- > is the command entering the forge.
+- _ is the live cursor and the work still in motion.
+- [>_] is also the hammer head; || is its handle.
+- CLI is an endorsement, not part of the spoken brand name.
+
+
+WELCOME / HERO LOCKUP
+
+     V[>_]LUND  CLI
+       ||
+       ||
+  ======================
+      \            /
+       \__________/
+          |  |
+       ___|__|___
+      /__________\
+
+    FORGED FOR CODERS.
+
+
+COMPACT LOCKUP
+
+V[>_]LUND CLI
+
+
+DERIVED TUI MARK
+
+[>_]
+ ||
+ ||
+
+
+COMMAND SIGNATURE
+
+$ VOLUND_
+
+
+MONOCHROME RULE
+
+The logo must remain fully legible in one terminal color.
+If color is available, only the cursor underscore may use Forge Amber.
+The hammer must always be derived from the [>_] terminal cell.
+Do not add a second hammer, helmet, beard, flame, spark, shield, or mascot.
+
+
+PROVISIONAL TAGLINE
+
+FORGED FOR CODERS.
+
+
+STATUS
+
+USER-PREFERRED / DISCOVERY
+Not a production asset. Name, binary, package, domain, trademark, spacing,
+terminal width, ANSI fallback, and 16 px rendering remain unfrozen.

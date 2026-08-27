@@ -1,3 +1,7 @@
+import { productIdentity } from '@volund/shared'
+
+import { buildIdentity } from './build-identity'
+
 export interface AppIdentity {
   version: string
   commit?: string
@@ -10,10 +14,10 @@ const semverPattern =
 
 export function defineAppIdentity(input: AppIdentity): Readonly<AppIdentity> {
   if (!semverPattern.test(input.version))
-    throw new Error(`Invalid Apollo version: ${input.version}`)
-  if (input.version === '0.0.0') throw new Error('Apollo production identity cannot use 0.0.0')
+    throw new Error(`Invalid ${productIdentity.shortName} version: ${input.version}`)
+  if (input.version === '0.0.0')
+    throw new Error(`${productIdentity.shortName} production identity cannot use 0.0.0`)
   return Object.freeze({ ...input })
 }
 
 export const appIdentity = defineAppIdentity(buildIdentity)
-import { buildIdentity } from './build-identity'

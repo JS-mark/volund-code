@@ -1,6 +1,9 @@
 import { basename } from 'node:path'
 
+import { productIdentity } from '@volund/shared'
 import { Box, Text } from 'ink'
+
+import { welcomeTheme } from './welcome/welcomeTheme'
 
 export interface TopBarProps {
   cwd: string
@@ -13,10 +16,10 @@ export function TopBar({ cwd, sessionId, status }: TopBarProps) {
     <Box flexDirection="column" marginBottom={1}>
       <Box justifyContent="space-between">
         <Text>
-          <Text bold color="cyan">
-            Apollo
+          <Text bold color={welcomeTheme.brandAccent}>
+            {productIdentity.shortName}
           </Text>{' '}
-          <Text color="gray">Code</Text>
+          <Text color="gray">{productIdentity.category}</Text>
         </Text>
         <Text color="gray">
           {shortSessionId(sessionId)} | {basename(cwd) || cwd}

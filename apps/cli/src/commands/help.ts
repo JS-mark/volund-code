@@ -1,6 +1,10 @@
+import { productIdentity } from '@volund/shared'
+
 import { memoryUsage } from './memory'
 
-const chatUsage = `Usage: apollo [chat] [prompt...]
+const commandName = productIdentity.commandName
+
+const chatUsage = `Usage: ${commandName} [chat] [prompt...]
 
 Start an interactive session (TTY) or run a single prompt.
 
@@ -16,7 +20,7 @@ Options:
   --yolo                             Alias for --dangerously-skip-permissions
 `
 
-const resumeUsage = `Usage: apollo resume [session-id]
+const resumeUsage = `Usage: ${commandName} resume [session-id]
 
 Resume a saved session at the last durable turn boundary.
 Without an id, an interactive picker lists recent sessions (TTY only).
@@ -26,16 +30,16 @@ Options:
   --no-tui     Disable the interactive picker
 `
 
-const restoreUsage = `Usage: apollo restore <session-id> [--dry-run]
+const restoreUsage = `Usage: ${commandName} restore <session-id> [--dry-run]
 
 Restore files changed during a session from its session-scoped backups.
-Restore refuses to overwrite files changed after Apollo's edit.
+Restore refuses to overwrite files changed after ${productIdentity.shortName}'s edit.
 
 Options:
   --dry-run    Preview what would be restored without writing
 `
 
-const loginUsage = `Usage: apollo login [provider] [options]
+const loginUsage = `Usage: ${commandName} login [provider] [options]
 
 Verify, then securely store a provider credential (default provider: anthropic).
 
@@ -45,12 +49,12 @@ Options:
   --dangerous        Allow dangerous credential operations
 `
 
-const logoutUsage = `Usage: apollo logout [provider]
+const logoutUsage = `Usage: ${commandName} logout [provider]
 
 Remove a stored provider credential (default provider: anthropic).
 `
 
-const statusUsage = `Usage: apollo status [--json]
+const statusUsage = `Usage: ${commandName} status [--json]
 
 Show redacted runtime and configuration status.
 
@@ -58,7 +62,7 @@ Options:
   --json    Emit one JSON document
 `
 
-const configUsage = `Usage: apollo config <command> [options]
+const configUsage = `Usage: ${commandName} config <command> [options]
 
 Commands:
   list                  Print the merged configuration (default)
@@ -69,14 +73,14 @@ Commands:
   edit                  Open the config file in $EDITOR
 
 Options:
-  --project    Target <cwd>/.apollo/config.toml instead of the user config
+  --project    Target <cwd>/.volund/config.toml instead of the user config
                (set/unset respect the project-override data-flow gate)
   --json       Emit one JSON document
 `
 
-const historyUsage = `Usage: apollo history <command> [options]
+const historyUsage = `Usage: ${commandName} history <command> [options]
 
-Manage saved sessions (~/.apollo/sessions/*.jsonl). Unrelated to the
+Manage saved sessions (~/.volund/sessions/*.jsonl). Unrelated to the
 interactive input-line history.
 
 Commands:
@@ -97,7 +101,7 @@ Options:
   --yes                 Confirm clear non-interactively
 `
 
-const doctorUsage = `Usage: apollo doctor [--json] [--strict]
+const doctorUsage = `Usage: ${commandName} doctor [--json] [--strict]
 
 Diagnose configuration, credentials, native packages, and sandbox readiness.
 
@@ -106,7 +110,7 @@ Options:
   --strict    Exit 1 when any check fails
 `
 
-const telemetryUsage = `Usage: apollo telemetry <command> [options]
+const telemetryUsage = `Usage: ${commandName} telemetry <command> [options]
 
 Commands:
   show            Summarize locally stored telemetry (default)
@@ -117,7 +121,7 @@ Options:
   --json    Emit one JSON document (show)
 `
 
-const trustUsage = `Usage: apollo trust <command> [options]
+const trustUsage = `Usage: ${commandName} trust <command> [options]
 
 Commands:
   list            List trusted directory rules (default)
@@ -129,7 +133,7 @@ Options:
   --json    Emit one JSON document
 `
 
-const pluginUsage = `Usage: apollo plugin <command> [options]
+const pluginUsage = `Usage: ${commandName} plugin <command> [options]
 
 Commands:
   list               List recorded plugins and availability (default)
@@ -146,7 +150,7 @@ Note: legacy plugin activation is temporarily unavailable; list, doctor,
 disable, and uninstall remain available for inspection and cleanup.
 `
 
-const mcpUsage = `Usage: apollo mcp <command> [options]
+const mcpUsage = `Usage: ${commandName} mcp <command> [options]
 
 Commands:
   list                                 List configured servers with status (default)
@@ -169,7 +173,7 @@ Options:
   --json                  Emit one JSON document
 `
 
-const skillUsage = `Usage: apollo skill <command> [options]
+const skillUsage = `Usage: ${commandName} skill <command> [options]
 
 Commands:
   list               List skills with scope and status (default)
@@ -184,7 +188,7 @@ Options:
   --json                  Emit one JSON document (list, install)
 `
 
-const contextUsage = `Usage: apollo context <command> [options]
+const contextUsage = `Usage: ${commandName} context <command> [options]
 
 Commands:
   show                        Show token usage, sources, and policy (default)
@@ -199,7 +203,7 @@ Options:
   --json    Emit one JSON document (show, policy get)
 `
 
-const evolutionUsage = `Usage: apollo evolution <command> [options]
+const evolutionUsage = `Usage: ${commandName} evolution <command> [options]
 
 Commands:
   show        Show recent local tuning adjustments (default)
@@ -212,22 +216,22 @@ Options:
   --json                Emit one JSON document (show)
 `
 
-const hookUsage = `Usage: apollo hook list
+const hookUsage = `Usage: ${commandName} hook list
 
 List the builtin hooks registered in this build.
 `
 
-const versionUsage = `Usage: apollo version
+const versionUsage = `Usage: ${commandName} version
 
 Print the version.
 `
 
-const helpUsage = `Usage: apollo help [command]
+const helpUsage = `Usage: ${commandName} help [command]
 
 Show global help, or help for a specific command.
 `
 
-/** Per-command help for the implemented command surface (spec §11.3 `apollo help [command]`). */
+/** Per-command help for the implemented command surface (spec §11.3 `volund help [command]`). */
 export const commandUsage: Readonly<Record<string, string>> = {
   chat: chatUsage,
   resume: resumeUsage,
@@ -252,7 +256,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
 }
 
 /**
- * Commands whose first positional is an action, so `apollo <cmd> help` reads as
+ * Commands whose first positional is an action, so `volund <cmd> help` reads as
  * a help request (today it only errors as an unknown action). Prompt-taking
  * commands (chat) and id/name-taking commands (resume/login/...) are excluded:
  * there a bare `help` token is data, not a help request.

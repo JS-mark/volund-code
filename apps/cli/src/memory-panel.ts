@@ -1,11 +1,11 @@
-import { sanitize } from '@apollo-code/shared'
+import { sanitize } from '@volund/shared'
 import type {
   MemoryRecallService,
   MemoryRecord,
   MemoryRecordScope,
   MemoryService,
-} from '@apollo-code/storage'
-import type { MemoryPanelController, MemoryPanelPage, MemoryPanelRecord } from '@apollo-code/ui'
+} from '@volund/storage'
+import type { MemoryPanelController, MemoryPanelPage, MemoryPanelRecord } from '@volund/ui'
 
 const ansiEscape = String.fromCharCode(27)
 const terminalBell = String.fromCharCode(7)

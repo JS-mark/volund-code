@@ -2,11 +2,11 @@
 
 ## 状态码 1
 
-命令或输入无效。运行 `apollo help` 并修正请求。
+命令或输入无效。运行 `volund help` 并修正请求。
 
 ## 状态码 2
 
-系统依赖或 provider 失败。运行 `apollo doctor` 并检查已脱敏的诊断信息。
+系统依赖或 provider 失败。运行 `volund doctor` 并检查已脱敏的诊断信息。
 
 ## 状态码 3
 
@@ -24,5 +24,5 @@ Ollama 默认使用 `http://127.0.0.1:11434`。本机回环 HTTP endpoint 无需
 项目级配置不能覆盖 provider 的 `baseUrl` 或 `endpoint`。
 
 重定向不会被跟随。如需代理，请在用户级配置最终 HTTPS URL，并确认该准确地址。
-`apollo doctor` 接线应使用 Ollama 版本探测（`GET /api/version`），仅对 Ollama 0.3
+`volund doctor` 接线应使用 Ollama 版本探测（`GET /api/version`），仅对 Ollama 0.3
 及以上版本报告工具支持。

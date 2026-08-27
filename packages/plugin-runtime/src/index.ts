@@ -4,9 +4,9 @@ import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'n
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { types as nodeTypes } from 'node:util'
 
-import type { PluginSandboxProfile } from '@apollo-code/native-bridge'
+import type { PluginSandboxProfile } from '@volund/native-bridge'
 import type {
-  ApolloBridge,
+  VolundBridge,
   Disposable,
   HookEvent,
   HookHandler,
@@ -17,7 +17,7 @@ import type {
   PluginRegistryMetadata,
   PluginRegistrySignedPayload,
   PluginUiContribution,
-} from '@apollo-code/plugin-sdk'
+} from '@volund/plugin-sdk'
 import type {
   Disposable as ProviderDisposable,
   ProviderCapabilities,
@@ -25,7 +25,7 @@ import type {
   ProviderClient,
   ProviderRegistry,
   ProviderRequest,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 
 export const LEGACY_PLUGIN_UNAVAILABLE = Object.freeze({
   available: false as const,
@@ -189,7 +189,7 @@ export interface PluginApproval {
 export interface PluginState {
   approvals: Record<string, PluginApproval>
 }
-const PLUGIN_NAME = /^apollo-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
+const PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
 const PLUGIN_STATE_MAX_BYTES = 1024 * 1024
 const PLUGIN_STATE_MAX_APPROVALS = 1024
 const PLUGIN_STATE_MAX_VERSION_LENGTH = 128
@@ -301,7 +301,7 @@ function validateUiContributions(manifest: Partial<PluginManifest>) {
   if (contributions === undefined) return
   if (!Array.isArray(contributions))
     throw new PluginError('plugin_ui_invalid', 'contributes.ui must be an array')
-  if (!manifest.permissions?.apollo.includes('ui.contribute'))
+  if (!manifest.permissions?.volund.includes('ui.contribute'))
     throw new PluginError('plugin_ui_permission_required', 'ui.contribute')
   const ids = new Set<string>()
   for (const item of contributions as readonly PluginUiContribution[]) {
@@ -327,25 +327,25 @@ function validateUiContributions(manifest: Partial<PluginManifest>) {
     ids.add(item.id)
   }
 }
-export function validateManifest(value: unknown, apolloVersion: string): PluginManifest {
+export function validateManifest(value: unknown, volundVersion: string): PluginManifest {
   if (!value || typeof value !== 'object')
     throw new PluginError('plugin_manifest_invalid', 'manifest must be an object')
   const m = value as Partial<PluginManifest>
   if (
-    !m.name?.startsWith('apollo-plugin-') ||
+    !m.name?.startsWith('volund-plugin-') ||
     !VERSION.test(m.version ?? '') ||
     m.type !== 'module' ||
     !m.main ||
     !safeRelative(m.main)
   )
     throw new PluginError('plugin_manifest_invalid', 'invalid name, version, type, or main path')
-  if (!m.engines?.apollo || !satisfies(apolloVersion, m.engines.apollo))
+  if (!m.engines?.volund || !satisfies(volundVersion, m.engines.volund))
     throw new PluginError(
       'plugin_engine_incompatible',
-      `Apollo ${apolloVersion} does not satisfy ${m.engines?.apollo ?? '(missing)'}`,
+      `volund ${volundVersion} does not satisfy ${m.engines?.volund ?? '(missing)'}`,
     )
-  if (!m.permissions || !Array.isArray(m.permissions.apollo))
-    throw new PluginError('plugin_manifest_invalid', 'permissions.apollo is required')
+  if (!m.permissions || !Array.isArray(m.permissions.volund))
+    throw new PluginError('plugin_manifest_invalid', 'permissions.volund is required')
   const memory = m.permissions.memory
   if (
     memory &&
@@ -388,7 +388,7 @@ export function validateManifest(value: unknown, apolloVersion: string): PluginM
     const authPermission =
       provider.auth.mode === 'signing' ? 'auth.getSigningEnvKeys' : 'auth.getAuthHeaders'
     for (const permission of ['provider.register', authPermission])
-      if (!m.permissions.apollo.includes(permission))
+      if (!m.permissions.volund.includes(permission))
         throw new PluginError('plugin_provider_permission_required', permission)
   } else if (m.provider) {
     throw new PluginError('plugin_provider_invalid', 'provider section requires kind: provider')
@@ -457,7 +457,7 @@ export class PluginManager {
   private state: PluginState = { approvals: nullPrototypeApprovals() }
   constructor(
     readonly root: string,
-    readonly apolloVersion: string,
+    readonly volundVersion: string,
     readonly confirm: (manifest: PluginManifest, expanded: boolean) => Promise<boolean>,
   ) {}
   async init() {
@@ -494,7 +494,7 @@ export class PluginManager {
   async inspect(dir: string) {
     const manifest = validateManifest(
       JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8')),
-      this.apolloVersion,
+      this.volundVersion,
     )
     await verifyBundle(dir, manifest)
     return manifest
@@ -545,10 +545,10 @@ export interface BridgeCapability {
 }
 
 /**
- * Auditable contract for every leaf on ApolloBridge. Keep this data-only so CI and
+ * Auditable contract for every leaf on VolundBridge. Keep this data-only so CI and
  * documentation can compare the public SDK with the production host without mocks.
  */
-export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.freeze([
+export const VOLUND_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.freeze([
   ...[
     'tools.register',
     'tools.unregister',
@@ -593,7 +593,7 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
   ].map((method) => ({
     method,
     status: 'supported' as const,
-    test: 'packages/plugin-runtime/src/index.test.ts#ApolloBridge capability matrix',
+    test: 'packages/plugin-runtime/src/index.test.ts#VolundBridge capability matrix',
   })),
   {
     method: 'env.getEffective',
@@ -623,18 +623,18 @@ export const APOLLO_BRIDGE_CAPABILITIES: readonly BridgeCapability[] = Object.fr
     method: 'plugins.uninstall',
     status: 'supported' as const,
     reason: 'Local (builtin/dev/market) channel only; host deactivates and removes the dir.',
-    test: 'apps/cli/src/builtin-plugins.test.ts#apollo-plugin-manager',
+    test: 'apps/cli/src/builtin-plugins.test.ts#volund-plugin-manager',
   },
   {
     method: 'call',
     status: 'unsupported' as const,
     reason: 'Low-level calls are transport-only; there is no direct in-process handler.',
-    test: 'packages/plugin-runtime/src/index.test.ts#ApolloBridge capability matrix',
+    test: 'packages/plugin-runtime/src/index.test.ts#VolundBridge capability matrix',
   },
   ...['provider.register', 'auth.getAuthHeaders', 'auth.getSigningEnvKeys'].map((method) => ({
     method,
     status: 'unsupported' as const,
-    reason: 'Declared by the provider-plugin design but not exposed by ApolloBridge yet.',
+    reason: 'Declared by the provider-plugin design but not exposed by VolundBridge yet.',
     test: 'packages/plugin-runtime/src/provider.test.ts#provider plugin policy',
   })),
 ])
@@ -673,7 +673,7 @@ export class PluginRuntime {
   }
 }
 export function createRpcGuard(manifest: PluginManifest, maxCallsPerTurn = 500) {
-  const allowed = new Set(manifest.permissions.apollo),
+  const allowed = new Set(manifest.permissions.volund),
     calls = new Map<string, number>()
   return (turnId: string, method: string) => {
     if (!allowed.has(method)) throw new PluginError('plugin_rpc_method_denied', method)
@@ -905,10 +905,10 @@ export interface BridgeHost {
 
 /**
  * Hook source domain (spec 02-agent-loop.md §2.6, r13-I10). `builtin` marks hooks
- * registered by the Apollo runtime itself (e.g. the memory redaction guard); they run
+ * registered by the Volund runtime itself (e.g. the memory redaction guard); they run
  * first and fail closed on timeout or error. Plugins register through the bridge and
  * are always `plugin`. `project` / `user` are host-controlled registration domains for
- * `<cwd>/.apollo/hooks` and `~/.apollo/hooks`.
+ * `<cwd>/.volund/hooks` and `~/.volund/hooks`.
  */
 export type HostHookDomain = 'builtin' | 'project' | 'user'
 export type HookDomain = HostHookDomain | 'plugin'
@@ -1031,7 +1031,7 @@ type HookPayloadMeasurement = {
 const HOOK_JSON_V1_MAX_DEPTH = 512
 const HOOK_JSON_V1_MAX_NODES = 200_000
 const HOOK_JSON_V1_MAX_WORK_BYTES = 16 * 1024 * 1024
-const HOOK_JSON_V1_BYTES_TAG = '$apollo.bytes.v1'
+const HOOK_JSON_V1_BYTES_TAG = '$volund.bytes.v1'
 const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype) as object
 const typedArraySlotGetter = <T>(key: 'buffer' | 'byteOffset' | 'byteLength') => {
   const getter = Object.getOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, key)?.get
@@ -1284,13 +1284,13 @@ export class BridgeRuntime {
     }
   }
 
-  create(manifest: PluginManifest, dataDir: string, turnId = 'activation'): ApolloBridge {
+  create(manifest: PluginManifest, dataDir: string, turnId = 'activation'): VolundBridge {
     const guard = createRpcGuard(
       {
         ...manifest,
         permissions: {
           ...manifest.permissions,
-          apollo: manifest.permissions.apollo.map((method) => BRIDGE_PERMISSIONS[method] ?? method),
+          volund: manifest.permissions.volund.map((method) => BRIDGE_PERMISSIONS[method] ?? method),
         },
       },
       this.options.maxCallsPerTurn ?? 500,
@@ -1342,7 +1342,7 @@ export class BridgeRuntime {
         external?.removeEventListener('abort', abort)
       }
     }
-    const bridge: ApolloBridge = {
+    const bridge: VolundBridge = {
       apiVersion: '1.0',
       plugin: Object.freeze({ name: manifest.name, version: manifest.version, dataDir }),
       tools: {
@@ -1533,7 +1533,7 @@ export class BridgeRuntime {
             this.host.log(level, redact(message) as string, redact(args))
           },
         ]),
-      ) as ApolloBridge['log'],
+      ) as VolundBridge['log'],
       call: async (method, _params) => {
         check(method)
         throw new PluginError('plugin_rpc_transport_only', `No direct handler for ${method}`)
@@ -1608,7 +1608,7 @@ export class BridgeRuntime {
     if (!Number.isSafeInteger(priority) || priority < band.min || priority > band.max)
       throw new PluginError('plugin_hook_priority_invalid', `${domain}:${event}`)
     const record: HookRecord = {
-      plugin: options.name ?? `apollo.${domain}`,
+      plugin: options.name ?? `volund.${domain}`,
       domain,
       event,
       handler,

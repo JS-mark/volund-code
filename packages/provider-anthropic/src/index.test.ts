@@ -137,10 +137,7 @@ describe('Anthropic adapter', () => {
     })
     await expect(
       collect(
-        client.stream(
-          { model: 'm', system: 's', messages: [] },
-          new AbortController().signal,
-        ),
+        client.stream({ model: 'm', system: 's', messages: [] }, new AbortController().signal),
       ),
     ).rejects.toThrow('Anthropic request failed (400)')
   })

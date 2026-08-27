@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
-import { PermissionManager } from '@apollo-code/permission'
+import { PermissionManager } from '@volund/permission'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -18,7 +18,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 async function fixture() {
-  const cwd = await mkdtemp(resolve(tmpdir(), 'apollo-tools-'))
+  const cwd = await mkdtemp(resolve(tmpdir(), 'volund-tools-'))
   dirs.push(cwd)
   return cwd
 }
@@ -120,7 +120,7 @@ describe('L1 tools', () => {
     expect(await readFile(outside, 'utf8')).toBe('outside')
 
     await writeFile(resolve(cwd, 'locked.txt'), 'before')
-    await writeFile(resolve(cwd, 'locked.txt.apollolock'), 'other-session')
+    await writeFile(resolve(cwd, 'locked.txt.volundlock'), 'other-session')
     const pending = new MultiEditTool().invoke(
       { edits: [{ path: 'locked.txt', old_string: 'before', new_string: 'after' }] },
       context(cwd),

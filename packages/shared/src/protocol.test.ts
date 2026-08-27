@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  APOLLO_PROTOCOL_VERSION,
+  VOLUND_PROTOCOL_VERSION,
   ProtocolViolationError,
   assertResourceLimits,
   createCancellationController,
@@ -13,7 +13,7 @@ describe('transport protocol', () => {
     expect(
       parseTransportEnvelope({
         jsonrpc: '2.0',
-        protocolVersion: APOLLO_PROTOCOL_VERSION,
+        protocolVersion: VOLUND_PROTOCOL_VERSION,
         id: '1',
         method: 'tools/list',
         params: {},
@@ -48,7 +48,7 @@ describe('transport protocol', () => {
         { jsonrpc: '2.0', protocolVersion: 1, id: 1, method: 'unknown' },
         { methods: ['tools/list'] },
       ),
-    ).toThrowError(expect.objectContaining({ code: 'APOLLO_METHOD_NOT_FOUND' }))
+    ).toThrowError(expect.objectContaining({ code: 'VOLUND_METHOD_NOT_FOUND' }))
   })
 
   it('enforces resource limits before dispatch', () => {

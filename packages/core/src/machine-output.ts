@@ -1,4 +1,4 @@
-import { sanitize, type JsonValue } from '@apollo-code/shared'
+import { sanitize, type JsonValue } from '@volund/shared'
 
 import type { CoreEvent } from './event-bus'
 

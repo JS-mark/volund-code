@@ -22,16 +22,16 @@ afterEach(() => {
 
 describe('standaloneArtifactDir', () => {
   it('resolves next to the bundle under a normal node run', () => {
-    expect(standaloneArtifactDir('file:///opt/apollo/dist/apollo.js', '/usr/local/bin/node')).toBe(
-      '/opt/apollo/dist',
+    expect(standaloneArtifactDir('file:///opt/volund/dist/volund.js', '/usr/local/bin/node')).toBe(
+      '/opt/volund/dist',
     )
   })
 
   it('falls back to the executable directory inside a bun-compiled binary', () => {
     // bun --compile embeds modules under the virtual /$bunfs/ root; the real
     // on-disk anchor next to the artifact is the executable itself.
-    expect(standaloneArtifactDir('file:///$bunfs/root/apollo', '/opt/apollo/apollo')).toBe(
-      '/opt/apollo',
+    expect(standaloneArtifactDir('file:///$bunfs/root/volund', '/opt/volund/volund')).toBe(
+      '/opt/volund',
     )
   })
 })
@@ -55,12 +55,12 @@ describe('packageTriple', () => {
 
 describe('Release asset resolution', () => {
   it('uses stable target-specific asset names', () => {
-    expect(releaseAssetName('fs', 'darwin-arm64')).toBe('apollo-fs-darwin-arm64')
-    expect(releaseAssetName('search', 'win32-x64-msvc')).toBe('apollo-search-win32-x64-msvc.exe')
+    expect(releaseAssetName('fs', 'darwin-arm64')).toBe('volund-fs-darwin-arm64')
+    expect(releaseAssetName('search', 'win32-x64-msvc')).toBe('volund-search-win32-x64-msvc.exe')
   })
 
   it('downloads, verifies, and reuses a cached versioned binary', async () => {
-    const cache = await mkdtemp(join(tmpdir(), 'apollo-native-'))
+    const cache = await mkdtemp(join(tmpdir(), 'volund-native-'))
     const body = Buffer.from('verified native binary')
     const digest = createHash('sha256').update(body).digest('hex')
     const asset = releaseAssetName('fs', packageTriple(process.platform, process.arch)!)
@@ -69,9 +69,9 @@ describe('Release asset resolution', () => {
       .mockResolvedValueOnce(new Response(`${digest}  ${asset}\n`))
       .mockResolvedValueOnce(new Response(body))
     vi.stubGlobal('fetch', fetchMock)
-    process.env.APOLLO_VERSION = '1.2.3'
-    process.env.APOLLO_NATIVE_CACHE_DIR = cache
-    process.env.APOLLO_NATIVE_RELEASE_BASE_URL = 'https://release.invalid/v1.2.3'
+    process.env.VOLUND_VERSION = '1.2.3'
+    process.env.VOLUND_NATIVE_CACHE_DIR = cache
+    process.env.VOLUND_NATIVE_RELEASE_BASE_URL = 'https://release.invalid/v1.2.3'
 
     try {
       const first = await resolveBinary('fs')
@@ -85,7 +85,7 @@ describe('Release asset resolution', () => {
   })
 
   it('rejects an asset whose checksum does not match', async () => {
-    const cache = await mkdtemp(join(tmpdir(), 'apollo-native-'))
+    const cache = await mkdtemp(join(tmpdir(), 'volund-native-'))
     const asset = releaseAssetName('search', packageTriple(process.platform, process.arch)!)
     vi.stubGlobal(
       'fetch',
@@ -94,9 +94,9 @@ describe('Release asset resolution', () => {
         .mockResolvedValueOnce(new Response(`${'0'.repeat(64)}  ${asset}\n`))
         .mockResolvedValueOnce(new Response('tampered')),
     )
-    process.env.APOLLO_VERSION = '1.2.3'
-    process.env.APOLLO_NATIVE_CACHE_DIR = cache
-    process.env.APOLLO_NATIVE_RELEASE_BASE_URL = 'https://release.invalid/v1.2.3'
+    process.env.VOLUND_VERSION = '1.2.3'
+    process.env.VOLUND_NATIVE_CACHE_DIR = cache
+    process.env.VOLUND_NATIVE_RELEASE_BASE_URL = 'https://release.invalid/v1.2.3'
 
     try {
       await expect(resolveBinary('search')).rejects.toThrow('Checksum mismatch')
@@ -106,7 +106,7 @@ describe('Release asset resolution', () => {
   })
 
   it('prefers a verified bundled asset for offline standalone execution', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo standalone assets '))
+    const root = await mkdtemp(join(tmpdir(), 'volund standalone assets '))
     const triple = packageTriple(process.platform, process.arch)!
     const file = releaseAssetName('sandbox', triple)
     const body = Buffer.from('offline binary')
@@ -125,7 +125,7 @@ describe('Release asset resolution', () => {
         ],
       }),
     )
-    process.env.APOLLO_STANDALONE_ASSET_DIR = root
+    process.env.VOLUND_STANDALONE_ASSET_DIR = root
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
@@ -143,7 +143,7 @@ describe('Release asset resolution', () => {
   })
 
   it('rejects a tampered bundled asset without falling through to network', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-native-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-native-'))
     const triple = packageTriple(process.platform, process.arch)!
     const file = releaseAssetName('fs', triple)
     await mkdir(root, { recursive: true })
@@ -156,7 +156,7 @@ describe('Release asset resolution', () => {
       }),
     )
     await chmod(root, 0o555)
-    process.env.APOLLO_STANDALONE_ASSET_DIR = root
+    process.env.VOLUND_STANDALONE_ASSET_DIR = root
     try {
       await expect(resolveBinary('fs')).rejects.toThrow('Checksum mismatch for bundled')
     } finally {

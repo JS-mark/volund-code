@@ -1,4 +1,4 @@
-import type { EmbeddingProvider, Message, ProviderCapabilities } from '@apollo-code/provider-kit'
+import type { EmbeddingProvider, Message, ProviderCapabilities } from '@volund/provider-kit'
 import { describe, expect, it } from 'vitest'
 
 import {

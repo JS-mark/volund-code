@@ -1,4 +1,4 @@
-import type { ToolContext } from '@apollo-code/tool-kit'
+import type { ToolContext } from '@volund/tool-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import { BackgroundShells, MAX_BACKGROUND_BUFFER_BYTES } from './background-shells'

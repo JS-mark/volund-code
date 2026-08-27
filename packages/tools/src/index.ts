@@ -13,10 +13,10 @@ import {
 } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 
-import type { PermissionManager, PermissionSpec } from '@apollo-code/permission'
-import type { ContentPart } from '@apollo-code/provider-kit'
-import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@apollo-code/subagent'
-import type { Tool, ToolContext, ToolResult } from '@apollo-code/tool-kit'
+import type { PermissionManager, PermissionSpec } from '@volund/permission'
+import type { ContentPart } from '@volund/provider-kit'
+import type { DispatchParent, SubagentBudget, SubagentDispatcher } from '@volund/subagent'
+import type { Tool, ToolContext, ToolResult } from '@volund/tool-kit'
 
 import { WebSearchTool, type WebSearchProvider } from './web-search'
 export * from './web-search'
@@ -83,7 +83,7 @@ async function safeMutationPath(cwd: string, input: string): Promise<string> {
 
 async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(resolve(path, '..'), { recursive: true })
-  const temporary = resolve(path, '..', `.${randomUUID()}.apollo-tmp`)
+  const temporary = resolve(path, '..', `.${randomUUID()}.volund-tmp`)
   try {
     await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
     await rename(temporary, path)
@@ -196,11 +196,11 @@ async function prepareEphemeralTransaction(paths: string[]): Promise<FileMutatio
 async function lockConflictMessage(lockPath: string): Promise<string> {
   const holder = await readFile(lockPath, 'utf8').catch(() => '')
   const pid = /^\s*(\d+)/.exec(holder)?.[1]
-  return `file locked by another apollo session${pid ? ` (pid ${pid})` : ''}, retry later`
+  return `file locked by another volund session${pid ? ` (pid ${pid})` : ''}, retry later`
 }
 
 async function acquireMutationLock(path: string, sessionId: string): Promise<() => Promise<void>> {
-  const lockPath = `${path}.apollolock`
+  const lockPath = `${path}.volundlock`
   let lastError: unknown
   for (let attempt = 0; attempt < 4; attempt++) {
     try {

@@ -5,7 +5,7 @@ interface Deferred {
   reject: (reason: unknown) => void
 }
 
-/** Structural telemetry port (spec §5.6.2 r13-I6); satisfied by `@apollo-code/telemetry` Telemetry. */
+/** Structural telemetry port (spec §5.6.2 r13-I6); satisfied by `@volund/telemetry` Telemetry. */
 export interface IpcTelemetry {
   emit(name: string, source: string, payload: Record<string, unknown>): Promise<void> | void
 }

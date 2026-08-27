@@ -2,8 +2,8 @@ name: Publish npm binary packages
 
 # 手动触发（L2 门禁：不发布自动化，见 docs/releases/L2-RELEASE-CHECKLIST.md）。
 # 输入一个已带 GitHub Release 资产的 v* tag：本流程把 Release 里的 sidecar
-# 二进制（校验 sha256 后）与 bun 单文件 CLI 重新组装成 7 个平台包 + 薄壳 meta
-# 包，带 provenance 发到 npm。
+# 二进制（校验 sha256 后）与 bun 单文件 CLI 重新组装成 7 个平台包、canonical
+# `volund-cli` meta 包和 legacy `volund-code` compatibility meta 包，带 provenance 发到 npm。
 on:
   workflow_dispatch:
     inputs:
@@ -50,25 +50,26 @@ jobs:
             exit 1
           fi
       - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run build --filter=apollo-code...
+      - run: pnpm turbo run build --filter=volund-cli...
       - name: Download and verify native sidecar assets from the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download '${{ inputs.tag }}' --repo "$GITHUB_REPOSITORY" \
             --dir release-assets --clobber \
-            --pattern 'apollo-sandbox-*' --pattern 'apollo-search-*' --pattern 'apollo-fs-*' \
+            --pattern 'volund-sandbox-*' --pattern 'volund-search-*' --pattern 'volund-fs-*' \
             --pattern 'checksums.sha256'
           (cd release-assets && sha256sum -c checksums.sha256 --ignore-missing)
       # 产出 7 个 target（win32-arm64-msvc 无 bun 目标自动跳过）+ npm staging。
       - run: node scripts/build-all-standalone.mjs release-assets
       - run: node scripts/pack-standalone-npm.mjs
-      - name: Publish platform packages, then the meta shell
+      - name: Publish platform packages, canonical meta shell, then legacy shim
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for dir in dist/npm/apollo-code-*/; do
+          for dir in dist/npm/volund-*/; do
             npm publish "$dir" --provenance --access public
           done
-          npm publish dist/npm/apollo-code --provenance --access public
+          npm publish dist/npm/volund-cli --provenance --access public
+          npm publish dist/npm/volund-code --provenance --access public

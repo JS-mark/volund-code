@@ -2,9 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { JsonValue } from '@volund/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-
-import type { JsonValue } from '@apollo-code/shared'
 
 import {
   assignConfigValue,
@@ -57,7 +56,7 @@ describe('config-edit helpers', () => {
   })
 
   it('round-trips config files atomically and tolerates missing files', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'apollo-config-edit-'))
+    const root = await mkdtemp(join(tmpdir(), 'volund-config-edit-'))
     fixtures.push(root)
     const file = join(root, 'nested', 'config.toml')
     expect(await readConfigFileOrEmpty(file)).toEqual({})

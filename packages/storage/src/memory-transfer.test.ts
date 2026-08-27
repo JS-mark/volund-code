@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 async function fixture(beforeApply?: (index: number) => void | Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), 'apollo-memory-transfer-'))
+  const root = await mkdtemp(join(tmpdir(), 'volund-memory-transfer-'))
   roots.push(root)
   const memory = new DefaultMemoryService(new LocalMemoryRepository(join(root, 'records.json')))
   const transfer = new MemoryTransferService(memory, {
@@ -168,7 +168,7 @@ describe('MemoryTransferService', () => {
       ),
     ).toThrow('invalid record')
     expect(() =>
-      transfer.parse(JSON.stringify({ schemaVersion: 'apollo.memory.export.v999', records: [] })),
+      transfer.parse(JSON.stringify({ schemaVersion: 'volund.memory.export.v999', records: [] })),
     ).toThrow('incompatible')
 
     const valid = transfer.serialize({

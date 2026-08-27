@@ -6,7 +6,7 @@ import { verifyWindowsReleaseEvidence } from './verify-windows-release-evidence.
 
 const sha = (character) => character.repeat(64)
 const artifact = (architecture, character) => ({
-  name: `apollo-${architecture}.exe`,
+  name: `volund-${architecture}.exe`,
   architecture,
   unsignedSha256: sha(character),
   signedSha256: sha(character === 'a' ? 'b' : 'c'),

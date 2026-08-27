@@ -1,3 +1,4 @@
+import { productIdentity } from '@volund/shared'
 import { defineCommand, renderUsage } from 'citty'
 import type { ArgsDef, CommandDef } from 'citty'
 
@@ -7,9 +8,9 @@ const leaf = (name: string, description: string) => defineCommand({ meta: { name
 export const createCommand = (identity: AppIdentity) =>
   defineCommand({
     meta: {
-      name: 'apollo',
+      name: productIdentity.commandName,
       version: identity.version,
-      description: 'Open, model-agnostic AI coding CLI',
+      description: productIdentity.description,
     },
     subCommands: {
       chat: leaf('chat', 'Start an interactive chat'),
@@ -40,10 +41,13 @@ export const command = createCommand({ version: '0.0.0-test' })
 
 /**
  * citty enumerates every subcommand inline in the USAGE line
- * (`USAGE apollo chat|resume|...`); the COMMANDS table below it already lists
+ * (`USAGE volund chat|resume|...`); the COMMANDS table below it already lists
  * them, so collapse the enumeration to `<command>`.
  */
 export async function renderGlobalUsage(cmd: CommandDef<ArgsDef>): Promise<string> {
   const rendered = await renderUsage(cmd)
-  return rendered.replace(/(USAGE[^\n]*?apollo) [\w|-]+/, '$1 <command>')
+  return rendered.replace(
+    new RegExp(`(USAGE[^\\n]*?${productIdentity.commandName}) [\\w|-]+`),
+    '$1 <command>',
+  )
 }

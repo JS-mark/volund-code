@@ -1,9 +1,9 @@
 /**
- * 沙箱插件宿主的 fd3 JSONRPC 桥（crates/apollo-sandbox/src/plugin_host.mjs 协议）
+ * 沙箱插件宿主的 fd3 JSONRPC 桥（crates/volund-sandbox/src/plugin_host.mjs 协议）
  * 的主进程侧实现。协议要点（v1）：
  *
  * - 每帧一行 NDJSON：`{ jsonrpc: '2.0', bridgeVersion: 1, ... }`
- * - 插件 → 宿主请求：`{ id, method: 'apollo.<path>', params }`；宿主回
+ * - 插件 → 宿主请求：`{ id, method: 'volund.<path>', params }`；宿主回
  *   `{ id, result }` 或 `{ id, error: { code: -32000, message } }`
  * - 插件 → 宿主通知：`host.ready` / `host.activated` / `host.heartbeat`（无 id）
  * - 宿主 → 插件回调：`{ id, method: 'callback.invoke', params: { callbackId, args } }`，

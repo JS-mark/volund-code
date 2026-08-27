@@ -8,7 +8,7 @@ export interface Logger {
   warn(message: string, context?: Record<string, JsonValue>): void
 }
 
-export class ApolloError extends Error {
+export class VolundError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -16,11 +16,12 @@ export class ApolloError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options)
-    this.name = 'ApolloError'
+    this.name = 'VolundError'
   }
 }
 
 export { validateWorkspacePath } from './path-guard'
+export { productIdentity, type ProductIdentity } from './product-identity'
 export { sanitize } from './sanitize'
 export {
   detectSecret,

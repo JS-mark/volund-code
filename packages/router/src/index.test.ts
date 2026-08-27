@@ -2,7 +2,7 @@ import {
   InMemoryProviderRegistry,
   type ProviderClient,
   type ProviderError,
-} from '@apollo-code/provider-kit'
+} from '@volund/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -32,7 +32,7 @@ describe('SingleProviderRouter', () => {
     const plugin = { ...client, name: 'plugin-vllm' }
     registry.register(
       plugin,
-      { kind: 'plugin', plugin: 'apollo-plugin-provider-vllm' },
+      { kind: 'plugin', plugin: 'volund-plugin-provider-vllm' },
       {
         capabilities: plugin.capabilities,
         displayName: 'vLLM',
@@ -274,7 +274,7 @@ describe('RoleRouter', () => {
     const registry = new InMemoryProviderRegistry()
     for (const provider of providers) {
       const source = provider.name.startsWith('plugin-')
-        ? ({ kind: 'plugin', plugin: `apollo-${provider.name}` } as const)
+        ? ({ kind: 'plugin', plugin: `volund-${provider.name}` } as const)
         : ({ kind: 'core' } as const)
       registry.register(provider, source, {
         capabilities: provider.capabilities,

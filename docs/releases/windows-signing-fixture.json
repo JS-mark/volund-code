@@ -12,7 +12,7 @@
   "store": { "identityMatches": true, "upgradeTested": true, "uninstallTested": true },
   "artifacts": [
     {
-      "name": "apollo-x64.exe",
+      "name": "volund-x64.exe",
       "architecture": "x64",
       "unsignedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "signedSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -22,7 +22,7 @@
       "verification": { "outcome": "valid", "architecture": "x64" }
     },
     {
-      "name": "apollo-arm64.exe",
+      "name": "volund-arm64.exe",
       "architecture": "arm64",
       "unsignedSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "signedSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",

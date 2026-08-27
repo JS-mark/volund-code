@@ -2,8 +2,8 @@ import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
-import { DefaultPromptComposer } from '@apollo-code/core'
-import { PermissionManager } from '@apollo-code/permission'
+import { DefaultPromptComposer } from '@volund/core'
+import { PermissionManager } from '@volund/permission'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { AttachmentStore, BackupStore, PromptLoader, SessionStore } from './index'
@@ -12,7 +12,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 async function temp() {
-  const dir = await mkdtemp(resolve(tmpdir(), 'apollo-storage-'))
+  const dir = await mkdtemp(resolve(tmpdir(), 'volund-storage-'))
   dirs.push(dir)
   return dir
 }
@@ -366,7 +366,7 @@ describe('PromptLoader', () => {
       composer = new DefaultPromptComposer()
     await new PromptLoader({
       cwd: dir,
-      apolloHome: resolve(dir, '.apollo'),
+      volundHome: resolve(dir, '.volund'),
       permissions,
     }).registerProject(composer)
     const prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
@@ -379,7 +379,7 @@ describe('PromptLoader', () => {
     await writeFile(resolve(dir, '.env.md'), 'SECRET')
     const loader = new PromptLoader({
       cwd: dir,
-      apolloHome: resolve(dir, '.apollo'),
+      volundHome: resolve(dir, '.volund'),
       permissions: new PermissionManager(),
     })
     expect(await loader.load(resolve(dir, 'AGENT.md'))).toContain('DENIED (sensitive)')
@@ -388,7 +388,7 @@ describe('PromptLoader', () => {
     const dir = await temp()
     const loader = new PromptLoader({
       cwd: dir,
-      apolloHome: resolve(dir, '.apollo'),
+      volundHome: resolve(dir, '.volund'),
       permissions: new PermissionManager(),
     })
     expect(await loader.load(`${dir.replaceAll('/', '\\')}\\.env.md`)).toContain(

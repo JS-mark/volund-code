@@ -2,11 +2,11 @@ import {
   anthropicCapabilities,
   mapAnthropicError,
   parseAnthropicSse,
-} from '@apollo-code/provider-anthropic'
-import { geminiCapabilities, mapGeminiError, parseGeminiSse } from '@apollo-code/provider-gemini'
-import { assertStreamResumeSupported } from '@apollo-code/provider-kit'
-import { mapOllamaError, ollamaCapabilities, parseOllamaNdjson } from '@apollo-code/provider-ollama'
-import { mapOpenAIError, openaiCapabilities, parseOpenAISse } from '@apollo-code/provider-openai'
+} from '@volund/provider-anthropic'
+import { geminiCapabilities, mapGeminiError, parseGeminiSse } from '@volund/provider-gemini'
+import { assertStreamResumeSupported } from '@volund/provider-kit'
+import { mapOllamaError, ollamaCapabilities, parseOllamaNdjson } from '@volund/provider-ollama'
+import { mapOpenAIError, openaiCapabilities, parseOpenAISse } from '@volund/provider-openai'
 import { describe, expect, it } from 'vitest'
 
 async function* chunks(value: string): AsyncIterable<Uint8Array> {

@@ -1,6 +1,6 @@
-# `@apollo-code/provider-openai`
+# `@volund/provider-openai`
 
-OpenAI Chat Completions adapter for Apollo Code's neutral `provider-kit` contract.
+OpenAI Chat Completions adapter for Volund CLI's neutral `provider-kit` contract.
 
 The client receives credential and HTTP ports from the application assembly layer. It never reads
 environment variables or calls global `fetch`. Streaming responses normalize text, parallel tool

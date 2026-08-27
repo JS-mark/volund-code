@@ -17,37 +17,37 @@ void test('targetTripleFor maps supported host platforms', () => {
   assert.equal(targetTripleFor('linux', 'ia32'), null)
 })
 
-void test('adopts plain cargo-layout binaries (apollo-<kind>) for the target', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'apollo manifest '))
+void test('adopts plain cargo-layout binaries (volund-<kind>) for the target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'volund manifest '))
   const source = join(root, 'input')
   const output = join(root, 'output')
   const { mkdir } = await import('node:fs/promises')
   await mkdir(source)
   for (const kind of ['sandbox', 'search', 'fs'])
-    await writeFile(join(source, `apollo-${kind}`), kind)
+    await writeFile(join(source, `volund-${kind}`), kind)
   try {
     const manifest = await createNativeManifest(source, output, 'darwin-arm64')
     assert.deepEqual(
       manifest.assets.map((asset) => asset.file),
-      ['apollo-sandbox-darwin-arm64', 'apollo-search-darwin-arm64', 'apollo-fs-darwin-arm64'],
+      ['volund-sandbox-darwin-arm64', 'volund-search-darwin-arm64', 'volund-fs-darwin-arm64'],
     )
-    assert.equal(await readFile(join(output, 'apollo-search-darwin-arm64'), 'utf8'), 'search')
+    assert.equal(await readFile(join(output, 'volund-search-darwin-arm64'), 'utf8'), 'search')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
 void test('fails with an actionable error when a native asset is missing', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'apollo manifest '))
+  const root = await mkdtemp(join(tmpdir(), 'volund manifest '))
   const source = join(root, 'input')
   const output = join(root, 'output')
   const { mkdir } = await import('node:fs/promises')
   await mkdir(source)
-  await writeFile(join(source, 'apollo-sandbox'), 'sandbox')
+  await writeFile(join(source, 'volund-sandbox'), 'sandbox')
   try {
     await assert.rejects(
       () => createNativeManifest(source, output, 'darwin-arm64'),
-      /missing native asset for search.*apollo-search-darwin-arm64/,
+      /missing native asset for search.*volund-search-darwin-arm64/,
     )
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -55,13 +55,13 @@ void test('fails with an actionable error when a native asset is missing', async
 })
 
 void test('creates a complete, stable native asset manifest', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'apollo manifest '))
+  const root = await mkdtemp(join(tmpdir(), 'volund manifest '))
   const source = join(root, 'input')
   const output = join(root, 'output')
   const { mkdir } = await import('node:fs/promises')
   await mkdir(source)
   for (const kind of ['sandbox', 'search', 'fs'])
-    await writeFile(join(source, `apollo-${kind}-darwin-arm64`), kind)
+    await writeFile(join(source, `volund-${kind}-darwin-arm64`), kind)
   try {
     const manifest = await createNativeManifest(source, output, 'darwin-arm64')
     assert.equal(manifest.schemaVersion, 1)

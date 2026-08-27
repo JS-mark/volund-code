@@ -4,7 +4,7 @@ title: Themes and plugin UI
 
 # Themes and plugin UI
 
-Apollo theme files use schema version `1`. A theme must provide exactly these eight six-digit hexadecimal color tokens: `background`, `foreground`, `muted`, `accent`, `success`, `warning`, `error`, and `border`. The built-in `dark` and `light` themes are always available. Invalid files, unsupported schema versions, missing tokens, and extra tokens fall back to the selected built-in theme and retain a diagnostic message.
+Volund theme files use schema version `1`. A theme must provide exactly these eight six-digit hexadecimal color tokens: `background`, `foreground`, `muted`, `accent`, `success`, `warning`, `error`, and `border`. The built-in `dark` and `light` themes are always available. Invalid files, unsupported schema versions, missing tokens, and extra tokens fall back to the selected built-in theme and retain a diagnostic message.
 
 ```json
 {
@@ -25,9 +25,12 @@ Apollo theme files use schema version `1`. A theme must provide exactly these ei
 
 Plugin UI is declarative. Version 1 permits plain-text items on the `status-bar` surface only:
 
+The `permissions.volund` key below is a frozen v1 manifest field. It remains unchanged for plugin
+compatibility even though the product and CLI are now named Volund.
+
 ```json
 {
-  "permissions": { "apollo": ["ui.contribute"] },
+  "permissions": { "volund": ["ui.contribute"] },
   "contributes": {
     "ui": [{ "id": "branch", "surface": "status-bar", "text": "main", "priority": 10 }]
   }

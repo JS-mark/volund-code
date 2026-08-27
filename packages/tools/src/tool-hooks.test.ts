@@ -1,5 +1,5 @@
-import { PermissionManager } from '@apollo-code/permission'
-import type { Tool, ToolContext } from '@apollo-code/tool-kit'
+import { PermissionManager } from '@volund/permission'
+import type { Tool, ToolContext } from '@volund/tool-kit'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToolExecutor, type ToolHookDispatcher, type ToolHookOutcome } from './index'

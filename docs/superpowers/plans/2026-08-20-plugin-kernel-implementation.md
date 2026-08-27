@@ -2,11 +2,11 @@
 
 > **状态**：IN EXECUTION · ABI-00 CONTRACT DRAFT（2026-08-21）。P0-00 deny-only fence 已在 `33e5ce5` 通过独立 final review（0 Critical / 0 Important）并保持关闭；其余 runtime/Catalog/ABI 功能未交付。
 >
-> **权威规范**：[§19 Plugin Kernel](../specs/2026-07-31-apollo-code-design/19-plugin-kernel.md)；ABI-00 byte contract 见 [§19a Capability Contract V1](../specs/2026-07-31-apollo-code-design/19a-capability-contract.md)；Self-Development control plane 继续遵守 [§18](../specs/2026-07-31-apollo-code-design/18-self-development.md)。
+> **权威规范**：[§19 Plugin Kernel](../specs/2026-07-31-volund-code-design/19-plugin-kernel.md)；ABI-00 byte contract 见 [§19a Capability Contract V1](../specs/2026-07-31-volund-code-design/19a-capability-contract.md)；Self-Development control plane 继续遵守 [§18](../specs/2026-07-31-volund-code-design/18-self-development.md)。
 >
 > **计划优先级**：本计划在 phase 顺序、候选对象与 promotion 终点上优先于 [2026-08-19 Self-Development 计划](./2026-08-19-self-development-implementation.md)；旧计划的 identity、evidence、review、approval、Git transaction 与 release 安全契约仍有效。
 >
-> **品牌占位**：最终名称未冻结。本文继续用 Apollo Code 指代当前仓库；brand discovery/clearance 可只读并行，但 identity/package/CLI/logo migration 必须等待硬门。
+> **品牌占位**：最终名称未冻结。本文继续用 Volund CLI 指代当前仓库；brand discovery/clearance 可只读并行，但 identity/package/CLI/logo migration 必须等待硬门。
 
 ## 0. ABI-00 迭代结论
 
@@ -160,7 +160,7 @@ CAT-02 + cleared identity ───────────────┴→ BR
 
 ### ABI-00-01 · Closed-role DAG、permission grants 与 promotion contracts
 
-- **Normative artifact**：[§19a Capability Contract V1](../specs/2026-07-31-apollo-code-design/19a-capability-contract.md)。
+- **Normative artifact**：[§19a Capability Contract V1](../specs/2026-07-31-volund-code-design/19a-capability-contract.md)。
 - **Scope**：在 private `packages/capability-contract` 用 bootstrap meta-schema + single versioned registry生成 TS/Rust exact types/tables/validators；冻结 raw UTF-8 Canonical JSON V1、`ASCII(prefix+role+NUL)+uint64_be(length)+canonical bytes` domain、互不混用的 raw/external/canonical/journal nominal digest forms（canonical/ref用 SHA-256）与 `ContractStrictPureEd25519V1`。Closed DAG 是 source/build→payload-only FileManifest→Manifest→Binding→publisher signatures→same-closure Evidence/Provenance/SBOM→distinct signed `CatalogVerificationEndorsement`→CEB→promotion/completion→CAB→独立 adoption/enable→Catalog event。
 - **Scope**：Manifest contribution内嵌input/output schema与permission template完整bytes+digest；multiline/binary走candidate output→K0 NONSECRET gate→Utf8Text/SealedBlob，secret只走protected SecretHandleRef→secret-operand-binding，SafeDisplay仅显示decision-scoped alias/scope/kind/fingerprint。BuildInputSet冻结exact sorted toolchain/runtime/runtimeClosure/`ExecutableBindingV1`供process Rust no-follow identity launch。K3唯一SelfDevPromotionPlan先进入endorsement，CEB逐字复用且无future back-reference；bundle/VerificationBundle/plan/effects/Git base/parent exact equality。Effective promotion deadline恰为两个plan lease deadlines、approval expiry、endorsement expiry四个signed timestamps的minimum；policy只约束issue-time lifetime并以epoch保证freshness。Endorsement签§18 full context/participants/anchors。CAB保留origin/source trust并新增target domain/authorityGeneration；三类human receipt分离。
 - **Authority**：冻结net=false profile、closed permission/broker grammar、protected refs、single-use DecisionProof与exhaustive SafeDisplay。Requested/effective effectId set exact equality；secret binding bytes必须逐字段等于input SecretHandleRef。AMBIGUOUS普通分支关闭/revoke contexts；promotion分支把run终止为`FAILED/recovery_failed`。Per-effect reconciliation不释放parent，all-sibling aggregate release后只允许fresh human lineage绑定reconciled dependency，旧authority无ack恢复。

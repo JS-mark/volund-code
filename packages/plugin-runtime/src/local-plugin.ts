@@ -1,14 +1,14 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { startPluginHost } from '@apollo-code/native-bridge'
+import { startPluginHost } from '@volund/native-bridge'
 import type {
   EffectiveEnvEntry,
   PluginInstallResult,
   PluginInventory,
   PluginInventoryEntry,
   PluginManifest,
-} from '@apollo-code/plugin-sdk'
+} from '@volund/plugin-sdk'
 
 import { PluginBridgeServer, PluginCallbackRef, PluginBridgeError } from './bridge-server'
 import { BRIDGE_PERMISSIONS, createRpcGuard, PluginError } from './index'
@@ -72,13 +72,13 @@ export interface ActivatedLocalPlugin {
 export interface ActivateLocalPluginOptions {
   /** 本地插件目录（含 manifest.json + bundled 单文件 ESM 入口）。 */
   dir: string
-  apolloVersion: string
+  volundVersion: string
   /** 插件数据根目录；实际数据目录 = dataDirRoot/<manifest.name>（沙箱内唯一可写根）。 */
   dataDirRoot: string
   services: LocalPluginServices
   /**
    * 相对路径 → sha256（hex 或 sha256- 前缀）完整性映射（市场安装的插件带
-   * apollo-market.json 时由装载器传入）：激活时逐文件校验，篡改即拒载。
+   * volund-market.json 时由装载器传入）：激活时逐文件校验，篡改即拒载。
    */
   integrity?: Record<string, string>
   signal?: AbortSignal
@@ -101,17 +101,17 @@ export function createLocalPluginDispatch(options: {
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
-  // 与 BridgeRuntime.create 同一约定：manifest.permissions.apollo 记权限名，
+  // 与 BridgeRuntime.create 同一约定：manifest.permissions.volund 记权限名，
   // 桥方法经 BRIDGE_PERMISSIONS 映射后比对（deny-by-default）。
   const guard = createRpcGuard({
     ...manifest,
     permissions: {
       ...manifest.permissions,
-      apollo: manifest.permissions.apollo.map((method) => BRIDGE_PERMISSIONS[method] ?? method),
+      volund: manifest.permissions.volund.map((method) => BRIDGE_PERMISSIONS[method] ?? method),
     },
   })
   return (method, params) => {
-    const short = method.startsWith('apollo.') ? method.slice('apollo.'.length) : method
+    const short = method.startsWith('volund.') ? method.slice('volund.'.length) : method
     // 与 BridgeRuntime 的 check 一致：调用方法先映射到权限名再比对。
     guard('local', BRIDGE_PERMISSIONS[short] ?? short)
     if (short === 'ui.status.registerTab') {
@@ -184,7 +184,10 @@ export function createLocalPluginDispatch(options: {
     }
     if (short === 'plugins.uninstall') {
       if (typeof params !== 'string' || !params)
-        throw new PluginError('plugin_rpc_params_invalid', 'plugins.uninstall requires a name string')
+        throw new PluginError(
+          'plugin_rpc_params_invalid',
+          'plugins.uninstall requires a name string',
+        )
       return services.uninstallMarketPlugin?.(params)
     }
     if (['log.debug', 'log.info', 'log.warn', 'log.error'].includes(short)) {
@@ -199,7 +202,7 @@ export function createLocalPluginDispatch(options: {
 
 /**
  * PLUGIN-STATUS-UI-r1 的插件路径装载器：本地目录 → manifest 校验 + bundle
- * 完整性/路径检查 → 沙箱 profile → apollo-sandbox --run-plugin 子进程（fd3
+ * 完整性/路径检查 → 沙箱 profile → volund-sandbox --run-plugin 子进程（fd3
  * JSONRPC 桥）→ activate() 期间的贡献收敛。
  *
  * 与 legacy Catalog 安装路径无关；插件代码全程只跑在沙箱子进程里（§4.7/C0），
@@ -210,7 +213,7 @@ export async function activateLocalPlugin(
 ): Promise<ActivatedLocalPlugin> {
   const manifest = validateManifest(
     JSON.parse(await readFile(join(options.dir, 'manifest.json'), 'utf8')),
-    options.apolloVersion,
+    options.volundVersion,
   )
   await verifyBundle(options.dir, manifest, options.integrity)
   // 数据目录按 manifest 名派生（名字已被 validateManifest 约束为路径安全字符），

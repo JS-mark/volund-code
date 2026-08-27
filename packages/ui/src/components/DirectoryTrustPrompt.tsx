@@ -1,3 +1,4 @@
+import { productIdentity } from '@volund/shared'
 import { Box, Text } from 'ink'
 
 import { SelectList } from './SelectList'
@@ -26,8 +27,8 @@ export function DirectoryTrustPrompt({
       </Text>
       <Text>{canonicalPath}</Text>
       <Text color="gray">
-        Apollo may read, write, or execute files here. Directory trust only allows startup; normal
-        permission and sandbox checks still apply.
+        {productIdentity.shortName} may read, write, or execute files here. Directory trust only
+        allows startup; normal permission and sandbox checks still apply.
       </Text>
       <SelectList
         items={[

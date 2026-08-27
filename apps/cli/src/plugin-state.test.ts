@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { PluginManifest } from '@volund/plugin-sdk'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { PluginManifest } from '@apollo-code/plugin-sdk'
 
 import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
 
@@ -13,18 +13,18 @@ afterEach(async () => {
 })
 
 async function fixtureHome() {
-  const home = await mkdtemp(join(tmpdir(), 'apollo-plugin-state-'))
+  const home = await mkdtemp(join(tmpdir(), 'volund-plugin-state-'))
   dirs.push(home)
   return home
 }
 
 const manifest = (version = '1.0.0', permissions = ['log.write']): PluginManifest => ({
-  name: 'apollo-plugin-example' as const,
+  name: 'volund-plugin-example' as const,
   version,
   type: 'module' as const,
   main: 'index.mjs',
-  engines: { apollo: '^0.1.0' },
-  permissions: { apollo: permissions },
+  engines: { volund: '^0.1.0' },
+  permissions: { volund: permissions },
 })
 
 describe('LocalPluginStateStore', () => {

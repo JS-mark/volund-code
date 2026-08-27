@@ -8,9 +8,9 @@ This file is the acceptance record, not evidence by itself. A human with an auth
 
 - Candidate commit/version: pending
 - Host target and Sandbox Tier: pending
-- `apollo doctor --strict`: pending
+- `volund doctor --strict`: pending
 - Real repository task: read a failing test, edit the implementation, run the relevant tests, and open a PR
-- Provider: Anthropic through Apollo's verified credential flow
+- Provider: Anthropic through Volund CLI's verified credential flow
 - Permission decisions: record each prompt category and allow/deny decision; do not record secret values or sensitive file content
 - Test command and result: pending
 - Dog-food PR URL: pending

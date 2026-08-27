@@ -27,7 +27,7 @@ export interface McpPanelController {
   /** 断开全部并按配置重连（/mcp reload 语义）。 */
   reload(): Promise<readonly McpPanelEntry[]>
   setEnabled(name: string, enabled: boolean): Promise<string>
-  /** 详情（r1.6 恢复）：元数据 + 工具清单（等价 apollo mcp inspect 的只读形态）。 */
+  /** 详情（r1.6 恢复）：元数据 + 工具清单（等价 volund mcp inspect 的只读形态）。 */
   inspect(name: string): Promise<{ entry: McpPanelEntry; tools: readonly McpToolSummary[] }>
 }
 

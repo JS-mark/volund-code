@@ -1,24 +1,24 @@
 import { readFile, stat } from 'node:fs/promises'
 
-import { sanitize } from '@apollo-code/shared'
+import { productIdentity, sanitize } from '@volund/shared'
 import type {
   MemoryProvenance,
   MemoryRecord,
   MemoryRecordScope,
   MemoryService,
-} from '@apollo-code/storage'
+} from '@volund/storage'
 import {
   compareMemoryRecords,
   MAX_MEMORY_ARCHIVE_BYTES,
   MemoryError,
   memoryCursorFor,
-} from '@apollo-code/storage'
+} from '@volund/storage'
 
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from '../../memory-scope'
-import type { ApolloPorts } from '../../ports'
+import type { VolundPorts } from '../../ports'
 import type { CliIo, CliResult, CommandDefinition, ParsedCliArgs } from '../../shared/cli-types'
 
-export const memoryUsage = `Usage: apollo memory <command> [options]
+export const memoryUsage = `Usage: ${productIdentity.commandName} memory <command> [options]
 
 Commands:
   list                 List memories
@@ -87,7 +87,7 @@ export function createMemoryCommand(io: CliIo): CommandDefinition {
 async function runIndexCommand(
   args: ParsedCliArgs,
   cwd: string,
-  ports: ApolloPorts,
+  ports: VolundPorts,
 ): Promise<CliResult | undefined> {
   const action = args._[1]
   if (action === 'search') {
@@ -222,7 +222,7 @@ async function runMemory(
   args: ParsedCliArgs,
   cwd: string,
   memory: MemoryService,
-  ports: ApolloPorts,
+  ports: VolundPorts,
   io: CliIo,
 ): Promise<CliResult> {
   const action = args._[1] ?? 'list'

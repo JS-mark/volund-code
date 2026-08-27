@@ -8,7 +8,7 @@ export function getWelcomeLayout(size: TerminalSize): WelcomeLayoutMode {
   return 'full'
 }
 
-function validDimension(value: number, fallback: number): number {
+export function validDimension(value: number, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 

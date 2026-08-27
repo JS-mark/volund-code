@@ -42,7 +42,7 @@ describe('welcome screen', () => {
 
   it('middle truncates long cwd while preserving the project name', () => {
     expect(
-      formatDisplayCwd('/Users/apollo/work/very/long/project-name', '/Users/apollo', 24),
+      formatDisplayCwd('/Users/volund/work/very/long/project-name', '/Users/volund', 24),
     ).toMatch(/^~\/work.*roject-name$/)
     expect(truncateMiddle('anthropic/a-very-long-model-name', 18)).toHaveLength(18)
   })
@@ -76,7 +76,7 @@ describe('welcome screen', () => {
     view.unmount()
     await view.waitUntilExit()
     expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout.toUpperCase()}`)
-    expect(stdout.output).toContain('Apollo Code  v0.0.0-test')
+    expect(stdout.output).toContain('Volund CLI  v0.0.0-test')
     if (layout !== 'minimal') expect(stdout.output).toContain('Local TUI session ready')
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
@@ -119,15 +119,15 @@ describe('welcome screen', () => {
     [{ columns: 90, rows: 24 }, 'compact'],
     [{ columns: 70, rows: 18 }, 'minimal'],
   ] as const)(
-    'renders the V14 concentric AC logo in the %s brand variant',
+    'renders the Volund pixel hammer in the %s brand variant',
     async (terminalSize, _layout) => {
       const output = stripVTControlCharacters(
         await renderWelcome(terminalSize, fixture({ status: 'unknown' })),
       )
-      expect(output).toContain('     ▄████████████▄')
-      expect(output).toContain(' ██    ██████████')
-      expect(output).toContain('     ▀████████▀')
-      expect(output).not.toContain('       ██████████')
+      expect(output).toContain('  ████████████████████  ')
+      expect(output).toContain('████     >_         ████')
+      expect(output).toContain('          ████          ')
+      expect(output).not.toContain('apollo')
     },
   )
 
@@ -141,12 +141,12 @@ describe('welcome screen', () => {
           model: 'claude-an-extremely-long-model-name-for-layout-regression',
           source: 'explicit',
         }),
-        '/Users/apollo/workspaces/a-very-long-enterprise-project-name-that-must-not-crush-branding',
+        '/Users/volund/workspaces/a-very-long-enterprise-project-name-that-must-not-crush-branding',
       ),
     )
     const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
-    expect(output).toContain('     ▄████████████▄')
-    expect(output).toContain(' ██    ██████████')
+    expect(output).toContain('  ████████████████████  ')
+    expect(output).toContain('████     >_         ████')
     expect(output).toContain('Workspace')
     expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)

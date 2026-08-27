@@ -17,7 +17,7 @@ isolation, transaction rollback, timeout cleanup, and crash recovery.
 
 `.github/workflows/graviton-evidence.yml` is a manual, secret-free sampling
 workflow. It accepts only a full candidate SHA and runs only on an existing
-controlled runner labelled `apollo-graviton`; it never creates paid resources.
+controlled runner labelled `volund-graviton`; it never creates paid resources.
 Its artifact records the candidate and checked-out SHA, host, architecture,
 kernel, exact command, raw summary, exit code, and start/end times.
 
@@ -27,13 +27,13 @@ Current hardware result: **not executed; waiting for an authorized external runn
 
 Candidate implementation SHA: `5add9f5647ab604d5c65b1e6de4b32a14169834a`.
 
-Executed locally on macOS arm64 on 2026-08-04 (Asia/Shanghai), with an isolated `APOLLO_HOME` and redacted output:
+Executed locally on macOS arm64 on 2026-08-04 (Asia/Shanghai), with an isolated `VOLUND_HOME` and redacted output:
 
 | Step                 | Command                                                                     | Exit | Result                                                         |
 | -------------------- | --------------------------------------------------------------------------- | ---: | -------------------------------------------------------------- |
 | Pack/publish preview | `pnpm --dir examples/community-plugin pack:dry-run`                         |    0 | Four expected files; no publish performed                      |
-| Local install        | `node apps/cli/dist/apollo.js plugin install examples/community-plugin`     |    0 | Explicit `tools.register` approval accepted; installed `0.0.1` |
-| Inspect              | `plugin list --json`; `plugin doctor apollo-plugin-community-example`       |    0 | Enabled state and declared permission matched                  |
+| Local install        | `node apps/cli/dist/volund.js plugin install examples/community-plugin`     |    0 | Explicit `tools.register` approval accepted; installed `0.0.1` |
+| Inspect              | `plugin list --json`; `plugin doctor volund-plugin-community-example`       |    0 | Enabled state and declared permission matched                  |
 | Lifecycle            | `plugin disable`; `plugin enable`; `plugin uninstall`; `plugin list --json` |    0 | State transitions succeeded; final list empty                  |
 
 That earlier run reported Sandbox Tier `NONE`; it remains packaging/lifecycle evidence only and is not activation acceptance evidence.
@@ -51,10 +51,10 @@ Executed from `2026-08-05T04:22:32Z` through `2026-08-05T04:22:33Z` on macOS Dar
 
 | Step                | Command                                                                                                                          | Exit | Result                                                                                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native probe        | `./target/debug/apollo-sandbox --probe`                                                                                          |    0 | `tier=partial`, `sandbox_init=true`, Darwin 25.6.0 arm64                                                                                                                                                                                  |
-| Real lifecycle E2E  | `APOLLO_NATIVE_SANDBOX_BINARY=<candidate apollo-sandbox> APOLLO_RUN_PLUGIN_E2E=1 pnpm --filter @apollo-code/plugin-runtime test` |    0 | 3 files / 15 tests passed; real manager + runtime + native host registered and invoked `plugin:apollo-plugin-community-example:community.echo`, then verified disable, enable, uninstall, corrupt-entry auto-disable, and process cleanup |
+| Native probe        | `./target/debug/volund-sandbox --probe`                                                                                          |    0 | `tier=partial`, `sandbox_init=true`, Darwin 25.6.0 arm64                                                                                                                                                                                  |
+| Real lifecycle E2E  | `VOLUND_NATIVE_SANDBOX_BINARY=<candidate volund-sandbox> VOLUND_RUN_PLUGIN_E2E=1 pnpm --filter @volund-code/plugin-runtime test` |    0 | 3 files / 15 tests passed; real manager + runtime + native host registered and invoked `plugin:volund-plugin-community-example:community.echo`, then verified disable, enable, uninstall, corrupt-entry auto-disable, and process cleanup |
 | Monorepo gate       | `pnpm turbo run typecheck test build --force`                                                                                    |    0 | 73 tasks passed across 24 packages                                                                                                                                                                                                        |
 | Native gate         | `cargo test --workspace`; `cargo clippy --workspace --all-targets -- -D warnings`                                                |    0 | All workspace tests and warning-denied clippy passed                                                                                                                                                                                      |
-| Escape/release gate | `bash crates/apollo-sandbox/tests/escape/run.sh ./target/debug/apollo-sandbox`; release verification node tests                  |    0 | Allowed write succeeded, out-of-root write was denied, and all release/changeset/native evidence checks passed                                                                                                                            |
+| Escape/release gate | `bash crates/volund-sandbox/tests/escape/run.sh ./target/debug/volund-sandbox`; release verification node tests                  |    0 | Allowed write succeeded, out-of-root write was denied, and all release/changeset/native evidence checks passed                                                                                                                            |
 
-The E2E uses the compiled candidate `apollo-sandbox` and its embedded `plugin_host.mjs`; it does not mock `ApolloPorts`, import the plugin in the main process, or bypass sandbox/permission policy. The direct suite also covers stale approvals, path and symlink escape rejection, RPC allowlist/quota, duplicate loading, activation timeout/cancellation cleanup, three-failure automatic disable, and log redaction. No npm publish, tag, GitHub Release, production signing, real-provider call, Windows Tier 3 run, or Graviton run was performed.
+The E2E uses the compiled candidate `volund-sandbox` and its embedded `plugin_host.mjs`; it does not mock `VolundPorts`, import the plugin in the main process, or bypass sandbox/permission policy. The direct suite also covers stale approvals, path and symlink escape rejection, RPC allowlist/quota, duplicate loading, activation timeout/cancellation cleanup, three-failure automatic disable, and log redaction. No npm publish, tag, GitHub Release, production signing, real-provider call, Windows Tier 3 run, or Graviton run was performed.

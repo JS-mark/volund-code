@@ -29,7 +29,7 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 async function fixture(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'apollo-search-'))
+  const dir = await mkdtemp(join(tmpdir(), 'volund-search-'))
   await writeFile(join(dir, 'haystack.txt'), 'keep this needle\nnothing here\n', 'utf8')
   return dir
 }
@@ -72,7 +72,7 @@ describe('native search reads during probing (r13-P1)', () => {
     availability.search = 'probing'
     await expect(
       collect(astQuery({ query: '(function)', language: 'typescript' })),
-    ).rejects.toThrow('AST query requires the native apollo-search worker')
+    ).rejects.toThrow('AST query requires the native volund-search worker')
     expect(workerPool.call).not.toHaveBeenCalled()
   })
 })

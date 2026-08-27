@@ -7,5 +7,5 @@ export type {
 } from './mock-provider'
 export { fakeClock } from './fake-clock'
 export type { FakeClock, FakeClockOptions } from './fake-clock'
-export { tempApolloHome } from './temp-apollo-home'
-export type { TempApolloHome, TempApolloHomeOptions } from './temp-apollo-home'
+export { tempvolundHome } from './temp-volund-home'
+export type { TempvolundHome, TempvolundHomeOptions } from './temp-volund-home'

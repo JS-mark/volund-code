@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 const scriptPath = fileURLToPath(import.meta.url)
 const root = resolve(dirname(scriptPath), '..')
 export const SPEC_EVENT_TABLE_PATH =
-  'docs/superpowers/specs/2026-07-31-apollo-code-design/02-agent-loop.md'
+  'docs/superpowers/specs/2026-07-31-volund-code-design/02-agent-loop.md'
 export const EVENT_SCHEMAS_DIR = 'packages/shared/src/events'
 const NON_EVENT_FILES = new Set(['index.ts', 'envelope.ts', 'common.ts'])
 

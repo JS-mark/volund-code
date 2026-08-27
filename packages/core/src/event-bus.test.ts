@@ -1,4 +1,4 @@
-import { EVENT_NAMES } from '@apollo-code/shared'
+import { EVENT_NAMES } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { EventBus, eventTypes, idempotentSubscriber } from './event-bus'

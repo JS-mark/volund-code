@@ -1,4 +1,4 @@
-import type { Disposable, PromptComposer, PromptFragment } from '@apollo-code/core'
+import type { Disposable, PromptComposer, PromptFragment } from '@volund/core'
 
 import type { MemoryRecord, MemoryRecordScope, MemoryService } from './memory-runtime'
 

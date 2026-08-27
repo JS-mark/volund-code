@@ -1,3 +1,4 @@
+import { productIdentity } from '@volund/shared'
 import { Box, Text } from 'ink'
 
 import type { WelcomePanelData } from '../welcome'
@@ -14,7 +15,7 @@ export function WelcomePanel({
   compact = false,
   data,
   footer = 'Ready. Type a message or /help.',
-  title = `Apollo Code  v${data.version}`,
+  title = `${productIdentity.displayName}  v${data.version}`,
 }: WelcomePanelProps) {
   return (
     <PanelFrame footer={footer} title={title}>
