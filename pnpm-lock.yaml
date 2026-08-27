@@ -128,9 +128,18 @@ importers:
       '@apollo-code/provider-anthropic':
         specifier: workspace:*
         version: link:../../packages/provider-anthropic
+      '@apollo-code/provider-gemini':
+        specifier: workspace:*
+        version: link:../../packages/provider-gemini
       '@apollo-code/provider-kit':
         specifier: workspace:*
         version: link:../../packages/provider-kit
+      '@apollo-code/provider-ollama':
+        specifier: workspace:*
+        version: link:../../packages/provider-ollama
+      '@apollo-code/provider-openai':
+        specifier: workspace:*
+        version: link:../../packages/provider-openai
       '@apollo-code/router':
         specifier: workspace:*
         version: link:../../packages/router

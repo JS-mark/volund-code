@@ -1,4 +1,4 @@
-import { constants as fsConstants, existsSync } from 'node:fs'
+import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
 import {
   access,
   appendFile,
@@ -15,8 +15,10 @@ import {
 import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
+import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { connect as tlsConnect } from 'node:tls'
+import { basename, delimiter as pathDelimiter, dirname, join, resolve } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 
@@ -74,6 +76,9 @@ import type {
 } from '@apollo-code/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@apollo-code/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@apollo-code/provider-anthropic'
+import { OpenAIClient } from '@apollo-code/provider-openai'
+import { GeminiClient } from '@apollo-code/provider-gemini'
+import { OllamaClient, isLoopbackOllamaEndpoint } from '@apollo-code/provider-ollama'
 import { InMemoryProviderRegistry } from '@apollo-code/provider-kit'
 import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@apollo-code/router'
 import type { RouterPolicy } from '@apollo-code/router'
@@ -841,26 +846,206 @@ function serializeHistory(records: readonly { at: string; input: string }[]): st
   return records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : '')
 }
 
+// ── 抓包代理支持 ──────────────────────────────────────────────────────────
+// NodeHttpPort 读 HTTPS_PROXY / HTTP_PROXY / NO_PROXY，通过 HTTP CONNECT 隧道转发
+// 请求，使 mitmproxy / Charles / Whistle 等抓包工具可在本地拦截出站流量。
+// 隧道对上层透明：h1 走 createConnection 注入，h2 走 net→tls 套接字。
+// env 运行期读取（非模块级常量），使测试可按用例注入 / 覆盖。
+function resolveProxyUrl(target: URL): string | undefined {
+  const byProtocol =
+    target.protocol === 'https:' || target.protocol === 'wss:'
+      ? process.env.HTTPS_PROXY ?? process.env.https_proxy
+      : process.env.HTTP_PROXY ?? process.env.http_proxy
+  if (!byProtocol) return undefined
+  if (shouldBypassProxy(target)) return undefined
+  return byProtocol
+}
+function shouldBypassProxy(target: URL): boolean {
+  const noProxy = process.env.NO_PROXY ?? process.env.no_proxy
+  if (noProxy === undefined) return false
+  if (noProxy === '' || noProxy === '*') return true
+  const host = target.hostname.toLowerCase()
+  for (const entry of noProxy.split(',').map((s) => s.trim().toLowerCase())) {
+    if (!entry) continue
+    if (entry === host || host.endsWith(`.${entry}`)) return true
+  }
+  return false
+}
+
+// 抓包代理（mitmproxy/Charles/Whistle）拦截 HTTPS 时用自签 CA 重新签名流量，
+// 系统信任库不含该 CA → tlsConnect 握手报 "unable to verify the first certificate"。
+// 解法：读 NODE_EXTRA_CA_CERTS 追加信任链，NODE_TLS_REJECT_UNAUTHORIZED=0 时完全跳过验证。
+// Node 原生 https/http2 自动处理这两项，但代理路径手动 tlsConnect 需显式传入。
+// 缓存解析结果，避免每个请求都重新读文件。
+let cachedTlsOpts: { rejectUnauthorized: boolean; ca: Buffer[] | undefined } | undefined
+function proxyTlsOptions(servername: string): {
+  rejectUnauthorized: boolean
+  ca: Buffer[] | undefined
+  servername: string
+  ALPNProtocols?: string[]
+} {
+  if (!cachedTlsOpts) {
+    const rejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0'
+    let ca: Buffer[] | undefined
+    const extraCa = process.env.NODE_EXTRA_CA_CERTS
+    if (extraCa) {
+      ca = []
+      for (const p of extraCa.split(pathDelimiter).map((s) => s.trim()).filter(Boolean)) {
+        try {
+          ca.push(readFileSync(p))
+        } catch {
+          // 路径不存在或不可读时跳过——行为与 Node 原生一致
+        }
+      }
+      if (ca.length === 0) ca = undefined
+    }
+    cachedTlsOpts = { rejectUnauthorized, ca }
+  }
+  return { ...cachedTlsOpts, servername }
+}
+// 测试用：清除缓存使环境变量变更生效。
+export function resetProxyTlsCache(): void {
+  cachedTlsOpts = undefined
+}
+
+// 建立 CONNECT 隧道，返回可用于 https.request / http2.connect 的裸套接字。
+async function openProxyTunnel(proxyUrl: string, target: URL, signal: AbortSignal): Promise<NetSocket> {
+  const proxy = new URL(proxyUrl)
+  const targetPort = target.port || (target.protocol === 'https:' ? '443' : '80')
+  const socket = netConnect(
+    { host: proxy.hostname, port: Number(proxy.port || (proxy.protocol === 'https:' ? 443 : 80)) },
+  )
+  if (signal.aborted) { socket.destroy(); throw new Error('proxy_tunnel_aborted') }
+  const onAbort = () => socket.destroy()
+  signal.addEventListener('abort', onAbort, { once: true })
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    socket.once('connect', () => {
+      if (settled) return
+      socket.write(
+        `CONNECT ${target.hostname}:${targetPort} HTTP/1.1\r\nHost: ${target.hostname}:${targetPort}\r\n\r\n`,
+      )
+      let buf = ''
+      const onData = (chunk: Buffer): void => {
+        buf += chunk.toString('ascii')
+        const idx = buf.indexOf('\r\n\r\n')
+        if (idx === -1) return
+        socket.off('data', onData)
+        const statusLine = buf.slice(0, buf.indexOf('\r\n'))
+        if (/^HTTP\/1\.[01] 2\d\d /.test(statusLine)) { settled = true; resolve() }
+        else { settled = true; socket.destroy(); reject(new Error(`proxy_tunnel_rejected: ${statusLine}`)) }
+      }
+      socket.on('data', onData)
+    })
+    socket.once('error', (cause) => {
+      if (settled) return
+      settled = true
+      reject(new Error(`proxy_tunnel_failed: ${(cause as Error).message}`))
+    })
+  }).finally(() => {
+    signal.removeEventListener('abort', onAbort)
+  })
+  return socket
+}
+
 function requestHttp1(url: URL, input: HttpRequest): Promise<HttpResponse> {
   // §4.6 强制路由：provider.anthropic.baseUrl 可能指向 http:// 网关（本地代理/自建网关，
   // 见 851f62e），按协议在 node:http / node:https 间分流，与 web-fetch.ts 范式一致。
   const transport = url.protocol === 'https:' ? httpsRequest : httpRequest
-  return new Promise((resolve, reject) => {
-    const req = transport(
-      url,
-      { method: input.method, headers: input.headers, signal: input.signal },
-      (response) => {
-        const headers = Object.fromEntries(
-          Object.entries(response.headers).flatMap(([key, value]) =>
-            value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]],
-          ),
-        )
-        resolve({ status: response.statusCode ?? 0, headers, body: response })
-      },
+  const proxyUrl = resolveProxyUrl(url)
+  const baseOpts: import('node:https').RequestOptions = {
+    method: input.method,
+    headers: input.headers,
+    signal: input.signal,
+  }
+  function handler(
+    response: import('node:http').IncomingMessage,
+    onAbort: () => void,
+    resolve: (v: HttpResponse) => void,
+  ): void {
+    input.signal.removeEventListener('abort', onAbort)
+    const headers = Object.fromEntries(
+      Object.entries(response.headers).flatMap(([key, value]) =>
+        value === undefined ? [] : [[key, Array.isArray(value) ? value.join(',') : value]],
+      ),
     )
-    req.once('error', reject)
-    req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
-  })
+    resolve({ status: response.statusCode ?? 0, headers, body: response })
+  }
+  // 无代理：原路径，直接 transport(url, opts, cb)。
+  if (!proxyUrl) {
+    return new Promise((resolve, reject) => {
+      let reqRef: import('node:http').ClientRequest | undefined
+      const onAbort = (): void => {
+        reqRef?.destroy()
+      }
+      input.signal.addEventListener('abort', onAbort, { once: true })
+      const req = transport(url, baseOpts, (response) => {
+        handler(response, onAbort, resolve)
+      })
+      reqRef = req
+      req.once('error', (cause) => {
+        input.signal.removeEventListener('abort', onAbort)
+        reject(cause)
+      })
+      req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+    })
+  }
+  // CONNECT 隧道：先开裸 TCP 到代理，握手成功后注入 createConnection。
+  // https:// → tlsConnect 在裸隧道上握手，返回已加密 socket；用 http.request
+  //   （非 https.request）在已加密 socket 上发明文 HTTP——https.request 会在
+  //   createConnection 返回的 socket 上再做一次 TLS（双重加密）。
+  // http:// → 裸隧道 socket 直接喂 http.request 的 createConnection。
+  // 两条路径都走 Node 原生 HTTP 解析器，支持流式 SSE / chunked。
+  return openProxyTunnel(proxyUrl, url, input.signal)
+    .then(
+      (socket) =>
+        new Promise<HttpResponse>((resolve, reject) => {
+          const onAbort = (): void => {
+            socket.destroy()
+          }
+          input.signal.addEventListener('abort', onAbort, { once: true })
+          const establishSocket = url.protocol === 'https:'
+            ? new Promise<NetSocket>((res, rej) => {
+                const tlsSock = tlsConnect({
+                  socket,
+                  ...proxyTlsOptions(url.hostname),
+                })
+                tlsSock.once('secureConnect', () => res(tlsSock as unknown as NetSocket))
+                tlsSock.once('error', rej)
+              })
+            : Promise.resolve(socket)
+          establishSocket
+            .then((sock) => {
+              // socket 已 TLS 包装时，用 http: 协议 URL（http.request 不认 https:），
+              // createConnection 返回已加密 socket，HTTP 明文在 TLS 层上传输。
+              const reqUrl = url.protocol === 'https:'
+                ? `http://${url.host}${url.pathname}${url.search}`
+                : url
+              const req = httpRequest(
+                reqUrl,
+                {
+                  method: input.method,
+                  headers: input.headers,
+                  createConnection: () => sock,
+                },
+                (response) => {
+                  // 代理隧道响应完成后销毁 socket，释放代理连接（否则 server.close 挂起）。
+                  response.once('end', () => sock.destroy())
+                  handler(response, onAbort, resolve)
+                },
+              )
+              req.once('error', (cause) => {
+                input.signal.removeEventListener('abort', onAbort)
+                reject(cause)
+              })
+              req.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+            })
+            .catch((cause) => {
+              input.signal.removeEventListener('abort', onAbort)
+              reject(cause)
+            })
+        }),
+    )
 }
 
 const { HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, NGHTTP2_CANCEL } =
@@ -868,59 +1053,90 @@ const { HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, NGHTTP2_CAN
 
 // https:// 走 HTTP/2：企业网关（AWS ALB + APISIX）对 HTTP/1.1 的 SSE 整批缓冲、
 // 对 HTTP/2 逐帧下发（实测同请求 h1 单 blob vs h2 渐进 2s+），h1 下 TUI 无流式效果。
+// 代理模式：先 CONNECT 隧道到目标，再在 TLS 套接字上建立 h2 会话（createConnection 注入）。
 export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse> {
+  const proxyUrl = resolveProxyUrl(url)
   return new Promise((resolve, reject) => {
-    const session = http2Connect(url.origin)
     let responded = false
-    session.once('error', (cause) => {
-      if (!responded) {
-        session.destroy()
-        reject(cause)
-      }
-    })
-    const stream = session.request({
-      [HTTP2_HEADER_METHOD]: input.method,
-      [HTTP2_HEADER_PATH]: `${url.pathname}${url.search}`,
-      // http2 禁传连接级 header；:authority 由 session 权威值自动生成。
-      ...Object.fromEntries(
-        Object.entries(input.headers).filter(
-          ([key]) => !H2_FORBIDDEN_HEADERS.has(key.toLowerCase()),
-        ),
-      ),
-    })
-    const onAbort = () => stream.close(NGHTTP2_CANCEL)
-    if (input.signal.aborted) onAbort()
-    else input.signal.addEventListener('abort', onAbort, { once: true })
-    stream.once('error', (cause) => {
-      if (!responded) {
-        responded = true
-        input.signal.removeEventListener('abort', onAbort)
-        session.destroy()
-        reject(cause)
-      }
-    })
-    stream.once('response', (headers) => {
-      responded = true
-      const flat: Record<string, string> = {}
-      for (const [key, value] of Object.entries(headers)) {
-        if (key.startsWith(':') || value === undefined) continue
-        flat[key] = Array.isArray(value) ? value.join(',') : value
-      }
-      const body = (async function* () {
-        try {
-          for await (const chunk of stream) yield Buffer.from(chunk)
-        } finally {
-          input.signal.removeEventListener('abort', onAbort)
-          session.close()
+    const establish = proxyUrl
+      ? openProxyTunnel(proxyUrl, url, input.signal).then((tunneled) => {
+          // ALPN 列 h2 优先、http/1.1 兜底：抓包代理（mitmproxy/Charles）通常只讲 h1，
+          // h2 协商失败时 NodeHttpPort.request 回退 requestHttp1，仍经同一隧道。
+          const tlsSocket = tlsConnect({
+            socket: tunneled,
+            ...proxyTlsOptions(url.hostname),
+            ALPNProtocols: ['h2', 'http/1.1'],
+          })
+          return new Promise<NetSocket>((res, rej) => {
+            tlsSocket.once('secureConnect', () => {
+              // ALPN 未选 h2 → 目标/代理只讲 h1，立即拒绝让上层回退 requestHttp1。
+              // 必须销毁 tlsSocket + 底层隧道 socket，否则代理连接不释放、close() 挂起。
+              if ((tlsSocket.alpnProtocol ?? 'http/1.1') !== 'h2') {
+                tlsSocket.destroy()
+                tunneled.destroy()
+                rej(new Error('proxy_alpn_not_h2'))
+                return
+              }
+              res(tlsSocket as unknown as NetSocket)
+            })
+            tlsSocket.once('error', rej)
+          })
+        })
+      : Promise.resolve(undefined)
+    establish.then((tunneledSocket) => {
+      const session = tunneledSocket
+        ? http2Connect(url.origin, { createConnection: () => tunneledSocket })
+        : http2Connect(url.origin)
+      session.once('error', (cause) => {
+        if (!responded) {
+          session.destroy()
+          reject(cause)
         }
-      })()
-      resolve({
-        status: Number(headers[HTTP2_HEADER_STATUS] ?? 0),
-        headers: flat,
-        body,
       })
-    })
-    stream.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+      const stream = session.request({
+        [HTTP2_HEADER_METHOD]: input.method,
+        [HTTP2_HEADER_PATH]: `${url.pathname}${url.search}`,
+        // http2 禁传连接级 header；:authority 由 session 权威值自动生成。
+        ...Object.fromEntries(
+          Object.entries(input.headers).filter(
+            ([key]) => !H2_FORBIDDEN_HEADERS.has(key.toLowerCase()),
+          ),
+        ),
+      })
+      const onAbort = () => stream.close(NGHTTP2_CANCEL)
+      if (input.signal.aborted) onAbort()
+      else input.signal.addEventListener('abort', onAbort, { once: true })
+      stream.once('error', (cause) => {
+        if (!responded) {
+          responded = true
+          input.signal.removeEventListener('abort', onAbort)
+          session.destroy()
+          reject(cause)
+        }
+      })
+      stream.once('response', (headers) => {
+        responded = true
+        const flat: Record<string, string> = {}
+        for (const [key, value] of Object.entries(headers)) {
+          if (key.startsWith(':') || value === undefined) continue
+          flat[key] = Array.isArray(value) ? value.join(',') : value
+        }
+        const body = (async function* () {
+          try {
+            for await (const chunk of stream) yield Buffer.from(chunk)
+          } finally {
+            input.signal.removeEventListener('abort', onAbort)
+            session.close()
+          }
+        })()
+        resolve({
+          status: Number(headers[HTTP2_HEADER_STATUS] ?? 0),
+          headers: flat,
+          body,
+        })
+      })
+      stream.end(input.method === 'GET' ? undefined : JSON.stringify(input.body))
+    }).catch(reject)
   })
 }
 const H2_FORBIDDEN_HEADERS = new Set([
@@ -2730,6 +2946,28 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       anthropicEntry && typeof anthropicEntry === 'object' && !Array.isArray(anthropicEntry)
         ? anthropicEntry.baseUrl
         : undefined
+    // provider.<name> 通用读取：openai / gemini 的 baseUrl、ollama 的 endpoint。
+    // 仅当配置了对应条目时才实例化 client 并注册——未配置的 provider 不占资源、不报错。
+    function readProviderEntry(name: 'openai' | 'gemini' | 'ollama'): Record<string, unknown> | undefined {
+      if (!providerSection || typeof providerSection !== 'object' || Array.isArray(providerSection)) return undefined
+      const entry = providerSection[name]
+      return entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : undefined
+    }
+    const openaiEntry = readProviderEntry('openai')
+    const openaiBaseUrl =
+      openaiEntry && typeof openaiEntry.baseUrl === 'string' && openaiEntry.baseUrl
+        ? openaiEntry.baseUrl
+        : undefined
+    const geminiEntry = readProviderEntry('gemini')
+    const geminiBaseUrl =
+      geminiEntry && typeof geminiEntry.baseUrl === 'string' && geminiEntry.baseUrl
+        ? geminiEntry.baseUrl
+        : undefined
+    const ollamaEntry = readProviderEntry('ollama')
+    const ollamaEndpoint =
+      ollamaEntry && typeof ollamaEntry.endpoint === 'string' && ollamaEntry.endpoint
+        ? ollamaEntry.endpoint
+        : undefined
     // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'）
     // → provider.anthropic.model（静态配置）→ 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
     const preferencesSection = userConfig.preferences
@@ -2827,6 +3065,68 @@ export function createProductionPorts(options: ProductionOptions): ApolloPorts {
       { kind: 'core' },
       { capabilities: client.capabilities, displayName: 'Anthropic' },
     )
+    // ── 可选 provider 注册（openai / gemini / ollama）──────────────────────────
+    // 仅当用户级 config.toml 配置了对应条目（baseUrl / endpoint）时才实例化并注册。
+    // 配合 SingleProviderRouter 的 explicitModel（'openai/gpt-4o'）或 RoleRouter 使用。
+    // Ollama 远程（非回环）endpoint 需交互确认——此处仅注册回环或已配置端点；
+    // 非回环端点在 OllamaClient 构造时会因缺 approval 抛错，由调用方感知。
+    if (openaiBaseUrl || (await auth.getCredential('openai'))) {
+      const openai = new OpenAIClient({
+        credentials: {
+          async getCredential(): Promise<string> {
+            if (skipAuth) throw new Error('OpenAI credential unavailable (skipAuth)')
+            const value = await auth.getCredential('openai')
+            if (!value) throw new Error('OpenAI credential unavailable')
+            return value
+          },
+        },
+        http: http as unknown as import('@apollo-code/provider-openai').HttpPort,
+        attachments,
+        ...(openaiBaseUrl ? { baseUrl: openaiBaseUrl } : {}),
+      })
+      providers.register(
+        openai,
+        { kind: 'core' },
+        { capabilities: openai.capabilities, displayName: 'OpenAI' },
+      )
+    }
+    if (geminiBaseUrl || (await auth.getCredential('gemini'))) {
+      const gemini = new GeminiClient({
+        credentials: {
+          async getCredential(): Promise<string> {
+            if (skipAuth) throw new Error('Gemini credential unavailable (skipAuth)')
+            const value = await auth.getCredential('gemini')
+            if (!value) throw new Error('Gemini credential unavailable')
+            return value
+          },
+        },
+        http: http as unknown as import('@apollo-code/provider-gemini').HttpPort,
+        model: 'gemini-2.0-flash',
+        attachments,
+        ...(geminiBaseUrl ? { baseUrl: geminiBaseUrl } : {}),
+      })
+      providers.register(
+        gemini,
+        { kind: 'core' },
+        { capabilities: gemini.capabilities, displayName: 'Gemini' },
+      )
+    }
+    if (ollamaEndpoint || ollamaEntry) {
+      // Ollama 无凭据；回环 endpoint 免确认，非回环需 approval（此处仅注册回环）。
+      const endpoint = ollamaEndpoint ?? 'http://127.0.0.1:11434'
+      if (isLoopbackOllamaEndpoint(endpoint)) {
+        const ollama = new OllamaClient({
+          http: http as unknown as import('@apollo-code/provider-ollama').HttpPort,
+          endpoint,
+          attachments,
+        })
+        providers.register(
+          ollama,
+          { kind: 'core' },
+          { capabilities: ollama.capabilities, displayName: 'Ollama' },
+        )
+      }
+    }
     let router: RouterPolicy = new SingleProviderRouter(
       client,
       options.model ?? configuredModel ?? 'claude-sonnet-4-20250514',

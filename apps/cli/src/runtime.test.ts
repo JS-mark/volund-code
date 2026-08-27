@@ -32,6 +32,7 @@ import {
   createProductionPorts,
   NodeHttpPort,
   ProductionPermissionSessionPolicy,
+  resetProxyTlsCache,
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
@@ -1935,6 +1936,278 @@ describe('status configuration adapter', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   })
+
+  // ── 抓包代理（HTTPS_PROXY / HTTP_PROXY / NO_PROXY）─────────────────────────
+  // 模拟 mitmproxy/Charles：HTTP CONNECT 代理接收 CONNECT 请求，建立到目标的裸 TCP
+  // 隧道。验证 NodeHttpPort 的代理隧道 + NO_PROXY 旁路。
+
+  it('NodeHttpPort routes requests through HTTP_PROXY CONNECT tunnel', async () => {
+    const net = await import('node:net')
+    const target: Server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ tunneled: true }))
+    })
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+    const targetAddr = target.address()
+    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+
+    // CONNECT 代理：收到 CONNECT host:port 后连到目标，回 200，双向 pipe。
+    const proxy: Server = createServer()
+    let connectSeen = false
+    proxy.on('connect', (req, clientSocket) => {
+      connectSeen = true
+      const [host, port] = req.url!.split(':')
+      const upstream = net.connect(Number(port), host)
+      upstream.once('connect', () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        upstream.pipe(clientSocket)
+        clientSocket.pipe(upstream)
+      })
+      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      upstream.once('error', cleanup)
+      clientSocket.once('close', cleanup)
+      upstream.once('close', cleanup)
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const proxyAddr = proxy.address()
+    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+    try {
+      process.env.HTTP_PROXY = `http://127.0.0.1:${proxyPort}`
+      delete process.env.NO_PROXY
+      const http = new NodeHttpPort()
+      const response = await http.request({
+        url: `http://127.0.0.1:${targetPort}/test`,
+        method: 'GET',
+        headers: {},
+        body: undefined,
+        signal: AbortSignal.timeout(3000),
+      })
+      expect(connectSeen).toBe(true)
+      expect(response.status).toBe(200)
+      const chunks: Buffer[] = []
+      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ tunneled: true })
+    } finally {
+      delete process.env.HTTP_PROXY
+      await new Promise<void>((r) => proxy.close(() => r()))
+      await new Promise<void>((r) => target.close(() => r()))
+    }
+  })
+
+  it('NodeHttpPort bypasses proxy for hosts in NO_PROXY', async () => {
+    const target: Server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ direct: true }))
+    })
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+    const addr = target.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+
+    // 代理收到任何请求都视为失败（不应被命中）
+    const proxy: Server = createServer((_req, res) => {
+      res.writeHead(500)
+      res.end('should not reach proxy')
+    })
+    proxy.on('connect', (_req, socket) => {
+      socket.destroy()
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const proxyAddr = proxy.address()
+    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+    try {
+      process.env.HTTP_PROXY = `http://127.0.0.1:${proxyPort}`
+      process.env.NO_PROXY = '127.0.0.1,localhost'
+      const http = new NodeHttpPort()
+      const response = await http.request({
+        url: `http://127.0.0.1:${port}/test`,
+        method: 'GET',
+        headers: {},
+        body: undefined,
+        signal: AbortSignal.timeout(3000),
+      })
+      expect(response.status).toBe(200)
+      const chunks: Buffer[] = []
+      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ direct: true })
+    } finally {
+      delete process.env.HTTP_PROXY
+      delete process.env.NO_PROXY
+      await new Promise<void>((r) => proxy.close(() => r()))
+      await new Promise<void>((r) => target.close(() => r()))
+    }
+  })
+
+  it('NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS', async () => {
+    const net = await import('node:net')
+    const https = await import('node:https')
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
+    const certDir = mkdtempSync(join(tmpdir(), 'apollo-proxy-test-'))
+    const keyPath = join(certDir, 'key.pem')
+    const certPath = join(certDir, 'cert.pem')
+    execSync(
+      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 1 -nodes -subj "/CN=127.0.0.1" 2>/dev/null`,
+    )
+    const keyPem = await readFile(keyPath, 'utf8')
+    const certPem = await readFile(certPath, 'utf8')
+
+    // 目标 HTTPS 服务器
+    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ https_tunneled: true }))
+    })
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+    const targetAddr = target.address()
+    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+
+    // CONNECT 代理
+    const proxy: Server = createServer()
+    let connectSeen = false
+    proxy.on('connect', (req, clientSocket) => {
+      connectSeen = true
+      const [host, port] = req.url!.split(':')
+      const upstream = net.connect(Number(port), host)
+      upstream.once('connect', () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        upstream.pipe(clientSocket)
+        clientSocket.pipe(upstream)
+      })
+      // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
+      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      upstream.once('error', cleanup)
+      clientSocket.once('close', cleanup)
+      upstream.once('close', cleanup)
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const proxyAddr = proxy.address()
+    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+    try {
+      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+      delete process.env.NO_PROXY
+      // 信任自签证书（测试专用）
+      const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      const http = new NodeHttpPort()
+      const response = await http.request({
+        url: `https://127.0.0.1:${targetPort}/test`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: { hello: 'world' },
+        signal: AbortSignal.timeout(5000),
+      })
+      expect(connectSeen).toBe(true)
+      expect(response.status).toBe(200)
+      const chunks: Buffer[] = []
+      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ https_tunneled: true })
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject
+    } finally {
+      delete process.env.HTTPS_PROXY
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
+      proxy.closeAllConnections()
+      target.closeAllConnections()
+      await new Promise<void>((r) => proxy.close(() => r()))
+      await new Promise<void>((r) => target.close(() => r()))
+      await rm(certDir, { force: true, recursive: true })
+    }
+  }, 15000)
+
+  it('NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification', async () => {
+    // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
+    // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
+    const net = await import('node:net')
+    const https = await import('node:https')
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const certDir = mkdtempSync(join(tmpdir(), 'apollo-ca-proxy-'))
+
+    // 1. 生成 CA 密钥 + 自签 CA 证书
+    const caKeyPath = join(certDir, 'ca-key.pem')
+    const caCertPath = join(certDir, 'ca-cert.pem')
+    execSync(
+      `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=Apollo Test CA" 2>/dev/null`,
+    )
+
+    // 2. 生成服务器密钥 + CSR，用 CA 签名
+    const srvKeyPath = join(certDir, 'srv-key.pem')
+    const srvCsrPath = join(certDir, 'srv.csr')
+    const srvCertPath = join(certDir, 'srv-cert.pem')
+    const extPath = join(certDir, 'ext.cnf')
+    writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
+    execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
+    execSync(`openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`)
+    execSync(
+      `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
+    )
+
+    const keyPem = await readFile(srvKeyPath, 'utf8')
+    const certPem = await readFile(srvCertPath, 'utf8')
+
+    // 目标 HTTPS 服务器（证书由测试 CA 签发，系统信任库不信任）
+    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ca_verified: true }))
+    })
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+    const targetAddr = target.address()
+    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+
+    // CONNECT 代理
+    const proxy: Server = createServer()
+    proxy.on('connect', (_req, clientSocket) => {
+      const [host, port] = _req.url!.split(':')
+      const upstream = net.connect(Number(port), host)
+      upstream.once('connect', () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        upstream.pipe(clientSocket)
+        clientSocket.pipe(upstream)
+      })
+      const cleanup = (): void => { upstream.destroy(); clientSocket.destroy() }
+      upstream.once('error', cleanup)
+      clientSocket.once('close', cleanup)
+      upstream.once('close', cleanup)
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const proxyAddr = proxy.address()
+    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+    try {
+      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+      delete process.env.NO_PROXY
+      // 关键：不设 NODE_TLS_REJECT_UNAUTHORIZED=0，而是通过 NODE_EXTRA_CA_CERTS 信任 CA
+      process.env.NODE_EXTRA_CA_CERTS = caCertPath
+      // 清除上一次测试缓存的 TLS 选项（模块级缓存）
+      resetProxyTlsCache()
+
+      const http = new NodeHttpPort()
+      const response = await http.request({
+        url: `https://127.0.0.1:${targetPort}/test`,
+        method: 'GET',
+        headers: {},
+        body: undefined,
+        signal: AbortSignal.timeout(5000),
+      })
+      expect(response.status).toBe(200)
+      const chunks: Buffer[] = []
+      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ca_verified: true })
+    } finally {
+      delete process.env.HTTPS_PROXY
+      delete process.env.NODE_EXTRA_CA_CERTS
+      resetProxyTlsCache()
+      proxy.closeAllConnections()
+      target.closeAllConnections()
+      await new Promise<void>((r) => proxy.close(() => r()))
+      await new Promise<void>((r) => target.close(() => r()))
+      await rm(certDir, { force: true, recursive: true })
+    }
+  }, 15000)
 
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
