@@ -219,14 +219,19 @@ describe('PermissionManager', () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
-  it('records prompted Bash grants and caches only an explicit session decision', async () => {
+  it('records prompted grants; every scope grant and deny-forever suppresses repeat prompts', async () => {
     const persist = vi.fn(async () => undefined)
     const project = new PermissionManager({}, { persist })
-    project.setPromptHandler(async () => ({ kind: 'allow-project' }))
+    const projectPrompt = vi.fn(async () => ({ kind: 'allow-project' as const }))
+    project.setPromptHandler(projectPrompt)
     const projectRequest = bashReq('git status')
 
     expect(await project.request(projectRequest)).toEqual({ kind: 'allow-project' })
     expect(persist).toHaveBeenCalledWith('project', projectRequest, true)
+    // Persistence for project scope is not wired in production yet; the grant
+    // still holds as a session cache entry, replaying its true decision kind.
+    expect(await project.request(bashReq('git status'))).toEqual({ kind: 'allow-project' })
+    expect(projectPrompt).toHaveBeenCalledTimes(1)
 
     const global = new PermissionManager({}, { persist })
     global.setPromptHandler(async () => ({ kind: 'allow-forever' }))
@@ -243,6 +248,15 @@ describe('PermissionManager', () => {
     expect(await session.request(sessionRequest)).toEqual({ kind: 'allow-session' })
     expect(await session.request(sessionRequest)).toEqual({ kind: 'allow-session' })
     expect(prompt).toHaveBeenCalledTimes(1)
+
+    const denying = new PermissionManager({}, { persist })
+    const denyPrompt = vi.fn(async () => ({ kind: 'deny-forever' as const }))
+    denying.setPromptHandler(denyPrompt)
+
+    expect(await denying.request(bashReq('rm -rf /')).then((d) => d.kind)).toBe('deny-forever')
+    // A cached denial must replay the denial, never surface as a grant.
+    expect(await denying.request(bashReq('rm -rf /')).then((d) => d.kind)).toBe('deny-forever')
+    expect(denyPrompt).toHaveBeenCalledTimes(1)
   })
 
   it('keys Bash session grants by the exact command and prompts again for variants', async () => {

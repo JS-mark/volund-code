@@ -1613,6 +1613,148 @@ describe('renderInteractiveApp', () => {
     expect(permissions.requests()[0]).toEqual(rawRequest)
   })
 
+  it('renders human-readable permission summaries', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        permissions,
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    void permissions.request({
+      display: { approvable: true, spec: '{"fs":{"write":["out.md"]}}', toolName: 'Write' },
+      attempt: 1,
+      id: 'permission-summary',
+      input: {},
+      spec: { fs: { write: ['out.md'] } },
+      toolName: 'Write',
+    })
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    // Structured specs render as capability lines instead of raw JSON, with
+    // quick keys intact.
+    expect(stdout.output).toContain('Permission required')
+    expect(stdout.output).toContain('write ')
+    expect(stdout.output).toContain('out.md')
+    expect(stdout.output).not.toContain('{"fs"')
+    expect(stdout.output).toContain('Allow once')
+  })
+
+  it('exposes all six decision kinds and decides instantly via quick keys', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const pending = permissions.request({
+      display: { approvable: true, spec: '{"bash":{"command":"make build"}}', toolName: 'Bash' },
+      attempt: 1,
+      id: 'permission-six',
+      input: { command: 'make build' },
+      spec: { bash: { command: 'make build' } },
+      toolName: 'Bash',
+    })
+    const second = permissions.request({
+      display: { approvable: true, spec: '{"bash":{"command":"make lint"}}', toolName: 'Bash' },
+      attempt: 1,
+      id: 'permission-six-2',
+      input: { command: 'make lint' },
+      spec: { bash: { command: 'make lint' } },
+      toolName: 'Bash',
+    })
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        permissions,
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+
+    // Both decision groups with every scope are listed.
+    expect(stdout.output).toContain('ALLOW')
+    expect(stdout.output).toContain('DENY')
+    for (const label of [
+      'Allow once',
+      'For this session',
+      'For this project',
+      'Always',
+      'Deny',
+      'Never ask again',
+    ])
+      expect(stdout.output).toContain(label)
+
+    // 'f' decides allow-forever without navigation; the queue advances so 'x'
+    // then decides the next request as deny-forever.
+    stdin.write('f')
+    await expect(pending).resolves.toEqual({ kind: 'allow-forever' })
+    await app.waitUntilRenderFlush()
+    stdin.write('x')
+    await expect(second).resolves.toEqual({ kind: 'deny-forever' })
+
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('lays out multi-line commands as continuation rows with elision', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const longCommand = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+      .map((word, index) => `echo step ${index} ${word}`)
+      .join('\n')
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        permissions,
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    void permissions.request({
+      display: {
+        approvable: true,
+        spec: `{"bash":{"command":${JSON.stringify(longCommand)}}}`,
+        toolName: 'Bash',
+      },
+      attempt: 1,
+      id: 'permission-multiline',
+      input: { command: longCommand },
+      spec: { bash: { command: longCommand } },
+      toolName: 'Bash',
+    })
+    await app.waitUntilRenderFlush()
+    await app.unmount()
+    await app.waitUntilExit()
+
+    expect(stdout.output).toContain('$ echo step 0 one')
+    expect(stdout.output).toContain('│ echo step 1 two')
+    expect(stdout.output).toContain('more')
+  })
+
   it('switches permission request tabs and confirms options per tab', async () => {
     const permissions = new PermissionPromptController()
     const stdout = new MemoryWriteStream()

@@ -1216,14 +1216,22 @@ async function permissionPrompt(
   const answer = (
     (await linePrompt(
       request.display.approvable
-        ? `Permission required: ${request.display.toolName} ${request.display.spec}\n[a]llow once, allow [s]ession, [d]eny: `
+        ? `Permission required: ${request.display.toolName} ${request.display.spec}\n[a]llow once, allow [s]ession, allow [p]roject, allow for[e]ver, [d]eny, deny forever [x]: `
         : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
     )) ?? ''
   )
     .trim()
     .toLowerCase()
   if (!request.display.approvable) return { kind: 'deny' }
-  return { kind: answer === 's' ? 'allow-session' : answer === 'a' ? 'allow-once' : 'deny' }
+  const byAnswer: Record<string, PermissionDecision['kind']> = {
+    a: 'allow-once',
+    s: 'allow-session',
+    p: 'allow-project',
+    e: 'allow-forever',
+    d: 'deny',
+    x: 'deny-forever',
+  }
+  return { kind: byAnswer[answer] ?? 'deny' }
 }
 
 const MAX_PERMISSION_APPROVAL_DEPTH = 32

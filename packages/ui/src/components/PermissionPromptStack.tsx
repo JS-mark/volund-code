@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useStdout } from 'ink'
 import { useEffect, useState } from 'react'
 
 import type {
@@ -6,6 +6,7 @@ import type {
   InteractivePermissionRequest,
   PermissionPromptController,
 } from '../permission'
+import { formatPermissionTextForDisplay } from '../permission-display'
 
 export interface PermissionPromptStackProps {
   controller: PermissionPromptController
@@ -19,23 +20,131 @@ interface DecisionOption {
   quickKey: string
 }
 
+/** Escaped-newline token produced by the injective permission formatter. */
+const NEWLINE_TOKEN = '\\u{000A}'
+const LABEL_WIDTH = 6
+const MIN_INNER_WIDTH = 40
+const MAX_INNER_WIDTH = 96
+const MAX_SPEC_ROWS = 8
+
 const DECISION_OPTIONS: readonly DecisionOption[] = [
   { color: 'green', id: 'allow-once', label: 'Allow once', quickKey: 'a' },
-  { color: 'cyan', id: 'allow-session', label: 'Allow for this session', quickKey: 's' },
+  { color: 'cyan', id: 'allow-session', label: 'For this session', quickKey: 's' },
+  { color: 'blue', id: 'allow-project', label: 'For this project', quickKey: 'p' },
+  { color: 'magenta', id: 'allow-forever', label: 'Always', quickKey: 'f' },
   { color: 'red', id: 'deny', label: 'Deny', quickKey: 'd' },
+  { color: 'red', id: 'deny-forever', label: 'Never ask again', quickKey: 'x' },
 ]
 
-const MAX_VISIBLE_TABS = 5
-const MAX_TAB_LABEL = 14
+const GROUP_CAPTIONS: ReadonlyArray<{ caption: string; match: RegExp }> = [
+  { caption: 'ALLOW', match: /^allow/ },
+  { caption: 'DENY', match: /^deny/ },
+]
+
+/** One human-readable capability line of the permission summary. */
+export interface SpecLine {
+  kind: string
+  value: string
+}
+
+interface SpecRow {
+  dim?: boolean
+  gutter: string
+  text: string
+}
+
+function escapeText(value: string): string {
+  return formatPermissionTextForDisplay(value).text
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function stringArrayOf(record: Record<string, unknown>, key: string): readonly string[] | undefined {
+  const value = record[key]
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return undefined
+  return value as string[]
+}
+
+/**
+ * Translates the structured permission spec into capability lines so prompts read
+ * like prose instead of raw JSON. Each rendered string is escaped individually:
+ * the structured spec is secret-scrubbed upstream but not terminal-safe on its own.
+ */
+export function summarizeSpec(spec: unknown): readonly SpecLine[] {
+  const record = asRecord(spec)
+  if (!record) return []
+  const lines: SpecLine[] = []
+  const fs = asRecord(record.fs)
+  for (const key of ['read', 'write'] as const) {
+    const paths = fs ? stringArrayOf(fs, key) : undefined
+    if (paths?.length) lines.push({ kind: key, value: paths.map(escapeText).join(', ') })
+  }
+  const bash = asRecord(record.bash)
+  if (bash && typeof bash.command === 'string')
+    lines.push({ kind: 'run', value: `$ ${escapeText(bash.command)}` })
+  const net = asRecord(record.net)
+  if (net && typeof net.method === 'string' && typeof net.url === 'string')
+    lines.push({ kind: 'net', value: `${net.method} ${escapeText(net.url)}` })
+  const env = asRecord(record.env)
+  const envKeys = env ? stringArrayOf(env, 'read') : undefined
+  if (envKeys?.length) lines.push({ kind: 'env', value: envKeys.map(escapeText).join(', ') })
+  const custom = asRecord(record.custom)
+  if (custom) {
+    for (const [key, value] of Object.entries(custom)) {
+      let rendered: string
+      try {
+        rendered = JSON.stringify(value) ?? 'undefined'
+      } catch {
+        rendered = '[unserializable]'
+      }
+      lines.push({ kind: 'custom', value: `${escapeText(key)} ${escapeText(rendered)}` })
+    }
+  }
+  return lines
+}
+
+/**
+ * Renders one summary value as fixed-width rows. Escaped newlines become indented
+ * `│` continuation rows so multi-line commands stay scannable instead of wrapping
+ * into an unreadable block. Truncation is always labelled, never silent.
+ */
+export function layoutSpecLine(line: SpecLine, innerWidth: number): SpecRow[] {
+  const valueWidth = Math.max(16, innerWidth - LABEL_WIDTH - 2)
+  const baseGutter = `${line.kind.padEnd(LABEL_WIDTH)} `
+  // Blank source lines render as nothing at all so multi-line commands don't
+  // burn display rows on separators.
+  const fragments = line.value
+    .split(NEWLINE_TOKEN)
+    .filter((fragment, index) => index === 0 || fragment.length > 0)
+  return fragments.map((fragment, index) => {
+    if (index === 0)
+      return fragment.length > valueWidth
+        ? { gutter: baseGutter, text: `${fragment.slice(0, valueWidth)}…` }
+        : { gutter: baseGutter, text: fragment }
+    const gutter = `${' '.repeat(LABEL_WIDTH)} │ `
+    return fragment.length > valueWidth - 3
+      ? { gutter, text: `${fragment.slice(0, valueWidth - 3)}…` }
+      : { gutter, text: fragment }
+  })
+}
+
+function fallbackRow(text: string): SpecRow {
+  return { dim: true, gutter: `${''.padEnd(LABEL_WIDTH)} `, text }
+}
 
 /**
  * Multi-request permission prompt. Pending requests are shown as a tab strip
  * (`1:Bash`, `2:Write`, …); each tab carries its own option list. ←/→ or
- * tab/shift+tab switch requests, ↑/↓ + Enter pick an option, a/s/d quick-decide
- * the focused request, and esc denies it. Decided requests leave the strip and
- * focus advances to the next pending one.
+ * tab/shift+tab switch requests, ↑/↓ + Enter pick an option, letter keys decide
+ * immediately, and esc denies the focused request. Decided requests leave the
+ * strip and focus advances to the next pending one.
  */
 export function PermissionPromptStack({ controller, requests }: PermissionPromptStackProps) {
+  const { stdout } = useStdout()
   const [activeIndex, setActiveIndex] = useState(0)
   const [optionIndex, setOptionIndex] = useState(0)
   const request = requests[Math.min(activeIndex, requests.length - 1)]
@@ -84,36 +193,67 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
 
   if (!request) return null
 
+  const innerWidth = Math.max(MIN_INNER_WIDTH, Math.min((stdout?.columns ?? 80) - 6, MAX_INNER_WIDTH))
+  const specRows = request.display.approvable
+    ? summarizeSpec(request.spec).flatMap((line) => layoutSpecLine(line, innerWidth))
+    : [fallbackRow(request.display.spec)]
+  const visibleRows = specRows.slice(0, MAX_SPEC_ROWS)
+  const hiddenRowCount = specRows.length - visibleRows.length
+  const backgroundBash =
+    (request.spec as { bash?: { background?: boolean } } | undefined)?.bash?.background === true
+
   return (
     <Box
-      borderColor="yellow"
-      borderStyle="single"
+      borderColor="gray"
+      borderStyle="round"
       flexDirection="column"
       marginBottom={1}
-      paddingX={1}
+      paddingX={2}
+      paddingY={0}
     >
-      <Text color="yellow" bold>
-        Permission required
-      </Text>
+      <Box marginTop={1}>
+        <Text key="title" bold color="yellow">
+          ◆ Permission required
+        </Text>
+        {request.display.toolName.length > 0 ? (
+          <Text key="tool" bold>
+            {' · '}
+            {request.display.toolName}
+          </Text>
+        ) : null}
+        {backgroundBash ? (
+          <Text key="bg" color="magentaBright">
+            {' '}
+            · background
+          </Text>
+        ) : null}
+        {requests.length > 1 ? (
+          <Text color="gray" key="count">
+            {' '}
+            · {activeIndex + 1}/{requests.length}
+          </Text>
+        ) : null}
+      </Box>
       {requests.length > 1 ? (
-        <Box>
+        <Box marginTop={1}>
           {visibleTabs(requests, activeIndex).map((entry) => {
             if (entry.kind === 'ellipsis')
               return (
-                <Text color="gray" key={entry.key}>
+                <Text color="gray" key={`ellipsis:${entry.key}`}>
                   {' …  '}
                 </Text>
               )
             const tab = entry.request
             const active = entry.index === activeIndex
             const label = ` ${entry.index + 1}:${tabLabel(tab.display.toolName)} `
+            if (active)
+              return (
+                <Text backgroundColor="yellow" bold color="black" key={tab.id}>
+                  {label}
+                </Text>
+              )
             return (
-              <Text
-                {...(active
-                  ? { backgroundColor: 'yellow', color: 'black' }
-                  : { color: tab.display.approvable ? 'white' : 'red' })}
-                key={tab.id}
-              >
+              <Text color={tab.display.approvable ? 'gray' : 'red'} key={tab.id}>
                 {label}
               </Text>
             )
@@ -121,24 +261,74 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
         </Box>
       ) : null}
       <Box flexDirection="column" marginTop={1}>
-        <Text bold>{request.display.toolName}{(request.spec as { bash?: { background?: boolean } })?.bash?.background ? '（后台运行）' : ''}</Text>
-        <Text color="gray" wrap="wrap">
-          {request.display.spec}
-        </Text>
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        {options.map((option, index) => (
-          <Text {...(index === optionIndex ? { color: option.color } : {})} key={option.id}>
-            {index === optionIndex ? '> ' : '  '}
-            {option.label} <Text color="gray">({option.quickKey})</Text>
+        {visibleRows.map((row, index) => (
+          <Text
+            {...(row.dim ? { color: 'gray' } : {})}
+            key={`row:${index}`}
+            wrap="truncate"
+          >
+            <Text color={row.dim ? 'gray' : 'cyanBright'} key="gutter">
+              {row.gutter}
+            </Text>
+            {row.text}
           </Text>
         ))}
+        {hiddenRowCount > 0 ? (
+          <Text color="gray" key="more">
+            {'       └ … '}
+            {hiddenRowCount}
+            {' more'}
+          </Text>
+        ) : null}
       </Box>
-      <Text color="gray">
-        {requests.length > 1
-          ? '↑/↓ choose · Enter confirm · ←/→ switch request · esc deny'
-          : '↑/↓ choose · Enter confirm · esc deny'}
-      </Text>
+      <Box flexDirection="column" marginTop={1} marginBottom={1}>
+        {options.map((option, index) => {
+          const focused = index === optionIndex
+          const previous = index > 0 ? options[index - 1] : undefined
+          const caption = GROUP_CAPTIONS.find(
+            (group) => group.match.test(option.id) && (!previous || !group.match.test(previous.id)),
+          )?.caption
+          return (
+            <Box key={option.id} flexDirection="column">
+              {caption ? (
+                <Text bold color="gray" key="caption">
+                  {caption}
+                </Text>
+              ) : null}
+              <Text key="opt">
+                {focused ? (
+                  <Text bold color={option.color} key="ptr">
+                    {'> '}
+                  </Text>
+                ) : (
+                  '  '
+                )}
+                <Text bold={focused} color={focused ? option.color : 'gray'} key="qkey">
+                  {option.quickKey}
+                </Text>
+                {focused ? (
+                  <Text bold color={option.color} key="lbl-focus">
+                    {'  '}
+                    {option.label}
+                  </Text>
+                ) : (
+                  <Text key="lbl-blur">
+                    {'  '}
+                    {option.label}
+                  </Text>
+                )}
+              </Text>
+            </Box>
+          )
+        })}
+      </Box>
+      <Box marginBottom={1}>
+        <Text color="gray">
+          {'↑/↓ choose · enter confirm · keys decide now'}
+          {requests.length > 1 ? ' · ←/→ switch' : ''}
+          {' · esc deny'}
+        </Text>
+      </Box>
     </Box>
   )
 }
@@ -166,6 +356,9 @@ function tabLabel(toolName: string): string {
   if (collapsed.length <= MAX_TAB_LABEL) return collapsed
   return `${collapsed.slice(0, MAX_TAB_LABEL - 1)}…`
 }
+
+const MAX_TAB_LABEL = 14
+const MAX_VISIBLE_TABS = 5
 
 type TabEntry =
   | { index: number; kind: 'tab'; request: InteractivePermissionRequest }

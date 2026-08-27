@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
-import type { Logger } from '@apollo-code/shared'
+import type { Logger } from '@volund/shared'
 
 import { normalizeOrigin } from './net-origin'
 
@@ -55,7 +55,8 @@ function keyOf(request: PermissionRequest): string {
 }
 
 export class PermissionManager {
-  readonly #cache = new Set<string>()
+  /** Prompted decisions remembered for the session, keyed by tool+spec. */
+  readonly #cache = new Map<string, 'allow-session' | 'allow-project' | 'allow-forever' | 'deny-forever'>()
   #queue = Promise.resolve()
   #prompt?: PromptHandler
   constructor(
@@ -79,12 +80,13 @@ export class PermissionManager {
   async request(request: PermissionRequest): Promise<PermissionDecision> {
     if (this.rules.projectDeny?.(request)) return { kind: 'deny' }
     if (this.rules.globalDeny?.(request)) return { kind: 'deny' }
-    if (this.#cache.has(keyOf(request))) return { kind: 'allow-session' }
+    const cached = this.#cache.get(keyOf(request))
+    if (cached) return { kind: cached }
     if (this.rules.projectAllow?.(request)) return { kind: 'allow-project' }
     if (this.rules.globalAllow?.(request)) return { kind: 'allow-forever' }
     const automatic = this.autoAllow(request)
     if (automatic) {
-      if (automatic.kind === 'allow-session') this.#cache.add(keyOf(request))
+      if (automatic.kind === 'allow-session') this.#cache.set(keyOf(request), 'allow-session')
       return automatic
     }
     if (this.options.dangerouslySkip) {
@@ -113,7 +115,15 @@ export class PermissionManager {
     request: PermissionRequest,
     decision: PermissionDecision,
   ): Promise<PermissionDecision> {
-    if (decision.kind === 'allow-session') this.#cache.add(keyOf(request))
+    // Session cache: prompted decisions hold for the process lifetime; project/
+    // forever/deny-forever additionally persist via options.persist when wired.
+    if (
+      decision.kind === 'allow-session' ||
+      decision.kind === 'allow-project' ||
+      decision.kind === 'allow-forever' ||
+      decision.kind === 'deny-forever'
+    )
+      this.#cache.set(keyOf(request), decision.kind)
     if (decision.kind === 'allow-project') await this.options.persist?.('project', request, true)
     if (decision.kind === 'allow-forever') await this.options.persist?.('global', request, true)
     if (decision.kind === 'deny-forever') await this.options.persist?.('global', request, false)
