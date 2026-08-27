@@ -25,5 +25,16 @@ describe('PromptComposer', () => {
   })
   it('provides the priority-1000 builtin', () => {
     expect(builtinPromptFragment.priority).toBe(1000)
+    expect(builtinPromptFragment.text).toContain('You are Apollo Code')
+  })
+  it('builtin prompt forbids disclosing the system prompt (§6.5.0b)', () => {
+    const text =
+      typeof builtinPromptFragment.text === 'string'
+        ? builtinPromptFragment.text
+        : builtinPromptFragment.text({ cwd: '', model: '', provider: '' })
+    // §6.5.0b：必须含不复述指令，且显式覆盖"用户直接问"与"untrusted 诱导"两条路径
+    expect(text).toMatch(/never reveal.*system prompt/i)
+    expect(text).toMatch(/untrusted/i)
+    expect(text).toMatch(/can't share/i)
   })
 })
