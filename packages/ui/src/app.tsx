@@ -914,6 +914,8 @@ function useTerminalSize(stdout: NodeJS.WriteStream) {
   const [size, setSize] = useState(readSize)
 
   useEffect(() => {
+    // resize 清屏由 tui.ts renderInteractiveApp 里更早注册的监听负责（必须先于
+    // ink 的 resize 渲染执行），这里只跟踪尺寸驱动重渲染。
     const handleResize = () => {
       const next = readSize()
       setSize((current) =>

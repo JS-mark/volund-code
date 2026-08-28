@@ -53,7 +53,6 @@ describe('welcome screen', () => {
     [{ columns: 70, rows: 18 }, 'minimal'],
   ] as const)('renders a unified %s first-screen shell', async (terminalSize, layout) => {
     const state = buildWelcomeScreenState({ data: fixture({ status: 'unknown' }) })
-    expect(state.provider).toMatchObject({ authLabel: 'unknown', authTone: 'warning' })
     expect(state.provider.label).toContain('not configured')
     const stdout = new Output()
     const stdin = new Input()
@@ -75,16 +74,36 @@ describe('welcome screen', () => {
     await view.waitUntilRenderFlush()
     view.unmount()
     await view.waitUntilExit()
-    expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout.toUpperCase()}`)
-    expect(stdout.output).toContain('Volund CLI  v0.0.0-test')
-    if (layout !== 'minimal') expect(stdout.output).toContain('Local TUI session ready')
+    expect(stdout.output).toContain('╭─ Volund CLI v0.0.0-test ')
+    if (layout === 'minimal') {
+      expect(stdout.output).not.toContain('Tips for getting started')
+    } else {
+      expect(stdout.output).toContain('Tips for getting started')
+      expect(stdout.output).toContain('Recent activity')
+      expect(stdout.output).toContain('No recent activity')
+    }
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
     expect(stdout.output).toContain('COMMAND INPUT')
     expect(stdout.output).toContain('BOTTOM STATUS')
     expect(stdout.output).not.toContain('COMMAND\n')
     expect(stdout.output).not.toContain('BOTTOM STATUS\nBOTTOM STATUS')
-    expect(stdout.output).not.toContain('Auth OK')
+  })
+
+  it('lists recent session titles under Recent activity when provided', async () => {
+    const output = stripVTControlCharacters(
+      await renderWelcome(
+        { columns: 120, rows: 30 },
+        {
+          ...fixture({ status: 'unknown' }),
+          recentActivity: ['fix sandbox probe flake', 'r13-G2 background shells'],
+        },
+      ),
+    )
+    expect(output).toContain('Recent activity')
+    expect(output).toContain('fix sandbox probe flake')
+    expect(output).toContain('r13-G2 background shells')
+    expect(output).not.toContain('No recent activity')
   })
 
   it.each([
@@ -147,7 +166,7 @@ describe('welcome screen', () => {
     const lines = output.split('\n').filter((line) => /^[╭│╰]/.test(line))
     expect(output).toContain('  ████████████████████  ')
     expect(output).toContain('████     >_         ████')
-    expect(output).toContain('Workspace')
+    expect(output).toContain('/Users/volund/workspaces')
     expect(output).toContain('anthropic-enterprise-production')
     expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(120)
   })

@@ -11,6 +11,8 @@ export interface WelcomePanelData {
   mcp: WelcomeMcpStatus
   model: WelcomeModelStatus
   permission: WelcomePermissionStatus
+  /** 欢迎屏 "Recent activity"：最近会话标题（至多 3 条），空/缺省渲染 "No recent activity"。 */
+  recentActivity?: readonly string[]
   sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel?: string

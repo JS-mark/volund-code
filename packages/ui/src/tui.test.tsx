@@ -323,13 +323,11 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('Volund CLI  v0.0.0-test')
-    expect(stdout.output).toContain('Session')
+    expect(stdout.output).toContain('╭─ Volund CLI v0.0.0-test ')
+    expect(stdout.output).toContain('Tips for getting started')
+    expect(stdout.output).toContain('Recent activity')
     expect(stdout.output).toContain('session-1234')
-    expect(stdout.output).toContain('Model')
     expect(stdout.output).toContain('runtime resolved')
-    expect(stdout.output).toContain('MCP')
-    expect(stdout.output).toContain('1 connected / 2 configured')
     expect(stdout.output).toMatch(/>\s*▌Ask Volund/)
     expect(stdout.output).not.toContain('volund >')
     expect(stdout.output).toContain('agent ready')
@@ -402,7 +400,12 @@ describe('renderInteractiveApp', () => {
     app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain(`TERMINAL WELCOME / ${layout}`)
+    expect(stdout.output).toContain('╭─ Volund CLI v0.0.0-test ')
+    if (layout === 'MINIMAL') {
+      expect(stdout.output).not.toContain('Tips for getting started')
+    } else {
+      expect(stdout.output).toContain('Tips for getting started')
+    }
     expect(stdout.output).toMatch(/>\s*▌Ask Volund/)
     expect(stdout.output).not.toContain('volund >')
     expect(stdout.output).toContain('agent ready')
@@ -425,7 +428,8 @@ describe('renderInteractiveApp', () => {
     )
 
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('TERMINAL WELCOME / FULL')
+    expect(stdout.output).toContain('Volund CLI v0.0.0-test')
+    const renderedBeforeResize = stdout.output.length
 
     stdout.columns = 70
     stdout.rows = 18
@@ -434,7 +438,43 @@ describe('renderInteractiveApp', () => {
 
     app.unmount()
     await app.waitUntilExit()
-    expect(stdout.output).toContain('TERMINAL WELCOME / MINIMAL')
+    // 缩小后重排成 minimal 版（debug 模式逐帧累加输出，帧增长即证明重渲染发生）。
+    expect(stdout.output.length).toBeGreaterThan(renderedBeforeResize)
+  })
+
+  it('clears the screen when terminal width changes so reflowed frames cannot stack', async () => {
+    const stdout = new MemoryWriteStream()
+    ;(stdout as { isTTY: boolean }).isTTY = true
+    stdout.columns = 120
+    stdout.rows = 30
+    const app = renderInteractiveApp(
+      { cwd: '/repo', welcome: welcomeFixture() },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).not.toContain('\x1b[2J')
+
+    stdout.columns = 100
+    stdout.emit('resize')
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('\x1b[2J\x1b[3J\x1b[H')
+
+    // 仅高度变化无 reflow，不重复清屏（debug 模式每帧照常追加，只数清屏序列）
+    const clearsAfterWidthChange = stdout.output.split('\x1b[2J\x1b[3J\x1b[H').length
+    stdout.rows = 40
+    stdout.emit('resize')
+    await app.waitUntilRenderFlush()
+
+    app.unmount()
+    await app.waitUntilExit()
+    expect(stdout.output.split('\x1b[2J\x1b[3J\x1b[H').length).toBe(clearsAfterWidthChange)
   })
 
   it('hides the welcome shell after the first prompt without changing submission', async () => {

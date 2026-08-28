@@ -969,6 +969,17 @@ async function buildWelcomePanelData(input: {
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
+  // 欢迎屏 "Recent activity"：最近会话标题（排除刚启动的当前会话），失败时降级为空。
+  const recentActivity = input.ports.session.list
+    ? await input.ports.session.list().then(
+        (sessions) =>
+          sessions
+            .filter((session) => session.id !== input.sessionId)
+            .slice(0, 3)
+            .map((session) => session.title || session.cwd || session.id),
+        () => [] as string[],
+      )
+    : []
   return {
     version: input.ports.identity.version,
     sessionId: input.sessionId,
@@ -986,6 +997,7 @@ async function buildWelcomePanelData(input: {
       dangerous: input.dangerousPermissions,
       source: input.dangerousPermissions ? 'flag' : 'default',
     },
+    recentActivity,
     config,
     mcp,
     history: {

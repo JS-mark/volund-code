@@ -43,13 +43,30 @@ export function renderInteractiveApp(
   options: InteractiveAppOptions,
   renderOptions?: RenderOptions,
 ): InteractiveAppHandle {
+  const stdout = renderOptions?.stdout ?? process.stdout
+  // ink 的局部擦除按写入时宽度计行；宽度变化后终端 reflow 使计数失效，旧帧残留
+  // 并被后续写入挤进 scrollback。这里抢在 ink 自己的 resize 监听之前注册
+  // （EventEmitter 按注册顺序触发）：先把整屏连同 scrollback 清掉（同 ink 全屏
+  // 路径的 clearTerminal 序列），ink 随后的擦除+重绘落在干净屏上。高度变化无
+  // reflow，不清。useTerminalSize 里的对应逻辑只做尺寸跟踪。
+  let lastColumns = stdout.columns ?? 80
+  const clearOnWidthChange = () => {
+    const columns = stdout.columns ?? 80
+    if (columns === lastColumns) return
+    lastColumns = columns
+    if (stdout.isTTY) stdout.write('\x1b[2J\x1b[3J\x1b[H')
+  }
+  stdout.on('resize', clearOnWidthChange)
   const instance = render(createElement(InteractiveApp, options), {
     exitOnCtrlC: false,
     ...renderOptions,
   })
   return {
     clear: () => instance.clear(),
-    unmount: () => instance.unmount(),
+    unmount: () => {
+      stdout.off('resize', clearOnWidthChange)
+      instance.unmount()
+    },
     waitUntilRenderFlush: async () => {
       await instance.waitUntilRenderFlush()
     },
