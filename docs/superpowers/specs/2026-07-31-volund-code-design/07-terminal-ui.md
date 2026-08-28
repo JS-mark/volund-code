@@ -249,10 +249,11 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 
 #### 7.9.2 包边界
 
-- `apps/cli` 负责命令解析、TTY/flag 分流、session 生命周期、auth/permission/native/plugin/context 端口装配。
-- `packages/ui` 负责 Ink 组件、事件订阅、输入框、历史、slash popup、permission prompt queue、stream throttle。
+- `apps/cli` 负责命令解析、TTY/flag 分流与 terminal host adapter；§22 引入 Web 后，session 生命周期与 auth/permission/native/plugin/context 的 production 装配目标归属 `packages/app-runtime`，CLI 不再是业务 composition 的唯一归宿。
+- `packages/ui` 负责 Ink 组件、事件订阅、输入框、历史、slash popup、permission prompt queue、stream throttle；界面无关 controller/view model/sanitizer 迁到 `app-runtime`/`ui-model`，供 Ink 与 Web 共用。
 - `packages/core` 只负责 Runner 状态和事件；不得引入 Ink/React，也不得做 UI throttle。
-- `packages/ui` 不直接调 ProviderClient、ToolRegistry 或 native bridge；需要能力时通过 `apps/cli` 注入回调。
+- `packages/ui` 不直接调 ProviderClient、ToolRegistry 或 native bridge；需要能力时通过 `app-runtime` controller，由 `apps/cli` 注入 terminal adapter。
+- `apps/web` 同样不直接调 ProviderClient、ToolRegistry、storage、credential 或 native bridge；只通过 §22 typed Web API 调用 `app-runtime` controller。Ink 组件不得被 React DOM 直接复用。
 
 建议导出接口：
 

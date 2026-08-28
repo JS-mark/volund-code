@@ -11,7 +11,8 @@
 ```
 volund-code/
 ├─ apps/
-│  ├─ cli/                        # 唯一可执行入口 → bin: volund
+│  ├─ cli/                        # 唯一可执行入口 → bin: volund（含 `volund web` 启动命令）
+│  ├─ web/                        # §22 target：Volund Web 浏览器静态应用（private / no Node API；当前未创建）
 │  └─ docs/                       # VitePress 8 文档站
 │
 ├─ packages/                      # 所有可发布 TS 包
@@ -57,6 +58,9 @@ volund-code/
 │  │
 │  ├─ ── UI ──
 │  ├─ ui/                         # Ink 组件库（订阅 core 事件 + 提供 permission prompt）
+│  ├─ ui-model/                   # TUI/Web 共用的 view model / formatter / sanitizer（browser-safe）
+│  ├─ app-runtime/                # §22 target：UI-neutral composition root + session/domain controllers（当前未创建）
+│  ├─ web-server/                 # §22 target：loopback HTTP/SSE/auth/origin/static gateway（当前未创建）
 │  │
 │  └─ ── 基础 ──
 │     └─ shared/                  # 类型/常量/logger/VolundError/config schema (zod)
@@ -90,7 +94,10 @@ volund-code/
 ### 1.2 依赖方向（v3 修正后）
 
 ```
-                          apps/cli
+                     apps/cli / web-server
+                              │  host adapters
+                              ▼
+                         app-runtime
                               │  组装
        ┌───────────────┬──────┴──────┬──────────────┐
        ▼               ▼             ▼              ▼
@@ -104,14 +111,14 @@ volund-code/
        └─────────────┴─────────────┴──→ shared ←──┘
 
   订阅 core 事件（core 完全不感知）：
-    ui / storage / telemetry / hooks
+    ui / web-server / storage / telemetry / hooks
 
   通过 tool-kit 注入工具（core 完全不感知）：
     mcp-client / plugin-runtime / memory-runtime(via volund.memory bridge) / subagent(via Task tool)
 
   运行时端口注入（无 import 依赖）：
-    permission.setPromptHandler(uiPrompt)   ← apps/cli 组装时注入
-    subagent.configure(runnerFactory)        ← apps/cli 组装时注入
+    permission.setPromptHandler(promptAdapter) ← app-runtime 按当前界面 adapter 注入
+    subagent.configure(runnerFactory)           ← app-runtime 组装后注入
 
   横切能力：
     auth (被 provider-* 主动调用)
@@ -125,7 +132,11 @@ volund-code/
 | 包                 | 允许依赖                                            |
 |--------------------|-----------------------------------------------------|
 | **apps/cli**       | packages/* 任意                                     |
+| **apps/web**       | web API generated types / ui-model / browser UI libs；禁止 Node/server packages |
 | **apps/docs**      | 无（build 时 typedoc 读源码，非 npm 依赖）             |
+| **app-runtime**    | core / router / provider-* / tools / permission / storage / telemetry / extensions / shared；禁止 React/Ink/HTTP transport |
+| **web-server**     | app-runtime / core（type-only）/ storage（type-only）/ shared；禁止 Ink 和 secret store 直连 |
+| **ui-model**       | core / permission / shared（均 browser-safe 或 type-only）；禁止 Node I/O / Ink / React DOM |
 | **core**           | provider-kit / tool-kit / shared                    |
 | **router**         | provider-kit / shared                               |
 | **provider-kit**   | **shared 仅**                                       |
@@ -158,6 +169,9 @@ volund-code/
 ### 1.3 关键约束
 
 - **`apps/cli` 是唯一 bin**，`packages/*` 禁止声明 `bin` 字段
+- **`apps/web` 只产静态资源**，不能声明 `bin`、不能 import Node builtin/Provider/Tool/Storage/Native；浏览器所有能力经 §22 typed API
+- **§22 目标态中 `app-runtime` 是 CLI/TUI/Web 唯一 production composition root**；当前 composition 仍在 `apps/cli/src/runtime.ts`，迁移完成后 `apps/cli` 与 `web-server` 只提供 host/transport adapter，禁止复制 runtime 装配
+- **`web-server` 首版只监听 loopback**，远程/团队/微信/企微属于 §22 W-18 长期独立路线
 - **`apps/docs` 用 VitePress 8**，`"private": true`，**不发布到 npm**，只做 GitHub Pages / Vercel 部署
 - **Provider 每家一个包**，用户按需装
 - **`native-bridge` 是 Rust 唯一入口**，通过 optionalDependencies 平台包分发（见 §1.6）
@@ -180,7 +194,7 @@ volund-code/
 
 ### 1.5 关键运行时端口（依赖注入）
 
-避免循环依赖的注入点，由 `apps/cli` 在启动时装配：
+避免循环依赖的注入点，由 `app-runtime` 装配；`apps/cli` 和 `web-server` 只选择交互 adapter：
 
 ```
 1. permission.setPromptHandler(uiPermissionDialog)

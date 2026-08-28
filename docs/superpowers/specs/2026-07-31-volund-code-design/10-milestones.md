@@ -34,13 +34,17 @@ MCP, plugins/bridge, subagent, fallback routing, native search/filesystem, and d
 
 Ink TUI, slash commands, status/settings/config, attachments/vision, Anthropic/OpenAI/Gemini/Ollama, WebFetch/WebSearch, role/fallback routing, and automation modes behave consistently. Exit requires composition-root provider tests, real slash behaviors, wide/narrow TUI and JSON/no-TUI golden E2E evidence.
 
+`Volund Web`（§22）是 R4 的**可选 product slice**，不阻塞 CLI/TUI 的 R4。若选入某个 release scope，它必须先完成 UI-neutral `app-runtime` 抽取，再以真实 `volund web` loopback 入口证明 session/chat/permission/tool/storage 复用；CLI/TUI 证据不能替代 browser E2E，网页组件测试也不能替代 production composition evidence。
+
 ### R5 — production readiness
 
 Platform matrix, security evidence, native binaries, signing, notarization, channels, docs, and governance form a reproducible candidate. Exit requires candidate-SHA CI and real production approvals/signatures/publication evidence; fixtures and dry-runs never substitute.
 
 ### R6 — isolated advanced and conditional capabilities
 
-Semantic/cost routing, provider signing, plugin registry, auto-update, team memory, advanced evolution, dynamic reflection (§21), and other v2 work require their own product/security decisions. They do not block earlier stages unless explicitly included in that release scope.
+Semantic/cost routing, provider signing, plugin registry, auto-update, team memory, advanced evolution, dynamic reflection (§21), local scheduled automation（§22 W-17）, and other v2 work require their own product/security decisions. They do not block earlier stages unless explicitly included in that release scope.
+
+Remote access、手机控制、微信/企业微信、多实例和团队协作（§22 W-18）属于 **R6+ 长期独立项目**：不得以开放 `0.0.0.0` 或复用本地启动 nonce交付。它们需要独立身份/设备绑定、撤销、重放保护、transport trust、审计、abuse/privacy 模型、真实网络证据和人类安全门；本地 Web 的 release-ready 状态不自动向远程能力继承。
 
 ## Stage migration
 

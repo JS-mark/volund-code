@@ -28,12 +28,13 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 | 扩展/安全内核 | [§19](./19-plugin-kernel.md) + [§19a](./19a-capability-contract.md)：目标原则 **Everything extensible is a plugin; the security kernel is not**；single-registry raw-byte contract、signed output endorsement→CEB→CAB→独立 adoption/enable、InvocationDecisionProof → Grant → exact Broker token、Rust-owned OS brokers；当前约 30% / partial，P0-00 deny-only fence 已在 `33e5ce5` 独立 review 0C/0I 后保持关闭，其余 P0/ABI/CAT 未交付，Rust-enforced 仍是 target claim |
 | 受控自我开发  | [§18](./18-self-development.md) + §19/§19a：K3 CEB → signed human approval → PREPARED lock + independent AnchorStore ANCHORED → idempotent FINALIZED，再加 fenced Catalog/Git effects → `RELEASED_COMPLETED` history的只读 `STAGED_DISABLED` 投影；**proposed / not shipped** |
 | 自有 Harness    | [§20](./20-harness.md)：harness 作为一等架构层——四层边界、H-1…H-14 核心不变量（验收宪法，符合性另证）、一个核心 × N driver 契约（D1–D6）、HarnessSpec 行为版本快照、self-hosting 路线（H0–H2、H3a/H3b、H4）；**proposed / not shipped**，机制细则权威仍在 §2–§19 各章 |
+| 本地 Web 控制台 | [§22](./22-web-console.md)：`volund web` 本地 loopback 控制台，复用同一 app-runtime/Runner/EventBus/PermissionManager，覆盖会话、权限、扩展管理和可观测性；远程、手机、微信/企微、团队协作进入长期独立路线；**proposed / not shipped** |
 
 ---
 
 ## 目录（AI / 编辑器可跟进的相对路径）
 
-原始整文档已按顶级章节 §1–§19 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
+原始整文档与后续提案已按顶级章节 §1–§22 拆分到本目录下的独立模块文件。链接使用相对路径 Markdown，
 在 GitHub、VS Code、绝大多数 IDE 与 AI 阅读器中均可点击/跳转。
 
 | §   | 章节                                                   | 文件                                                               | 行数 |
@@ -63,6 +64,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 | 19  | Plugin Kernel / Capability ABI v2（phase re-plan）      | [`19-plugin-kernel.md`](./19-plugin-kernel.md)                     | 动态 |
 | 20  | 自有 Harness（Self-owned Agent Harness）                | [`20-harness.md`](./20-harness.md)                                 | 动态 |
 | 21  | 动态反思（Dynamic Reflection，K1 builtin 插件，proposed） | [`21-dynamic-reflection.md`](./21-dynamic-reflection.md)           | 新增 |
+| 22  | Volund Web Console（本地 Web 控制台，proposed）         | [`22-web-console.md`](./22-web-console.md)                         | 动态 |
 
 ### 附属专题文档
 
@@ -88,6 +90,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 | 附录 E · 契约空白登记表 (r13 新增)             | [`APPENDIX-E-contract-gap-registry.md`](./APPENDIX-E-contract-gap-registry.md) | r11/r12 审计暴露的 20 条"实现被迫自定"契约空白的收编登记（D1）                                                                                                                                                                                |
 | Self-Development 原实施计划                     | [`2026-08-19-self-development-implementation.md`](../../plans/2026-08-19-self-development-implementation.md) | SD0–SD5 原依赖顺序与详细 identity/evidence/approval 契约；phase 顺序与候选范围已由 2026-08-20 re-plan 收窄                                                                                               |
 | Plugin Kernel + Self-Development 实施计划        | [`2026-08-20-plugin-kernel-implementation.md`](../../plans/2026-08-20-plugin-kernel-implementation.md) | **当前执行顺序权威**：ARCH → P0-00 legacy fence（已于 `33e5ce5` 完成并保持关闭）→ ABI-00 contract → P0-01…03 → Catalog core → brand migration/exact-SHA reverify → ABI runtime → migration → K3 fenced dual-effect promotion → prerelease；brand discovery 可只读并行                                      |
+| Volund Web Console 实施计划                       | [`2026-08-28-volund-web-console.md`](../../plans/2026-08-28-volund-web-console.md) | P0–P7：spec/API/security → `app-runtime` 抽取 → loopback gateway → session/chat/permission → 管理面板 → 可观测性/review → hardening/beta；本地定时任务 F1 与远程/团队/微信企微 F2 均为后续独立门 |
 | Capability Contract V1（ABI-00）                 | [`19a-capability-contract.md`](./19a-capability-contract.md) | §19 byte-level规范附录：single machine registry、Canonical JSON/domain/strict signature、closed DAG、signed output endorsement/full K3 identity、injective SafeDisplay、protected authority refs、anchored SelfDev transitions、content/authority-generation Catalog state、bounded verification sources与TS/Rust corpus；**review draft / not shipped，P0-00仍关闭** |
 
 > 各文件内保留原章节编号（如 `## §1`、`### 1.1`），可与 git 历史里的旧单文件版本一一对应。
@@ -102,6 +105,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 - **想理解落地/交付** → §7 → §8 → §9 → §14。
 - **想参与共建** → §12（治理）→ §10（里程碑）。
 - **想区分“参数调优”和“程序改自己”** → §15（Adaptive Runtime Tuning）→ §19（K3 边界）→ §18（Self-Development；当前未交付）。
+- **想理解本地 Web 产品与实现顺序** → §22（功能/安全/架构）→ [Web 实施计划](../../plans/2026-08-28-volund-web-console.md)；远程连接只读 §22.6 W-18 / 计划 F2，不进入首版本地范围。
 
 ---
 
@@ -114,6 +118,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 - **§5 Rust 沙箱** ↔ **[SANDBOX-COMPAT-r1](./SANDBOX-COMPAT-r1.md)** ↔ **§9.4 CI matrix** ↔ **§10 L1 闸门** ↔ **§14.3b Tier 披露** 形成沙箱一等公民闭环
 - **§19 Plugin Kernel** 是 §4/§5/§6 的新总约束：所有可扩展能力走 closed-role Capability ABI；**§19a** 以 single registry冻结 raw-byte canonical/domain/signature、signed output endorsement→CEB、Manifest embedded subdocs、protected authority refs/decision proof、三流 Catalog heads与 limits；K0 分为 TS control plane 与 Rust enforcement plane，handler 使用 InvocationGrant、具体 effect 使用 exact BrokerCallToken，workspace-fs/HTTP/process 由 Rust-owned broker 直接执行；sandbox/permission/verifier/catalog/mandatory security gates/human gate 都不是插件
 - **§20 自有 Harness** 是 §2/§3/§4/§5/§6/§8 的综合视图与边界冻结：harness 四层边界、H-1…H-14 核心不变量、driver 契约 D1–D6、HarnessSpec 行为快照；机制细则冲突时原章节赢（§20.11）
+- **§22 Volund Web** 是 §2/§4/§7/§8/§11/§16 的浏览器 adapter：必须先从 `apps/cli` 抽出 UI-neutral `app-runtime`，复用 CoreEvent、SessionStore 与 PermissionManager；本地 loopback 是当前范围，远程/团队/消息平台独立进入 R6+。
 - **§20.7 HarnessSpec** 的 digest 复用 §19a canonical/signature 约定，为 §16 能力验收、§18 eval 证据与 CI golden 回归提供统一归因锚点；`session.started` 新 payload 字段须先登记附录 D（r13-I8 流程）
 - **§6 Plugins** 描述当前 v1 surfaces，并与 **§4 Tool 注册**、**§8 Config**、**§11 CLI** 交叉；迁移到 Manifest/ABI v2 时以 §19 为权威
 - **§10 里程碑** 与各章节末尾的"里程碑"小节形成 vertical/horizontal 交叉视图

@@ -35,6 +35,7 @@ volund evolution <show|rollback|enable|disable>         # r10 新增，详见 §
 volund review [--base <ref>|--staged|--pr <n>|--range <a>..<b>]  # r13 新增，详见 §17
 volund doctor                 # 全局诊断（native / auth / permission / 各 provider 连通性）
 volund status [--json]        # 会话/用量/缓存状态总览（2026-08-23 新增，详见 §11.3.14）
+volund web [--cwd <path>]     # 本地 loopback Web 控制台（proposed，详见 §11.3.15 / §22）
 volund telemetry <status|export|clear>
 volund completion <bash|zsh|fish>   # 生成 shell 补全脚本
 volund version
@@ -44,7 +45,7 @@ volund help [command]
 # volund update                # 自升级
 ```
 
-**顶层命令数**：MVP (L1-L4) 共 **22 个**顶层入口（r10：+ `context` + `evolution`；r13：+ `review`；2026-08-23：+ `status`；默认 REPL / chat / login / logout / config / history / resume / restore / model / plugin / skill / mcp / hook / memory / context / evolution / review / status / doctor / telemetry / completion / version + help 元命令）；`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13、`review` 在 §17 完整定义，此处仅作交叉索引。
+**顶层命令数**：MVP (L1-L4) 保持 **22 个**顶层入口；另新增 **1 个 proposed 可选入口** `web`，故完整设计树为 23 个（不据此声称已实现）。r10：+ `context` + `evolution`；r13：+ `review`；2026-08-23：+ `status`。`update` 留 v2。`memory` 子命令树在 §6.12.7、`context` 在 §11.3.12、`evolution` 在 §11.3.13、`review` 在 §17、`web` 在 §22 完整定义，此处仅作交叉索引。
 
 ### 11.3 命令详细定义
 
@@ -357,6 +358,31 @@ volund status [--json]                    # 查询类命令（§11.1：--json �
 
 **边界**：`status` 是只读命令，不写任何状态；非 TTY 且无 `--json` 时按查询类命令输出纯文本表格（无 ANSI 控制符）；面板打开期间不自动轮询，手动 `r` 刷新（§7.10）。
 
+#### 11.3.15 web（2026-08-28 proposed）
+
+> 完整功能、安全、API 和交付门见 [§22 Volund Web Console](./22-web-console.md)。本命令**尚未交付**，首版只提供本地 loopback 浏览器 adapter。
+
+```
+volund web
+  Flags:
+    --cwd <path>          # 工作区；复用 §11.6 realpath/path guard 与 §8.3.1 trust gate
+    --port <1024..65535>  # 默认随机空闲端口
+    --no-open             # 不自动打开浏览器，只打印 URL
+    --new-instance        # 不复用相同 canonical cwd 的健康实例
+    --log-level <level>   # server 本地日志级别；不改变 telemetry 网络策略
+```
+
+**首版强制语义**：
+
+- 只绑定 `127.0.0.1` 或 `::1`；不提供通用公网/LAN `--host`。
+- terminal 输出 URL、PID、canonical cwd、sandbox/runtime 状态、停止方式；不得在日志打印 browser session secret。
+- 浏览器通过一次性启动 nonce 换 HttpOnly local session，mutation 继续受 Origin/Host/CSRF、PermissionManager、Sandbox 和 workspace trust 约束。
+- SIGINT/SIGTERM 有界 drain：停止新 mutation、interrupt turn、flush session/telemetry、结束后台 shell、关闭 listener。
+- Web 启动/失败不得影响 `volund` TUI、`--no-tui` 或 `--json` 入口。
+- 远程、手机、微信/企微和团队能力只在 §22 W-18 长期路线设计，不得用开放监听地址偷渡。
+
+**返回码**：0 正常停止；1 参数/路径/trust 用户错误；2 listener/runtime/静态资源系统错误；130 Ctrl+C。
+
 ### 11.4 交互 REPL 内 slash 命令
 
 进入交互模式后，用户可用 `/` 前缀触发命令，等价于 CLI 部分子命令但**作用于当前 session**：
@@ -423,5 +449,5 @@ volund status [--json]                    # 查询类命令（§11.1：--json �
 - **L1（MVP）**：`chat` / `login` / `logout` / `config` / `history list-show` / `doctor`（L1 项） / `hook list`（builtin only） / `version` / `help` + 交互 REPL 内基础 slash
 - **L2**：`history search-export-import` / `resume` / `restore` / `model` / `completion` / **`context *`（r10，随 §8b.13）** / **`evolution show/rollback`（r10，随 §15）** / **`review`（r13，本地 diff 模式 + `/review`，随 §17）** / **`status` + `/status` 面板（2026-08-23，§11.3.14）** + TUI `/context` 面板
 - **L3**：`plugin *` / `skill *` / `mcp *` / `hook test` / `telemetry *` / doctor 加 plugin/mcp 段 / **`evolution enable/disable`（r10）** / **`review --pr` 模式 + 分片（r13，随 §17）**
-- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康 / **`review` CI gate 文档模板 + reviewer 角色路由（r13，随 §17）** / **`/reflect` 族 + §21 反思 bundle（2026-08-23，随 §6.4.1a bridge 扩展与 RoleRouter 同批）**
+- **L4**：`plugin dev` / `plugin init` templates / `hook show` 详细统计 / doctor 加 provider 健康 / **`review` CI gate 文档模板 + reviewer 角色路由（r13，随 §17）** / **`/reflect` 族 + §21 反思 bundle（2026-08-23，随 §6.4.1a bridge 扩展与 RoleRouter 同批）**；`volund web` 是 §10 R4 的 proposed 可选 product slice，不阻塞 CLI/TUI L4，选入 release 时按 §22 单独过 evidence gate
 - **v2（不进 L1-L4）**：`volund update`（自升级 + 签名校验，需要发布渠道成熟）
