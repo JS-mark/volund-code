@@ -110,7 +110,7 @@ void test('keeps current docs on the canonical Volund display and CLI identity',
   }
 })
 
-void test('brands generated API prose while preserving explicit compatibility ABI', async () => {
+void test('brands generated API prose with the canonical Volund ABI', async () => {
   const [typedoc, apiIntro, apiFiles] = await Promise.all([
     readRepoFile('typedoc.json'),
     readRepoFile('apps/docs/api-intro.md'),
@@ -124,7 +124,7 @@ void test('brands generated API prose while preserving explicit compatibility AB
   assert.match(typedoc, /"name": "Volund CLI API"/)
   assert.match(typedoc, /"readme": "apps\/docs\/api-intro\.md"/)
   assert.match(apiIntro, /^# Volund CLI API/m)
-  assert.match(apiIntro, /frozen v1 compatibility ABI/)
+  assert.match(apiIntro, /Canonical identity/)
   assert.ok(apiFiles.length > 0, 'TypeDoc API output must exist before docs verification')
 
   for (const file of apiFiles) {
@@ -136,7 +136,7 @@ void test('brands generated API prose while preserving explicit compatibility AB
 
   const generatedIndex = await readRepoFile('apps/docs/api/README.md')
   assert.match(generatedIndex, /^# Volund CLI API/m)
-  assert.match(generatedIndex, /frozen v1 compatibility ABI/)
+  assert.match(generatedIndex, /Canonical identity/)
 })
 
 void test('documents the prompt-injection trust boundary', async () => {

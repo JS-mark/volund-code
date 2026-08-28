@@ -86,7 +86,6 @@ export default defineConfig({
             },
             { text: 'API reference', link: '/api/README' },
             { text: 'CLI reference', link: '/docs/reference/cli' },
-            { text: 'L4 evidence matrix', link: '/docs/reference/l4-evidence-matrix' },
             {
               text: 'Troubleshooting',
               items: [
@@ -142,7 +141,6 @@ export default defineConfig({
             },
             { text: 'API 参考', link: '/api/README' },
             { text: 'CLI 参考', link: '/zh/docs/reference/cli' },
-            { text: 'L4 证据矩阵', link: '/docs/reference/l4-evidence-matrix' },
             {
               text: '故障排查',
               items: [

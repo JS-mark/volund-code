@@ -1,20 +1,18 @@
 # Brand Identity & Migration Plan
 
-> **状态**：`BRAND-MIGRATE-A COMPLETE / BRAND-MIGRATE-B:NPM IMPLEMENTED / REGISTRY-CLEARANCE-PENDING`；`Volund CLI` 的用户可见品牌、TUI/README/docs 资产、canonical `volund` 命令、本地 npm package graph 与 `volund-code` repository/docs slug 已落地，`ReasonBound Code` 仅作历史保留方向；home/env、wire/schema、signing、native/release 与自定义域名仍未迁移。
+> **状态**：`LOCAL BRAND MIGRATION COMPLETE / EXTERNAL CLEARANCE PENDING`；当前代码、协议、插件契约、TUI、README、docs、npm package graph、native bundle 与 repository/docs slug 均以 `Volund` 为唯一主身份；线上发布、registry、signing、域名和法律清查仍需外部门禁。
 >
-> **更新时间**：2026-08-27（Asia/Shanghai）
+> **更新时间**：2026-08-28（Asia/Shanghai）
 >
-> **用途**：记录品牌决策、视觉方向、声明边界、仓库迁移面与验收门。本文不授权全局替换 `volund`，也不把目标安全能力描述成已交付事实。
+> **用途**：记录品牌决策、视觉方向、声明边界、仓库迁移面与验收门。未来再次更名必须经过新的版本化决策，不得把品牌替换和产品能力声明混为一谈。
 
-> **Canonical display identity: `Volund CLI` / `Volund`; canonical command: `volund`; canonical npm identities: `volund-cli` / `@volund/*`.** `volund` and the `volund-code` npm meta package remain compatibility aliases. Full legal and live-registry clearance remain open gates.
+> **Canonical identity: `Volund CLI` / `Volund`; command: `volund`; npm: `volund-cli` / `@volund/*`; repository/docs slug: `volund-code`.** Full legal and live-registry clearance remain open gates.
 
-## 1. 为什么现在仍然看到 volund
+## 1. 当前品牌状态
 
-当前仓库已完成 scoped Phase A 与 BRAND-MIGRATE-B 的 npm 子阶段：用户可见名称、TUI/README/docs 视觉与 canonical CLI 已迁移到 `Volund CLI` / `volund`，canonical npm package graph 已迁移到 `volund-cli` / `@volund/*`，repository/docs deployment slug 已迁移到 `volund-code`。仍然可见的 `volund`、legacy `volund-code` meta 包、`~/.volund`、`volund_*`、native/release 和 wire/schema 标识属于明确保留的兼容或延后迁移面，不是 canonical display/npm 真值。
+当前仓库的用户可见名称、TUI/README/docs 视觉、CLI、npm package graph、home/env、插件契约、wire/schema、native/release 标识与 repository/docs deployment slug 均使用 Volund 命名。代码中出现的 `volund`、`VOLUND_*`、`~/.volund`、`volund-cli`、`@volund/*` 与 `volund-code` 都是当前 canonical identity，不是旧品牌残留。
 
-2026-08-22 的只读盘点（排除 `.git`、`node_modules`、`dist`）曾发现约 3,336 个 volund 字面量分布在 332 个文件；29 个 `package.json` 都含旧身份。`packages/shared/src/product-identity.ts` 现已同时记录 canonical display/npm identity 与 legacy compatibility boundary；其余未迁移 tuple 仍等待完整 identity artifact 与 clearance。
-
-三套旧 volund 可见资产（TUI AC + orbit、官网 lime `A`、README A + orbit）已替换为同源的 **pixel hammer + terminal cutout** 系统；旧 `/volund-mark.svg` URL 仅作兼容入口，内容也已指向 Volund mark。
+`packages/shared/src/product-identity.ts` 是当前代码级品牌身份真值。生产视觉资产统一使用 **pixel hammer + terminal cutout** 系统，TUI、官网、README、favicon 与 `/volund-mark.svg` 使用同一视觉语言。
 
 原因不是品牌工作被取消，而是品牌决策经历了命名否决和语义升级：
 
@@ -24,7 +22,7 @@
 4. 该新增原则进一步改变了品牌的产品含义：品牌不能只表达“被保护的 AI 核心”，还必须表达“可替换能力、不可替换可信边界、唯一受控 effect port”。
 5. 因而最终名称必须围绕完整的新语义重新设计和清查。
 
-用户已在 2026-08-27 明确授权开始替换品牌，随后又明确要求继续迁移 npm 包和 docs，因此 display identity、canonical CLI、npm package graph 与 repository/docs slug 分阶段落地。兼容和安全原则不变：不得把历史 wire/event/error/schema/security 标识随品牌一起粗暴替换；home/env、自定义域名、native/release 与 signing 保持旧值，直到各自单独授权和冻结。
+用户已在 2026-08-27 明确授权开始替换品牌，随后要求继续迁移 npm 包和 docs；2026-08-28 又明确要求当前实现不得回退到旧品牌。因此 display identity、CLI、npm package graph、home/env、wire/schema、插件契约、native bundle 与 repository/docs slug 均以 Volund 为准。
 
 ## 2. 决策状态
 

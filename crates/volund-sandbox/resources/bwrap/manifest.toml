@@ -12,9 +12,9 @@ libcap = "2.66-4+deb12u3+b1"
 [[payloads]]
 target = "x86_64-unknown-linux-gnu"
 path = "x86_64-unknown-linux-gnu/bwrap"
-sha256 = "cbae2c7d261d540c9402a4476416d8f4cc16817b7d24b6b0439b749476f91199"
+sha256 = "74a9a8b54ae5d8268c3597b445c884fc5d28b0984a84c252ae8aeb6cf75c4600"
 
 [[payloads]]
 target = "aarch64-unknown-linux-gnu"
 path = "aarch64-unknown-linux-gnu/bwrap"
-sha256 = "d50c8bccfcaf03b53390d8ea5ee6f7281cfe18766b009ba0c479f80f83485ec4"
+sha256 = "5e66cd1a30f655bfafb7f5464fff0682c9b34f0ded32befde6649c4af69d57f0"

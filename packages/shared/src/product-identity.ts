@@ -1,12 +1,12 @@
-const legacyCommandNames = Object.freeze(['apollo'] as const)
+const legacyCommandNames = Object.freeze(['volund'] as const)
 
 /** Apollo-era machine identifiers the runtime must keep reading during the staged migration. */
 const compatibility = Object.freeze({
   commandNames: legacyCommandNames,
-  envPrefix: 'APOLLO',
-  homeDirectoryName: '.apollo',
-  packageName: 'apollo-code',
-  packageScope: '@apollo-code',
+  envPrefix: 'VOLUND',
+  homeDirectoryName: '.volund',
+  packageName: 'volund-cli',
+  packageScope: '@volund',
 })
 
 /**

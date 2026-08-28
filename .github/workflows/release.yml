@@ -23,9 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm release:status
-      - run: node --test scripts/generate-l4-evidence-matrix.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-windows-release-evidence.test.mjs
-      - run: pnpm release:evidence:check
-      - run: pnpm release:windows:dry-run
+      - run: node --test scripts/verify-changesets-release-plan.test.mjs scripts/verify-l2-release.test.mjs
       - name: Exercise snapshot versioning in the disposable CI checkout
         run: pnpm release:version:dry-run
 

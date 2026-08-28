@@ -11,12 +11,12 @@ use std::{
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const PAYLOAD: &[u8] = include_bytes!("../resources/bwrap/x86_64-unknown-linux-gnu/bwrap");
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub const SHA256: &str = "cbae2c7d261d540c9402a4476416d8f4cc16817b7d24b6b0439b749476f91199";
+pub const SHA256: &str = "74a9a8b54ae5d8268c3597b445c884fc5d28b0984a84c252ae8aeb6cf75c4600";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const PAYLOAD: &[u8] = include_bytes!("../resources/bwrap/aarch64-unknown-linux-gnu/bwrap");
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-pub const SHA256: &str = "d50c8bccfcaf03b53390d8ea5ee6f7281cfe18766b009ba0c479f80f83485ec4";
+pub const SHA256: &str = "5e66cd1a30f655bfafb7f5464fff0682c9b34f0ded32befde6649c4af69d57f0";
 
 #[cfg(target_os = "linux")]
 pub struct MaterializedBwrap {
