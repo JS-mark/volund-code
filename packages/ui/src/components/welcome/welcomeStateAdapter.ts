@@ -46,7 +46,9 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
       tokensRemainingLabel: '200k remaining',
     },
     agent: { mode: 'auto', status: 'ready', thinking: 'off' },
-    recentActivity: (data.recentActivity ?? []).slice(0, 3),
+    // 去重：同目录多个会话的自动标题相同（"Session in <cwd>"），重复行既无信息
+    // 量也会让 React key 冲突刷警告。
+    recentActivity: [...new Set(data.recentActivity ?? [])].slice(0, 3),
   }
 }
 

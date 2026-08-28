@@ -106,6 +106,18 @@ describe('welcome screen', () => {
     expect(output).not.toContain('No recent activity')
   })
 
+  it('dedupes identical recent activity titles so React keys stay unique', () => {
+    // 同目录多个会话的自动标题相同（"Session in <cwd>"），重复行会让
+    // React key 冲突、启动时往屏幕上刷 duplicate-key 警告。
+    const state = buildWelcomeScreenState({
+      data: {
+        ...fixture({ status: 'unknown' }),
+        recentActivity: ['Session in /repo', 'Session in /repo', 'other work'],
+      },
+    })
+    expect(state.recentActivity).toEqual(['Session in /repo', 'other work'])
+  })
+
   it.each([
     [{ columns: 120, rows: 30 }, ['cwd /repo', 'tokens 200k remaining', 'esc interrupt']],
     [{ columns: 90, rows: 24 }, ['esc interrupt']],
