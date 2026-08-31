@@ -104,11 +104,13 @@ export async function buildStandalone({ root, target, assetDirectory, outDirecto
 
   const out = outDirectory ?? join(root, 'apps/cli/dist/standalone', target)
   await createNativeManifest(resolve(assetDirectory), join(out, 'native'), target)
-  // 内置插件（apps/cli/plugins/<name>/）随 standalone 产物分发到 <out>/plugins/，
-  // 运行时解析惯例与 native/ 一致（VOLUND_STANDALONE_ASSET_DIR 或产物旁）。
-  // 目录不存在（未随当前提交进仓库）时跳过，运行时按"无内置插件"处理。
+  // 内置插件随 standalone 产物分发到 <out>/plugins/：直接复用 rolldown 构建期
+  // 已压缩混淆的 dist/plugins（见 apps/cli/rolldown.config.mjs），保证与 npm 产物
+  // 字节一致；运行时解析惯例与 native/ 一致（VOLUND_STANDALONE_ASSET_DIR 或产物旁）。
+  // dist/plugins 不存在（plugins 目录未随当前提交进仓库）时跳过，运行时按
+  // "无内置插件"处理。
   try {
-    await cp(resolve(root, 'apps/cli/plugins'), join(out, 'plugins'), { recursive: true })
+    await cp(resolve(root, 'apps/cli/dist/plugins'), join(out, 'plugins'), { recursive: true })
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
@@ -127,7 +129,7 @@ export async function buildStandalone({ root, target, assetDirectory, outDirecto
 }
 
 async function main() {
-  const root = resolve(import.meta.dirname, '..')
+  const root = resolve(import.meta.dirname, '../..')
   const target = process.env.VOLUND_STANDALONE_TARGET ?? hostTarget()
   if (!target)
     throw new Error(

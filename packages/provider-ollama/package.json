@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ../../scripts/rewrite-esm-specifiers.mjs dist",
+    "build": "tsc -p tsconfig.json && node ../../scripts/build/rewrite-esm-specifiers.mjs dist",
     "test": "vitest run --passWithNoTests --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "build": "rolldown -c",
-    "build:standalone": "node ../../scripts/build-standalone.mjs",
+    "build:standalone": "node ../../scripts/release/build-standalone.mjs",
     "test": "vitest run --passWithNoTests --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

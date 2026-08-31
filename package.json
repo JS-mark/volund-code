@@ -9,17 +9,17 @@
     "release:version:dry-run": "changeset version --snapshot dry-run",
     "release": "changeset publish",
     "check:event-schemas": "node --test scripts/verify-event-schemas.test.mjs && node scripts/verify-event-schemas.mjs",
-    "check:typescript-config": "node --test scripts/verify-typescript-config.test.mjs scripts/rewrite-esm-specifiers.test.mjs && node scripts/verify-typescript-config.mjs",
+    "check:typescript-config": "node --test scripts/build/verify-typescript-config.test.mjs scripts/build/rewrite-esm-specifiers.test.mjs && node scripts/build/verify-typescript-config.mjs",
     "format": "oxfmt apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "format:check": "oxfmt --check apps packages scripts .github/workflows/typescript.yml package.json tsconfig.base.json turbo.json pnpm-workspace.yaml .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --report-unused-disable-directives",
     "lint:fix": "oxlint . --fix --report-unused-disable-directives",
-    "test": "turbo run test && pnpm --filter volund-cli build && node --test scripts/build-standalone.test.mjs scripts/l1-local-e2e.test.mjs scripts/pack-standalone-npm.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-config-docs.test.mjs scripts/verify-error-codes.test.mjs scripts/verify-event-schemas.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-plugin-runtime-packlist.test.mjs",
+    "test": "turbo run test && pnpm --filter volund-cli build && node --test scripts/release/build-standalone.test.mjs scripts/release/build-all-standalone.test.mjs scripts/release/generate-release-manifest.test.mjs scripts/release/standalone-archive.test.mjs scripts/release/verify-release-assets.test.mjs scripts/l1-local-e2e.test.mjs scripts/release/pack-standalone-npm.test.mjs scripts/release/verify-npm-publish-plan.test.mjs scripts/release/publish-npm-plan.test.mjs scripts/release/test-npx-temporary-registry.test.mjs scripts/verify-changesets-release-plan.test.mjs scripts/verify-config-docs.test.mjs scripts/verify-error-codes.test.mjs scripts/verify-event-schemas.test.mjs scripts/verify-l1-docs.test.mjs scripts/verify-l2-release.test.mjs scripts/verify-native-platforms.test.mjs scripts/verify-plugin-runtime-packlist.test.mjs",
     "test:l1-local-e2e": "pnpm --filter volund-cli build && node --test scripts/l1-local-e2e.test.mjs",
     "typecheck": "turbo run typecheck",
     "verify:config-docs": "node scripts/verify-config-docs.mjs",
     "verify:error-codes": "node scripts/verify-error-codes.mjs",
-    "pack:standalone": "node scripts/pack-standalone-npm.mjs"
+    "pack:standalone": "node scripts/release/pack-standalone-npm.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
@@ -29,6 +29,7 @@
     "oxlint-tsgolint": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
+    "verdaccio": "6.10.1",
     "vitest": "catalog:"
   },
   "engines": {

@@ -22,8 +22,11 @@ void test('publishes all native binaries as versioned GitHub Release assets', as
   ])
   assert.match(workflow, /tags: \['v\*'\]/)
   assert.match(workflow, /release-assets\/volund-\$kind-\$suffix\$extension/)
-  assert.match(workflow, /sha256sum volund-\* > checksums\.sha256/)
-  assert.match(workflow, /gh release upload/)
+  assert.match(workflow, /write-sidecar-checksums/)
+  assert.match(workflow, /verify-standalone/)
+  assert.doesNotMatch(workflow, /> checksums\.sha256/)
+  assert.match(workflow, /gh release create "\$GITHUB_REF_NAME" "\$\{all_asset_paths\[@\]\}"/)
+  assert.doesNotMatch(workflow, /gh release upload/)
   assert.doesNotMatch(bridge, /optionalDependencies/)
   assert.doesNotMatch(workspace, /platforms\/\*/)
   assert.match(workflow, /for kind in sandbox search fs/)
@@ -34,7 +37,7 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   const nativeWorkflow = await readFile(new URL('.github/workflows/native.yml', root), 'utf8')
   assert.match(
     nativeWorkflow,
-    /taiki-e\/install-action@cargo-deny[\s\S]*cargo deny check licenses bans/,
+    /taiki-e\/install-action@[0-9a-f]{40} # cargo-deny\s+with:\s+tool: cargo-deny[\s\S]*cargo deny check licenses bans/,
   )
   assert.doesNotMatch(nativeWorkflow, /EmbarkStudios\/cargo-deny-action/)
   assert.match(
@@ -95,6 +98,8 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   assert.doesNotMatch(nativeWorkflow, /certutil|New-SelfSignedCertificate|signtool\.exe/)
   assert.match(nativeWorkflow, /Expected 3 Windows binaries/)
   assert.match(nativeWorkflow, /production_signature=false/)
-  assert.match(nativeWorkflow, /macOS notarization credential gate/)
-  assert.match(nativeWorkflow, /submission=blocked/)
+  assert.match(nativeWorkflow, /macOS notarization external release gate/)
+  assert.match(nativeWorkflow, /credentials=not-checked/)
+  assert.match(nativeWorkflow, /submission=protected-release-environment-required/)
+  assert.doesNotMatch(nativeWorkflow, /APPLE_ID|APPLE_TEAM_ID|APPLE_APP_PASSWORD/)
 })

@@ -4,7 +4,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const scriptPath = fileURLToPath(import.meta.url)
-const root = resolve(dirname(scriptPath), '..')
+const root = resolve(dirname(scriptPath), '../..')
 const sourceRoots = ['apps', 'packages']
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts'])
 const assetExtensions = new Set(['.css', '.svg', '.vue'])
