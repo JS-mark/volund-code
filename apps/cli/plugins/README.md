@@ -7,8 +7,11 @@ manifest 校验 → bundle 完整性检查 → `volund-sandbox --run-plugin` 沙
 ## 目录约定
 
 - 源码：`apps/cli/plugins/<name>/`（`manifest.json` + 单文件零依赖 ESM `index.mjs`）
-- npm 产物：`pnpm build` 时拷到 `dist/plugins/<name>/`（见 `rolldown.config.mjs`）
-- standalone 产物：`build:standalone` 拷到 `<out>/plugins/<name>/`（见 `scripts/build-standalone.mjs`）
+- npm 产物：`pnpm build` 时把 `index.mjs` 经嵌套 rolldown **压缩混淆**（compress + 顶层
+  mangle，仅保留沙箱装载依赖的 `activate` 导出名）后落到 `dist/plugins/<name>/`，
+  `manifest.json` 原样拷贝（见 `rolldown.config.mjs`）——源码不随产物分发
+- standalone 产物：`build:standalone` 直接复用 `dist/plugins/`（同一份压缩混淆字节，
+  见 `scripts/release/build-standalone.mjs`）
 - 运行时解析（`builtinPluginRoot()`，runtime.ts）：`$VOLUND_STANDALONE_ASSET_DIR/plugins`
   → `dist/plugins`（bundled）→ `apps/cli/plugins`（源码/vitest），取第一个存在的
 
