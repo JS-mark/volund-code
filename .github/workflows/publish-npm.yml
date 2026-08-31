@@ -1,75 +1,331 @@
-name: Publish npm binary packages
+name: Validate and publish npm binary packages
 
-# 手动触发（L2 门禁：不发布自动化，见 docs/releases/L2-RELEASE-CHECKLIST.md）。
-# 输入一个已带 GitHub Release 资产的 v* tag：本流程把 Release 里的 sidecar
-# 二进制（校验 sha256 后）与 bun 单文件 CLI 重新组装成 7 个平台包、canonical
-# `volund-cli` meta 包和 legacy `volund-code` compatibility meta 包，带 provenance 发到 npm。
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '已发布 GitHub Release 的 tag（如 v0.2.0）'
+        description: 'Stable GitHub Release tag (for example v0.2.0); dispatch this workflow at the same tag ref'
         required: true
         type: string
+      publish:
+        description: 'Publish the verified candidate through npm trusted publishing'
+        required: true
+        default: false
+        type: boolean
+      dist_tag:
+        description: 'npm distribution tag'
+        required: true
+        default: next
+        type: choice
+        options:
+          - next
+          - latest
 
 permissions:
   contents: read
-  id-token: write # npm --provenance（§9.5 供应链 S2）
+
+concurrency:
+  group: npm-release-${{ inputs.dist_tag }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+      release_commit: ${{ steps.identity.outputs.release_commit }}
+      package_version: ${{ steps.identity.outputs.package_version }}
+      tag: ${{ steps.validate-tag.outputs.tag }}
+      tag_ref: ${{ steps.validate-tag.outputs.tag_ref }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.6'
-      - name: Require npm token
+      - name: Validate stable tag before checkout
+        id: validate-tag
+        shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          if [[ -z "$NODE_AUTH_TOKEN" ]]; then
-            echo 'NPM_TOKEN secret is not configured; cannot publish.' >&2
+          set -euo pipefail
+          if [[ ! "$REQUESTED_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'tag must be a stable v<SemVer core> value' >&2
             exit 1
           fi
-      - name: Tag must match apps/cli version
+          printf 'tag=%s\n' "$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          printf 'tag_ref=refs/tags/%s\n' "$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          printf 'TAG=%s\n' "$REQUESTED_TAG" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.validate-tag.outputs.tag_ref }}
+          fetch-depth: 0
+      - name: Bind tag, checkout, workflow run, and package version
+        id: identity
+        shell: bash
         run: |
+          set -euo pipefail
+          tag_ref="refs/tags/$TAG"
+          git show-ref --verify "$tag_ref"
+          tag_commit=$(git rev-parse --verify "$tag_ref^{commit}")
+          head_commit=$(git rev-parse --verify HEAD)
+          if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
+            echo 'tag, checkout HEAD, and workflow run head SHA must identify the same commit' >&2
+            exit 1
+          fi
           package_version=$(node -p "require('./apps/cli/package.json').version")
-          if [[ "v$package_version" != '${{ inputs.tag }}' ]]; then
-            echo "tag ${{ inputs.tag }} does not match apps/cli version $package_version" >&2
+          if [[ "v$package_version" != "$TAG" ]]; then
+            echo 'tag does not match apps/cli package version' >&2
             exit 1
           fi
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run build --filter=volund-cli...
-      - name: Download and verify native sidecar assets from the GitHub Release
+          printf 'release_commit=%s\n' "$head_commit" >> "$GITHUB_OUTPUT"
+          printf 'package_version=%s\n' "$package_version" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=npm-publish-bundle-%s\n' "$TAG" >> "$GITHUB_OUTPUT"
+          printf 'RELEASE_COMMIT=%s\n' "$head_commit" >> "$GITHUB_ENV"
+          printf 'PACKAGE_VERSION=%s\n' "$package_version" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.14.0
+      - name: Assert the pinned npm pack toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(node --version)" == 'v22.14.0' ]]
+          [[ "$(npm --version)" == '10.9.2' ]]
+      - name: Require the exact immutable GitHub Release asset set
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download '${{ inputs.tag }}' --repo "$GITHUB_REPOSITORY" \
-            --dir release-assets --clobber \
-            --pattern 'volund-sandbox-*' --pattern 'volund-search-*' --pattern 'volund-fs-*' \
-            --pattern 'checksums.sha256'
-          (cd release-assets && sha256sum -c checksums.sha256 --ignore-missing)
-      # 产出 7 个 target（win32-arm64-msvc 无 bun 目标自动跳过）+ npm staging。
-      - run: node scripts/build-all-standalone.mjs release-assets
-      - run: node scripts/pack-standalone-npm.mjs
-      - name: Publish platform packages, canonical meta shell, then legacy shim
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' > remote-assets.txt
+          node scripts/release/verify-release-assets.mjs verify-remote-assets \
+            --input remote-assets.txt --mode exact
+      - name: Download and revalidate the identity-bound standalone artifact set
+        shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for dir in dist/npm/volund-*/; do
-            npm publish "$dir" --provenance --access public
-          done
-          npm publish dist/npm/volund-cli --provenance --access public
-          npm publish dist/npm/volund-code --provenance --access public
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir standalone-assets \
+            --pattern 'volund-standalone-*.tar.gz' \
+            --pattern 'standalone-checksums.sha256' \
+            --pattern 'release-manifest.json'
+          node scripts/release/verify-release-assets.mjs verify-standalone \
+            --directory standalone-assets \
+            --version "$PACKAGE_VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --bun-version '1.3.6'
+      - name: Pack and verify the frozen nine-package plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release/pack-standalone-npm.mjs \
+            --archives standalone-assets \
+            --output npm-candidate
+          node scripts/release/verify-npm-publish-plan.mjs \
+            --output npm-candidate \
+            --archives standalone-assets \
+            --source-root . \
+            --version "$PACKAGE_VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --bun-version '1.3.6' \
+            --layout full
+      - name: Assemble the exact cross-job trust bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p publish-bundle/npm-candidate publish-bundle/trusted/apps/cli/bin
+          cp npm-candidate/.volund-npm-output.json npm-candidate/publish-plan.json \
+            publish-bundle/npm-candidate/
+          cp -R npm-candidate/tarballs publish-bundle/npm-candidate/
+          cp -R standalone-assets publish-bundle/trusted/standalone-assets
+          cp README.md LICENSE publish-bundle/trusted/
+          cp apps/cli/bin/volund.cjs publish-bundle/trusted/apps/cli/bin/
+          node scripts/release/verify-npm-publish-plan.mjs \
+            --output publish-bundle/npm-candidate \
+            --archives publish-bundle/trusted/standalone-assets \
+            --source-root publish-bundle/trusted \
+            --version "$PACKAGE_VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --bun-version '1.3.6' \
+            --layout packed-only
+      - name: Upload immutable npm publish bundle
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: publish-bundle
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
+
+  temporary-registry-smoke:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag_ref }}
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.5.0
+          cache: pnpm
+      - name: Assert the pinned npm registry toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(node --version)" == 'v24.5.0' ]]
+          [[ "$(npm --version)" == '11.5.1' ]]
+          pnpm install --frozen-lockfile
+      - name: Hard-verify artifact identity before download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+          EXPECTED_ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact_name }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          expected_digest="sha256:$ARTIFACT_DIGEST"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" | jq -e \
+            --argjson artifact_id "$ARTIFACT_ID" \
+            --arg artifact_name "$EXPECTED_ARTIFACT_NAME" \
+            --arg digest "$expected_digest" \
+            --arg head_sha "$RELEASE_COMMIT" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            '.id == $artifact_id and .name == $artifact_name and .expired == false and
+             .digest == $digest and .workflow_run.head_sha == $head_sha and
+             .workflow_run.id == $run_id'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: publish-bundle
+          merge-multiple: true
+      - name: Revalidate trusted bundle and execute real temporary-registry npx E2E
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          node scripts/release/verify-npm-publish-plan.mjs \
+            --output publish-bundle/npm-candidate \
+            --archives publish-bundle/trusted/standalone-assets \
+            --source-root publish-bundle/trusted \
+            --version "$PACKAGE_VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --bun-version '1.3.6' \
+            --layout packed-only
+          node scripts/release/test-npx-temporary-registry.mjs \
+            --candidate publish-bundle/npm-candidate \
+            --archives publish-bundle/trusted/standalone-assets \
+            --source-root publish-bundle/trusted \
+            --dist-tag test \
+            --layout packed-only
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs:
+      - prepare
+      - temporary-registry-smoke
+    runs-on: ubuntu-24.04
+    environment: npm-release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.5.0
+      - name: Rebind tag and assert the trusted-publishing toolchain
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          tag_commit=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          head_commit=$(git rev-parse --verify HEAD)
+          [[ "$tag_commit" == "$head_commit" ]]
+          [[ "$head_commit" == "$RELEASE_COMMIT" ]]
+          [[ "$head_commit" == "$GITHUB_SHA" ]]
+          [[ "$(node --version)" == 'v24.5.0' ]]
+          [[ "$(npm --version)" == '11.5.1' ]]
+      - name: Hard-verify artifact identity before privileged download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+          EXPECTED_ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact_name }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          expected_digest="sha256:$ARTIFACT_DIGEST"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" | jq -e \
+            --argjson artifact_id "$ARTIFACT_ID" \
+            --arg artifact_name "$EXPECTED_ARTIFACT_NAME" \
+            --arg digest "$expected_digest" \
+            --arg head_sha "$RELEASE_COMMIT" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            '.id == $artifact_id and .name == $artifact_name and .expired == false and
+             .digest == $digest and .workflow_run.head_sha == $head_sha and
+             .workflow_run.id == $run_id'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: publish-bundle
+          merge-multiple: true
+      - name: Revalidate bundle and require human trusted-publisher bootstrap
+        shell: bash
+        env:
+          NPM_TRUSTED_PUBLISHING_READY: ${{ vars.NPM_TRUSTED_PUBLISHING_READY }}
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          if [[ "$NPM_TRUSTED_PUBLISHING_READY" != 'true' ]]; then
+            echo 'npm trusted publishing is not ready: a human must bootstrap all 9 package owners and configure the trusted publisher for this workflow filename and npm-release environment' >&2
+            exit 1
+          fi
+          node scripts/release/verify-npm-publish-plan.mjs \
+            --output publish-bundle/npm-candidate \
+            --archives publish-bundle/trusted/standalone-assets \
+            --source-root publish-bundle/trusted \
+            --version "$PACKAGE_VERSION" \
+            --tag "$TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --bun-version '1.3.6' \
+            --layout packed-only
+      - name: Publish the exact verified plan through npm trusted publishing
+        shell: bash
+        env:
+          DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          node scripts/release/publish-npm-plan.mjs \
+            --candidate publish-bundle/npm-candidate \
+            --archives publish-bundle/trusted/standalone-assets \
+            --source-root publish-bundle/trusted \
+            --registry https://registry.npmjs.org \
+            --dist-tag "$DIST_TAG" \
+            --mode publish \
+            --layout packed-only

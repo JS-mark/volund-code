@@ -11,8 +11,10 @@ jobs:
   license:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@cargo-deny
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: taiki-e/install-action@d865e9aac326f15b06ac52b57abb58cd0e3330e4 # cargo-deny
+        with:
+          tool: cargo-deny
       - run: cargo deny check licenses bans
   native:
     needs: license
@@ -20,21 +22,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {
-              runner: macos-14,
-              target: aarch64-apple-darwin,
-              verification: native,
-            }
-          - {
-              runner: macos-15-intel,
-              target: x86_64-apple-darwin,
-              verification: native,
-            }
-          - {
-              runner: ubuntu-24.04,
-              target: x86_64-unknown-linux-gnu,
-              verification: native,
-            }
+          - { runner: macos-14, target: aarch64-apple-darwin, verification: native }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin, verification: native }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, verification: native }
           - {
               runner: ubuntu-24.04,
               target: aarch64-unknown-linux-gnu,
@@ -50,26 +40,19 @@ jobs:
               target: aarch64-unknown-linux-musl,
               verification: partial-verified,
             }
-          - {
-              runner: windows-2022,
-              target: x86_64-pc-windows-msvc,
-              verification: native,
-            }
-          - {
-              runner: windows-11-arm,
-              target: aarch64-pc-windows-msvc,
-              verification: native,
-            }
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, verification: native }
+          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, verification: native }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
       - if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu libc6-arm64-cross
       - if: contains(matrix.target, 'aarch64-unknown-linux')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm64
       - if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -77,7 +60,7 @@ jobs:
           echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
           echo 'QEMU_LD_PREFIX=/usr/aarch64-linux-gnu' >> "$GITHUB_ENV"
       - if: contains(matrix.target, 'musl')
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
       - if: contains(matrix.target, 'musl')
         run: cargo install cargo-zigbuild --locked
       - if: contains(matrix.target, 'musl')
@@ -90,10 +73,10 @@ jobs:
         run: target/${{ matrix.target }}/release/volund-sandbox --verify-bwrap-digest
       - if: matrix.verification == 'native' && runner.os != 'Windows'
         run: cargo test --workspace --target ${{ matrix.target }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           # Keep the native matrix aligned with the Windows TypeScript gate.
           # Node 24 intermittently fails to initialize child build processes on
@@ -143,7 +126,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/volund-$kind$extension" "release-assets/volund-$kind-$suffix$extension"
           done
       - run: echo '${{ matrix.verification }}' > native-verification.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.target }}
           path: |
@@ -151,7 +134,7 @@ jobs:
             target/${{ matrix.target }}/release/volund-search*
             target/${{ matrix.target }}/release/volund-fs*
             native-verification.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-assets-${{ matrix.target }}
           path: release-assets/*
@@ -159,11 +142,11 @@ jobs:
     needs: native
     runs-on: macos-14
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: native-aarch64-apple-darwin
           path: arm64
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: native-x86_64-apple-darwin
           path: x64
@@ -174,7 +157,7 @@ jobs:
             lipo -create "arm64/target/aarch64-apple-darwin/release/volund-$kind" "x64/target/x86_64-apple-darwin/release/volund-$kind" -output "universal2/volund-$kind"
             lipo "universal2/volund-$kind" -verify_arch arm64 x86_64
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-darwin-universal2
           path: universal2/*
@@ -184,7 +167,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: native-x86_64-pc-windows-msvc
           path: artifact
@@ -213,35 +196,28 @@ jobs:
             mv "$signed" "$binary"
           done
           printf 'verification=self-signed-flow-only\nproduction_signature=false\n' > authenticode-evidence.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: authenticode-self-sign-smoke
           path: authenticode-evidence.txt
   notarization-gate:
-    name: macOS notarization credential gate
+    name: macOS notarization external release gate
     needs: universal2
     runs-on: macos-14
     steps:
       - name: Record external notarization gate
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_PASSWORD" ]]; then
-            printf 'credentials=available\nsubmission=release-workflow-required\n' > notarization-gate.txt
-          else
-            printf 'credentials=unavailable\nsubmission=blocked\n' > notarization-gate.txt
-          fi
-      - uses: actions/upload-artifact@v4
+          printf 'credentials=not-checked\nsubmission=protected-release-environment-required\n' \
+            > notarization-gate.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: notarization-gate
           path: notarization-gate.txt
   bwrap-reproducibility:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm64
       - run: crates/volund-sandbox/scripts/rebuild-bwrap.sh --check
@@ -251,65 +227,367 @@ jobs:
     needs: native
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           # Pin to the version standalone builds are validated against locally.
           bun-version: '1.3.6'
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run build --filter=volund-cli...
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-assets-*
           path: release-assets
           merge-multiple: true
+      - name: Stage required standalone release metadata
+        run: |
+          mkdir -p release-metadata
+          cp LICENSE NOTICE release-metadata/
+      - name: Generate raw CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          syft-version: v1.51.1
+          format: cyclonedx-json
+          output-file: release-metadata/sbom.raw.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Normalize and bind release SBOM identity
+        shell: bash
+        run: |
+          package_version=$(node -p "require('./apps/cli/package.json').version")
+          node scripts/release/generate-release-manifest.mjs normalize-sbom \
+            --input release-metadata/sbom.raw.cdx.json \
+            --output release-metadata/sbom.cdx.json \
+            --version "$package_version" \
+            --commit "$GITHUB_SHA"
       # 7 targets: win32-arm64-msvc 没有 bun 编译目标，由 build-all-standalone 自动跳过，
       # Windows arm64 用户经 npm 薄壳装到 win32-x64-msvc 包（Prism 仿真）。
-      - run: node scripts/build-all-standalone.mjs release-assets
-      - uses: actions/upload-artifact@v4
+      - name: Stage exact seven-target standalone sidecars
+        run: node scripts/release/verify-release-assets.mjs stage-standalone --source release-assets --output standalone-sidecars
+      - run: node scripts/release/build-all-standalone.mjs standalone-sidecars release-metadata
+      - name: Generate immutable release manifest for tag builds
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          package_version=$(node -p "require('./apps/cli/package.json').version")
+          bun_version=$(bun --version)
+          node scripts/release/generate-release-manifest.mjs \
+            --archives apps/cli/dist/standalone/archives \
+            --version "$package_version" \
+            --tag "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA" \
+            --bun-version "$bun_version" \
+            --output apps/cli/dist/standalone/archives/release-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: standalone-archives
           path: apps/cli/dist/standalone/archives/
   github-release:
     name: Publish versioned native Release assets
     if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      [
-        native,
-        universal2,
-        signing-smoke,
-        notarization-gate,
-        bwrap-reproducibility,
-        standalone,
-      ]
+    needs: [native, universal2, signing-smoke, notarization-gate, bwrap-reproducibility, standalone]
     runs-on: ubuntu-24.04
+    environment: release
+    concurrency:
+      group: native-release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-assets-*
           path: release-assets
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: standalone-archives
           path: standalone-assets
-      - name: Generate checksum manifest
-        working-directory: release-assets
-        run: sha256sum volund-* > checksums.sha256
-      - name: Create release and upload immutable assets
+      - name: Bind the remote tag, checked-out HEAD, and event SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'release tag must be a stable v<SemVer core> value' >&2
+            exit 1
+          fi
+          git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null
+          git fetch --force origin "+refs/tags/$tag:refs/tags/$tag"
+          tag_commit=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+          head_commit=$(git rev-parse --verify HEAD)
+          if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
+            echo 'remote peeled tag commit, checked-out HEAD, and GITHUB_SHA must match' >&2
+            exit 1
+          fi
+      - name: Generate and verify the exact 24-entry raw sidecar checksum domain
+        run: |
+          node scripts/release/verify-release-assets.mjs write-sidecar-checksums \
+            --directory release-assets \
+            --output release-assets/sidecars-checksums.sha256
+      - name: Verify complete local Release asset sets before any remote mutation
+        run: |
+          test -f standalone-assets/standalone-checksums.sha256
+          package_version=$(node -p "require('./apps/cli/package.json').version")
+          node scripts/release/verify-release-assets.mjs verify-standalone \
+            --directory standalone-assets \
+            --version "$package_version" \
+            --tag "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA" \
+            --bun-version '1.3.6'
+          node scripts/release/verify-release-assets.mjs verify-local-release \
+            --sidecars release-assets \
+            --standalone standalone-assets
+      - name: Require immutable releases through the read-only policy token
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo 'RELEASE_POLICY_TOKEN with repository Administration(read) is required' >&2
+            exit 1
+          fi
+          mkdir release-policy-initial
+          GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/immutable-releases" \
+            > release-policy-initial/immutable.json
+          node scripts/release/verify-release-assets.mjs verify-immutable \
+            --input release-policy-initial/immutable.json
+      - name: Require the fixed active release-tag ruleset contract
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
-          gh release upload "$GITHUB_REF_NAME" standalone-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          set -euo pipefail
+          mkdir release-policy-initial/rulesets
+          gh api --method GET --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/rulesets" \
+            -F includes_parents=true -F targets=tag -F per_page=100 \
+            > release-policy-initial/ruleset-index.json
+          node scripts/release/verify-release-assets.mjs list-ruleset-ids \
+            --input release-policy-initial/ruleset-index.json \
+            > release-policy-initial/ruleset-ids.txt
+          while IFS= read -r ruleset_id; do
+            if [[ ! "$ruleset_id" =~ ^[1-9][0-9]*$ ]]; then
+              echo 'ruleset id must be a positive integer' >&2
+              exit 1
+            fi
+            gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id" \
+              -F includes_parents=true \
+              > "release-policy-initial/rulesets/$ruleset_id.json"
+          done < release-policy-initial/ruleset-ids.txt
+          node scripts/release/verify-release-assets.mjs verify-rulesets \
+            --index release-policy-initial/ruleset-index.json \
+            --details release-policy-initial/rulesets
+      - name: Resolve absent, draft, or published Release state without partial mutation
+        id: release-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release/verify-release-assets.mjs list-release-assets > expected-assets.txt
+          all_asset_paths=()
+          while IFS= read -r asset_name; do
+            if [[ -f "release-assets/$asset_name" ]]; then
+              asset_path="release-assets/$asset_name"
+            elif [[ -f "standalone-assets/$asset_name" ]]; then
+              asset_path="standalone-assets/$asset_name"
+            else
+              echo "missing local release asset: $asset_name" >&2
+              exit 1
+            fi
+            all_asset_paths+=("$asset_path")
+          done < expected-assets.txt
+          if [[ ${#all_asset_paths[@]} -ne 34 ]]; then
+            echo "expected 34 local release assets, found ${#all_asset_paths[@]}" >&2
+            exit 1
+          fi
+
+          owner=${GITHUB_REPOSITORY%%/*}
+          repository=${GITHUB_REPOSITORY#*/}
+          release_query='query($owner: String!, $name: String!, $tag: String!) { repository(owner: $owner, name: $name) { release(tagName: $tag) { id isDraft immutable tagName tagCommit { oid } assets: releaseAssets(first: 100) { totalCount nodes { name size digest } } } } }'
+          gh api graphql -f query="$release_query" \
+            -F owner="$owner" -F name="$repository" -F tag="$GITHUB_REF_NAME" \
+            > release-state-initial.json
+          state=$(node scripts/release/verify-release-assets.mjs verify-release-state \
+            --input release-state-initial.json \
+            --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+            --sidecars release-assets --standalone standalone-assets --expect any)
+
+          if [[ "$state" == absent ]]; then
+            git ls-remote --exit-code --refs origin "refs/tags/$GITHUB_REF_NAME" >/dev/null
+            git fetch --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            tag_commit=$(git rev-parse --verify "refs/tags/$GITHUB_REF_NAME^{commit}")
+            head_commit=$(git rev-parse --verify HEAD)
+            if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
+              echo 'pre-create tag, HEAD, and GITHUB_SHA must match' >&2
+              exit 1
+            fi
+            gh release create "$GITHUB_REF_NAME" "${all_asset_paths[@]}" \
+              --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes
+            gh api graphql -f query="$release_query" \
+              -F owner="$owner" -F name="$repository" -F tag="$GITHUB_REF_NAME" \
+              > release-state-created-draft.json
+            state=$(node scripts/release/verify-release-assets.mjs verify-release-state \
+              --input release-state-created-draft.json \
+              --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+              --sidecars release-assets --standalone standalone-assets --expect draft)
+          fi
+
+          printf 'state=%s\n' "$state" >> "$GITHUB_OUTPUT"
+      - name: Download only after metadata gate and compare all remote bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          compare_root="$RUNNER_TEMP/volund-release-state-compare"
+          mkdir "$compare_root"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --dir "$compare_root"
+          while IFS= read -r asset_name; do
+            if [[ -f "release-assets/$asset_name" ]]; then
+              asset_path="release-assets/$asset_name"
+            else
+              asset_path="standalone-assets/$asset_name"
+            fi
+            node scripts/release/verify-release-assets.mjs compare-files \
+              --left "$asset_path" --right "$compare_root/$asset_name"
+          done < expected-assets.txt
+      - name: Recheck immutable releases immediately before draft publication
+        if: steps.release-state.outputs.state == 'draft'
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo 'RELEASE_POLICY_TOKEN with repository Administration(read) is required' >&2
+            exit 1
+          fi
+          mkdir release-policy-prepublish
+          GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/immutable-releases" \
+            > release-policy-prepublish/immutable.json
+          node scripts/release/verify-release-assets.mjs verify-immutable \
+            --input release-policy-prepublish/immutable.json
+      - name: Recheck release-tag ruleset immediately before draft publication
+        if: steps.release-state.outputs.state == 'draft'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir release-policy-prepublish/rulesets
+          gh api --method GET --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/rulesets" \
+            -F includes_parents=true -F targets=tag -F per_page=100 \
+            > release-policy-prepublish/ruleset-index.json
+          node scripts/release/verify-release-assets.mjs list-ruleset-ids \
+            --input release-policy-prepublish/ruleset-index.json \
+            > release-policy-prepublish/ruleset-ids.txt
+          while IFS= read -r ruleset_id; do
+            if [[ ! "$ruleset_id" =~ ^[1-9][0-9]*$ ]]; then
+              echo 'ruleset id must be a positive integer' >&2
+              exit 1
+            fi
+            gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id" \
+              -F includes_parents=true \
+              > "release-policy-prepublish/rulesets/$ruleset_id.json"
+          done < release-policy-prepublish/ruleset-ids.txt
+          node scripts/release/verify-release-assets.mjs verify-rulesets \
+            --index release-policy-prepublish/ruleset-index.json \
+            --details release-policy-prepublish/rulesets
+      - name: Revalidate the complete draft and publish it once
+        if: steps.release-state.outputs.state == 'draft'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner=${GITHUB_REPOSITORY%%/*}
+          repository=${GITHUB_REPOSITORY#*/}
+          release_query='query($owner: String!, $name: String!, $tag: String!) { repository(owner: $owner, name: $name) { release(tagName: $tag) { id isDraft immutable tagName tagCommit { oid } assets: releaseAssets(first: 100) { totalCount nodes { name size digest } } } } }'
+          gh api graphql -f query="$release_query" \
+            -F owner="$owner" -F name="$repository" -F tag="$GITHUB_REF_NAME" \
+            > release-state-prepublish.json
+          node scripts/release/verify-release-assets.mjs verify-release-state \
+            --input release-state-prepublish.json \
+            --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+            --sidecars release-assets --standalone standalone-assets --expect draft
+
+          compare_root="$RUNNER_TEMP/volund-release-prepublish-compare"
+          mkdir "$compare_root"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --dir "$compare_root"
+          while IFS= read -r asset_name; do
+            if [[ -f "release-assets/$asset_name" ]]; then
+              asset_path="release-assets/$asset_name"
+            else
+              asset_path="standalone-assets/$asset_name"
+            fi
+            node scripts/release/verify-release-assets.mjs compare-files \
+              --left "$asset_path" --right "$compare_root/$asset_name"
+          done < expected-assets.txt
+
+          git ls-remote --exit-code --refs origin "refs/tags/$GITHUB_REF_NAME" >/dev/null
+          git fetch --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          tag_commit=$(git rev-parse --verify "refs/tags/$GITHUB_REF_NAME^{commit}")
+          head_commit=$(git rev-parse --verify HEAD)
+          if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
+            echo 'pre-publish tag, HEAD, and GITHUB_SHA must match' >&2
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --verify-tag
+      - name: Verify published immutable state, metadata, and bytes
+        if: steps.release-state.outputs.state == 'draft'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner=${GITHUB_REPOSITORY%%/*}
+          repository=${GITHUB_REPOSITORY#*/}
+          release_query='query($owner: String!, $name: String!, $tag: String!) { repository(owner: $owner, name: $name) { release(tagName: $tag) { id isDraft immutable tagName tagCommit { oid } assets: releaseAssets(first: 100) { totalCount nodes { name size digest } } } } }'
+          gh api graphql -f query="$release_query" \
+            -F owner="$owner" -F name="$repository" -F tag="$GITHUB_REF_NAME" \
+            > release-state-published.json
+          node scripts/release/verify-release-assets.mjs verify-release-state \
+            --input release-state-published.json \
+            --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+            --sidecars release-assets --standalone standalone-assets --expect published
+
+          compare_root="$RUNNER_TEMP/volund-release-published-compare"
+          mkdir "$compare_root"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --dir "$compare_root"
+          while IFS= read -r asset_name; do
+            if [[ -f "release-assets/$asset_name" ]]; then
+              asset_path="release-assets/$asset_name"
+            else
+              asset_path="standalone-assets/$asset_name"
+            fi
+            node scripts/release/verify-release-assets.mjs compare-files \
+              --left "$asset_path" --right "$compare_root/$asset_name"
+          done < expected-assets.txt

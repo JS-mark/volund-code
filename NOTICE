@@ -1,0 +1,21 @@
+Volund Code
+
+This distribution includes code derived from OpenAI Codex vendor code.
+Copyright 2025 OpenAI.
+
+It includes code derived from Ratatui, licensed under the MIT License.
+Copyright (c) 2016-2022 Florian Dehau.
+Copyright (c) 2023-2025 The Ratatui Developers.
+
+Linux sandbox payloads include Bubblewrap 0.11.2, licensed under the GNU
+Lesser General Public License, version 2 or later.
+Copyright (C) 2016 Alexander Larsson.
+The corresponding Bubblewrap source and license materials used for the bundled
+payload are retained under crates/volund-sandbox/resources/bwrap/source/.
+
+volund-fs uses tiktoken-rs 0.6.0 and its cl100k tokenization data, licensed
+under the MIT License.
+
+This NOTICE and the generated software bill of materials are informational;
+they do not replace the license texts or other notices that accompany
+third-party software.
