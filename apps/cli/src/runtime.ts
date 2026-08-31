@@ -145,7 +145,6 @@ import type {
   McpPanelController,
   SkillsPanelController,
   SkillsPanelEntry,
-  McpPanelEntry,
 } from '@volund/ui'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -953,7 +952,7 @@ async function openProxyTunnel(
     socket.once('error', (cause) => {
       if (settled) return
       settled = true
-      reject(new Error(`proxy_tunnel_failed: ${(cause as Error).message}`))
+      reject(new Error(`proxy_tunnel_failed: ${cause.message}`))
     })
   }).finally(() => {
     signal.removeEventListener('abort', onAbort)
@@ -1089,7 +1088,7 @@ export function requestHttp2(url: URL, input: HttpRequest): Promise<HttpResponse
                 rej(new Error('proxy_alpn_not_h2'))
                 return
               }
-              res(tlsSocket as unknown as NetSocket)
+              res(tlsSocket)
             })
             tlsSocket.once('error', rej)
           })
@@ -2894,12 +2893,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   }
   const mcpPanelController: McpPanelController = {
     async list() {
-      return (mcpManager?.snapshot() ?? []) as McpPanelEntry[]
+      return mcpManager?.snapshot() ?? []
     },
     async reload() {
       if (!mcpManager) return []
       await mcpManager.reload()
-      return mcpManager.snapshot() as McpPanelEntry[]
+      return mcpManager.snapshot()
     },
     async setEnabled(name, enabled) {
       if (!mcpManager) throw new Error('MCP is not available in this session')
@@ -2913,7 +2912,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       if (!mcpManager) throw new Error('MCP is not available in this session')
       const { entry, tools } = await mcpManager.inspect(name)
       return {
-        entry: entry as McpPanelEntry,
+        entry: entry,
         tools: tools.map((tool) => ({
           name: tool.name,
           ...(tool.description ? { description: tool.description } : {}),
@@ -2974,9 +2973,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       if (!providerSection || typeof providerSection !== 'object' || Array.isArray(providerSection))
         return undefined
       const entry = providerSection[name]
-      return entry && typeof entry === 'object' && !Array.isArray(entry)
-        ? (entry as Record<string, unknown>)
-        : undefined
+      return entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : undefined
     }
     const openaiEntry = readProviderEntry('openai')
     const openaiBaseUrl =
@@ -3105,7 +3102,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
             return value
           },
         },
-        http: http as unknown as import('@volund/provider-openai').HttpPort,
+        http: http,
         attachments,
         ...(openaiBaseUrl ? { baseUrl: openaiBaseUrl } : {}),
       })
@@ -3125,7 +3122,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
             return value
           },
         },
-        http: http as unknown as import('@volund/provider-gemini').HttpPort,
+        http: http,
         model: 'gemini-2.0-flash',
         attachments,
         ...(geminiBaseUrl ? { baseUrl: geminiBaseUrl } : {}),
