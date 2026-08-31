@@ -931,6 +931,22 @@ export async function runCli(
           : {}),
       })
       await app.waitUntilExit()
+      // 交互会话结束：收起插件宿主 / MCP 等 ref 住事件循环的长驻资源，否则进程
+      // 悬挂不退。有界等待——超出预算的残留由 bin.ts 的显式 process.exit 兜底。
+      if (ports.shutdown) {
+        const budget = new Promise<'timeout'>((resolve) => {
+          const timer = setTimeout(() => resolve('timeout'), 2_000)
+          // unref：shutdown 先完成时这个计时器不能反过来拖住进程。
+          timer.unref()
+        })
+        await Promise.race([
+          ports.shutdown().then(
+            () => undefined,
+            () => undefined,
+          ),
+          budget,
+        ])
+      }
       return { exitCode: interactive.exitCode(), stdout, stderr }
     }
     const session = await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })

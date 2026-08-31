@@ -367,6 +367,12 @@ export interface VolundPorts {
   localPlugins?: LocalPluginPort
   history?: HistoryPort
   ui?: UiPort
+  /**
+   * 进程收尾：关闭插件宿主 / MCP 连接等长驻资源（它们的子进程管道 ref 住事件
+   * 循环，不关则 UI 退出后进程仍悬挂）。交互会话退出与信号处理都会调用；
+   * 实现必须幂等、单项失败不阻塞其他项。
+   */
+  shutdown?(): Promise<void>
 }
 export function unavailablePorts(): VolundPorts {
   return {

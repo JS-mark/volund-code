@@ -3694,6 +3694,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         return { sandbox: probe.tier !== 'none', search: search !== null, fs: fs !== null }
       },
     },
+    /**
+     * 进程收尾：插件宿主的 fd3 管道与 MCP stdio/SSE 连接都是 ref 住事件循环的
+     * 长驻句柄——不主动关闭，waitUntilExit 之后进程永不退出（此前仅靠
+     * process.on('exit') 兜底，而 'exit' 恰恰因这些句柄存在而永远不会触发）。
+     * 幂等；单项失败不阻塞其他项（allSettled）。
+     */
+    async shutdown() {
+      const manager = mcpManager
+      await Promise.allSettled([
+        localPlugins.deactivateAll(),
+        manager ? manager.close().then(() => manager.logsFlushed()) : undefined,
+      ])
+    },
   }
 }
 

@@ -47,7 +47,7 @@ export function SelectList({
   const visible = items.slice(start, start + visibleItems)
 
   useInput((input, key) => {
-    if (key.escape) {
+    if (key.escape || (key.ctrl && input === 'c')) {
       onCancel?.()
       return
     }

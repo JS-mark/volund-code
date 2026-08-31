@@ -58,7 +58,10 @@ export function renderInteractiveApp(
   }
   stdout.on('resize', clearOnWidthChange)
   const instance = render(createElement(InteractiveApp, options), {
-    exitOnCtrlC: false,
+    // Ctrl+C 由 ink 在按键解析层直接拦截并退出（先于一切 useInput 分发）：
+    // InputBox 在面板/弹窗打开时是 disabled，收不到键，自管 ctrl+c 通道覆盖
+    // 不了面板态。任何界面状态下 Ctrl+C 都必须能退出整个应用。
+    exitOnCtrlC: true,
     ...renderOptions,
   })
   return {
@@ -71,7 +74,13 @@ export function renderInteractiveApp(
       await instance.waitUntilRenderFlush()
     },
     waitUntilExit: async () => {
-      await instance.waitUntilExit()
+      try {
+        await instance.waitUntilExit()
+      } finally {
+        // exit() 路径不走本组件的 unmount()，resize 监听必须在这里摘掉，
+        // 否则监听泄漏到进程级 stdout 上。
+        stdout.off('resize', clearOnWidthChange)
+      }
     },
   }
 }

@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { probeSandbox, resolveBinary } from '@volund/native-bridge'
 import { activateLocalPlugin, type ActivatedLocalPlugin } from '@volund/plugin-runtime'
@@ -29,6 +31,18 @@ async function sandboxAvailable(): Promise<boolean> {
     return (await probeSandbox()).tier !== 'none'
   } catch {
     return false
+  }
+}
+
+const execFileAsync = promisify(execFile)
+
+/** 当前（vitest worker）进程的直接子进程数——插件宿主存活的可观测代理。 */
+async function childProcessCount(): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync('pgrep', ['-P', String(process.pid)])
+    return stdout.trim().split('\n').filter(Boolean).length
+  } catch {
+    return 0
   }
 }
 
@@ -288,5 +302,30 @@ describe('volund-plugin-manager（内置 /plugins，沙箱端到端）', () => {
     expect(output).toContain('/plugins uninstall failed')
     expect(output).toContain('builtin plugin')
     expect(output).toContain('cannot be uninstalled')
+  }, 30_000)
+})
+
+describe('production ports shutdown（进程收尾）', () => {
+  it('resolves cleanly and idempotently with nothing loaded', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'volund-shutdown-idle-'))
+    dirs.push(home)
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    await ports.shutdown!()
+    await ports.shutdown!()
+  })
+
+  it('terminates plugin sandbox hosts so the event loop can drain', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-shutdown-'))
+    dirs.push(home)
+    const ports = createProductionPorts({ volundHome: home, identity: { version: '0.1.0' } })
+    const { loaded, failed } = await ports.localPlugins!.loadBuiltinPlugins()
+    expect(failed).toEqual([])
+    expect(loaded.length).toBeGreaterThan(0)
+    // 插件宿主的 fd3 管道/子进程 ref 住事件循环；shutdown 必须把它们收掉，
+    // 否则 /exit 之后进程悬挂（macOS/Linux 通用，pgrep 退出码 1 = 无子进程）。
+    expect(await childProcessCount()).toBeGreaterThan(0)
+    await ports.shutdown!()
+    expect(await childProcessCount()).toBe(0)
   }, 30_000)
 })
