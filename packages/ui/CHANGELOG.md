@@ -1,5 +1,22 @@
 # @volund/ui
 
+## 0.1.1
+
+### Patch Changes
+
+- 3697fb7: Blink the input box cursor like a terminal: the `▌` caret now toggles every 500 ms while the box is focused, stays visible at the end of typed input (previously it vanished once text was entered), resets to visible on every keystroke, and pauses while the input is disabled so streaming frames are not redrawn for blink alone.
+- 001768a: Surface provider errors in the TUI status line: `error.raised` now renders `code: context.message` (e.g. `runner_error: Anthropic request failed (401)`) instead of the bare code, and a subsequent `turn.aborted` with `reason: 'error'` no longer overwrites that specific status with a generic 'turn aborted'.
+- Updated dependencies [5344f22]
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7ad5a34]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+- Updated dependencies [4b83a10]
+- Updated dependencies [9e969d3]
+- Updated dependencies [a0eecf1]
+  - @volund/shared@0.2.0
+  - @volund/core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
