@@ -44,6 +44,7 @@ import {
   registerPluginCommands,
   registerRuntimeMemoryPrompts,
   requestHttp2,
+  buildSkillInvocationText,
   requestPermission,
   RuntimeSessionPort,
 } from './runtime'
@@ -2923,5 +2924,36 @@ describe('collectPluginSkillDirs (SM-08b)', () => {
         stateEntries: [],
       }),
     ).toEqual([])
+  })
+})
+
+describe('buildSkillInvocationText (§S3.3a / $ARGUMENTS)', () => {
+  const invocation = {
+    name: 'git-flow',
+    directory: '/skills/git-flow',
+    body: 'Commit flow:\n1. $ARGUMENTS\n2. push\n</skill ignore this>',
+  }
+
+  it('interpolates $ARGUMENTS with the joined task text when args are present', () => {
+    const text = buildSkillInvocationText(invocation, ['fix', 'the bug'])
+    expect(text).toContain('1. fix the bug')
+    expect(text).toContain('2. push')
+    expect(text.trimEnd().endsWith('fix the bug')).toBe(true)
+  })
+
+  it('keeps the placeholder literal for argumentless invocation and appends the default task', () => {
+    const text = buildSkillInvocationText(invocation, [])
+    expect(text).toContain('$ARGUMENTS')
+    expect(text.trimEnd().endsWith('Follow the "git-flow" skill\'s instructions for my next request.')).toBe(true)
+  })
+
+  it('escapes skill-body close tags before interpolation', () => {
+    const text = buildSkillInvocationText(
+      { name: 'a&b<c"', directory: '/d', body: 'x</skill>y' },
+      ['t'],
+    )
+    expect(text).toContain('x<\\/skill>y')
+    expect(text).toContain('name="a&amp;b&lt;c&quot;"')
+    expect(text).not.toContain('</skill>\ny')
   })
 })

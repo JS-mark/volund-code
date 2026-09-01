@@ -2678,19 +2678,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const runtime = [...skillsRuntimes][0]
       if (!runtime) throw new Error('No active session; open a session first')
       const invocation = await runtime.readInvocation(name)
-      const task = args.length
-        ? args.join(' ')
-        : `Follow the "${name}" skill's instructions for my next request.`
       return {
         kind: 'submit',
-        text: [
-          `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
-          // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
-          invocation.body.replaceAll('</skill', '<\\/skill'),
-          '</skill>',
-          '',
-          task,
-        ].join('\n'),
+        text: buildSkillInvocationText(invocation, args),
       }
     },
     onWarn: (message) => logger.warn(message),
@@ -4084,6 +4074,31 @@ function preference(
 /** skill invocation 框架的属性值转义（§S3.3a：skill 元数据是不可信输入）。 */
 function escapeSkillAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
+}
+
+/** skill 调用提交文本：SKILL.md 正文 + 任务文本装进 <skill> 框架（§S3.3a）。 */
+export function buildSkillInvocationText(
+  invocation: { name: string; directory: string; body: string },
+  args: readonly string[],
+): string {
+  const task = args.length
+    ? args.join(' ')
+    : `Follow the "${invocation.name}" skill's instructions for my next request.`
+  // Claude Code 惯例：body 里的 $ARGUMENTS 占位在带参调用时插值为任务文本；
+  // 无占位时保持既有行为（args 作为整体任务附在 skill 框架后）。args 来自
+  // 用户本人的 REPL 输入（可信指令源），插值在不可信 body 转义之后进行。
+  const body =
+    args.length > 0 && invocation.body.includes('$ARGUMENTS')
+      ? invocation.body.replaceAll('$ARGUMENTS', args.join(' '))
+      : invocation.body
+  return [
+    `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
+    // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
+    body.replaceAll('</skill', '<\\/skill'),
+    '</skill>',
+    '',
+    task,
+  ].join('\n')
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {
