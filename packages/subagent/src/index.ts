@@ -3,6 +3,11 @@ import type { Message } from '@volund/provider-kit'
 import { VolundNormalizedError } from '@volund/shared'
 import { v7 as uuidv7 } from 'uuid'
 
+import { AgentDefinitionRegistry, type ResolvedAgentDefinition } from './agent-registry'
+
+export { AgentDefinitionRegistry, untrustedAgentBody } from './agent-registry'
+export type { AgentRegistryOptions, ResolvedAgentDefinition } from './agent-registry'
+
 export interface SubagentBudget {
   tokenMax?: number
   costUSDMax?: number
@@ -26,13 +31,33 @@ export interface DispatchResult {
   text: string
   error?: VolundNormalizedError
 }
-export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
+export type RunnerFactory = (
+  state: SessionState,
+  events: EventBus,
+  agent?: ResolvedAgentDefinition,
+) => Runner | Promise<Runner>
 export interface SubagentOptions {
   runnerFactory: RunnerFactory
   defaultBudget?: SubagentBudget
   maxDepth?: number
   maxConcurrency?: number
+  /** §2.7.1 自定义 agent 定义；缺省时 agentType 校验退回放行（core 测试路径）。 */
+  agents?: AgentDefinitionRegistry
 }
+
+/**
+ * §2.7.1 Task 校验的内置 agentType。`planner`/`coder`/`reviewer` 是现行
+ * RouterHint role 词汇（runner.ts）；`main`/`task-agent`/`review-agent` 是
+ * spec 枚举，接受但不改变行为。
+ */
+export const BUILTIN_AGENT_TYPES = [
+  'main',
+  'task-agent',
+  'review-agent',
+  'planner',
+  'coder',
+  'reviewer',
+] as const
 
 /** Owns child lifetimes. It never retains parent messages, permission caches, or tool output. */
 export class SubagentDispatcher {
@@ -58,6 +83,12 @@ export class SubagentDispatcher {
         'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED',
         'Subagent concurrency budget exhausted',
       )
+    // §2.7.1 Task 校验：agentType 枚举 = 内置 + 已扫描定义。注册表缺席时放行
+    // （core 单测/旧调用路径维持原行为——agentType 仅作 lineage 标签）。
+    const agent =
+      input.agentType && this.options.agents
+        ? this.#resolveAgentType(input.agentType)
+        : undefined
     if (parent.signal.aborted) return { sessionId: '', status: 'cancelled', text: '' }
     const events = new EventBus()
     // 附录 D.3 / r13-D1：冒泡保留原 event.id 与 payload，只在 envelope 加
@@ -78,7 +109,7 @@ export class SubagentDispatcher {
       },
       resourceBudget: { ...this.options.defaultBudget, ...input.budget },
     })
-    const runner = await this.options.runnerFactory(state, events)
+    const runner = await this.options.runnerFactory(state, events, agent)
     this.#active.add(runner)
     const cancel = () => runner.interrupt()
     parent.signal.addEventListener('abort', cancel, { once: true })
@@ -110,6 +141,29 @@ export class SubagentDispatcher {
   }
   cancelAll(): void {
     for (const runner of this.#active) runner.interrupt()
+  }
+  /** Task 工具 inputSchema 的 agentType 枚举（内置 + 已扫描定义名）。 */
+  agentTypeNames(): string[] {
+    return [...BUILTIN_AGENT_TYPES, ...(this.options.agents?.list().map((a) => a.definition.name) ?? [])]
+  }
+  #resolveAgentType(agentType: string): ResolvedAgentDefinition {
+    const resolved = this.options.agents?.get(agentType)
+    if (resolved) return resolved
+    if ((BUILTIN_AGENT_TYPES as readonly string[]).includes(agentType))
+      // 内置名走原行为（RouterHint role / lineage 标签），无附加定义。
+      return {
+        definition: { name: agentType, description: `builtin agent type: ${agentType}` },
+        path: `builtin:${agentType}`,
+        scope: 'user',
+        trusted: true,
+      }
+    throw new VolundNormalizedError({
+      category: 'invalid_request',
+      code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT',
+      message: `Unknown agentType '${agentType}'; known: ${this.agentTypeNames().join(', ')}`,
+      retryable: false,
+      source: { kind: 'core' },
+    })
   }
 }
 

@@ -233,6 +233,7 @@ export const ErrorCodes = {
   volundSubagentConcurrencyExceeded: 'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', // resourceError() 实参
   volundSubagentDepthExceeded: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED', // resourceError() 实参
   volundSubagentFailed: 'VOLUND_SUBAGENT_FAILED',
+  volundSubagentUnknownAgent: 'VOLUND_SUBAGENT_UNKNOWN_AGENT', // SubagentDispatcher.dispatch 实参（§2.7.1 Task 校验）
   volundUnsafeCwd: 'VOLUND_UNSAFE_CWD',
   volundUnsupportedVersion: 'VOLUND_UNSUPPORTED_VERSION',
 

@@ -112,7 +112,11 @@ import {
   SessionStore,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import { SubagentDispatcher } from '@volund/subagent'
+import {
+  AgentDefinitionRegistry,
+  SubagentDispatcher,
+  untrustedAgentBody,
+} from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import { ToolRegistry } from '@volund/tool-kit'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
@@ -2926,10 +2930,18 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
+  // §2.7.1（r13-G3）：自定义 agent 定义两层装载（<home>/agents 与
+  // <cwd>/.volund/agents，项目级同名覆盖全局）；失败文件跳过仅告警。
+  const agentRegistry = new AgentDefinitionRegistry({
+    volundHome: home,
+    cwd: process.cwd(),
+    onWarning: (message) => logger.warn(message),
+  })
+  agentRegistry.discover()
   // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 RuntimeSessionPort
   // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
   const background = new BackgroundShells()
-  const createRunner: RunnerFactory = async (state, events) => {
+  const createRunner: RunnerFactory = async (state, events, agent) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
     const permissionChain = createProductionToolPermissionChain({
@@ -3022,6 +3034,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       permissions: permissionRequests,
     })
     await promptLoader.registerProject(composer)
+    if (agent) {
+      // §2.7.1：正文 = 该 agent 的 system prompt，独立槽位 priority=800（与 skill
+      // 同级）；正文懒加载。project 级文件随 clone 进来属 untrusted 来源，必须包裹。
+      composer.register({
+        id: `agent-def:${agent.definition.name}`,
+        source: `agent-def:${agent.path}`,
+        priority: 800,
+        text: async () => {
+          const body = await agentRegistry.readBody(agent.path)
+          return agent.trusted ? body : untrustedAgentBody(`agent-def:${agent.path}`, body)
+        },
+      })
+    }
     // SKILLS-MCPS-r1：多作用域发现（project > user > .agents/skills 互操作），
     // disabled 名单跨 Runner 共享（面板切换即时生效）。每个 Runner 一个实例
     // （composer 是 per-session 的）；主会话最先创建，面板取 [...set][0]。
@@ -3163,6 +3188,22 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       routerConfig.type === 'role'
     )
       router = new RoleRouter(providers, parseRoleRouterConfig(routerConfig))
+    // §2.7.1：agent 定义可指定 provider/model；目标 provider 未注册时继承父
+    // router 并告警（不阻塞派发）。
+    if (agent?.definition.model) {
+      const registered = providers.get(agent.definition.model.provider)
+      if (registered)
+        router = new SingleProviderRouter(
+          registered.client,
+          agent.definition.model.model,
+          undefined,
+          providers,
+        )
+      else
+        logger.warn(
+          `agent '${agent.definition.name}': provider '${agent.definition.model.provider}' is not registered; inheriting the parent model`,
+        )
+    }
     // [tools] 段（§4.3.1 / r13-I11）在这里接线进 Bash 工具：shell 固定逻辑与
     // env 继承白名单；缺省时 BashTool 走内置默认（Unix /bin/bash；PATH/HOME/LANG/TZ）。
     const toolsSection = userConfig.tools
@@ -3248,8 +3289,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       logger,
       ui: { requestInput: promptLine },
     }))
+    // §2.7.1：agent 的 tools 白名单只能收紧——schemas 与 execute 两处同时过滤，
+    // 白名单外的工具对模型不可见、调用即拒绝。
+    const allowedTools = agent?.definition.tools
     const tools: RunnerToolPort = {
-      schemas: () => registry.forProvider(),
+      schemas: () => {
+        const all = registry.forProvider()
+        return allowedTools ? all.filter(({ name }) => allowedTools.includes(name)) : all
+      },
       async execute(use, signal) {
         const tool = registry.get(use.name)
         if (!tool)
@@ -3257,6 +3304,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
             toolUseId: use.id,
             isError: true,
             content: [{ type: 'text', text: `Unknown tool: ${use.name}` }],
+          }
+        if (allowedTools && !allowedTools.includes(use.name))
+          return {
+            toolUseId: use.id,
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Tool '${use.name}' is not in the tool whitelist of agent '${agent?.definition.name}'`,
+              },
+            ],
           }
         const result = await executor.execute(tool, use.input, signal, use.id)
         return {
@@ -3270,13 +3328,23 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         }
       },
     }
-    runner = new Runner(state, router, composer, tools, events, {}, contextPolicy)
+    runner = new Runner(
+      state,
+      router,
+      composer,
+      tools,
+      events,
+      // §2.7.1：maxTurns 等价于该 agent 的 maxToolLoopsPerTurn。
+      agent?.definition.maxTurns ? { maxToolLoopsPerTurn: agent.definition.maxTurns } : {},
+      contextPolicy,
+    )
     return runner
   }
   dispatcher = new SubagentDispatcher({
     runnerFactory: createRunner,
     maxDepth: 3,
     maxConcurrency: 4,
+    agents: agentRegistry,
     defaultBudget: {
       costUSDMax: 1,
       tokenMax: 200_000,

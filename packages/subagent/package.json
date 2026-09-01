@@ -20,7 +20,8 @@
     "@volund/core": "workspace:*",
     "@volund/provider-kit": "workspace:*",
     "@volund/shared": "workspace:*",
-    "uuid": "catalog:"
+    "uuid": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",
