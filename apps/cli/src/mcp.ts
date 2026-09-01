@@ -268,6 +268,11 @@ interface ServerState {
   tools: McpToolDescription[]
   detail?: string | undefined
   protocolVersion?: string | undefined
+  /** §S3.7：已调度的自动重连次数（成功连接后清零）。 */
+  reconnectAttempt: number
+  reconnectTimer?: NodeJS.Timeout | undefined
+  /** 我们主动 close（disconnect/reload/close）时置位——抑制 transport onClose 触发重连。 */
+  closing: boolean
 }
 
 export interface McpManagerOptions {
@@ -281,6 +286,10 @@ export interface McpManagerOptions {
   transportFactory?: (config: McpServerConfig) => McpTransport
   /** 结构化日志文件（JSONL；缺省不写）。启动/连接/断开/失败/stderr 都落。 */
   logPath?: string
+  /** §S3.7 断线自动重连：指数退避基值（delay = base × 2^attempt）。 */
+  reconnectBaseDelayMs?: number
+  /** §S3.7 断线自动重连最大次数，超限置 failed（默认 3）。 */
+  maxReconnects?: number
 }
 
 export interface McpManagerEntry {
@@ -313,6 +322,8 @@ export class McpManager {
         config: server,
         status: options.disabled.has(server.name) ? 'disabled' : 'connecting',
         tools: [],
+        reconnectAttempt: 0,
+        closing: false,
       })
     }
     this.#log('manager.init', { servers: options.servers.length })
@@ -353,8 +364,10 @@ export class McpManager {
     this.#closed = true
     await Promise.all([...this.#states.values()].map((state) => this.#disconnectState(state)))
     this.#closed = false
-    for (const state of this.#states.values())
+    for (const state of this.#states.values()) {
       state.status = this.#options.disabled.has(state.config.name) ? 'disabled' : 'connecting'
+      state.reconnectAttempt = 0
+    }
     this.#options.onStateChange?.()
     await this.connect()
   }
@@ -416,7 +429,7 @@ export class McpManager {
     )
       await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  async #connectState(state: ServerState): Promise<void> {
+  async #connectState(state: ServerState, isReconnect = false): Promise<void> {
     if (state.status === 'connected' || this.#closed) return
     await this.#disconnectState(state)
     if (this.#closed) return
@@ -426,13 +439,18 @@ export class McpManager {
       server: state.config.name,
       scope: state.config.scope,
       transport: transportSummary(state.config),
+      ...(isReconnect ? { reconnectAttempt: state.reconnectAttempt } : {}),
     })
     this.#options.onStateChange?.()
     try {
       const transport = this.#options.transportFactory
         ? this.#options.transportFactory(state.config)
         : createTransport(state.config, (event, fields) => this.#log(event, fields))
-      const client = new McpClient({ name: state.config.name, transport })
+      const client = new McpClient({
+        name: state.config.name,
+        transport,
+        onClose: (error) => this.#handleTransportClosed(state, error),
+      })
       const init = (await client.initialize()) as { protocolVersion?: unknown }
       if (this.#closed) {
         await client.close().catch(() => undefined)
@@ -443,6 +461,7 @@ export class McpManager {
         typeof init.protocolVersion === 'string' ? init.protocolVersion : undefined
       state.tools = await client.listTools()
       state.status = 'connected'
+      state.reconnectAttempt = 0
       this.#log('connect.ok', {
         server: state.config.name,
         ...(state.protocolVersion ? { protocol: state.protocolVersion } : {}),
@@ -458,23 +477,68 @@ export class McpManager {
       if (/\bHTTP 40[13]\b/.test(message)) {
         state.status = 'needs-auth'
         state.detail = `authentication required (configure headers or use ${productIdentity.commandName} mcp login once SM-07 lands)`
-      } else {
-        state.status = 'failed'
-        state.detail = message
+        state.reconnectAttempt = 0
+        this.#log('connect.needs-auth', { server: state.config.name, error: message })
+        this.#options.onWarning?.(`mcp: server '${state.config.name}' failed: ${message}`)
+        this.#options.onStateChange?.()
+        return
       }
-      this.#log(state.status === 'needs-auth' ? 'connect.needs-auth' : 'connect.failed', {
-        server: state.config.name,
-        error: message,
-      })
+      // §S3.7：自动重连轮里的失败继续指数退避（×maxReconnects 次后置 failed）；
+      // 首连失败维持立即 failed（不自动重试，/mcp reload 手动兜底）。
+      if (isReconnect) {
+        this.#scheduleReconnect(state, message)
+        return
+      }
+      state.status = 'failed'
+      state.detail = message
+      this.#log('connect.failed', { server: state.config.name, error: message })
       this.#options.onWarning?.(`mcp: server '${state.config.name}' failed: ${message}`)
       this.#options.onStateChange?.()
     }
   }
-  async #disconnectState(state: ServerState): Promise<void> {
-    const client = state.client
+  /** §S3.7：连接成功后意外断线 → 指数退避重连（×3 次），超限置 failed。 */
+  #handleTransportClosed(state: ServerState, error?: Error): void {
+    if (this.#closed || state.closing) return
+    if (state.status !== 'connected') return
+    const message = error?.message ?? 'transport closed'
+    this.#log('disconnect', { server: state.config.name, reason: message })
+    this.#teardownTools(state)
+    this.#scheduleReconnect(state, message)
+  }
+  #scheduleReconnect(state: ServerState, cause: string): void {
+    const max = this.#options.maxReconnects ?? 3
+    if (state.reconnectAttempt >= max) {
+      state.status = 'failed'
+      state.detail = `connection lost (${cause}); gave up after ${max} reconnect attempts`
+      this.#log('reconnect.gave-up', {
+        server: state.config.name,
+        attempts: max,
+        error: cause,
+      })
+      this.#options.onWarning?.(`mcp: server '${state.config.name}' ${state.detail}`)
+      this.#options.onStateChange?.()
+      return
+    }
+    state.reconnectAttempt += 1
+    const delayMs = (this.#options.reconnectBaseDelayMs ?? 1000) * 2 ** (state.reconnectAttempt - 1)
+    state.status = 'connecting'
+    state.detail = `connection lost (${cause}); reconnect ${state.reconnectAttempt}/${max} in ${delayMs}ms`
+    this.#log('reconnect.scheduled', {
+      server: state.config.name,
+      attempt: state.reconnectAttempt,
+      delayMs,
+    })
+    this.#options.onStateChange?.()
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = undefined
+      void this.#connectState(state, true)
+    }, delayMs)
+    state.reconnectTimer.unref?.()
+  }
+  /** 摘掉该 server 在全部 registry 的工具（不关 client）。 */
+  #teardownTools(state: ServerState): void {
     state.client = undefined
     state.tools = []
-    if (!client) return
     for (const servers of this.#registries.values()) {
       const unsubscribers = servers.get(state.config.name)
       if (unsubscribers) {
@@ -482,8 +546,22 @@ export class McpManager {
         servers.delete(state.config.name)
       }
     }
-    this.#log('disconnect', { server: state.config.name })
-    await client.close().catch(() => undefined)
+  }
+  async #disconnectState(state: ServerState): Promise<void> {
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer)
+      state.reconnectTimer = undefined
+    }
+    const client = state.client
+    state.closing = true
+    this.#teardownTools(state)
+    try {
+      if (!client) return
+      this.#log('disconnect', { server: state.config.name })
+      await client.close().catch(() => undefined)
+    } finally {
+      state.closing = false
+    }
   }
   #registerStateTools(state: ServerState, registry: ToolRegistry): void {
     const unsubscribers: Array<() => void> = []
