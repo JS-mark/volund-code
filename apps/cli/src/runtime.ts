@@ -99,6 +99,7 @@ import {
   type JsonValue,
   type Logger,
 } from '@volund/shared'
+import { McpOAuthClient } from '@volund/auth'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
 import {
@@ -2865,6 +2866,35 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
   }
   const mcpPort: McpPort = {
+    async login(serverName) {
+      // SM-07：浏览器 OAuth 2.1 + PKCE + DCR。token 存 auth（`mcp.<name>.oauth`
+      // + `Bearer` 头快照 `mcp.<name>.Authorization`），连接期经 resolveKeyref
+      // / 无 header 自动注入消费。
+      const servers = await loadMcpServerConfigs({
+        volundHome: home,
+        cwd: process.cwd(),
+        onWarning: (message) => logger.warn(message),
+      })
+      const server = servers.find((entry) => entry.name === serverName)
+      if (!server) throw new Error(`Unknown MCP server: ${serverName}`)
+      if (server.transport.kind !== 'http')
+        throw new Error(`mcp login applies to http servers only: '${serverName}' is stdio`)
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: server.transport.url,
+        store: encrypted,
+      })
+      await oauth.login()
+      return { server: serverName }
+    },
+    async logout(serverName) {
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: `https://${serverName}.invalid`,
+        store: encrypted,
+      })
+      await oauth.logout()
+    },
     async list() {
       const manager = await ensureMcpManager(process.cwd())
       // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。

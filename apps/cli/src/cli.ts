@@ -355,6 +355,26 @@ export async function runCli(
           : { exitCode: 1, stdout, stderr: message }
       }
     }
+    if (action === 'login' || action === 'logout') {
+      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      const name = args._[2]
+      if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
+      try {
+        if (action === 'login') {
+          await ports.mcp.login(name)
+          stdout += `Authorized ${name}; stored the token in the credential store\n`
+        } else {
+          await ports.mcp.logout(name)
+          stdout += `Logged out ${name}; cleared stored credentials\n`
+        }
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return args.json
+          ? jsonFailure(message, 1, 'mcp_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
     return { exitCode: 2, stdout, stderr: `Unknown mcp action: ${action}` }
   }
   if (subcommand === 'skill') {

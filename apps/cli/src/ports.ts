@@ -145,6 +145,10 @@ export interface McpPort {
   add(input: McpAddInput): Promise<{ file: string }>
   remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string }>
   setEnabled(name: string, enabled: boolean): Promise<void>
+  /** SM-07：浏览器 OAuth 2.1 + PKCE + DCR；token 存 auth，回程 loopback。 */
+  login(name: string): Promise<{ server: string }>
+  /** SM-07：吊销（best-effort）并清除凭据。 */
+  logout(name: string): Promise<void>
 }
 export interface SkillListing {
   name: string
