@@ -2613,6 +2613,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
       // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
       logPath: join(home, 'mcp.log'),
+      // W7：headers 的 keyref:// 占位在连接期经 auth store 解析。
+      resolveKeyref: (reference) => auth.getCredential(reference),
     })
     void mcpManager.connect()
     return mcpManager

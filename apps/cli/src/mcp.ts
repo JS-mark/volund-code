@@ -290,6 +290,12 @@ export interface McpManagerOptions {
   reconnectBaseDelayMs?: number
   /** §S3.7 断线自动重连最大次数，超限置 failed（默认 3）。 */
   maxReconnects?: number
+  /**
+   * W7 keyref 解析：headers 值形如 `keyref://mcp.<name>.<field>` 时在连接期
+   * 查 auth store 取真实凭据；返回 undefined → 连接失败（fail-closed，绝不把
+   * keyref 字面量发上线）。
+   */
+  resolveKeyref?: (reference: string) => Promise<string | undefined>
 }
 
 export interface McpManagerEntry {
@@ -443,9 +449,10 @@ export class McpManager {
     })
     this.#options.onStateChange?.()
     try {
+      const resolvedConfig = await this.#resolveKeyrefHeaders(state.config)
       const transport = this.#options.transportFactory
-        ? this.#options.transportFactory(state.config)
-        : createTransport(state.config, (event, fields) => this.#log(event, fields))
+        ? this.#options.transportFactory(resolvedConfig)
+        : createTransport(resolvedConfig, (event, fields) => this.#log(event, fields))
       const client = new McpClient({
         name: state.config.name,
         transport,
@@ -546,6 +553,31 @@ export class McpManager {
         servers.delete(state.config.name)
       }
     }
+  }
+  /**
+   * W7：http headers 里的 `keyref://<reference>` 在连接期解析为真实凭据。
+   * 解析失败抛错 → 连接失败；keyref 字面量不会到达 transport。
+   */
+  async #resolveKeyrefHeaders(config: McpServerConfig): Promise<McpServerConfig> {
+    const resolve = this.#options.resolveKeyref
+    if (!resolve || config.transport.kind !== 'http') return config
+    const headers = config.transport.headers
+    if (!Object.values(headers).some((value) => value.startsWith('keyref://'))) return config
+    const resolved: Record<string, string> = {}
+    for (const [key, value] of Object.entries(headers)) {
+      const match = /^keyref:\/\/(.+)$/.exec(value)
+      if (!match) {
+        resolved[key] = value
+        continue
+      }
+      const credential = await resolve(match[1]!)
+      if (credential === undefined)
+        throw new Error(
+          `keyref://${match[1]} not found in the auth store (store the credential or use ${productIdentity.commandName} mcp login)`,
+        )
+      resolved[key] = credential
+    }
+    return { ...config, transport: { ...config.transport, headers: resolved } }
   }
   async #disconnectState(state: ServerState): Promise<void> {
     if (state.reconnectTimer) {

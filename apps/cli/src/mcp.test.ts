@@ -83,6 +83,15 @@ function stdioServer(name: string, scope: 'user' | 'project' = 'user'): McpServe
   }
 }
 
+function httpServer(name: string, headers: Record<string, string>): McpServerConfig {
+  return {
+    name,
+    scope: 'user',
+    source: 'test',
+    transport: { kind: 'http', url: `https://${name}.example.com/mcp`, headers, legacySse: false },
+  }
+}
+
 describe('expandMcpEnv', () => {
   it('expands ${VAR} and ${VAR:-default}; unset without default becomes empty and warns', () => {
     const unresolved: string[] = []
@@ -400,6 +409,53 @@ describe('McpManager', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(transports).toHaveLength(count)
     expect(manager.snapshot()[0]!.status).not.toBe('connected')
+  })
+
+  it('resolves keyref:// headers from the auth store at connect time (W7)', async () => {
+    const seenConfigs: McpServerConfig[] = []
+    const manager = new McpManager({
+      servers: [
+        httpServer('keyed', {
+          Authorization: 'keyref://mcp.keyed.Authorization',
+          'X-Plain': 'literal',
+        }),
+      ],
+      disabled: new Set(),
+      transportFactory: (config) => {
+        seenConfigs.push(config)
+        return new FakeTransport('ok')
+      },
+      resolveKeyref: async (reference) =>
+        reference === 'mcp.keyed.Authorization' ? 'secret-token' : undefined,
+    })
+    await manager.connect()
+    const headers = (seenConfigs[0]!.transport as { headers: Record<string, string> }).headers
+    expect(headers.Authorization).toBe('secret-token')
+    expect(headers['X-Plain']).toBe('literal')
+    expect(JSON.stringify(seenConfigs)).not.toContain('keyref://')
+    await manager.close()
+  })
+
+  it('fails the connection closed when a keyref credential is missing (W7)', async () => {
+    const seenConfigs: McpServerConfig[] = []
+    const manager = new McpManager({
+      servers: [httpServer('missing', { Authorization: 'keyref://mcp.missing.Authorization' })],
+      disabled: new Set(),
+      transportFactory: (config) => {
+        seenConfigs.push(config)
+        return new FakeTransport('ok')
+      },
+      resolveKeyref: async () => undefined,
+    })
+    await manager.connect()
+    expect(seenConfigs).toHaveLength(0)
+    expect(manager.snapshot()[0]).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        detail: expect.stringContaining('keyref://mcp.missing.Authorization not found'),
+      }),
+    )
+    await manager.close()
   })
 })
 
