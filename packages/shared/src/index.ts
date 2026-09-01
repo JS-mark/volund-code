@@ -30,6 +30,7 @@ export {
   type SecretDetection,
   type SecretKind,
 } from './secret-detector'
+export * from './agent-schema'
 export * from './config-schema'
 export * from './error-codes'
 export * from './errors'

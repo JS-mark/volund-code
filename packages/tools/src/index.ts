@@ -646,23 +646,26 @@ export class TaskTool implements Tool<{
   readonly description = 'Run an isolated, depth-limited subagent and return its untrusted result'
   readonly parallelSafe = true
   readonly timeoutMs = 10 * 60_000
-  readonly inputSchema = objectSchema(
-    {
-      prompt: stringProp,
-      agentType: { type: 'string' },
-      budget: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          tokenMax: { type: 'integer', minimum: 1 },
-          costUSDMax: { type: 'number', minimum: 0 },
-          timeMsMax: { type: 'integer', minimum: 1 },
-          toolCallMax: { type: 'integer', minimum: 1 },
+  // §2.7.1：agentType 枚举 = 内置 + 已扫描自定义定义名（跟随 dispatcher 动态刷新）。
+  get inputSchema() {
+    return objectSchema(
+      {
+        prompt: stringProp,
+        agentType: { type: 'string', enum: this.dispatcher.agentTypeNames() },
+        budget: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            tokenMax: { type: 'integer', minimum: 1 },
+            costUSDMax: { type: 'number', minimum: 0 },
+            timeMsMax: { type: 'integer', minimum: 1 },
+            toolCallMax: { type: 'integer', minimum: 1 },
+          },
         },
       },
-    },
-    ['prompt'],
-  )
+      ['prompt'],
+    )
+  }
   constructor(
     readonly dispatcher: SubagentDispatcher,
     readonly parent: (signal: AbortSignal) => DispatchParent,

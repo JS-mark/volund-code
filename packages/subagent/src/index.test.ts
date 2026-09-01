@@ -1,6 +1,7 @@
 import { createSession, EventBus, type Runner } from '@volund/core'
 import { describe, expect, it, vi } from 'vitest'
 
+import { AgentDefinitionRegistry } from './agent-registry'
 import { SubagentDispatcher } from './index'
 
 const parent = (depth = 0, signal = new AbortController().signal) => ({
@@ -124,5 +125,47 @@ describe('SubagentDispatcher', () => {
     })
     release()
     await first
+  })
+
+  it('resolves a registered agentType to its definition and rejects unknown names (§2.7.1)', async () => {
+    const helper = {
+      definition: { name: 'helper', description: 'helps', tools: ['Read'], maxTurns: 3 },
+      path: '/agents/helper.md',
+      scope: 'project' as const,
+      trusted: false,
+    }
+    const registry = new AgentDefinitionRegistry({ volundHome: '/nonexistent', cwd: '/nonexistent' })
+    vi.spyOn(registry, 'get').mockImplementation((name: string) =>
+      name === 'helper' ? helper : undefined,
+    )
+    vi.spyOn(registry, 'list').mockReturnValue([helper])
+    const seen: Array<unknown> = []
+    const dispatcher = new SubagentDispatcher({
+      agents: registry,
+      runnerFactory: (state, _events, agent) => {
+        seen.push(agent)
+        return fakeRunner(async () => state)
+      },
+    })
+    expect(dispatcher.agentTypeNames()).toContain('helper')
+    expect(dispatcher.agentTypeNames()).toContain('reviewer')
+
+    await dispatcher.dispatch(parent(), { prompt: 'ok', agentType: 'helper' })
+    expect(seen[0]).toMatchObject({
+      trusted: false,
+      definition: { name: 'helper', maxTurns: 3 },
+    })
+    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'ghost' })).rejects.toMatchObject(
+      { code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT' },
+    )
+    // 内置名无需定义即可用（RouterHint role 词汇维持原行为）。
+    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'planner' })).resolves.toBeDefined()
+  })
+
+  it('stays permissive when no agent registry is configured', async () => {
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'anything' })).resolves.toBeDefined()
   })
 })

@@ -619,6 +619,9 @@ importers:
       uuid:
         specifier: 'catalog:'
         version: 14.0.1
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
     devDependencies:
       typescript:
         specifier: 'catalog:'
