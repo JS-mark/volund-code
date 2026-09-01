@@ -300,6 +300,48 @@ describe('SkillsRuntime', () => {
     expect(sources[2]!.scope).toBe('user')
     expect(sources[3]).toEqual(expect.objectContaining({ scope: 'user', interop: true }))
   })
+
+  it('places plugin skill dirs between project and user scopes (SM-08b)', () => {
+    const sources = defaultSkillSources({
+      volundHome: '/home/mark/.volund',
+      userHome: '/home/mark',
+      cwd: '/work/repo',
+      pluginDirs: ['/plugins/one/skills', '/plugins/two/skills'],
+    })
+    expect(sources.map((source) => `${source.scope}:${source.dir}`)).toEqual([
+      'project:/work/repo/.volund/skills',
+      'project:/work/repo/.agents/skills',
+      'plugin:/plugins/one/skills',
+      'plugin:/plugins/two/skills',
+      'user:/home/mark/.volund/skills',
+      'user:/home/mark/.agents/skills',
+    ])
+  })
+
+  it('re-evaluates function sources on every discover (SM-08b plugin lifecycle)', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
+    dirs.push(root)
+    let pluginSkillsDir = resolve(root, 'plugins', 'one', 'skills')
+    const runtime = new SkillsRuntime({
+      sources: async () => [{ dir: pluginSkillsDir, scope: 'plugin' }],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+    })
+    expect(await runtime.discover()).toEqual([])
+
+    // 插件后装：目录出现后，无需重建 runtime 即可发现。
+    await writeSkill(
+      resolve(root, 'plugins', 'one', 'skills'),
+      'bundled',
+      'name: bundled\ndescription: b',
+    )
+    const discovered = await runtime.discover()
+    expect(discovered.map((entry) => `${entry.scope}:${entry.name}`)).toEqual(['plugin:bundled'])
+
+    // 插件被禁用移除：下一次 discover 反映最新目录集。
+    pluginSkillsDir = resolve(root, 'plugins', 'gone', 'skills')
+    expect(await runtime.discover()).toEqual([])
+  })
 })
 
 it('installs into the requested scope (SKILLS-MCPS-r1 §S3.2)', async () => {
