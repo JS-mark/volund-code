@@ -11,7 +11,7 @@ const DESCRIPTION_MAX = 1024
 /** SKILLS-MCPS-r1 §S3.4：index fragment 默认字符预算。 */
 const DEFAULT_INDEX_BUDGET = 4096
 
-export type SkillScope = 'user' | 'project'
+export type SkillScope = 'user' | 'project' | 'plugin'
 export interface SkillSource {
   dir: string
   scope: SkillScope
@@ -48,8 +48,11 @@ export interface SkillEntry extends SkillMetadata {
 export interface SkillsRuntimeOptions {
   /** 单作用域兼容入口（等价 sources: [{dir, scope: 'user'}]）。 */
   skillsDir?: string
-  /** 多作用域发现源，数组顺序即优先级（前者覆盖后者同名）。 */
-  sources?: readonly SkillSource[]
+  /**
+   * 多作用域发现源，数组顺序即优先级（前者覆盖后者同名）。传函数则每次
+   * `discover()` 重新求值（SM-08b：插件捆绑 skills 的目录随安装/启停动态变化）。
+   */
+  sources?: readonly SkillSource[] | (() => Promise<readonly SkillSource[]>)
   volundVersion: string
   composer: PromptComposer
   /** 持久禁用名单（config [skills] disabled）：不进 index、activate 拒绝。 */
@@ -73,10 +76,13 @@ export function defaultSkillSources(input: {
   volundHome: string
   userHome: string
   cwd: string
+  /** SM-08b：已启用插件捆绑的 skills 目录（<pluginDir>/skills），优先级 project > plugin > user。 */
+  pluginDirs?: readonly string[]
 }): SkillSource[] {
   return [
     { dir: join(input.cwd, '.volund', 'skills'), scope: 'project' },
     { dir: join(input.cwd, '.agents', 'skills'), scope: 'project', interop: true },
+    ...(input.pluginDirs ?? []).map((dir): SkillSource => ({ dir, scope: 'plugin' })),
     { dir: join(input.volundHome, 'skills'), scope: 'user' },
     { dir: join(input.userHome, '.agents', 'skills'), scope: 'user', interop: true },
   ]
@@ -116,7 +122,7 @@ async function readText(path: string): Promise<string> {
 }
 
 export class SkillsRuntime {
-  readonly #sources: readonly SkillSource[]
+  readonly #sources: readonly SkillSource[] = []
   readonly #skills = new Map<string, SkillMetadata>()
   readonly #shadowed = new Map<
     string,
@@ -126,6 +132,7 @@ export class SkillsRuntime {
   readonly #active = new Map<string, Disposable>()
   #index?: Disposable
   constructor(readonly options: SkillsRuntimeOptions) {
+    if (typeof options.sources === 'function') return // 每次 discover() 求值
     if (options.sources && options.sources.length > 0) this.#sources = options.sources
     else if (options.skillsDir) this.#sources = [{ dir: options.skillsDir, scope: 'user' }]
     else this.#sources = []
@@ -134,7 +141,11 @@ export class SkillsRuntime {
     this.#skills.clear()
     this.#shadowed.clear()
     this.#broken.clear()
-    for (const source of this.#sources) {
+    const sources =
+      typeof this.options.sources === 'function'
+        ? await this.options.sources()
+        : (this.options.sources ?? this.#sources)
+    for (const source of sources ?? []) {
       let entries
       try {
         entries = await readdir(source.dir, { withFileTypes: true })

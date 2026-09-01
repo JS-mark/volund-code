@@ -16,7 +16,8 @@ export type SkillsPanelEntryStatus =
 export interface SkillsPanelEntry {
   readonly name: string
   readonly description: string
-  readonly scope: 'user' | 'project'
+  /** plugin = 已启用插件捆绑的 skills（SM-08b，随插件信任）。 */
+  readonly scope: 'user' | 'project' | 'plugin'
   readonly source: string
   readonly status: SkillsPanelEntryStatus
   readonly version?: string

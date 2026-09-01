@@ -11,7 +11,8 @@ import {
 } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
@@ -28,6 +29,7 @@ import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import {
   buildStatusViewModel,
+  collectPluginSkillDirs,
   createPluginMemoryHost,
   createProductionPorts,
   NodeHttpPort,
@@ -2881,5 +2883,45 @@ describe('production config and history commands', () => {
       exitCode: 0,
       stdout: 'No sessions.\n',
     })
+  })
+})
+
+describe('collectPluginSkillDirs (SM-08b)', () => {
+  it('collects builtin plugin skills unconditionally and state-gated dev/market skills', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-plugin-skills-'))
+    fixtures.push(root)
+    const builtinRoot = resolve(root, 'builtin-plugins')
+    await mkdir(resolve(builtinRoot, 'env', 'skills'), { recursive: true })
+    await mkdir(resolve(builtinRoot, 'bare'), { recursive: true })
+    const marketDir = resolve(root, 'plugins', 'market-one')
+    const devDir = resolve(root, 'plugins-dev', 'dev-one')
+    await mkdir(marketDir, { recursive: true })
+    await mkdir(devDir, { recursive: true })
+
+    const dirs = await collectPluginSkillDirs({
+      builtinRoot,
+      stateEntries: [
+        { dir: marketDir, enabled: true },
+        { dir: devDir, enabled: false },
+      ],
+    })
+
+    // builtin 每个插件目录都映射 <dir>/skills（bare 没有 skills/ 也不报错——
+    // discover() 按 ENOENT 跳过）；dev 被禁用 → 不收录。
+    expect(dirs).toEqual([
+      resolve(builtinRoot, 'bare', 'skills'),
+      resolve(builtinRoot, 'env', 'skills'),
+      resolve(marketDir, 'skills'),
+    ])
+  })
+
+  it('tolerates a missing builtin root and empty state', async () => {
+    expect(await collectPluginSkillDirs({ builtinRoot: undefined, stateEntries: [] })).toEqual([])
+    expect(
+      await collectPluginSkillDirs({
+        builtinRoot: resolve(tmpdir(), 'volund-no-such-root'),
+        stateEntries: [],
+      }),
+    ).toEqual([])
   })
 })

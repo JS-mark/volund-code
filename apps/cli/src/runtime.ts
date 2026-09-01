@@ -2016,6 +2016,28 @@ export function builtinPluginRoot(): string | undefined {
 }
 
 /**
+ * SM-08b：收集插件捆绑 skills 目录（`<pluginDir>/skills/`，随插件信任）。
+ * builtin 无条件收录（产物自带，与二进制同信任级）；dev/market 以
+ * plugin-state.v2 的 enabled 为门——禁用的插件不进 skills 发现面。
+ */
+export async function collectPluginSkillDirs(input: {
+  builtinRoot: string | undefined
+  stateEntries: readonly { dir: string; enabled: boolean }[]
+}): Promise<string[]> {
+  const dirs: string[] = []
+  if (input.builtinRoot) {
+    try {
+      for (const entry of await readdir(input.builtinRoot, { withFileTypes: true }))
+        if (entry.isDirectory()) dirs.push(join(input.builtinRoot, entry.name, 'skills'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  for (const entry of input.stateEntries) if (entry.enabled) dirs.push(join(entry.dir, 'skills'))
+  return dirs
+}
+
+/**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
  * 值可含 [env] 段写入 process.env 的配置）透传进 volund-sandbox——Rust 侧
@@ -2752,11 +2774,16 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   async function listingSkillsRuntime(): Promise<SkillsRuntime> {
     await ensureSkillsConfig()
     return new SkillsRuntime({
-      sources: defaultSkillSources({
-        volundHome: home,
-        userHome: homedir(),
-        cwd: process.cwd(),
-      }),
+      sources: async () =>
+        defaultSkillSources({
+          volundHome: home,
+          userHome: homedir(),
+          cwd: process.cwd(),
+          pluginDirs: await collectPluginSkillDirs({
+            builtinRoot: builtinPluginRoot(),
+            stateEntries: await localPluginState.list().catch(() => []),
+          }),
+        }),
       volundVersion: options.identity.version,
       composer: new DefaultPromptComposer(),
       disabled: skillsDisabled,
@@ -3105,7 +3132,18 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // （composer 是 per-session 的）；主会话最先创建，面板取 [...set][0]。
     await ensureSkillsConfig()
     const skills = new SkillsRuntime({
-      sources: defaultSkillSources({ volundHome: home, userHome: homedir(), cwd: state.cwd }),
+      // SM-08b：sources 惰性求值——插件捆绑 skills 的目录随安装/启停变化，
+      // 每次 discover()（含面板 r 重扫）重新解析，优先级 project > plugin > user。
+      sources: async () =>
+        defaultSkillSources({
+          volundHome: home,
+          userHome: homedir(),
+          cwd: state.cwd,
+          pluginDirs: await collectPluginSkillDirs({
+            builtinRoot: builtinPluginRoot(),
+            stateEntries: await localPluginState.list().catch(() => []),
+          }),
+        }),
       volundVersion: options.identity.version,
       composer,
       disabled: skillsDisabled,

@@ -149,7 +149,8 @@ export interface McpPort {
 export interface SkillListing {
   name: string
   description: string
-  scope: 'user' | 'project'
+  /** plugin = 已启用插件捆绑的 skills（随插件信任，只读面）。 */
+  scope: 'user' | 'project' | 'plugin'
   status: string
   version?: string
   path: string
