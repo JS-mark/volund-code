@@ -29,6 +29,35 @@ async function writeSkill(dir: string, name: string, frontmatter: string, body =
 }
 
 describe('SkillsRuntime', () => {
+  it('emits §S3.8 sampling events for scope shadowing and schema rejection', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
+    dirs.push(root)
+    await writeSkill(resolve(root, 'skills'), 'dup', 'name: dup\ndescription: winner')
+    await writeSkill(resolve(root, 'interops'), 'dup', 'name: dup\ndescription: loser')
+    await writeSkill(resolve(root, 'skills'), 'badname', 'name: BAD_NAME\ndescription: x')
+    const events: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const runtime = new SkillsRuntime({
+      sources: [
+        { dir: resolve(root, 'skills'), scope: 'user' },
+        { dir: resolve(root, 'interops'), scope: 'project', interop: true },
+      ],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+      onEvent: (event, payload) => events.push({ event, payload }),
+    })
+
+    await runtime.discover()
+
+    const shadowed = events.find((item) => item.event === 'skill.scope_shadowed')
+    expect(shadowed?.payload).toEqual({
+      name: 'dup',
+      winner_scope: 'user',
+      loser_scope: 'project',
+    })
+    const rejected = events.find((item) => item.event === 'skill.standard_schema_rejected')
+    expect(rejected?.payload).toMatchObject({ name: 'badname' })
+    expect(String(rejected?.payload.reason)).toContain('Invalid skill name')
+  })
   it('installs only a skill manifest and its declared resources', async () => {
     const { root, skill } = await fixture()
     const installRoot = resolve(root, 'installed')

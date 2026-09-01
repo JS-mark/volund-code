@@ -186,10 +186,13 @@ export async function loadMcpServerConfigs(input: {
   volundHome: string
   cwd: string
   onWarning?: McpLoadWarning
+  /** §S3.8：采样事件（当前仅 `mcp.interop_json_loaded`）。 */
+  onEvent?: (event: string, fields: Record<string, JsonValue>) => void
 }): Promise<McpServerConfig[]> {
   const layers: Array<{
     scope: 'user' | 'project'
     source: string
+    interop?: boolean
     section(): Promise<Record<string, JsonValue>>
   }> = [
     {
@@ -203,6 +206,7 @@ export async function loadMcpServerConfigs(input: {
     {
       scope: 'project',
       source: join(input.cwd, '.mcp.json'),
+      interop: true,
       section: async () => {
         const path = join(input.cwd, '.mcp.json')
         let parsed: Record<string, JsonValue>
@@ -244,6 +248,8 @@ export async function loadMcpServerConfigs(input: {
       continue
     }
     for (const entry of entries) if (!byName.has(entry.name)) byName.set(entry.name, entry)
+    if (layer.interop && entries.length > 0)
+      input.onEvent?.('mcp.interop_json_loaded', { count: entries.length })
   }
   return [...byName.values()].toSorted((a, b) => a.name.localeCompare(b.name))
 }
