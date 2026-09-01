@@ -111,7 +111,7 @@ export function normalizeError(
   const details = sanitize(record) as JsonValue
   return new VolundNormalizedError({
     category,
-    code: options.code ?? `volund_${category.toUpperCase()}`,
+    code: options.code ?? `VOLUND_${category.toUpperCase()}`,
     message,
     retryable: options.retryable ?? retryableByDefault(category),
     source: options.source,

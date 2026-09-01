@@ -71,7 +71,7 @@ function legacyPluginBypasses(source: string, file = 'fixture.ts'): string[] {
       'production reopen option is forbidden',
     ],
     [
-      /volund_.*(?:LEGACY_PLUGIN|PLUGIN_(?:ACTIVATION|ENABLE|REOPEN))/gi,
+      /VOLUND_.*(?:LEGACY_PLUGIN|PLUGIN_(?:ACTIVATION|ENABLE|REOPEN))/gi,
       'environment/config reopen key is forbidden',
     ],
     [
