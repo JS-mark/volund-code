@@ -31,6 +31,8 @@ export const configKeyRegistry = {
   'provider.*.baseUrl': 'forbidden',
   'provider.*.endpoint': 'forbidden',
   'router.type': 'forbidden',
+  'router.chain': 'forbidden',
+  'router.cooldown_seconds': 'forbidden',
   'router.allow_cross_provider_tool_use': 'allowed',
   'models.aliases.*': 'allowed',
   'runner.maxToolLoopsPerTurn': 'allowed',
@@ -138,6 +140,18 @@ export const ConfigSchema = z.strictObject({
   router: z
     .strictObject({
       type: z.enum(['single', 'fallback', 'role']).optional(),
+      // §3.8.2：fallback 链（provider/model/priority，priority 高者优先）与
+      // 失败 provider 冷却秒数；均属数据流向门，项目级 forbidden。
+      chain: z
+        .array(
+          z.strictObject({
+            provider: z.string().min(1),
+            model: z.string().min(1),
+            priority: z.number(),
+          }),
+        )
+        .optional(),
+      cooldown_seconds: z.number().optional(),
       allow_cross_provider_tool_use: z.boolean().optional(),
     })
     .optional(),

@@ -80,7 +80,12 @@ import { GeminiClient } from '@volund/provider-gemini'
 import { InMemoryProviderRegistry } from '@volund/provider-kit'
 import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
 import { OpenAIClient } from '@volund/provider-openai'
-import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@volund/router'
+import {
+  FallbackRouter,
+  parseRoleRouterConfig,
+  RoleRouter,
+  SingleProviderRouter,
+} from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
 import {
   VolundError,
@@ -3181,6 +3186,38 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       providers,
     )
     const routerConfig = userConfig.router
+    if (
+      routerConfig &&
+      typeof routerConfig === 'object' &&
+      !Array.isArray(routerConfig) &&
+      routerConfig.type === 'fallback'
+    ) {
+      // §3.8.2：按 config chain 构造 FallbackRouter（priority 高者优先，失败
+      // provider 进入 cooldown_seconds 冷却）。chain 里未注册的 provider 跳过
+      // 并告警；过滤后为空则维持 single 并告警，不让启动失败。
+      const rawChain = Array.isArray(routerConfig.chain) ? routerConfig.chain : []
+      const chain = rawChain.flatMap((entry) => {
+        const route = entry as Record<string, JsonValue>
+        const providerName = typeof route.provider === 'string' ? route.provider : ''
+        const model = typeof route.model === 'string' ? route.model : ''
+        const priority = typeof route.priority === 'number' ? route.priority : 0
+        const registered = providerName ? providers.get(providerName) : undefined
+        if (!registered) {
+          logger.warn(
+            `[router] fallback chain: provider '${providerName}' is not registered; skipping`,
+          )
+          return []
+        }
+        return [{ provider: registered, model, priority }]
+      })
+      if (chain.length > 0) {
+        const cooldownSeconds =
+          typeof routerConfig.cooldown_seconds === 'number' ? routerConfig.cooldown_seconds : 60
+        router = new FallbackRouter(chain, { cooldownMs: cooldownSeconds * 1000 })
+      } else {
+        logger.warn('[router] type=fallback but no chain provider resolved; using single provider')
+      }
+    }
     if (
       routerConfig &&
       typeof routerConfig === 'object' &&
