@@ -244,6 +244,8 @@ export interface McpClientOptions {
   maxPending?: number
   /** 结构化诊断（stderr/异常面）——Manager 侧据此写 mcp.log。 */
   onDiagnostics?: (entry: { level: 'warn' | 'error'; code: string; message: string }) => void
+  /** 传输层意外断开（区别于 client.close() 发起的正常关闭）时回调。 */
+  onClose?: (error?: Error) => void
 }
 
 export class McpClient {
@@ -257,7 +259,10 @@ export class McpClient {
   async initialize() {
     await this.options.transport.start(
       (message) => this.#receive(message),
-      (error) => this.#fail(error ?? new Error('MCP transport closed')),
+      (error) => {
+        this.options.onClose?.(error)
+        this.#fail(error ?? new Error('MCP transport closed'))
+      },
     )
     const result = await this.request('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
