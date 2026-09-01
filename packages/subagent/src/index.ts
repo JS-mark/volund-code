@@ -146,17 +146,12 @@ export class SubagentDispatcher {
   agentTypeNames(): string[] {
     return [...BUILTIN_AGENT_TYPES, ...(this.options.agents?.list().map((a) => a.definition.name) ?? [])]
   }
-  #resolveAgentType(agentType: string): ResolvedAgentDefinition {
+  #resolveAgentType(agentType: string): ResolvedAgentDefinition | undefined {
     const resolved = this.options.agents?.get(agentType)
     if (resolved) return resolved
-    if ((BUILTIN_AGENT_TYPES as readonly string[]).includes(agentType))
-      // 内置名走原行为（RouterHint role / lineage 标签），无附加定义。
-      return {
-        definition: { name: agentType, description: `builtin agent type: ${agentType}` },
-        path: `builtin:${agentType}`,
-        scope: 'user',
-        trusted: true,
-      }
+    // 内置名（RouterHint role / lineage 标签）无附加定义：返回 undefined，
+    // 工厂侧不得为其注册 system prompt 槽位或白名单。
+    if ((BUILTIN_AGENT_TYPES as readonly string[]).includes(agentType)) return undefined
     throw new VolundNormalizedError({
       category: 'invalid_request',
       code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT',
