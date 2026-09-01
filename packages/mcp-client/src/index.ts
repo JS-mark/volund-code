@@ -183,8 +183,11 @@ export class HttpSseTransport implements McpTransport {
     if (response.ok) {
       const session = response.headers.get('mcp-session-id')
       if (session) this.#sessionId = session
+      // 探测只看状态码：不消费响应体会让连接滞留在 undici 池里。
+      void response.body?.cancel().catch(() => undefined)
       return 'streamable-http'
     }
+    void response.body?.cancel().catch(() => undefined)
     return 'sse'
   }
   /** 旧 HTTP+SSE：GET 流既是服务端→客户端通道，也承载 endpoint 事件。 */

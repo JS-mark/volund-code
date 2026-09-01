@@ -99,7 +99,7 @@ import {
   type JsonValue,
   type Logger,
 } from '@volund/shared'
-import { McpOAuthClient } from '@volund/auth'
+import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
 import {
@@ -2894,6 +2894,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         store: encrypted,
       })
       await oauth.logout()
+      // AuthManager 进程内缓存不在 oauth client 的视野里：显式逐 key 失效，
+      // 否则同进程的 keyref 解析会继续命中已删除的旧 token。
+      await auth.logout(oauthCredentialKey(serverName))
+      await auth.logout(oauthHeaderKey(serverName))
     },
     async list() {
       const manager = await ensureMcpManager(process.cwd())

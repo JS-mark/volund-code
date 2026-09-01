@@ -158,8 +158,9 @@ describe('SubagentDispatcher', () => {
     await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'ghost' })).rejects.toMatchObject(
       { code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT' },
     )
-    // 内置名无需定义即可用（RouterHint role 词汇维持原行为）。
+    // 内置名无需定义即可用（RouterHint role 词汇维持原行为），且不携带附加定义。
     await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'planner' })).resolves.toBeDefined()
+    expect(seen[1]).toBeUndefined()
   })
 
   it('stays permissive when no agent registry is configured', async () => {
