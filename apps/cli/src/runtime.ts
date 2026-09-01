@@ -1,4 +1,5 @@
 import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import {
   access,
   appendFile,
@@ -2605,7 +2606,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       volundHome: home,
       cwd,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, fields) => void telemetry.emit(event, 'mcp', sanitize(fields)),
     })
+    const previousStatuses = new Map<string, string>()
     mcpManager = new McpManager({
       servers,
       disabled: mcpDisabled,
@@ -2615,6 +2618,24 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       logPath: join(home, 'mcp.log'),
       // W7：headers 的 keyref:// 占位在连接期经 auth store 解析。
       resolveKeyref: (reference) => auth.getCredential(reference),
+      // §S3.8：状态迁移采样；server 名 sha256 前 8 位（不落明文名字）。
+      onStateChange: () => {
+        if (!mcpManager) return
+        for (const entry of mcpManager.snapshot()) {
+          const from = previousStatuses.get(entry.name)
+          if (from !== undefined && from !== entry.status)
+            void telemetry.emit(
+              'mcp.server_state_changed',
+              'mcp',
+              sanitize({
+                name_kind: createHash('sha256').update(entry.name).digest('hex').slice(0, 8),
+                from,
+                to: entry.status,
+              }),
+            )
+          previousStatuses.set(entry.name, entry.status)
+        }
+      },
     })
     void mcpManager.connect()
     return mcpManager
@@ -2673,7 +2694,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   }
   const skillsPanelController: SkillsPanelController = {
     async list() {
-      return skillsPanelEntries()
+      // §S3.8：面板数据加载采样（打开/刷新）。
+      const entries = skillsPanelEntries()
+      void telemetry.emit(
+        'skills.panel_opened',
+        'skills',
+        sanitize({
+          count: entries.length,
+          broken_count: entries.filter(
+            (entry) => entry.status === 'broken' || entry.status === 'incompatible',
+          ).length,
+        }),
+      )
+      return entries
     },
     async reload() {
       for (const runtime of skillsRuntimes) {
@@ -2728,6 +2761,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       composer: new DefaultPromptComposer(),
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
     })
   }
   const skillPort: SkillPort = {
@@ -2904,7 +2938,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   }
   const mcpPanelController: McpPanelController = {
     async list() {
-      return mcpManager?.snapshot() ?? []
+      // §S3.8：面板数据加载采样（打开/刷新）。
+      const snapshot = mcpManager?.snapshot() ?? []
+      void telemetry.emit(
+        'mcp.panel_opened',
+        'mcp',
+        sanitize({
+          count: snapshot.length,
+          connected: snapshot.filter((entry) => entry.status === 'connected').length,
+          failed: snapshot.filter((entry) => entry.status === 'failed').length,
+          needs_auth: snapshot.filter((entry) => entry.status === 'needs-auth').length,
+        }),
+      )
+      return snapshot
     },
     async reload() {
       if (!mcpManager) return []
@@ -3064,6 +3110,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       composer,
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
     })
     skillsRuntimes.add(skills)
     await skills.discover()

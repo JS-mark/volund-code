@@ -58,6 +58,8 @@ export interface SkillsRuntimeOptions {
   indexBudgetChars?: number
   loadMarkdown?: (path: string) => Promise<string>
   onWarning?: (message: string) => void
+  /** §S3.8：采样事件（scope_shadowed / standard_schema_rejected），runtime 不依赖具体 sink。 */
+  onEvent?: (event: string, payload: Record<string, unknown>) => void
 }
 
 /**
@@ -179,6 +181,12 @@ export class SkillsRuntime {
                 path,
                 winner: { scope: winner.scope, path: winner.path },
               })
+              // §S3.8：同名覆盖采样（scope 数量有限，不涉隐私）。
+              this.options.onEvent?.('skill.scope_shadowed', {
+                name: skill.name,
+                winner_scope: winner.scope,
+                loser_scope: source.scope,
+              })
             }
             continue
           }
@@ -194,6 +202,11 @@ export class SkillsRuntime {
           const reason = error instanceof Error ? error.message : String(error)
           if (!this.#skills.has(entry.name)) this.#broken.set(entry.name, reason)
           this.options.onWarning?.(`Failed to discover ${entry.name}: ${reason}`)
+          // §S3.8：标准字段校验失败采样（reason 已是 redacted 文本）。
+          this.options.onEvent?.('skill.standard_schema_rejected', {
+            name: entry.name,
+            reason,
+          })
         }
       }
     }

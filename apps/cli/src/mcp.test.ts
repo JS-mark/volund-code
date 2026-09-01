@@ -459,6 +459,42 @@ describe('McpManager', () => {
   })
 })
 
+describe('§S3.8 telemetry sampling', () => {
+  it('emits mcp.interop_json_loaded when a project .mcp.json contributes servers', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-events-'))
+    dirs.push(root)
+    await writeFile(
+      join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          one: { command: 'cmd-one' },
+          two: { command: 'cmd-two' },
+        },
+      }),
+    )
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = []
+    const configs = await loadMcpServerConfigs({
+      volundHome: join(root, 'home'),
+      cwd: root,
+      onEvent: (event, fields) => events.push({ event, fields }),
+    })
+    expect(configs).toHaveLength(2)
+    expect(events).toEqual([{ event: 'mcp.interop_json_loaded', fields: { count: 2 } }])
+  })
+
+  it('does not emit interop events when .mcp.json is absent', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-events-'))
+    dirs.push(root)
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = []
+    await loadMcpServerConfigs({
+      volundHome: join(root, 'home'),
+      cwd: root,
+      onEvent: (event, fields) => events.push({ event, fields }),
+    })
+    expect(events).toEqual([])
+  })
+})
+
 describe('McpManager diagnostics log (§S3.6)', () => {
   it('writes JSONL lifecycle events and server stderr lines to logPath', async () => {
     const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-'))
