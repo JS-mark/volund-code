@@ -489,7 +489,7 @@ export class McpManager {
       // HTTP 401/403 → needs-auth（OAuth 流程在 SM-07；当前可引导手动 header 配置）。
       if (/\bHTTP 40[13]\b/.test(message)) {
         state.status = 'needs-auth'
-        state.detail = `authentication required (configure headers or use ${productIdentity.commandName} mcp login once SM-07 lands)`
+        state.detail = `authentication required (configure an Authorization header with keyref://, or run ${productIdentity.commandName} mcp login ${state.config.name})`
         state.reconnectAttempt = 0
         this.#log('connect.needs-auth', { server: state.config.name, error: message })
         this.#options.onWarning?.(`mcp: server '${state.config.name}' failed: ${message}`)
@@ -561,29 +561,37 @@ export class McpManager {
     }
   }
   /**
-   * W7：http headers 里的 `keyref://<reference>` 在连接期解析为真实凭据。
-   * 解析失败抛错 → 连接失败；keyref 字面量不会到达 transport。
+   * W7：http headers 里的 `keyref://<reference>` 在连接期解析为真实凭据，
+   * keyref 字面量不会到达 transport（miss 抛错 → 连接失败）。
+   * SM-07：未配置 Authorization 头的 http server 自动注入已存的 OAuth
+   * `Bearer` 快照（`volund mcp login` 写入 `mcp.<name>.Authorization`）。
    */
   async #resolveKeyrefHeaders(config: McpServerConfig): Promise<McpServerConfig> {
     const resolve = this.#options.resolveKeyref
     if (!resolve || config.transport.kind !== 'http') return config
-    const headers = config.transport.headers
-    if (!Object.values(headers).some((value) => value.startsWith('keyref://'))) return config
-    const resolved: Record<string, string> = {}
-    for (const [key, value] of Object.entries(headers)) {
-      const match = /^keyref:\/\/(.+)$/.exec(value)
-      if (!match) {
-        resolved[key] = value
-        continue
-      }
-      const credential = await resolve(match[1]!)
+    const original = config.transport.headers
+    const headers = { ...original }
+    if (!headers.Authorization) {
+      const stored = await resolve(`mcp.${config.name}.Authorization`)
+      if (stored) headers.Authorization = stored
+    }
+    const keyrefEntries = Object.entries(headers).filter(([, value]) =>
+      value.startsWith('keyref://'),
+    )
+    if (keyrefEntries.length === 0)
+      return headers.Authorization === original.Authorization
+        ? config
+        : { ...config, transport: { ...config.transport, headers } }
+    for (const [key, value] of keyrefEntries) {
+      const reference = /^keyref:\/\/(.+)$/.exec(value)![1]!
+      const credential = await resolve(reference)
       if (credential === undefined)
         throw new Error(
-          `keyref://${match[1]} not found in the auth store (store the credential or use ${productIdentity.commandName} mcp login)`,
+          `keyref://${reference} not found in the auth store (store the credential or use ${productIdentity.commandName} mcp login ${config.name})`,
         )
-      resolved[key] = credential
+      headers[key] = credential
     }
-    return { ...config, transport: { ...config.transport, headers: resolved } }
+    return { ...config, transport: { ...config.transport, headers } }
   }
   async #disconnectState(state: ServerState): Promise<void> {
     if (state.reconnectTimer) {
