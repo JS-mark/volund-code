@@ -20,6 +20,8 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[provider.<name>]` | `model` | string | §8.3 | allowed |
 | `[provider.<name>]` | `baseUrl` / `endpoint` | string? | §8.3 | **forbidden**（§8.3.1） |
 | `[router]` | `type` | `"single" \| "fallback" \| "role"`，默认 `"single"` | §3.7 | **forbidden**（§8.3.1） |
+| `[router]` | `chain` | `[{ provider, model, priority }]`（§3.8.2 fallback 链，priority 高者优先） | §3.8.2 | **forbidden**（§8.3.1） |
+| `[router]` | `cooldown_seconds` | number，默认 `60`（失败 provider 冷却） | §3.8.2 | **forbidden**（§8.3.1） |
 | `[router]` | `allow_cross_provider_tool_use` | bool，默认 `false` | §3.7.1 | allowed |
 | `[models.aliases]` | `<alias>` | `{ provider, model }` | §3.9 | allowed |
 | `[runner]` | `maxToolLoopsPerTurn` | int，默认 25 | §2.4 B2 | allowed |
@@ -76,6 +78,13 @@ model = "claude-sonnet-4-5"
 
 [router]
 type = "single"
+# type = "fallback" 时按 chain 串行 fallback（§3.8.2）；chain/cooldown 属
+# 数据流向门，项目级 forbidden。
+# chain = [
+#   { provider = "anthropic", model = "claude-sonnet-4-5", priority = 100 },
+#   { provider = "openai",    model = "gpt-4o",            priority = 80  },
+# ]
+# cooldown_seconds = 60
 
 [auth]
 # skipAuth = true              # 完全跳过凭据解析（企业网关/本地代理，§8.4）
