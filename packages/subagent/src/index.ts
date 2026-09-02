@@ -60,7 +60,9 @@ export interface SubagentRunEntry {
   status: SubagentRunStatus
   readonly startedAt: number
   endedAt?: number
-  /** prompt 首行（截断到 80 字符）。 */
+  /** prompt 首行预览（截断到 80 字符；列表行用）。 */
+  readonly promptPreview: string
+  /** 完整 prompt（截断到 2000 字符；详情页用）。 */
   readonly prompt: string
   readonly budget?: SubagentBudget
   usage?: { input: number; output: number; costUSD: number }
@@ -139,10 +141,11 @@ export class SubagentDispatcher {
       depth,
       status: 'running',
       startedAt: Date.now(),
-      prompt: (() => {
+      promptPreview: (() => {
         const firstLine = input.prompt.split('\n', 1)[0] ?? input.prompt
         return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine
       })(),
+      prompt: input.prompt.length > 2000 ? `${input.prompt.slice(0, 1999)}…` : input.prompt,
       ...(input.budget || this.options.defaultBudget
         ? { budget: { ...this.options.defaultBudget, ...input.budget } }
         : {}),

@@ -3082,6 +3082,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         status: entry.status,
         startedAt: entry.startedAt,
         ...(entry.endedAt === undefined ? {} : { endedAt: entry.endedAt }),
+        promptPreview: entry.promptPreview,
         prompt: entry.prompt,
         ...(entry.usage === undefined ? {} : { usage: entry.usage }),
         ...(entry.toolCalls === undefined ? {} : { toolCalls: entry.toolCalls }),

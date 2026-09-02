@@ -39,7 +39,8 @@ function entry(overrides: Partial<SubagentPanelEntry> = {}): SubagentPanelEntry 
     depth: 1,
     status: 'running',
     startedAt: Date.now() - 30_000,
-    prompt: 'Explain the dispatcher module',
+    promptPreview: 'Explain the dispatcher module',
+    prompt: 'Explain the dispatcher module in depth, covering all state transitions',
     ...overrides,
   }
 }

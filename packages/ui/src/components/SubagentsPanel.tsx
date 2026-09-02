@@ -98,7 +98,7 @@ export function SubagentsPanel({
   const pickable = (entries ?? []).map<CommandListEntry>((entry) => ({
     id: entry.sessionId,
     label: entry.agentType ?? 'task-agent',
-    value: entry.prompt,
+    value: entry.promptPreview,
     status: entry.status,
   }))
   const filtered = filterListEntries(pickable, query)
@@ -237,7 +237,7 @@ export function SubagentsPanel({
                 </Text>
                 <Text wrap="truncate">
                   {truncateTerminal(
-                    entry.prompt,
+                    entry.promptPreview,
                     Math.max(10, Math.floor((terminalColumns - 8) * 0.4)),
                   )}
                 </Text>

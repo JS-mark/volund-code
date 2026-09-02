@@ -39,9 +39,12 @@ export interface PermissionRuleStoreOptions {
   logger?: Logger
 }
 
-function isStoredPermission(value: JsonValue | undefined): value is StoredPermission {
+function isStoredPermission(value: unknown): value is StoredPermission {
+  // 参数取 unknown：StoredPermission 内含 PermissionSpec.custom（Record<string,
+  // unknown>），对 JsonValue | undefined 不可证赋值（exactOptionalPropertyTypes）；
+  // 结构校验在函数体内完成。
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const candidate = value as Record<string, JsonValue>
+  const candidate = value as Record<string, unknown>
   return (
     typeof candidate.tool === 'string' &&
     candidate.spec !== undefined &&
@@ -60,7 +63,7 @@ function entriesFrom(
 } {
   const list = config[section]
   if (!Array.isArray(list)) return { entries: [], invalid: list === undefined ? 0 : 1 }
-  const entries = list.filter(isStoredPermission)
+  const entries = list.filter(isStoredPermission) as unknown as StoredPermission[]
   return { entries, invalid: list.length - entries.length }
 }
 
@@ -165,7 +168,9 @@ export class PermissionRuleStore implements PermissionRuleSource {
     try {
       await mkdir(dirname(file), { recursive: true })
       const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
-      await writeFile(temporary, serializeToml({ ...document }), { encoding: 'utf8', mode: 0o600 })
+      // spec.custom 是 Record<string, unknown>：落盘前收敛到 JSON 兼容值。
+      const jsonSafe = JSON.parse(JSON.stringify(document)) as Record<string, JsonValue>
+      await writeFile(temporary, serializeToml(jsonSafe), { encoding: 'utf8', mode: 0o600 })
       await rename(temporary, file)
     } catch (error) {
       this.#options.logger?.warn(`failed to persist permissions to ${file}: ${String(error)}`)
