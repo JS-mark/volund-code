@@ -45,13 +45,17 @@ function inCwd(path: string, cwd: string): boolean {
   const rel = relative(resolve(cwd), full)
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
-function keyOf(request: PermissionRequest): string {
-  if (request.spec.net) {
+/** Grant key for a tool+spec pair: the matching unit shared by session cache and persisted rules. */
+export function permissionKey(toolName: string, spec: PermissionSpec): string {
+  if (spec.net) {
     // net 粒度 = origin（r13-D1）：scheme://host[:port] 归一，同域不同路径共享 allow-session
-    const origin = normalizeOrigin(request.spec.net.url)
-    return JSON.stringify([request.toolName, { net: { ...request.spec.net, url: origin } }])
+    const origin = normalizeOrigin(spec.net.url)
+    return JSON.stringify([toolName, { net: { ...spec.net, url: origin } }])
   }
-  return JSON.stringify([request.toolName, request.spec])
+  return JSON.stringify([toolName, spec])
+}
+function keyOf(request: PermissionRequest): string {
+  return permissionKey(request.toolName, request.spec)
 }
 
 export class PermissionManager {

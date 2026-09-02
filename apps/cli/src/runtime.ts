@@ -186,6 +186,8 @@ import {
 } from './mcp'
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
+import { PermissionRuleStore } from './permissions-store'
+import type { PermissionRuleSource } from './permissions-store'
 import {
   fetchMarketIndex,
   installFromMarket,
@@ -1552,8 +1554,11 @@ export interface ProductionToolPermissionChainOptions {
     | undefined
   /** Deterministic test seam; omitted by createProductionPorts. */
   terminalIsInteractive?: () => boolean
-  /** Deterministic test seam; omitted by createProductionPorts. */
+  /** Deterministic line-input seam; production uses promptLineMaybe. */
   linePermissionPrompt?: (question: string) => Promise<string | undefined>
+  /** 持久化 project/global 权限规则（spec §4.4 决策链 1/2/4/5）；必须已完成装载
+   * （生产路径 createRunner 先 await ready()），确定型测试可省略。 */
+  rules?: PermissionRuleSource
 }
 
 export interface ProductionToolPermissionChain {
@@ -1578,7 +1583,28 @@ export function createProductionToolPermissionChain(
     ...(options.logger ? { logger: options.logger } : {}),
   })
   const interactionMode = options.permissionSnapshot.interactionMode
-  const permissions = new PermissionManager({}, configuration)
+  // r13 §4.4 决策链落地：持久化规则的 deny（1/2）先于 session cache（3），
+  // allow（4/5）在 cache 之后、auto-allow 之前——PermissionManager 内置顺序与此一致。
+  const rules = options.rules
+  const permissions = new PermissionManager(
+    rules
+      ? {
+          projectDeny: (request) => rules.isDenied('project', request),
+          globalDeny: (request) => rules.isDenied('global', request),
+          projectAllow: (request) => rules.isAllowed('project', request),
+          globalAllow: (request) => rules.isAllowed('global', request),
+        }
+      : {},
+    {
+      ...configuration,
+      ...(rules
+        ? {
+            persist: (scope: 'project' | 'global', request: PermissionRequest, allow: boolean) =>
+              rules.persist(scope, request, allow),
+          }
+        : {}),
+    },
+  )
   permissions.setPromptHandler(async (request) => {
     const decision = await requestPermission({
       events: options.events,
@@ -2091,6 +2117,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
   const telemetryStore = new TelemetryStore(telemetryPath)
   const logger = new TelemetryLogger(telemetry, 'cli')
+  // r13 §4.4：持久化权限规则单例——allow-project → <cwd>/.volund/permissions.toml，
+  // allow/deny-forever → <home>/permissions.toml。进程共享一份，子 session 的
+  // grant 对父 session 立即可见；ready() 在首个 runner 构造前装载。
+  const permissionRules = new PermissionRuleStore({
+    project: join(process.cwd(), '.volund', 'permissions.toml'),
+    global: join(home, 'permissions.toml'),
+    logger,
+  })
   const pluginRoot = join(home, 'plugins')
   const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
   const pluginsReady = plugins.init()
@@ -3082,12 +3116,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const createRunner: RunnerFactory = async (state, events, agent) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
+    await permissionRules.ready()
     const permissionChain = createProductionToolPermissionChain({
       state,
       events,
       permissionSnapshot,
       logger,
       interactivePermissionPrompt: () => interactivePermissionPrompt,
+      rules: permissionRules,
     })
     const { permissionRequests } = permissionChain
     // §15 T0: persisted values apply only after an explicit, typed boolean opt-in.
