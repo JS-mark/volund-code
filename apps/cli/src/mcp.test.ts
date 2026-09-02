@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import type { McpTransport } from '@volund/mcp-client'
 import { ToolRegistry } from '@volund/tool-kit'
@@ -637,8 +637,8 @@ describe('resolveSkillSpecToDirectories nested git repos (SKILLS-MCPS-r1.8)', ()
     const { directories, cleanup } = await resolveSkillSpecToDirectories(`file://${repo}`)
     await cleanup()
     const names = directories
-      .map((dir) => dir.split('/').pop())
-      .toSorted((a, b) => a!.localeCompare(b!))
+      .map((dir) => basename(dir))
+      .toSorted((a, b) => a.localeCompare(b))
     expect(names).toEqual(['pdf-tools', 'skill-creator'])
   })
 })
