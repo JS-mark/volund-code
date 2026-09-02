@@ -90,12 +90,29 @@ export async function loadConfig(
   merge(out, options.flags)
   return { config: out, projectHash: hash, trusted }
 }
+/**
+ * TOML 语义的注释剥离：`#` 在引号字符串内不开启注释（config.toml 的 url /
+ * permissions.toml 的 bash command 都可能含 `#`）。basic string 支持反斜杠转义，
+ * literal string（单引号）无转义。
+ */
+function stripComment(line: string): string {
+  let quoted: '"' | "'" | undefined
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!
+    if (quoted) {
+      if (quoted === '"' && char === '\\') index += 1
+      else if (char === quoted) quoted = undefined
+    } else if (char === '"' || char === "'") quoted = char
+    else if (char === '#') return line.slice(0, index)
+  }
+  return line
+}
 export async function parseTomlFile(path: string): Promise<Config> {
   const text = await readFile(path, 'utf8'),
     out: Config = {},
     section: string[] = []
   for (const raw of text.split('\n')) {
-    const line = raw.replace(/#.*$/, '').trim()
+    const line = stripComment(raw).trim()
     if (!line) continue
     const header = /^\[([^\]]+)\]$/.exec(line)
     if (header) {
