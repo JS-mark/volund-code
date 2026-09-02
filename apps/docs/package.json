@@ -7,7 +7,7 @@
     "build": "pnpm --dir ../.. docs:api && vitepress build",
     "dev": "vitepress dev",
     "preview": "vitepress preview",
-    "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
+    "test": "pnpm exec typedoc --options ../../typedoc.json && node --test ../../scripts/verify-l1-docs.test.mjs",
     "typecheck": "vitepress build"
   },
   "devDependencies": {
