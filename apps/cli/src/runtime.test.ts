@@ -2044,7 +2044,10 @@ describe('status configuration adapter', () => {
     }
   })
 
-  it('NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS', async () => {
+  // openssl CLI 在 Windows runner 不可用（与 bash-shell 的 itUnix 同惯例）。
+  const itOpenssl = it.skipIf(process.platform === 'win32')
+
+  itOpenssl('NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS', async () => {
     const net = await import('node:net')
     const https = await import('node:https')
     const { execSync } = await import('node:child_process')
@@ -2125,7 +2128,7 @@ describe('status configuration adapter', () => {
     }
   }, 15000)
 
-  it('NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification', async () => {
+  itOpenssl('NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification', async () => {
     // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
     // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
     const net = await import('node:net')
