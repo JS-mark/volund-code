@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { DefaultPromptComposer } from '@volund/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -284,16 +284,16 @@ describe('SkillsRuntime', () => {
   })
 
   it('orders default skill sources project-first with interop paths last (SKILLS-MCPS-r1)', () => {
-    const sources = defaultSkillSources({
-      volundHome: '/home/mark/.volund',
-      userHome: '/home/mark',
-      cwd: '/work/repo',
-    })
+    // 路径两侧同用 join 构造：Windows 上 join 会产出反斜杠，字面量断言会漂移。
+    const repo = join('/', 'work', 'repo')
+    const volundHome = join('/', 'home', 'mark', '.volund')
+    const userHome = join('/', 'home', 'mark')
+    const sources = defaultSkillSources({ volundHome, userHome, cwd: repo })
     expect(sources.map((source) => source.dir)).toEqual([
-      '/work/repo/.volund/skills',
-      '/work/repo/.agents/skills',
-      '/home/mark/.volund/skills',
-      '/home/mark/.agents/skills',
+      join(repo, '.volund', 'skills'),
+      join(repo, '.agents', 'skills'),
+      join(volundHome, 'skills'),
+      join(userHome, '.agents', 'skills'),
     ])
     expect(sources[0]!.scope).toBe('project')
     expect(sources[1]).toEqual(expect.objectContaining({ scope: 'project', interop: true }))
@@ -302,19 +302,23 @@ describe('SkillsRuntime', () => {
   })
 
   it('places plugin skill dirs between project and user scopes (SM-08b)', () => {
+    const repo = join('/', 'work', 'repo')
+    const home = join('/', 'home', 'mark')
+    const one = join('/', 'plugins', 'one', 'skills')
+    const two = join('/', 'plugins', 'two', 'skills')
     const sources = defaultSkillSources({
-      volundHome: '/home/mark/.volund',
-      userHome: '/home/mark',
-      cwd: '/work/repo',
-      pluginDirs: ['/plugins/one/skills', '/plugins/two/skills'],
+      volundHome: join(home, '.volund'),
+      userHome: home,
+      cwd: repo,
+      pluginDirs: [one, two],
     })
     expect(sources.map((source) => `${source.scope}:${source.dir}`)).toEqual([
-      'project:/work/repo/.volund/skills',
-      'project:/work/repo/.agents/skills',
-      'plugin:/plugins/one/skills',
-      'plugin:/plugins/two/skills',
-      'user:/home/mark/.volund/skills',
-      'user:/home/mark/.agents/skills',
+      `project:${join(repo, '.volund', 'skills')}`,
+      `project:${join(repo, '.agents', 'skills')}`,
+      `plugin:${one}`,
+      `plugin:${two}`,
+      `user:${join(home, '.volund', 'skills')}`,
+      `user:${join(home, '.agents', 'skills')}`,
     ])
   })
 
