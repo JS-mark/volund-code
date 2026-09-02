@@ -2047,183 +2047,191 @@ describe('status configuration adapter', () => {
   // openssl CLI 在 Windows runner 不可用（与 bash-shell 的 itUnix 同惯例）。
   const itOpenssl = it.skipIf(process.platform === 'win32')
 
-  itOpenssl('NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS', async () => {
-    const net = await import('node:net')
-    const https = await import('node:https')
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
-    const certDir = mkdtempSync(join(tmpdir(), 'volund-proxy-test-'))
-    const keyPath = join(certDir, 'key.pem')
-    const certPath = join(certDir, 'cert.pem')
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 1 -nodes -subj "/CN=127.0.0.1" 2>/dev/null`,
-    )
-    const keyPem = await readFile(keyPath, 'utf8')
-    const certPem = await readFile(certPath, 'utf8')
+  itOpenssl(
+    'NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS',
+    async () => {
+      const net = await import('node:net')
+      const https = await import('node:https')
+      const { execSync } = await import('node:child_process')
+      const { mkdtempSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
+      const certDir = mkdtempSync(join(tmpdir(), 'volund-proxy-test-'))
+      const keyPath = join(certDir, 'key.pem')
+      const certPath = join(certDir, 'cert.pem')
+      execSync(
+        `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 1 -nodes -subj "/CN=127.0.0.1" 2>/dev/null`,
+      )
+      const keyPem = await readFile(keyPath, 'utf8')
+      const certPem = await readFile(certPath, 'utf8')
 
-    // 目标 HTTPS 服务器
-    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ https_tunneled: true }))
-    })
-    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
-    const targetAddr = target.address()
-    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
-
-    // CONNECT 代理
-    const proxy: Server = createServer()
-    let connectSeen = false
-    proxy.on('connect', (req, clientSocket) => {
-      connectSeen = true
-      const [host, port] = req.url!.split(':')
-      const upstream = net.connect(Number(port), host)
-      upstream.once('connect', () => {
-        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
-        upstream.pipe(clientSocket)
-        clientSocket.pipe(upstream)
+      // 目标 HTTPS 服务器
+      const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ https_tunneled: true }))
       })
-      // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
-      const cleanup = (): void => {
-        upstream.destroy()
-        clientSocket.destroy()
+      await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+      const targetAddr = target.address()
+      const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+
+      // CONNECT 代理
+      const proxy: Server = createServer()
+      let connectSeen = false
+      proxy.on('connect', (req, clientSocket) => {
+        connectSeen = true
+        const [host, port] = req.url!.split(':')
+        const upstream = net.connect(Number(port), host)
+        upstream.once('connect', () => {
+          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+          upstream.pipe(clientSocket)
+          clientSocket.pipe(upstream)
+        })
+        // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
+        const cleanup = (): void => {
+          upstream.destroy()
+          clientSocket.destroy()
+        }
+        upstream.once('error', cleanup)
+        clientSocket.once('close', cleanup)
+        upstream.once('close', cleanup)
+      })
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+      const proxyAddr = proxy.address()
+      const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+      try {
+        process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+        delete process.env.NO_PROXY
+        // 信任自签证书（测试专用）
+        const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+        const http = new NodeHttpPort()
+        const response = await http.request({
+          url: `https://127.0.0.1:${targetPort}/test`,
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: { hello: 'world' },
+          signal: AbortSignal.timeout(5000),
+        })
+        expect(connectSeen).toBe(true)
+        expect(response.status).toBe(200)
+        const chunks: Buffer[] = []
+        for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+        expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ https_tunneled: true })
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject
+      } finally {
+        delete process.env.HTTPS_PROXY
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
+        proxy.closeAllConnections()
+        target.closeAllConnections()
+        await new Promise<void>((r) => proxy.close(() => r()))
+        await new Promise<void>((r) => target.close(() => r()))
+        await rm(certDir, { force: true, recursive: true })
       }
-      upstream.once('error', cleanup)
-      clientSocket.once('close', cleanup)
-      upstream.once('close', cleanup)
-    })
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const proxyAddr = proxy.address()
-    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+    },
+    15000,
+  )
 
-    try {
-      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
-      delete process.env.NO_PROXY
-      // 信任自签证书（测试专用）
-      const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-      const http = new NodeHttpPort()
-      const response = await http.request({
-        url: `https://127.0.0.1:${targetPort}/test`,
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: { hello: 'world' },
-        signal: AbortSignal.timeout(5000),
+  itOpenssl(
+    'NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification',
+    async () => {
+      // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
+      // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
+      const net = await import('node:net')
+      const https = await import('node:https')
+      const { execSync } = await import('node:child_process')
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const certDir = mkdtempSync(join(tmpdir(), 'volund-ca-proxy-'))
+
+      // 1. 生成 CA 密钥 + 自签 CA 证书
+      const caKeyPath = join(certDir, 'ca-key.pem')
+      const caCertPath = join(certDir, 'ca-cert.pem')
+      execSync(
+        `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=volund Test CA" 2>/dev/null`,
+      )
+
+      // 2. 生成服务器密钥 + CSR，用 CA 签名
+      const srvKeyPath = join(certDir, 'srv-key.pem')
+      const srvCsrPath = join(certDir, 'srv.csr')
+      const srvCertPath = join(certDir, 'srv-cert.pem')
+      const extPath = join(certDir, 'ext.cnf')
+      writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
+      execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
+      execSync(
+        `openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`,
+      )
+      execSync(
+        `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
+      )
+
+      const keyPem = await readFile(srvKeyPath, 'utf8')
+      const certPem = await readFile(srvCertPath, 'utf8')
+
+      // 目标 HTTPS 服务器（证书由测试 CA 签发，系统信任库不信任）
+      const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ca_verified: true }))
       })
-      expect(connectSeen).toBe(true)
-      expect(response.status).toBe(200)
-      const chunks: Buffer[] = []
-      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
-      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ https_tunneled: true })
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject
-    } finally {
-      delete process.env.HTTPS_PROXY
-      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
-      proxy.closeAllConnections()
-      target.closeAllConnections()
-      await new Promise<void>((r) => proxy.close(() => r()))
-      await new Promise<void>((r) => target.close(() => r()))
-      await rm(certDir, { force: true, recursive: true })
-    }
-  }, 15000)
+      await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+      const targetAddr = target.address()
+      const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
 
-  itOpenssl('NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification', async () => {
-    // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
-    // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
-    const net = await import('node:net')
-    const https = await import('node:https')
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const certDir = mkdtempSync(join(tmpdir(), 'volund-ca-proxy-'))
-
-    // 1. 生成 CA 密钥 + 自签 CA 证书
-    const caKeyPath = join(certDir, 'ca-key.pem')
-    const caCertPath = join(certDir, 'ca-cert.pem')
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=volund Test CA" 2>/dev/null`,
-    )
-
-    // 2. 生成服务器密钥 + CSR，用 CA 签名
-    const srvKeyPath = join(certDir, 'srv-key.pem')
-    const srvCsrPath = join(certDir, 'srv.csr')
-    const srvCertPath = join(certDir, 'srv-cert.pem')
-    const extPath = join(certDir, 'ext.cnf')
-    writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
-    execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
-    execSync(
-      `openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`,
-    )
-    execSync(
-      `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
-    )
-
-    const keyPem = await readFile(srvKeyPath, 'utf8')
-    const certPem = await readFile(srvCertPath, 'utf8')
-
-    // 目标 HTTPS 服务器（证书由测试 CA 签发，系统信任库不信任）
-    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ ca_verified: true }))
-    })
-    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
-    const targetAddr = target.address()
-    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
-
-    // CONNECT 代理
-    const proxy: Server = createServer()
-    proxy.on('connect', (_req, clientSocket) => {
-      const [host, port] = _req.url!.split(':')
-      const upstream = net.connect(Number(port), host)
-      upstream.once('connect', () => {
-        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
-        upstream.pipe(clientSocket)
-        clientSocket.pipe(upstream)
+      // CONNECT 代理
+      const proxy: Server = createServer()
+      proxy.on('connect', (_req, clientSocket) => {
+        const [host, port] = _req.url!.split(':')
+        const upstream = net.connect(Number(port), host)
+        upstream.once('connect', () => {
+          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+          upstream.pipe(clientSocket)
+          clientSocket.pipe(upstream)
+        })
+        const cleanup = (): void => {
+          upstream.destroy()
+          clientSocket.destroy()
+        }
+        upstream.once('error', cleanup)
+        clientSocket.once('close', cleanup)
+        upstream.once('close', cleanup)
       })
-      const cleanup = (): void => {
-        upstream.destroy()
-        clientSocket.destroy()
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+      const proxyAddr = proxy.address()
+      const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+      try {
+        process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+        delete process.env.NO_PROXY
+        // 关键：不设 NODE_TLS_REJECT_UNAUTHORIZED=0，而是通过 NODE_EXTRA_CA_CERTS 信任 CA
+        process.env.NODE_EXTRA_CA_CERTS = caCertPath
+        // 清除上一次测试缓存的 TLS 选项（模块级缓存）
+        resetProxyTlsCache()
+
+        const http = new NodeHttpPort()
+        const response = await http.request({
+          url: `https://127.0.0.1:${targetPort}/test`,
+          method: 'GET',
+          headers: {},
+          body: undefined,
+          signal: AbortSignal.timeout(5000),
+        })
+        expect(response.status).toBe(200)
+        const chunks: Buffer[] = []
+        for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+        expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ca_verified: true })
+      } finally {
+        delete process.env.HTTPS_PROXY
+        delete process.env.NODE_EXTRA_CA_CERTS
+        resetProxyTlsCache()
+        proxy.closeAllConnections()
+        target.closeAllConnections()
+        await new Promise<void>((r) => proxy.close(() => r()))
+        await new Promise<void>((r) => target.close(() => r()))
+        await rm(certDir, { force: true, recursive: true })
       }
-      upstream.once('error', cleanup)
-      clientSocket.once('close', cleanup)
-      upstream.once('close', cleanup)
-    })
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const proxyAddr = proxy.address()
-    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
-
-    try {
-      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
-      delete process.env.NO_PROXY
-      // 关键：不设 NODE_TLS_REJECT_UNAUTHORIZED=0，而是通过 NODE_EXTRA_CA_CERTS 信任 CA
-      process.env.NODE_EXTRA_CA_CERTS = caCertPath
-      // 清除上一次测试缓存的 TLS 选项（模块级缓存）
-      resetProxyTlsCache()
-
-      const http = new NodeHttpPort()
-      const response = await http.request({
-        url: `https://127.0.0.1:${targetPort}/test`,
-        method: 'GET',
-        headers: {},
-        body: undefined,
-        signal: AbortSignal.timeout(5000),
-      })
-      expect(response.status).toBe(200)
-      const chunks: Buffer[] = []
-      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
-      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ca_verified: true })
-    } finally {
-      delete process.env.HTTPS_PROXY
-      delete process.env.NODE_EXTRA_CA_CERTS
-      resetProxyTlsCache()
-      proxy.closeAllConnections()
-      target.closeAllConnections()
-      await new Promise<void>((r) => proxy.close(() => r()))
-      await new Promise<void>((r) => target.close(() => r()))
-      await rm(certDir, { force: true, recursive: true })
-    }
-  }, 15000)
+    },
+    15000,
+  )
 
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
