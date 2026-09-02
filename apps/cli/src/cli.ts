@@ -356,7 +356,8 @@ export async function runCli(
       }
     }
     if (action === 'login' || action === 'logout') {
-      if (!ports.mcp) return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      if (!ports.mcp)
+        return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
       const name = args._[2]
       if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
       try {

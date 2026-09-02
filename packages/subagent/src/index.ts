@@ -86,9 +86,7 @@ export class SubagentDispatcher {
     // §2.7.1 Task 校验：agentType 枚举 = 内置 + 已扫描定义。注册表缺席时放行
     // （core 单测/旧调用路径维持原行为——agentType 仅作 lineage 标签）。
     const agent =
-      input.agentType && this.options.agents
-        ? this.#resolveAgentType(input.agentType)
-        : undefined
+      input.agentType && this.options.agents ? this.#resolveAgentType(input.agentType) : undefined
     if (parent.signal.aborted) return { sessionId: '', status: 'cancelled', text: '' }
     const events = new EventBus()
     // 附录 D.3 / r13-D1：冒泡保留原 event.id 与 payload，只在 envelope 加
@@ -144,7 +142,10 @@ export class SubagentDispatcher {
   }
   /** Task 工具 inputSchema 的 agentType 枚举（内置 + 已扫描定义名）。 */
   agentTypeNames(): string[] {
-    return [...BUILTIN_AGENT_TYPES, ...(this.options.agents?.list().map((a) => a.definition.name) ?? [])]
+    return [
+      ...BUILTIN_AGENT_TYPES,
+      ...(this.options.agents?.list().map((a) => a.definition.name) ?? []),
+    ]
   }
   #resolveAgentType(agentType: string): ResolvedAgentDefinition | undefined {
     const resolved = this.options.agents?.get(agentType)

@@ -1,7 +1,13 @@
 import { ToolRegistry } from '@volund/tool-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import { HttpSseTransport, McpClient, MCP_PROTOCOL_VERSION, mcpToolSetHash, type McpTransport } from './index'
+import {
+  HttpSseTransport,
+  McpClient,
+  MCP_PROTOCOL_VERSION,
+  mcpToolSetHash,
+  type McpTransport,
+} from './index'
 
 class FakeTransport implements McpTransport {
   sent: unknown[] = []

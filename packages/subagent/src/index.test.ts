@@ -134,7 +134,10 @@ describe('SubagentDispatcher', () => {
       scope: 'project' as const,
       trusted: false,
     }
-    const registry = new AgentDefinitionRegistry({ volundHome: '/nonexistent', cwd: '/nonexistent' })
+    const registry = new AgentDefinitionRegistry({
+      volundHome: '/nonexistent',
+      cwd: '/nonexistent',
+    })
     vi.spyOn(registry, 'get').mockImplementation((name: string) =>
       name === 'helper' ? helper : undefined,
     )
@@ -155,11 +158,13 @@ describe('SubagentDispatcher', () => {
       trusted: false,
       definition: { name: 'helper', maxTurns: 3 },
     })
-    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'ghost' })).rejects.toMatchObject(
-      { code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT' },
-    )
+    await expect(
+      dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'ghost' }),
+    ).rejects.toMatchObject({ code: 'VOLUND_SUBAGENT_UNKNOWN_AGENT' })
     // 内置名无需定义即可用（RouterHint role 词汇维持原行为），且不携带附加定义。
-    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'planner' })).resolves.toBeDefined()
+    await expect(
+      dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'planner' }),
+    ).resolves.toBeDefined()
     expect(seen[1]).toBeUndefined()
   })
 
@@ -167,6 +172,8 @@ describe('SubagentDispatcher', () => {
     const dispatcher = new SubagentDispatcher({
       runnerFactory: (state) => fakeRunner(async () => state),
     })
-    await expect(dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'anything' })).resolves.toBeDefined()
+    await expect(
+      dispatcher.dispatch(parent(), { prompt: 'x', agentType: 'anything' }),
+    ).resolves.toBeDefined()
   })
 })

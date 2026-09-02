@@ -152,8 +152,7 @@ export class HttpSseTransport implements McpTransport {
           })
         : this.#listenLoop(onMessage).catch((error) => {
             // 服务器不提供 GET 监听流（405/404）是规范内降级，不算断线。
-            if (!this.#listenStreamDisabled && !this.#abort?.signal.aborted)
-              onClose(asError(error))
+            if (!this.#listenStreamDisabled && !this.#abort?.signal.aborted) onClose(asError(error))
           })
   }
   /**

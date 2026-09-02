@@ -36,9 +36,9 @@ describe('agent definition schema (§2.7.1)', () => {
   })
 
   it('parseAgentDefinition rejects tool whitelists exceeding the parent registry', () => {
-    expect(parseAgentDefinition(valid, { allowedTools: ['Read', 'Grep', 'Glob', 'Edit'] })).toMatchObject(
-      { name: 'code-explainer' },
-    )
+    expect(
+      parseAgentDefinition(valid, { allowedTools: ['Read', 'Grep', 'Glob', 'Edit'] }),
+    ).toMatchObject({ name: 'code-explainer' })
     expect(() => parseAgentDefinition(valid, { allowedTools: ['Read'] })).toThrow(
       /tools exceed parent registry: Grep, Glob/,
     )

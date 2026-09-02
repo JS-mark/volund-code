@@ -1,5 +1,5 @@
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
 import {
   access,
   appendFile,
@@ -24,6 +24,7 @@ import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
 
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
+import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
 import {
@@ -99,7 +100,6 @@ import {
   type JsonValue,
   type Logger,
 } from '@volund/shared'
-import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
 import {
@@ -119,11 +119,7 @@ import {
   SessionStore,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import {
-  AgentDefinitionRegistry,
-  SubagentDispatcher,
-  untrustedAgentBody,
-} from '@volund/subagent'
+import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import { ToolRegistry } from '@volund/tool-kit'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'

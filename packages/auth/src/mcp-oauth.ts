@@ -122,10 +122,7 @@ export class McpOAuthClient {
   }
 
   async #persist(token: StoredMcpToken): Promise<void> {
-    await this.options.store.set(
-      oauthCredentialKey(this.options.serverName),
-      JSON.stringify(token),
-    )
+    await this.options.store.set(oauthCredentialKey(this.options.serverName), JSON.stringify(token))
     await this.options.store.set(oauthHeaderKey(this.options.serverName), this.#headerValue(token))
   }
 
@@ -259,11 +256,10 @@ export class McpOAuthClient {
     const { spawn } = await import('node:child_process')
     const command =
       process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'
-    const child = spawn(
-      command,
-      process.platform === 'win32' ? ['/c', 'start', url] : [url],
-      { detached: true, stdio: 'ignore' },
-    )
+    const child = spawn(command, process.platform === 'win32' ? ['/c', 'start', url] : [url], {
+      detached: true,
+      stdio: 'ignore',
+    })
     child.unref?.()
   }
 
@@ -389,8 +385,7 @@ export class McpOAuthClient {
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: new URLSearchParams(fields).toString(),
     })
-    if (!response.ok)
-      throw new McpOAuthError(`token request failed: HTTP ${response.status}`)
+    if (!response.ok) throw new McpOAuthError(`token request failed: HTTP ${response.status}`)
     return (await response.json()) as Record<string, unknown>
   }
 }
