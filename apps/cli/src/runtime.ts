@@ -119,7 +119,12 @@ import {
   SessionStore,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
+import {
+  AgentDefinitionRegistry,
+  SubagentDispatcher,
+  untrustedAgentBody,
+  type ResolvedAgentDefinition,
+} from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import { ToolRegistry } from '@volund/tool-kit'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
@@ -205,7 +210,12 @@ import type { AppIdentity } from './shared/app-identity'
 import { SkillSlashCommands } from './skill-commands'
 import { DirectoryTrustStore } from './trust'
 
-export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
+/** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
+export type RunnerFactory = (
+  state: SessionState,
+  events: EventBus,
+  agent?: ResolvedAgentDefinition,
+) => Runner | Promise<Runner>
 const terminalStatuses = new Set(['done', 'aborted', 'error'])
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const historySecretPattern =
@@ -3338,7 +3348,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const registered = providers.get(agent.definition.model.provider)
       if (registered)
         router = new SingleProviderRouter(
-          registered.client,
+          registered,
           agent.definition.model.model,
           undefined,
           providers,

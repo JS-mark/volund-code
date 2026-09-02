@@ -29,7 +29,7 @@ afterEach(async () =>
 class FakeTransport implements McpTransport {
   sent: unknown[] = []
   onMessage?: (message: unknown) => void
-  onClose?: (error?: Error) => void
+  onClose: ((error?: Error) => void) | undefined
   closed = false
   constructor(readonly behavior: 'ok' | 'unauthorized' | 'crash' = 'ok') {}
   async start(onMessage: (message: unknown) => void, onClose?: (error?: Error) => void) {
