@@ -13,6 +13,9 @@ export interface SubagentPanelEntry {
   readonly status: SubagentPanelStatus
   readonly startedAt: number
   readonly endedAt?: number
+  /** 列表行预览（首行 ≤80 字符）。 */
+  readonly promptPreview: string
+  /** 完整 prompt（≤2000 字符，详情页展示）。 */
   readonly prompt: string
   readonly usage?: { input: number; output: number; costUSD: number }
   readonly toolCalls?: number
@@ -72,7 +75,7 @@ export function subagentListCommandView(entries: readonly SubagentPanelEntry[]):
     entries: entries.map((entry) => ({
       id: entry.sessionId,
       label: entry.agentType ?? 'task-agent',
-      value: entry.prompt,
+      value: entry.promptPreview,
       status: entry.status,
       detail: [
         `${entry.agentType ?? 'task-agent'} (depth ${entry.depth} · ${entry.status})`,
