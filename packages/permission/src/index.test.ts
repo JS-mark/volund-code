@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PermissionManager, type PermissionRequest } from './index'
+import { PermissionManager, permissionKey, type PermissionRequest } from './index'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },
@@ -382,5 +382,21 @@ describe('PermissionManager', () => {
     expect((await manager.request(network('git://example.com:9418/x'))).kind).toBe('allow-session')
     expect((await manager.request(network('git://example.com:9418/y'))).kind).toBe('allow-session')
     expect(prompt).toHaveBeenCalledTimes(2)
+  })
+})
+describe('permissionKey', () => {
+  it('is the shared grant-key unit: net collapses to origin, spec differences split keys', () => {
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/b', method: 'GET' } }))
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).not.toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'POST' } }))
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).not.toBe(
+      permissionKey('Bash', { bash: { command: 'git log' } }),
+    )
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).toBe(
+      permissionKey('Bash', { bash: { command: 'git status' } }),
+    )
   })
 })

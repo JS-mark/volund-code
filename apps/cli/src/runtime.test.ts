@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from './cli'
 import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
+import { PermissionRuleStore } from './permissions-store'
 import {
   buildStatusViewModel,
   collectPluginSkillDirs,
@@ -335,6 +336,86 @@ describe('production tool permission composition', () => {
       { spec: { bash: { command: rawCommand } } },
       { spec: { bash: { command: normalizedVariant } } },
     ])
+  })
+
+  it('persists an allow-forever grant to permissions.toml and replays it without prompting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permissions-chain-'))
+    fixtures.push(root)
+    const paths = {
+      project: join(root, '.volund', 'permissions.toml'),
+      global: join(root, 'home', 'permissions.toml'),
+    }
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-persist',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn().mockResolvedValueOnce('e')
+    const nativeExecute = vi.fn(async () => 'ran')
+    const context = (): ToolContext => ({
+      abortSignal: new AbortController().signal,
+      session: { id: state.id, cwd: state.cwd, turnId: 'turn-persist' },
+      native: { execute: nativeExecute },
+      logger,
+      ui: { requestInput: async () => '' },
+    })
+
+    // 第一个 session（line 模式）：用户按 e → allow-forever 落盘 <home>/permissions.toml
+    const firstChain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+      rules: new PermissionRuleStore(paths),
+    })
+    const first = await firstChain
+      .bindExecutor(context)
+      .execute(
+        new BashTool({ platform: 'darwin' }),
+        { command: 'git status' },
+        new AbortController().signal,
+        'toolu_persist_1',
+      )
+    expect(first.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    const saved = await readFile(paths.global, 'utf8')
+    expect(saved).toContain('git status')
+
+    // 第二个 session（none 模式、全新 store）：命中持久化规则 → 不弹窗直接放行；
+    // 未命中 key 的命令仍然 deny。（契约与生产 createRunner 一致：链构造前先 ready）
+    const reloadedRules = new PermissionRuleStore(paths)
+    await reloadedRules.ready()
+    const secondChain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'none' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      terminalIsInteractive: () => false,
+      rules: reloadedRules,
+    })
+    const executor = secondChain.bindExecutor(context)
+    const replay = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_persist_2',
+    )
+    expect(replay.isError).not.toBe(true)
+    const unmatched = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git log' },
+      new AbortController().signal,
+      'toolu_persist_3',
+    )
+    expect(unmatched.isError).toBe(true)
+    expect(unmatched.content).toEqual([{ type: 'text', text: 'Permission denied for Bash' }])
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
   })
 
   it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
