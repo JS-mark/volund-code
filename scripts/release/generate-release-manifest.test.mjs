@@ -478,6 +478,13 @@ void test('rejects malformed, empty, and component-free CycloneDX documents', ()
   )
 })
 
+void test('accepts the CycloneDX 1.7 spec version emitted by current syft', () => {
+  const identity = { version: SBOM_VERSION, commit: SBOM_COMMIT }
+  const normalized = normalizeReleaseSbom({ ...sbomFixture(), specVersion: '1.7' }, identity)
+  assert.equal(normalized.specVersion, '1.7')
+  assert.ok(normalized.metadata)
+})
+
 void test('rejects malformed and placeholder release identities', () => {
   for (const version of ['1', 'v1.2.3', '0.0.0', '0.0.0+build'])
     assert.throws(() => validateReleaseSbomIdentity({ version, commit: SBOM_COMMIT }))

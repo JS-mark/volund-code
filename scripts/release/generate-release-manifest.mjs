@@ -241,7 +241,8 @@ export const RELEASE_SBOM_LIMITS = Object.freeze({
   jsonNodes: 250_000,
   components: 50_000,
 })
-export const SUPPORTED_CYCLONEDX_SPEC_VERSIONS = Object.freeze(['1.4', '1.5', '1.6'])
+// syft（anchore/sbom-action 随上游升级）已输出 CycloneDX 1.7；1.4–1.6 保留兼容。
+export const SUPPORTED_CYCLONEDX_SPEC_VERSIONS = Object.freeze(['1.4', '1.5', '1.6', '1.7'])
 export const RELEASE_SBOM_IDENTITY_PROPERTIES = Object.freeze({
   commit: 'volund.release.commit',
   version: 'volund.release.version',
