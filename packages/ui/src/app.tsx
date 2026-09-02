@@ -16,6 +16,7 @@ import { SkillsPanel } from './components/SkillsPanel'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
 import { StreamingStatus, type StreamingPhase } from './components/StreamingStatus'
+import { SubagentsPanel } from './components/SubagentsPanel'
 import { TabbedListView } from './components/TabbedListView'
 import { TopBar } from './components/TopBar'
 import { WelcomeScreen } from './components/welcome/WelcomeScreen'
@@ -34,6 +35,8 @@ import { skillsListCommandView } from './skills-panel'
 import type { SkillsPanelController } from './skills-panel'
 import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
+import type { SubagentsPanelController } from './subagents-panel'
+import { subagentListCommandView } from './subagents-panel'
 import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
 import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
@@ -160,6 +163,8 @@ export interface InteractiveAppOptions {
   skills?: SkillsPanelController
   /** SKILLS-MCPS-r1 §S3.6：/mcp 面板控制器（apps/cli 原生装配）。 */
   mcp?: McpPanelController
+  /** SUBAGENTS-UI-r1：/subagents 运行管理面板控制器（apps/cli 原生装配）。 */
+  subagents?: SubagentsPanelController
   modelPicker?: ModelPickerState
   noColor?: boolean
   /**
@@ -219,6 +224,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [skillsPanelOpen, setSkillsPanelOpen] = useState(false)
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false)
+  const [subagentsPanelOpen, setSubagentsPanelOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
@@ -413,6 +419,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setStatusPanelOpen(false)
           setSkillsPanelOpen(false)
           setMcpPanelOpen(false)
+          setSubagentsPanelOpen(false)
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
@@ -475,6 +482,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setStatusPanelOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               setResumeCandidates(undefined)
               setMemoryOpen(true)
               setState((current) => ({
@@ -534,6 +542,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setMemoryOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
               setSkillsPanelOpen(true)
               setState((current) => ({
@@ -556,6 +565,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setMemoryOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
               setMcpPanelOpen(true)
               setState((current) => ({
@@ -566,6 +576,30 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('mcp', 'Browse and manage MCP servers', 120),
+      options.subagents
+        ? {
+            name: 'subagents',
+            order: 125,
+            description: 'Browse and manage subagent runs',
+            run: async ({ args }) => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
+              if (args[0] === 'list')
+                return subagentListCommandView(await options.subagents!.list())
+              setSubagentsPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'subagents',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('subagents', 'Browse and manage subagent runs', 125),
       options.skills
         ? {
             name: 'skill',
@@ -832,6 +866,19 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           onClose={() => {
             setMcpPanelOpen(false)
             setState((current) => ({ ...current, status: 'mcp closed' }))
+          }}
+        />
+      ) : null}
+      {subagentsPanelOpen && options.subagents ? (
+        <SubagentsPanel
+          controller={options.subagents}
+          {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onNotice={(text) => appendSystemMessage(setState, text)}
+          onClose={() => {
+            setSubagentsPanelOpen(false)
+            setState((current) => ({ ...current, status: 'subagents closed' }))
           }}
         />
       ) : null}

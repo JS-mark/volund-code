@@ -155,6 +155,7 @@ import type {
   StatusValue,
   SessionCandidate,
   McpPanelController,
+  SubagentsPanelController,
   SkillsPanelController,
   SkillsPanelEntry,
 } from '@volund/ui'
@@ -3035,6 +3036,33 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
   }
 
+  // ── SUBAGENTS-UI-r1：/subagents 面板控制器（dispatcher 运行注册表）──────────
+  // 运行是 REPL 进程本地的：面板即管理面，取消走 dispatcher.cancel 的
+  // interrupt 语义（子 session abort → DispatchResult.cancelled）。
+  const subagentsPanelController: SubagentsPanelController = {
+    async list() {
+      return dispatcher.list().map((entry) => ({
+        sessionId: entry.sessionId,
+        ...(entry.agentType ? { agentType: entry.agentType } : {}),
+        depth: entry.depth,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        ...(entry.endedAt === undefined ? {} : { endedAt: entry.endedAt }),
+        prompt: entry.prompt,
+        ...(entry.usage === undefined ? {} : { usage: entry.usage }),
+        ...(entry.toolCalls === undefined ? {} : { toolCalls: entry.toolCalls }),
+        ...(entry.detail === undefined ? {} : { detail: entry.detail }),
+      }))
+    },
+    async cancel(sessionId) {
+      if (!dispatcher.cancel(sessionId)) throw new Error(`Subagent ${sessionId} is not running`)
+      return `Subagent cancelled`
+    },
+    async cancelAll() {
+      return dispatcher.cancelAllRunning()
+    },
+  }
+
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
@@ -3568,6 +3596,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（原生装配，§S3.3/§S3.6）
           skills: skillsPanelController,
           mcp: mcpPanelController,
+          // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
+          subagents: subagentsPanelController,
           ...input,
         }),
       renderDirectoryTrustPrompt,
