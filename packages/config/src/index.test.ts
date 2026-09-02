@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { VolundError } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadConfig, loadTomlFile, validateConfig, type Config } from './index'
+import { loadConfig, loadTomlFile, parseTomlFile, validateConfig, type Config } from './index'
 describe('config layering', () => {
   it('filters project data-flow keys and applies env/flags last', async () => {
     const warning = vi.fn()
@@ -154,6 +154,24 @@ describe('loadTomlFile', () => {
     expect(config.contex).toBeUndefined()
     expect(config.context).toEqual({ policy: 'summary' })
     expect(config.ui).toEqual({ theme: 'dark' })
+    await rm(directory, { recursive: true, force: true })
+  })
+  it('keeps # inside quoted strings and strips bare comments (permissions round-trip)', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'volund-config-comment-'))
+    const path = join(directory, 'config.toml')
+    await writeFile(
+      path,
+      [
+        'basic = "pnpm test --filter \\"#tag\\"" # trailing comment',
+        'plain = "v" # note',
+        'list = [{"tool":"Bash","spec":{"bash":{"command":"echo #1"}}}]',
+      ].join('\n'),
+      'utf8',
+    )
+    const config = await parseTomlFile(path)
+    expect(config.basic).toBe('pnpm test --filter "#tag"')
+    expect(config.plain).toBe('v')
+    expect(config.list).toEqual([{ tool: 'Bash', spec: { bash: { command: 'echo #1' } } }])
     await rm(directory, { recursive: true, force: true })
   })
 })
