@@ -58,6 +58,13 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
     label: 'Always',
     quickKey: 'f',
   },
+  {
+    color: 'yellow',
+    id: 'allow-all-session',
+    hint: 'stop asking for the rest of this session; deny rules still apply',
+    label: 'Full access (this session)',
+    quickKey: 'g',
+  },
   { color: 'red', id: 'deny', hint: 'reject this run', label: 'Deny', quickKey: 'd' },
   {
     color: 'red',

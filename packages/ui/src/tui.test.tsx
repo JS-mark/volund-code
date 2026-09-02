@@ -1809,7 +1809,7 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('grants match exactly')
   })
 
-  it('exposes all six decision kinds and decides instantly via quick keys', async () => {
+  it('exposes all seven decision kinds and decides instantly via quick keys', async () => {
     const permissions = new PermissionPromptController()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
@@ -1853,6 +1853,7 @@ describe('renderInteractiveApp', () => {
       'For this session',
       'For this project',
       'Always',
+      'Full access (this session)',
       'Deny',
       'Never ask again',
     ])
