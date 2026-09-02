@@ -20,7 +20,11 @@ tools: [Read, Grep]
 ---
 Project-level body.`
 
-async function makeWorkspace(): Promise<{ home: string; cwd: string; cleanup: () => Promise<void> }> {
+async function makeWorkspace(): Promise<{
+  home: string
+  cwd: string
+  cleanup: () => Promise<void>
+}> {
   const root = await mkdtemp(join(tmpdir(), 'volund-agents-'))
   const home = join(root, 'home')
   const cwd = join(root, 'project')

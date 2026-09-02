@@ -353,7 +353,9 @@ describe('McpManager', () => {
     await vi.waitFor(() => expect(manager.snapshot()[0]).toMatchObject({ status: 'connected' }))
     expect(transports).toHaveLength(2)
     // 成功重连后计数清零，工具重新挂回。
-    expect(manager.snapshot()[0]).toEqual(expect.objectContaining({ status: 'connected', tools: 2 }))
+    expect(manager.snapshot()[0]).toEqual(
+      expect.objectContaining({ status: 'connected', tools: 2 }),
+    )
     expect(registry.get('mcp__flaky__read')).toBeDefined()
     await manager.close()
     // 新 transport（当前 client）被关闭；断线的旧 transport 本就已死，不会被二次 close。

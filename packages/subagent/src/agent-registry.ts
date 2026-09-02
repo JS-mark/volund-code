@@ -81,7 +81,9 @@ export class AgentDefinitionRegistry {
         const definition = parseAgentDefinition(data)
         const fileStem = basename(entry.name, '.md')
         if (definition.name !== fileStem)
-          throw new Error(`frontmatter name '${definition.name}' must match file name '${fileStem}'`)
+          throw new Error(
+            `frontmatter name '${definition.name}' must match file name '${fileStem}'`,
+          )
         this.#resolved.set(definition.name, {
           definition,
           path,

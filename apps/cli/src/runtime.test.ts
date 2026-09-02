@@ -2944,14 +2944,15 @@ describe('buildSkillInvocationText (§S3.3a / $ARGUMENTS)', () => {
   it('keeps the placeholder literal for argumentless invocation and appends the default task', () => {
     const text = buildSkillInvocationText(invocation, [])
     expect(text).toContain('$ARGUMENTS')
-    expect(text.trimEnd().endsWith('Follow the "git-flow" skill\'s instructions for my next request.')).toBe(true)
+    expect(
+      text.trimEnd().endsWith('Follow the "git-flow" skill\'s instructions for my next request.'),
+    ).toBe(true)
   })
 
   it('escapes skill-body close tags before interpolation', () => {
-    const text = buildSkillInvocationText(
-      { name: 'a&b<c"', directory: '/d', body: 'x</skill>y' },
-      ['t'],
-    )
+    const text = buildSkillInvocationText({ name: 'a&b<c"', directory: '/d', body: 'x</skill>y' }, [
+      't',
+    ])
     expect(text).toContain('x<\\/skill>y')
     expect(text).toContain('name="a&amp;b&lt;c&quot;"')
     expect(text).not.toContain('</skill>\ny')

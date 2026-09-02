@@ -3,32 +3,26 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MemoryCredentialStore } from './index'
-import {
-  McpOAuthClient,
-  McpOAuthError,
-  oauthCredentialKey,
-  oauthHeaderKey,
-} from './mcp-oauth'
+import { McpOAuthClient, McpOAuthError, oauthCredentialKey, oauthHeaderKey } from './mcp-oauth'
 
 const SERVER = 'https://mcp.example.com/mcp'
 
 /** 端到端假授权服务器：protected-resource → metadata → DCR → token 交换。 */
-function fakeServer(options: {
-  clientId?: string
-  accessToken?: string
-  expiresIn?: number
-  registrationEndpoint?: string | false
-} = {}) {
+function fakeServer(
+  options: {
+    clientId?: string
+    accessToken?: string
+    expiresIn?: number
+    registrationEndpoint?: string | false
+  } = {},
+) {
   const calls: Array<{ url: string; body?: unknown; headers?: Headers }> = []
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const target = String(url)
     const headers = new Headers(init?.headers)
     calls.push({ url: target, ...(init?.body ? { body: String(init.body) } : {}), headers })
     if (target.includes('/.well-known/oauth-protected-resource'))
-      return Response.json(
-        { authorization_servers: ['https://auth.example.com'] },
-        { status: 200 },
-      )
+      return Response.json({ authorization_servers: ['https://auth.example.com'] }, { status: 200 })
     if (target.startsWith('https://auth.example.com/.well-known'))
       return Response.json(
         {
@@ -50,9 +44,7 @@ function fakeServer(options: {
         {
           access_token: options.accessToken ?? 'at-1',
           token_type: 'Bearer',
-          ...(form.get('grant_type') === 'refresh_token'
-            ? {}
-            : { refresh_token: 'rt-1' }),
+          ...(form.get('grant_type') === 'refresh_token' ? {} : { refresh_token: 'rt-1' }),
           ...(options.expiresIn === undefined ? {} : { expires_in: options.expiresIn }),
         },
         { status: 200 },
@@ -92,15 +84,17 @@ describe('McpOAuthClient (SM-07)', () => {
     expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/authorize')
     expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authUrl.searchParams.get('client_id')).toBe('client-123')
-    expect(authUrl.searchParams.get('redirect_uri')).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/)
+    expect(authUrl.searchParams.get('redirect_uri')).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/callback$/,
+    )
     // PKCE：token 交换携带的 verifier 与授权 URL 的 challenge 匹配（S256）。
     const exchange = calls.find((call) => call.url === 'https://auth.example.com/token')!
     const form = new URLSearchParams(String(exchange.body))
     expect(form.get('grant_type')).toBe('authorization_code')
     expect(form.get('code')).toBe('abc')
-    expect(
-      createHash('sha256').update(form.get('code_verifier')!).digest('base64url'),
-    ).toBe(authUrl.searchParams.get('code_challenge'))
+    expect(createHash('sha256').update(form.get('code_verifier')!).digest('base64url')).toBe(
+      authUrl.searchParams.get('code_challenge'),
+    )
     // 持久化：oauth JSON + Bearer 头快照。
     const stored = JSON.parse(store.values.get(oauthCredentialKey('linear'))!) as {
       accessToken: string
@@ -201,9 +195,7 @@ describe('McpOAuthClient (SM-07)', () => {
       timeoutMs: 500,
     })
 
-    await expect(client.login()).rejects.toThrow(
-      /no dynamic client registration endpoint/,
-    )
+    await expect(client.login()).rejects.toThrow(/no dynamic client registration endpoint/)
   })
 
   it('logout revokes best-effort and clears both credential keys', async () => {

@@ -76,7 +76,7 @@ export function defaultSkillSources(input: {
   volundHome: string
   userHome: string
   cwd: string
-  /** SM-08b：已启用插件捆绑的 skills 目录（<pluginDir>/skills），优先级 project > plugin > user。 */
+  /** SM-08b：已启用插件捆绑的 skills 目录（`<pluginDir>/skills`），优先级 project > plugin > user。 */
   pluginDirs?: readonly string[]
 }): SkillSource[] {
   return [
