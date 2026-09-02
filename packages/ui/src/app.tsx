@@ -1,6 +1,6 @@
 import type { CoreEvent, EventBus } from '@volund/core'
 import { productIdentity } from '@volund/shared'
-import { Box, useApp, useStdout } from 'ink'
+import { Box, Text, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -245,6 +245,17 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // 斜杠命令执行中（如 /plugins 拉市场索引）：spinner 期 esc 不挂中断——
   // 命令不是会话 turn，interrupt 语义不适用。
   const [commandRunning, setCommandRunning] = useState(false)
+  // SUBAGENTS-UI-r1 §S4：turn 运行期输入框保持可用——斜杠命令即时执行
+  // （undo/compact/model/resume 除外），纯文本排队、turn 结束自动发出。
+  const [queuedInputs, setQueuedInputs] = useState<string[]>([])
+  const anyPanelOpen =
+    statusPanelOpen ||
+    memoryOpen ||
+    skillsPanelOpen ||
+    mcpPanelOpen ||
+    subagentsPanelOpen ||
+    modelPickerOpen ||
+    commandListView !== undefined
   const [registryCommands, setRegistryCommands] = useState(
     () => options.slashCommandRegistry?.snapshot() ?? [],
   )
@@ -654,10 +665,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         memoryOpen ||
         skillsPanelOpen ||
         mcpPanelOpen ||
+        subagentsPanelOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
         commandListView !== undefined ||
-        state.statusLevel === 'active' ||
+        commandRunning ||
         permissionRequests.length > 0
       }
       history={historyEntries}
@@ -668,6 +680,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       onSubmit={async (input) => {
         const trimmed = input.trim()
         if (!trimmed) return
+        const turnInFlight = state.statusLevel === 'active'
+        if (turnInFlight && trimmed.startsWith('/')) {
+          const busyName = trimmed.slice(1).split(/\s+/)[0] ?? ''
+          if (['undo', 'compact', 'model', 'resume'].includes(busyName)) {
+            appendSystemMessage(setState, `/${busyName} is not available while a turn is running`)
+            return
+          }
+        }
         if (trimmed === 'exit' || trimmed === 'quit') {
           await activeOnExit?.()
           exit()
@@ -715,6 +735,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           if (outcome.kind === 'submit') {
             setShowWelcome(false)
             settleStatus('info')
+            if (turnInFlight) {
+              setQueuedInputs((current) => [...current, outcome.text])
+              appendSystemMessage(
+                setState,
+                'queued — the skill will run when the current turn finishes',
+              )
+              return
+            }
             try {
               await options.history?.append(input)
               setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
@@ -729,6 +757,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           return
         }
         setShowWelcome(false)
+        if (turnInFlight) {
+          setQueuedInputs((current) => [...current, input])
+          appendSystemMessage(
+            setState,
+            'queued — the message will be sent when the current turn finishes',
+          )
+          return
+        }
         try {
           await options.history?.append(input)
           setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
@@ -755,6 +791,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // estimate, and esc-to-interrupt hint. Suppressed while a permission prompt
   // is open so esc unambiguously means "deny" there.
   const turnInFlight = state.statusLevel === 'active' && permissionRequests.length === 0
+  // 排队消息在 turn 收尾后自动发出（permission 弹窗期不算收尾，statusLevel 仍 active）
+  useEffect(() => {
+    if (state.statusLevel === 'active' || queuedInputs.length === 0) return
+    const next = queuedInputs.join('\n\n')
+    setQueuedInputs([])
+    void activeOnSubmit?.(next, submitOptions(modelOverride ?? ''))
+  }, [state.statusLevel, queuedInputs])
   const toolName = state.status.startsWith('running ')
     ? state.status.slice('running '.length)
     : undefined
@@ -766,7 +809,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const turnStatus = turnInFlight ? (
     <StreamingStatus
       active
-      {...(!commandRunning && activeOnInterrupt ? { onInterrupt: activeOnInterrupt } : {})}
+      // 面板打开时 esc 归面板（关面板），不得同时中断 turn——ink useInput 广播。
+      {...(!commandRunning && !anyPanelOpen && activeOnInterrupt
+        ? { onInterrupt: activeOnInterrupt }
+        : {})}
       {...(toolName ? { phaseDetail: toolName } : {})}
       phase={streamPhase}
       streamedChars={state.pendingAssistantText.length}
@@ -792,6 +838,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
           ) : null}
           {turnStatus}
+          {queuedInputs.length > 0 ? (
+            <Box paddingLeft={1}>
+              <Text color="gray">
+                {queuedInputs.length} queued message(s) — sent when the turn finishes
+              </Text>
+            </Box>
+          ) : null}
           {commandInput}
         </>
       )}

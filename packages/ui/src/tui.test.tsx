@@ -549,6 +549,66 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toHaveBeenCalledWith('hello', undefined)
   })
 
+  it('accepts input during a turn: slash commands run live, text queues until the turn ends', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: Array<string | undefined> = []
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onSubmit: (value) => {
+          submitted.push(value)
+        },
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    // turn 进入 active（stream 事件驱动）
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.started',
+      version: 1,
+    })
+
+    // 运行期输入不直接提交，而是排队
+    stdin.write('check the subagents result')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('queued'))
+    expect(submitted).toEqual([])
+
+    // 运行期斜杠命令即时执行（/help 只读）
+    stdin.write('/help')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Show slash commands'))
+
+    // turn 收尾 → 排队文本自动发出
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.completed',
+      version: 1,
+    })
+    await vi.waitFor(() => expect(submitted).toEqual(['check the subagents result']))
+    expect(stdout.output).toContain('1 queued message(s)')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders the static Ink shell and stream updates', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
