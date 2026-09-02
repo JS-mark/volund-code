@@ -549,6 +549,63 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toHaveBeenCalledWith('hello', undefined)
   })
 
+  it('keeps subagent bubble events out of the transcript (SUBAGENTS-UI-r1 background semantics)', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    // subagent 冒泡（dispatcher 经 EventBus.forward 加 D.3 tag）：对主转录不可见。
+    // forward 是真实转发路径（emit 类型上禁止自带 tag）。
+    await events.forward(
+      {
+        id: 'child-m-1-ev',
+        sessionId: 'child-session',
+        type: 'message.appended',
+        version: 1,
+        payload: {
+          messageId: 'child-m-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'child streaming chatter' }],
+        },
+        at: Date.now(),
+      },
+      { parentDepth: 1, parentTurnId: 'parent-turn' },
+    )
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).not.toContain('child streaming chatter')
+    // 父会话自己的事件照常渲染
+    await events.emit({
+      payload: {
+        messageId: 'm-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'parent reply' }],
+      },
+      sessionId: 'session-1234567890',
+      type: 'message.appended',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('parent reply')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('accepts input during a turn: slash commands run live, text queues until the turn ends', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
