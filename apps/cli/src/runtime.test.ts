@@ -418,6 +418,54 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).toHaveBeenCalledTimes(2)
   })
 
+  it('grants full access for the session via the g answer and stops prompting entirely', async () => {
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-full-access',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn().mockResolvedValueOnce('g')
+    const nativeExecute = vi.fn(async () => 'ran')
+    const chain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    const executor = chain.bindExecutor(
+      (): ToolContext => ({
+        abortSignal: new AbortController().signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-full-access' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const first = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_full_1',
+    )
+    expect(first.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    // 完全不同的命令也不再询问：会话级全放行已生效
+    const second = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'curl https://example.com' },
+      new AbortController().signal,
+      'toolu_full_2',
+    )
+    expect(second.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
+  })
+
   it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
     const events = new EventBus()
     const state = createSession({

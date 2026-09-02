@@ -1249,7 +1249,7 @@ async function permissionPrompt(
   const answer = (
     (await linePrompt(
       request.display.approvable
-        ? `Permission required: ${request.display.toolName} ${request.display.spec}\nmemory is exact-match: the same operation won't ask again; new ones ask once\n[a]llow once, allow [s]ession, allow [p]roject, allow for[e]ver, [d]eny, deny forever [x]: `
+        ? `Permission required: ${request.display.toolName} ${request.display.spec}\nmemory is exact-match: the same operation won't ask again; new ones ask once\n[a]llow once, allow [s]ession, allow [p]roject, allow for[e]ver, [g]rant full access, [d]eny, deny forever [x]: `
         : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
     )) ?? ''
   )
@@ -1259,6 +1259,7 @@ async function permissionPrompt(
   const byAnswer: Record<string, PermissionDecision['kind']> = {
     a: 'allow-once',
     s: 'allow-session',
+    g: 'allow-all-session',
     p: 'allow-project',
     e: 'allow-forever',
     d: 'deny',

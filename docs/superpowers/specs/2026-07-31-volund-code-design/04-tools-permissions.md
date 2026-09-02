@@ -186,6 +186,7 @@ export interface PermissionRequest {
 export type PermissionDecision =
   | { kind: 'allow-once' }
   | { kind: 'allow-session' }                       // 加入 SessionState.permissionCache
+  | { kind: 'allow-all-session' }                   // 弹窗内用户主动升级：本会话不再询问（deny 规则仍优先；仅内存，不持久化，子 session 不可授予）
   | { kind: 'allow-project' }                       // 写入 <cwd>/.volund/permissions.toml
   | { kind: 'allow-forever' }                       // 写入 ~/.volund/permissions.toml
   | { kind: 'deny' }                                // 单次拒绝
@@ -199,11 +200,12 @@ permission.request(req):
   1. 项目黑名单？→ deny
   2. 全局黑名单？→ deny
   3. SessionState.permissionCache 命中？→ allow
-  4. 项目 permissions.toml 命中？→ allow
-  5. 全局 permissions.toml 命中？→ allow
-  6. 内置 auto-allow 规则（仅 Read / Grep / Glob 在 cwd 内的显式文件读取）？→ allow
-  7. --dangerously-skip-permissions 标志？→ allow（写日志）
-  8. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储；无交互 prompt 时 deny
+  4. 会话 full-access 授权（allow-all-session）？→ allow
+  5. 项目 permissions.toml 命中？→ allow
+  6. 全局 permissions.toml 命中？→ allow
+  7. 内置 auto-allow 规则（仅 Read / Grep / Glob 在 cwd 内的显式文件读取）？→ allow
+  8. --dangerously-skip-permissions 标志？→ allow（写日志）
+  9. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储；无交互 prompt 时 deny
 ```
 
 **auto-allow 内置规则**（保守，用户可关）：

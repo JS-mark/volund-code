@@ -400,3 +400,22 @@ describe('permissionKey', () => {
     )
   })
 })
+describe('session full access', () => {
+  it('stops prompting for the rest of the session after allow-all-session, deny rules still win', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-all-session' as const }))
+    const manager = new PermissionManager({
+      globalDeny: (request) => request.spec.bash?.command === 'rm -rf /',
+    })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-all-session')
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-session')
+    expect((await manager.request(bashReq('anything at all'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // 黑名单仍然优先于完全访问
+    expect((await manager.request(bashReq('rm -rf /'))).kind).toBe('deny')
+    manager.clearSession()
+    // 清会话后完全访问失效，重新进入弹窗
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-all-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+})

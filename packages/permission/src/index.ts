@@ -30,7 +30,15 @@ export interface PermissionRequest {
   toolUseId?: string
 }
 export type PermissionDecision = {
-  kind: 'allow-once' | 'allow-session' | 'allow-project' | 'allow-forever' | 'deny' | 'deny-forever'
+  kind:
+    | 'allow-once'
+    | 'allow-session'
+    /** 用户在弹窗里主动升级：本会话内不再询问（deny 规则仍然优先）。 */
+    | 'allow-all-session'
+    | 'allow-project'
+    | 'allow-forever'
+    | 'deny'
+    | 'deny-forever'
 }
 export interface PermissionRules {
   projectDeny?: (request: PermissionRequest) => boolean
@@ -66,6 +74,8 @@ export class PermissionManager {
   >()
   #queue = Promise.resolve()
   #prompt?: PromptHandler
+  /** 弹窗里选了 Full access 后置位：本会话不再询问（仅内存，不持久化）。 */
+  #sessionFullAccess = false
   constructor(
     readonly rules: PermissionRules = {},
     readonly options: {
@@ -83,12 +93,15 @@ export class PermissionManager {
   }
   clearSession(): void {
     this.#cache.clear()
+    this.#sessionFullAccess = false
   }
   async request(request: PermissionRequest): Promise<PermissionDecision> {
     if (this.rules.projectDeny?.(request)) return { kind: 'deny' }
     if (this.rules.globalDeny?.(request)) return { kind: 'deny' }
     const cached = this.#cache.get(keyOf(request))
     if (cached) return { kind: cached }
+    // 会话级完全访问：deny 规则与已缓存决策之后、scoped allow 之前短路。
+    if (this.#sessionFullAccess) return { kind: 'allow-session' }
     if (this.rules.projectAllow?.(request)) return { kind: 'allow-project' }
     if (this.rules.globalAllow?.(request)) return { kind: 'allow-forever' }
     const automatic = this.autoAllow(request)
@@ -131,6 +144,7 @@ export class PermissionManager {
       decision.kind === 'deny-forever'
     )
       this.#cache.set(keyOf(request), decision.kind)
+    if (decision.kind === 'allow-all-session') this.#sessionFullAccess = true
     if (decision.kind === 'allow-project') await this.options.persist?.('project', request, true)
     if (decision.kind === 'allow-forever') await this.options.persist?.('global', request, true)
     if (decision.kind === 'deny-forever') await this.options.persist?.('global', request, false)
