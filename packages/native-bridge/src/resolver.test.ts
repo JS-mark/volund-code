@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -22,8 +23,13 @@ afterEach(() => {
 
 describe('standaloneArtifactDir', () => {
   it('resolves next to the bundle under a normal node run', () => {
-    expect(standaloneArtifactDir('file:///opt/volund/dist/volund.js', '/usr/local/bin/node')).toBe(
-      '/opt/volund/dist',
+    // fileURLToPath 在 Windows 上要求盘符路径：夹具按当前平台构造合法 file URL。
+    const artifactPath =
+      process.platform === 'win32'
+        ? 'C:\\opt\\volund\\dist\\volund.js'
+        : '/opt/volund/dist/volund.js'
+    expect(standaloneArtifactDir(pathToFileURL(artifactPath).href, '/usr/local/bin/node')).toBe(
+      join(artifactPath, '..'),
     )
   })
 
