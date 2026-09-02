@@ -18,6 +18,19 @@
       "dependsOn": ["^build", "//#verify:config-docs", "//#verify:error-codes"],
       "outputs": []
     },
+    "@volund/docs#typecheck": {
+      "dependsOn": ["build", "^build", "//#check:typescript-config"],
+      "outputs": ["api/**"]
+    },
+    "@volund/docs#test": {
+      "dependsOn": [
+        "^build",
+        "@volund/docs#typecheck",
+        "//#verify:config-docs",
+        "//#verify:error-codes"
+      ],
+      "outputs": []
+    },
     "typecheck": {
       "dependsOn": ["build", "^build", "//#check:typescript-config"],
       "outputs": []
