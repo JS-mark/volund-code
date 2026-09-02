@@ -1805,6 +1805,8 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('out.md')
     expect(stdout.output).not.toContain('{"fs"')
     expect(stdout.output).toContain('Allow once')
+    expect(stdout.output).toContain('remembered in ~/.volund/permissions.toml')
+    expect(stdout.output).toContain('grants match exactly')
   })
 
   it('exposes all six decision kinds and decides instantly via quick keys', async () => {
