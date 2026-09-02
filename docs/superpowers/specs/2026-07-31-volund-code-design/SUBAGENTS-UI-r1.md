@@ -24,6 +24,10 @@ subagent 的可见性此前只有模型侧的 `Task` 工具调用与 D.3 冒泡�
 - 保留策略：环形上限（默认 100 条，最旧淘汰），跨 turn 保留供回看。
 - `onRunsChange` 回调 + `list()` 快照（新者在前）供面板轮询/热更新。
 
+## §S1.1 后台静默语义
+
+subagent 执行**不进主转录**：D.3 冒泡事件（envelope 带 `parentTurnId`/`parentDepth` tag）在交互层被过滤——主界面运行期只呈现 `running Task` 状态行，子会话的流式文本/工具调用/中间事件一律不可见；持久化（session JSONL）由 runtime 层订阅负责，仍按 D.3 记录。实时进度走 `/subagents` 面板（秒级轮询），最终结果以 Task 的 tool_result 落转录。
+
 ## §S2 数据契约（packages/ui）
 
 `SubagentsPanelController { list, cancel, cancelAll }` + `SubagentPanelEntry`（K0 纯数据，与 mcp-panel 同构）；`subagentPanelStatusGlyph`（●运行/●完成/◐部分/✘失败/○取消——运行与完成同 glyph，以颜色区分：cyan/green）；`subagentDuration`（mm:ss，逾时进 h:mm:ss）；`subagentListCommandView`（`/subagents list` 的非面板形态）。

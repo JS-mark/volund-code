@@ -310,6 +310,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeEvents,
     useCallback(
       (event) => {
+        // SUBAGENTS-UI-r1：subagent 冒泡事件（附录 D.3 tag）不进交互态——
+        // 子会话在后台静默执行，进度走 /subagents 面板；主转录只保留 Task 的
+        // 最终 tool_result。持久化由 runtime 层订阅负责，不受此过滤影响。
+        if ('parentTurnId' in event || (event.parentDepth ?? 0) > 0) return
         if (event.type === 'stream.started') {
           streamBuffer.reset()
           setShowWelcome(false)
