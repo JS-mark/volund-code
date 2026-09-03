@@ -115,6 +115,23 @@ describe('PermissionRuleStore', () => {
     expect(reloaded.isAllowed('global', bashRequest(command))).toBe(true)
   })
 
+  it('writes strict TOML inline tables and preserves key order through a round-trip', async () => {
+    const { paths, store } = await createStore()
+    await store.ready()
+    await store.persist('project', bashRequest('git status'), true)
+
+    // 真 TOML 内联表（= 语法），外部 TOML 工具可读；键序与原请求 spec 一致
+    // （grant key 依赖 spec 键序，往返规范化会静默失配）。
+    const saved = await readFile(paths.project, 'utf8')
+    expect(saved).toContain(
+      'allow = [{ tool = "Bash", spec = { bash = { command = "git status" }, fs = { read = ["."], write = ["."] } } }]',
+    )
+
+    const reloaded = new PermissionRuleStore(paths)
+    await reloaded.ready()
+    expect(reloaded.isAllowed('project', bashRequest('git status'))).toBe(true)
+  })
+
   it('warns on a corrupt file, loads as empty, and refuses to overwrite it', async () => {
     const logger = spyLogger()
     const { directory, store } = await createStore(logger as unknown as Logger)
