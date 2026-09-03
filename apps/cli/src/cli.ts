@@ -809,9 +809,9 @@ export async function runCli(
       throw new Error(
         `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`,
       )
-    ports.permissionMode?.set(
-      args.yolo || args.dangerouslySkipPermissions ? 'full' : (flagMode ?? 'ask'),
-    )
+    // 显式 flag 才覆盖；否则落到 [permissions] mode 用户级 config 或默认 ask
+    if (args.yolo || args.dangerouslySkipPermissions) ports.permissionMode?.set('full')
+    else if (flagMode) ports.permissionMode?.set(flagMode)
   }
   ports.session.configurePermissionInteraction?.({ mode: permissionInteractionMode })
   ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })

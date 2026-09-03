@@ -95,6 +95,8 @@ export const configKeyRegistry = {
   // 实现内建段：apps/cli 状态面板本地偏好（附录 C 已补录 outputStyle / language 两行，
   // 整段开放 JSON 值，registry 以 preferences.* 通配登记）
   'preferences.*': 'allowed',
+  // §4.4 权限模式只能用户级决定：项目级 config 不得提升（auto/full 属提权面）
+  'permissions.mode': 'forbidden',
 } as const satisfies Record<string, ProjectOverride>
 
 export type ConfigKeyId = keyof typeof configKeyRegistry
@@ -273,6 +275,13 @@ export const ConfigSchema = z.strictObject({
       anthropic_api_key: z.string().optional(),
     })
     .catchall(z.json())
+    .optional(),
+  // [permissions] 段（§4.4 三档会话模式）：用户级默认档；mode 项目级禁止
+  // （clone 来的仓库不得给自己提权），未知 key 按 C.1 fail
+  permissions: z
+    .strictObject({
+      mode: z.enum(['ask', 'auto', 'full']).optional(),
+    })
     .optional(),
   preferences: openSection.optional(),
 })

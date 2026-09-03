@@ -31,6 +31,7 @@ import {
   builtinPromptFragment,
   createSession,
   DefaultPromptComposer,
+  type PromptFragment,
   EventBus,
   MachineEventFormatter,
   EvolutionEngine,
@@ -1506,6 +1507,19 @@ function buildPermissionDisplay(
   return { approvable: true, spec: sanitizedSpec.text, toolName: sanitizedToolName.text }
 }
 
+/**
+ * [preferences] language 的回复语言强制片段（§6b）：显式配置才注册——不配则模型
+ * 跟随输入语言，中英混杂；配置后即使输入是英文也按配置语言回复。
+ */
+export function languagePromptFragment(language: string): PromptFragment {
+  return {
+    id: 'preferences:language',
+    source: 'preferences:language',
+    priority: 900,
+    text: `## Language\nAlways respond in ${language}, regardless of the language of the user's message, tool output, or any other content. Keep code, identifiers, and file paths as-is.`,
+  }
+}
+
 export async function requestPermission(input: {
   events: EventBus
   interactionMode: PermissionInteractionMode
@@ -2672,6 +2686,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         set(mode: PermissionSessionMode): void
       }
     | undefined
+  // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
+  let overridePermissionMode: PermissionSessionMode | undefined
+  let configPermissionMode: PermissionSessionMode | undefined
+  void readConfigFileOrEmpty(join(home, 'config.toml'))
+    .then((config) => {
+      const section = config.permissions
+      if (!section || typeof section !== 'object' || Array.isArray(section)) return
+      const mode = (section as Record<string, JsonValue>).mode
+      if (mode !== 'ask' && mode !== 'auto' && mode !== 'full') return
+      configPermissionMode = mode
+      if (!overridePermissionMode) permissionPolicy.configureMode({ mode })
+    })
+    .catch(() => {})
 
   // ── SKILLS-MCPS-r1：/skills 与 /mcp 的运行期装配（原生，不经插件桥）──────────
   // skills：多作用域发现（每个 Runner 一个 SkillsRuntime，共享同一个可变 disabled
@@ -3232,6 +3259,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       typeof preferencesSection.model === 'string'
         ? preferencesSection.model.replace(/^anthropic\//, '')
         : undefined
+    const preferredLanguage =
+      preferencesSection &&
+      typeof preferencesSection === 'object' &&
+      !Array.isArray(preferencesSection) &&
+      typeof preferencesSection.language === 'string' &&
+      preferencesSection.language.trim().length > 0
+        ? preferencesSection.language.trim()
+        : undefined
     const providerModel =
       anthropicEntry &&
       typeof anthropicEntry === 'object' &&
@@ -3247,6 +3282,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     })
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
+    // [preferences] language：显式配置才注入回复语言强制；不配则模型跟随输入语言。
+    if (typeof preferredLanguage === 'string' && preferredLanguage !== 'system')
+      composer.register(languagePromptFragment(preferredLanguage))
     registerRuntimeMemoryPrompts(composer, memory, state)
     const promptLoader = new PromptLoader({
       cwd: state.cwd,
@@ -3692,8 +3730,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     trust,
     // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
     permissionMode: {
-      current: () => activePermissionControl?.get() ?? permissionPolicy.currentMode(),
+      current: () =>
+        activePermissionControl?.get() ?? overridePermissionMode ?? configPermissionMode ?? 'ask',
       set: (mode) => {
+        overridePermissionMode = mode
         permissionPolicy.configureMode({ mode })
         activePermissionControl?.set(mode)
       },
