@@ -20,6 +20,8 @@ interface DecisionOption {
   /** 记忆范围说明：grant 按 tool+参数 精确匹配，新操作各自第一次仍会问。 */
   hint: string
   quickKey: string
+  /** 次要选项：不进选项列表（快捷键仍直接生效），只在底部暗字提示。 */
+  secondary?: boolean
 }
 
 /** Escaped-newline token produced by the injective permission formatter. */
@@ -50,6 +52,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
     hint: 'remembered in .volund/permissions.toml for this repo',
     label: 'For this project',
     quickKey: 'p',
+    secondary: true,
   },
   {
     color: 'magenta',
@@ -57,6 +60,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
     hint: 'remembered in ~/.volund/permissions.toml, across sessions',
     label: 'Always',
     quickKey: 'f',
+    secondary: true,
   },
   {
     color: 'yellow',
@@ -72,6 +76,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
     hint: 'blacklist this exact operation globally',
     label: 'Never ask again',
     quickKey: 'x',
+    secondary: true,
   },
 ]
 
@@ -377,8 +382,14 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
           {requests.length > 1 ? ' · ←/→ switch' : ''}
           {' · esc deny'}
         </Text>
-        <Text color="gray">
-          {'grants match exactly: a new command, path, or site asks once, then is remembered'}
+        <Text color="gray" wrap="truncate">
+          {DECISION_OPTIONS.filter((option) => option.secondary)
+            .map((option) => `${option.quickKey} ${option.label}`)
+            .join(' · ')}
+          {' — keys work now'}
+        </Text>
+        <Text color="gray" wrap="truncate">
+          {'grants match exactly: new commands, paths, or sites ask once'}
         </Text>
       </Box>
     </Box>
@@ -386,9 +397,10 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
 }
 
 function optionsFor(request: InteractivePermissionRequest | undefined): readonly DecisionOption[] {
-  if (!request) return DECISION_OPTIONS
-  if (!request.display.approvable) return DECISION_OPTIONS.filter((o) => o.id === 'deny')
-  return DECISION_OPTIONS
+  const primary = DECISION_OPTIONS.filter((option) => !option.secondary)
+  if (!request) return primary
+  if (!request.display.approvable) return primary.filter((o) => o.id === 'deny')
+  return primary
 }
 
 function quickDecision(
