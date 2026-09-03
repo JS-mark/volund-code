@@ -50,10 +50,10 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
   }
 }
 
-/** 探针三态 → 欢迎屏展示行：loaded 绿 / probing 黄 / 不可用红。 */
+/** 探针三态 → 欢迎屏展示行：loaded 绿 / probing 黄 / 不可用红。
+ * 只列 search/fs：sandbox 的加载结果已由底行 mechanism/tier 呈现，重复行没信息量。 */
 function nativeRows(native: WelcomeNativeStatus | undefined) {
   const modules = [
-    { key: 'sandbox' as const, state: native?.sandbox },
     { key: 'search' as const, state: native?.search },
     { key: 'fs' as const, state: native?.fs },
   ]

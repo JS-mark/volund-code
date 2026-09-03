@@ -69,6 +69,7 @@ export interface WelcomePermissionStatus {
 export type NativeModuleStatus = 'probing' | 'loaded' | 'unavailable'
 
 export interface WelcomeNativeStatus {
+  /** 随探针快照携带但不渲染成行：sandbox 加载结果由底行 mechanism/tier 呈现。 */
   fs: NativeModuleStatus
   sandbox: NativeModuleStatus
   search: NativeModuleStatus
