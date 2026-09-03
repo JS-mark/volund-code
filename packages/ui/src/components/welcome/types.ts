@@ -8,11 +8,10 @@ export interface WelcomeScreenState {
   app: { name: string; version: string }
   workspace: { displayCwd: string; trustLabel: string; trustTone: StatusTone }
   provider: { label: string }
-  sandbox: { label: string; tone: StatusTone }
   permission: { label: string; tone: StatusTone }
   session: { label: string; tokensRemainingLabel: string | null }
   agent: { mode: string; status: string; thinking: 'on' | 'off' }
-  /** native-bridge 探针加载状态行（search/fs；sandbox 已由底行 mechanism/tier 呈现）。 */
+  /** native-bridge 探针加载状态（sandbox/search/fs 各一行）；缺省视为 probing。 */
   native: ReadonlyArray<{ label: string; state: string; tone: StatusTone }>
 }
 

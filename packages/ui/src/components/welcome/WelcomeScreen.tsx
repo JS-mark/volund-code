@@ -69,7 +69,7 @@ export function WelcomeScreen({
                 </Text>
               </Text>
               <Text color="gray" wrap="truncate-end">
-                {`${state.session.label} · sandbox ${state.sandbox.label} · permission `}
+                {`${state.session.label} · permission `}
                 <Text color={colorForTone(state.permission.tone)}>{state.permission.label}</Text>
               </Text>
             </Box>
