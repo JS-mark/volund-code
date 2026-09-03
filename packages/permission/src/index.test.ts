@@ -1,6 +1,15 @@
+import { join } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
-import { PermissionManager, permissionKey, type PermissionRequest } from './index'
+import {
+  generalizePermissionSpec,
+  matchPath,
+  PermissionManager,
+  permissionKey,
+  permissionRuleMatches,
+  type PermissionRequest,
+} from './index'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },
@@ -449,5 +458,96 @@ describe('session permission modes', () => {
     expect(prompt).not.toHaveBeenCalled()
     manager.clearSession()
     expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+  })
+})
+describe('generalizePermissionSpec', () => {
+  const cwd = process.cwd()
+  it('collapses in-cwd concrete paths to one <cwd>/** subtree pattern', () => {
+    const spec = generalizePermissionSpec(
+      { fs: { write: [join(cwd, 'a.md'), join(cwd, 'src', 'b.ts')] } },
+      cwd,
+    )
+    expect(spec.fs?.write).toEqual([`${cwd}/**`])
+  })
+  it('keeps existing globs and out-of-cwd paths as-is', () => {
+    const spec = generalizePermissionSpec(
+      { fs: { read: ['docs/**/*.md'], write: ['/etc/hosts', join(cwd, 'in.md')] } },
+      cwd,
+    )
+    expect(spec.fs?.read).toEqual(['docs/**/*.md'])
+    expect(spec.fs?.write).toEqual(['/etc/hosts', `${cwd}/**`])
+  })
+  it('returns bash / net specs untouched (identity is command / origin)', () => {
+    const bashSpec = { bash: { command: 'git status' }, fs: { read: ['.'], write: ['.'] } }
+    expect(generalizePermissionSpec(bashSpec, cwd)).toBe(bashSpec)
+    const netSpec = { net: { url: 'https://example.dev/a', method: 'GET' as const } }
+    expect(generalizePermissionSpec(netSpec, cwd)).toBe(netSpec)
+  })
+})
+describe('permissionRuleMatches', () => {
+  const cwd = process.cwd()
+  const writeReq = (path: string, spec: PermissionRequest['spec'] = { fs: { write: [path] } }) =>
+    ({
+      toolName: 'Write',
+      spec,
+      input: {},
+      session: { id: 's', cwd },
+      attempt: 1,
+    }) as PermissionRequest
+  const bashReqFor = (command: string): PermissionRequest => ({
+    toolName: 'Bash',
+    spec: { bash: { command } },
+    input: { command },
+    session: { id: 's', cwd },
+    attempt: 1,
+  })
+  it('a <cwd>/** allow rule covers sibling files but not other trees', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'src', 'new.ts')))).toBe(true)
+    expect(permissionRuleMatches(rule, writeReq('/etc/hosts'))).toBe(false)
+  })
+  it('every requested path must be covered — request ⊆ rule, otherwise fail closed', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`] } } }
+    expect(
+      permissionRuleMatches(
+        rule,
+        writeReq(join(cwd, 'ok.md'), { fs: { write: [join(cwd, 'ok.md'), '/etc/hosts'] } }),
+      ),
+    ).toBe(false)
+  })
+  it('a rule granting more surfaces than the request touches still matches', () => {
+    const rule = { tool: 'Write', spec: { fs: { write: [`${cwd}/**`], read: [`${cwd}/**`] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'x.md')))).toBe(true)
+  })
+  it('bash rules match commands exactly unless the stored command carries a glob', () => {
+    const exact = { tool: 'Bash', spec: { bash: { command: 'git status' } } }
+    expect(permissionRuleMatches(exact, bashReqFor('git status'))).toBe(true)
+    expect(permissionRuleMatches(exact, bashReqFor('git status --short'))).toBe(false)
+    const prefix = { tool: 'Bash', spec: { bash: { command: 'git *' } } }
+    expect(permissionRuleMatches(prefix, bashReqFor('git log --oneline'))).toBe(true)
+    expect(permissionRuleMatches(prefix, bashReqFor('gitk'))).toBe(false)
+  })
+  it('net rules still match by origin and split on method; tool name gates everything', () => {
+    const rule = {
+      tool: 'WebFetch',
+      spec: { net: { url: 'https://example.com/a', method: 'GET' as const } },
+    }
+    const netReq = (url: string, method: 'GET' | 'POST' = 'GET'): PermissionRequest => ({
+      toolName: 'WebFetch',
+      spec: { net: { url, method } },
+      input: {},
+      session: { id: 's', cwd },
+      attempt: 1,
+    })
+    expect(permissionRuleMatches(rule, netReq('https://example.com/other'))).toBe(true)
+    expect(permissionRuleMatches(rule, netReq('https://example.com/x', 'POST'))).toBe(false)
+    expect(permissionRuleMatches(rule, netReq('https://other.com/a'))).toBe(false)
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'x.md')))).toBe(false)
+  })
+  it('an invalid stored pattern fails closed instead of throwing', () => {
+    // 裸名 glob 不被方言支持：matchPath 会抛，规则匹配必须吞掉按不命中处理
+    expect(() => matchPath('bare-*.toml', join(cwd, 'bare-x.toml'))).toThrow()
+    const rule = { tool: 'Write', spec: { fs: { write: ['bare-*.toml'] } } }
+    expect(permissionRuleMatches(rule, writeReq(join(cwd, 'bare-x.toml')))).toBe(false)
   })
 })

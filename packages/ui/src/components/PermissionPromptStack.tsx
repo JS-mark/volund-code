@@ -17,7 +17,7 @@ interface DecisionOption {
   color: string
   id: InteractivePermissionDecisionKind
   label: string
-  /** 记忆范围说明：grant 按 tool+参数 精确匹配，新操作各自第一次仍会问。 */
+  /** 记忆范围说明：项目内文件路径落盘为 <repo>/** 模式；bash/net 按 command/origin 精确记忆。 */
   hint: string
   quickKey: string
   /** 次要选项：不进选项列表（快捷键仍直接生效），只在底部暗字提示。 */
@@ -49,7 +49,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
   {
     color: 'blue',
     id: 'allow-project',
-    hint: 'remembered in .volund/permissions.toml for this repo',
+    hint: 'remembered in .volund/permissions.toml; in-repo paths → <repo>/**',
     label: 'For this project',
     quickKey: 'p',
     secondary: true,
@@ -57,7 +57,7 @@ const DECISION_OPTIONS: readonly DecisionOption[] = [
   {
     color: 'magenta',
     id: 'allow-forever',
-    hint: 'remembered in ~/.volund/permissions.toml, across sessions',
+    hint: 'remembered in ~/.volund/permissions.toml; in-project paths → <repo>/**',
     label: 'Always',
     quickKey: 'f',
     secondary: true,
@@ -389,7 +389,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
           {' — keys work now'}
         </Text>
         <Text color="gray" wrap="truncate">
-          {'grants match exactly: new commands, paths, or sites ask once'}
+          {'in-repo paths remembered as <repo>/**; new commands or sites still ask once'}
         </Text>
       </Box>
     </Box>

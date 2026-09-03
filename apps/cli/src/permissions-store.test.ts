@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -43,6 +44,14 @@ const netRequest = (url: string): PermissionRequest => ({
   spec: { net: { url, method: 'GET' } },
   input: { url },
   session: { id: 's', cwd: process.cwd() },
+  attempt: 1,
+})
+
+const writeRequest = (path: string, cwd: string): PermissionRequest => ({
+  toolName: 'Write',
+  spec: { fs: { write: [path] } },
+  input: { file_path: path },
+  session: { id: 's', cwd },
   attempt: 1,
 })
 
@@ -148,5 +157,45 @@ describe('PermissionRuleStore', () => {
     expect(await readFile(projectFile, 'utf8')).toBe('allow = [{"tool": "Bash"')
     // 内存决策仍然生效（本次进程内继续放行），只是没有落盘
     expect(store.isAllowed('project', bashRequest('git status'))).toBe(true)
+  })
+
+  it('generalizes in-project write grants to <cwd>/** and replays them for sibling files', async () => {
+    const { paths, store } = await createStore()
+    await store.ready()
+    // matchPath 会对被检路径做 realpath，模式必须按真实路径书写（macOS /var → /private/var）
+    const projectRoot = realpathSync(await mkdtemp(join(tmpdir(), 'volund-permissions-glob-')))
+    fixtures.push(projectRoot)
+
+    await store.persist('project', writeRequest(join(projectRoot, 'src', 'a.ts'), projectRoot), true)
+
+    const saved = await readFile(paths.project, 'utf8')
+    expect(saved).toContain(`write = ["${projectRoot}/**"]`)
+
+    const reloaded = new PermissionRuleStore(paths)
+    await reloaded.ready()
+    // 兄弟文件命中模式：不再逐文件重复弹窗
+    expect(reloaded.isAllowed('project', writeRequest(join(projectRoot, 'docs', 'b.md'), projectRoot))).toBe(true)
+    // 项目子树之外的路径不命中
+    expect(reloaded.isAllowed('project', writeRequest('/etc/hosts', projectRoot))).toBe(false)
+  })
+
+  it('keeps out-of-project paths exact: allowing one file does not extend to its directory', async () => {
+    const { store } = await createStore()
+    await store.ready()
+    // /etc 之类是 symlink（realpath 后变 /private/etc），用真实目录测字面量精确匹配
+    const outside = realpathSync(await mkdtemp(join(tmpdir(), 'volund-permissions-out-')))
+    fixtures.push(outside)
+    await store.persist('global', writeRequest(join(outside, 'hosts'), process.cwd()), true)
+    expect(store.isAllowed('global', writeRequest(join(outside, 'hosts'), process.cwd()))).toBe(true)
+    expect(store.isAllowed('global', writeRequest(join(outside, 'passwd'), process.cwd()))).toBe(false)
+  })
+
+  it('keeps deny-forever exact while allow generalizes', async () => {
+    const { store } = await createStore()
+    await store.ready()
+    const root = process.cwd()
+    await store.persist('global', writeRequest(join(root, 'danger.md'), root), false)
+    expect(store.isDenied('global', writeRequest(join(root, 'danger.md'), root))).toBe(true)
+    expect(store.isDenied('global', writeRequest(join(root, 'safe.md'), root))).toBe(false)
   })
 })
