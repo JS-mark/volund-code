@@ -689,7 +689,7 @@ export function serializeToml(config: Record<string, JsonValue>): string {
   for (const [key, value] of Object.entries(config)) {
     if (value && typeof value === 'object' && !Array.isArray(value))
       tables.push({ path: key, value: value as Record<string, JsonValue> })
-    else lines.push(`${tomlKey(key)} = ${JSON.stringify(value)}`)
+    else lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
   }
   const emitTable = (path: string, table: Record<string, JsonValue>) => {
     const scalars = Object.entries(table).filter(
@@ -699,11 +699,27 @@ export function serializeToml(config: Record<string, JsonValue>): string {
       ([, value]) => value && typeof value === 'object' && !Array.isArray(value),
     ) as Array<[string, Record<string, JsonValue>]>
     if (scalars.length > 0 || nested.length === 0) lines.push('', `[${tomlSectionPath(path)}]`)
-    for (const [key, value] of scalars) lines.push(`${tomlKey(key)} = ${JSON.stringify(value)}`)
+    for (const [key, value] of scalars) lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
     for (const [key, value] of nested) emitTable(`${path}.${key}`, value)
   }
   for (const table of tables) emitTable(table.path, table.value)
   return `${lines.join('\n').replace(/^\n+/, '')}\n`
+}
+/**
+ * TOML 值序列化：标量走 JSON（basic string 转义与 TOML 兼容），嵌套结构产出
+ * TOML 内联表/数组（`{ tool = "Bash" }`，`=` 语法）——permissions.toml 的对象
+ * 数组必须能被外部 TOML 工具读取，不能落成 JSON 的冒号语法。键序原样保留
+ * （grant key 依赖 spec 键序，往返不得规范化）。
+ */
+function tomlValue(value: JsonValue): string {
+  if (Array.isArray(value)) return `[${value.map((item) => tomlValue(item)).join(', ')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).map(
+      ([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`,
+    )
+    return entries.length > 0 ? `{ ${entries.join(', ')} }` : '{}'
+  }
+  return JSON.stringify(value)
 }
 function tomlKey(key: string): string {
   return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)
