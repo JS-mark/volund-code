@@ -1805,7 +1805,9 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('out.md')
     expect(stdout.output).not.toContain('{"fs"')
     expect(stdout.output).toContain('Allow once')
-    expect(stdout.output).toContain('remembered in ~/.volund/permissions.toml')
+    // 次要范围选项（project/always/never）收进底部暗字提示，快捷键仍直接生效
+    expect(stdout.output).toContain('p For this project · f Always · x Never ask again')
+    expect(stdout.output).toContain('Full access (this session)')
     expect(stdout.output).toContain('grants match exactly')
   })
 
