@@ -224,7 +224,7 @@ export const ErrorCodes = {
   themeInvalidJson: 'theme_invalid_json',
   themeVersionUnsupported: 'theme_version_unsupported',
 
-  /* ── volund_* 传输 / 协议 / subagent 域（shared + subagent） ──────────── */
+  /* ── VOLUND_* 传输 / 协议 / subagent 域（shared + subagent） ──────────── */
   volundInvalidCwd: 'VOLUND_INVALID_CWD',
   volundInvalidRequest: 'VOLUND_INVALID_REQUEST',
   volundMethodNotFound: 'VOLUND_METHOD_NOT_FOUND',
@@ -233,10 +233,11 @@ export const ErrorCodes = {
   volundSubagentConcurrencyExceeded: 'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', // resourceError() 实参
   volundSubagentDepthExceeded: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED', // resourceError() 实参
   volundSubagentFailed: 'VOLUND_SUBAGENT_FAILED',
+  volundSubagentUnknownAgent: 'VOLUND_SUBAGENT_UNKNOWN_AGENT', // SubagentDispatcher.dispatch 实参（§2.7.1 Task 校验）
   volundUnsafeCwd: 'VOLUND_UNSAFE_CWD',
   volundUnsupportedVersion: 'VOLUND_UNSUPPORTED_VERSION',
 
-  /* ── volund_<CATEGORY>：normalizeError 动态工厂输出（shared/errors.ts） ─ */
+  /* ── VOLUND_<CATEGORY>：normalizeError 动态工厂输出（shared/errors.ts） ─ */
   volundAuth: 'VOLUND_AUTH',
   volundCancelled: 'VOLUND_CANCELLED',
   volundContentFilter: 'VOLUND_CONTENT_FILTER',
@@ -285,7 +286,7 @@ export const appendixErrorCodes = [
 ] as const satisfies readonly ErrorCode[]
 
 /**
- * `normalizeError` 的 `volund_${category.toUpperCase()}` 动态工厂全量输出
+ * `normalizeError` 的 `VOLUND_${category.toUpperCase()}` 动态工厂全量输出
  * （VolundErrorCategory 全集 × 前缀；静态字面量扫描无法覆盖，登记于此供核对）。
  */
 export const normalizedErrorCodes = [

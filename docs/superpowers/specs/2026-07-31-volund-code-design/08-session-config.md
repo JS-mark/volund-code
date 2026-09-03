@@ -157,7 +157,7 @@ loadSession(id: string, opts?: {
 1. 内置默认（硬编码）
 2. `~/.volund/config.toml`（用户全局）
 3. `<cwd>/.volund/config.toml`（项目）
-4. `volund_*` 环境变量
+4. `VOLUND_*` 环境变量
 5. CLI flags
 
 **config.toml 示例**：

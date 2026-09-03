@@ -165,3 +165,12 @@ export class MemoryCredentialStore implements CredentialStore {
   }
 }
 export { EncryptedCredentialStore } from './encrypted-store'
+export {
+  McpOAuthClient,
+  McpOAuthError,
+  oauthCredentialKey,
+  oauthHeaderKey,
+  type AuthServerMetadata,
+  type McpOAuthOptions,
+  type StoredMcpToken,
+} from './mcp-oauth'

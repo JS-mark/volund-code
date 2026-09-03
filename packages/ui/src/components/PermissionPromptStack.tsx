@@ -17,7 +17,11 @@ interface DecisionOption {
   color: string
   id: InteractivePermissionDecisionKind
   label: string
+  /** 记忆范围说明：grant 按 tool+参数 精确匹配，新操作各自第一次仍会问。 */
+  hint: string
   quickKey: string
+  /** 次要选项：不进选项列表（快捷键仍直接生效），只在底部暗字提示。 */
+  secondary?: boolean
 }
 
 /** Escaped-newline token produced by the injective permission formatter. */
@@ -28,12 +32,52 @@ const MAX_INNER_WIDTH = 96
 const MAX_SPEC_ROWS = 8
 
 const DECISION_OPTIONS: readonly DecisionOption[] = [
-  { color: 'green', id: 'allow-once', label: 'Allow once', quickKey: 'a' },
-  { color: 'cyan', id: 'allow-session', label: 'For this session', quickKey: 's' },
-  { color: 'blue', id: 'allow-project', label: 'For this project', quickKey: 'p' },
-  { color: 'magenta', id: 'allow-forever', label: 'Always', quickKey: 'f' },
-  { color: 'red', id: 'deny', label: 'Deny', quickKey: 'd' },
-  { color: 'red', id: 'deny-forever', label: 'Never ask again', quickKey: 'x' },
+  {
+    color: 'green',
+    id: 'allow-once',
+    hint: 'approve just this run',
+    label: 'Allow once',
+    quickKey: 'a',
+  },
+  {
+    color: 'cyan',
+    id: 'allow-session',
+    hint: 'this exact operation stays approved until the session ends',
+    label: 'For this session',
+    quickKey: 's',
+  },
+  {
+    color: 'blue',
+    id: 'allow-project',
+    hint: 'remembered in .volund/permissions.toml for this repo',
+    label: 'For this project',
+    quickKey: 'p',
+    secondary: true,
+  },
+  {
+    color: 'magenta',
+    id: 'allow-forever',
+    hint: 'remembered in ~/.volund/permissions.toml, across sessions',
+    label: 'Always',
+    quickKey: 'f',
+    secondary: true,
+  },
+  {
+    color: 'yellow',
+    id: 'allow-all-session',
+    hint: 'stop asking for the rest of this session; deny rules still apply',
+    label: 'Full access (this session)',
+    quickKey: 'g',
+  },
+  { color: 'red', id: 'deny', hint: 'reject this run', label: 'Deny', quickKey: 'd' },
+  {
+    color: 'red',
+    id: 'deny-forever',
+    hint: 'blacklist this exact operation globally',
+    label: 'Never ask again',
+    quickKey: 'x',
+    secondary: true,
+  },
 ]
 
 const GROUP_CAPTIONS: ReadonlyArray<{ caption: string; match: RegExp }> = [
@@ -301,7 +345,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
                   {caption}
                 </Text>
               ) : null}
-              <Text key="opt">
+              <Text key="opt" wrap="truncate">
                 {focused ? (
                   <Text bold color={option.color} key="ptr">
                     {'> '}
@@ -323,16 +367,29 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
                     {option.label}
                   </Text>
                 )}
+                <Text color="gray" key="hint">
+                  {'  ·  '}
+                  {option.hint}
+                </Text>
               </Text>
             </Box>
           )
         })}
       </Box>
-      <Box marginBottom={1}>
+      <Box flexDirection="column" marginBottom={1}>
         <Text color="gray">
           {'↑/↓ choose · enter confirm · keys decide now'}
           {requests.length > 1 ? ' · ←/→ switch' : ''}
           {' · esc deny'}
+        </Text>
+        <Text color="gray" wrap="truncate">
+          {DECISION_OPTIONS.filter((option) => option.secondary)
+            .map((option) => `${option.quickKey} ${option.label}`)
+            .join(' · ')}
+          {' — keys work now'}
+        </Text>
+        <Text color="gray" wrap="truncate">
+          {'grants match exactly: new commands, paths, or sites ask once'}
         </Text>
       </Box>
     </Box>
@@ -340,9 +397,10 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
 }
 
 function optionsFor(request: InteractivePermissionRequest | undefined): readonly DecisionOption[] {
-  if (!request) return DECISION_OPTIONS
-  if (!request.display.approvable) return DECISION_OPTIONS.filter((o) => o.id === 'deny')
-  return DECISION_OPTIONS
+  const primary = DECISION_OPTIONS.filter((option) => !option.secondary)
+  if (!request) return primary
+  if (!request.display.approvable) return primary.filter((o) => o.id === 'deny')
+  return primary
 }
 
 function quickDecision(

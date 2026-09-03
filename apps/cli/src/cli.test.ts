@@ -194,6 +194,8 @@ describe('runCli', () => {
         setEnabled: vi.fn(async () => {}),
         test: vi.fn(async () => ({ protocolVersion: 'test' })),
         inspect: vi.fn(async () => ({ tools: [] })),
+        login: vi.fn(async () => ({ server: 'x' })),
+        logout: vi.fn(async () => {}),
       },
     })
     const result = await runCli(
@@ -556,6 +558,8 @@ describe('runCli', () => {
       add: vi.fn(async () => ({ file: 'mcp.toml' })),
       remove: vi.fn(async () => ({ file: 'mcp.toml' })),
       setEnabled: vi.fn(async () => {}),
+      login: vi.fn(async () => ({ server: 'demo' })),
+      logout: vi.fn(async () => {}),
     }
     const listed = await runCli(['mcp', 'list'], ports({ mcp }))
     expect(listed.stdout).toContain('demo')
@@ -972,7 +976,7 @@ describe('runCli', () => {
         status: 'sandbox probing; permissions bypassed',
         welcome: expect.objectContaining({
           sandbox: { status: 'probing' },
-          permission: expect.objectContaining({ mode: 'bypassed', dangerous: true }),
+          permission: expect.objectContaining({ mode: 'full', dangerous: true }),
         }),
       }),
     )

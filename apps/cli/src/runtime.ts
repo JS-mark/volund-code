@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
 import {
   access,
@@ -23,12 +24,14 @@ import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
 
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
+import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
 import {
   builtinPromptFragment,
   createSession,
   DefaultPromptComposer,
+  type PromptFragment,
   EventBus,
   MachineEventFormatter,
   EvolutionEngine,
@@ -52,7 +55,12 @@ import {
 } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import { PermissionManager } from '@volund/permission'
-import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@volund/permission'
+import type {
+  PermissionDecision,
+  PermissionRequest,
+  PermissionSessionMode,
+  PermissionSpec,
+} from '@volund/permission'
 import {
   LEGACY_PLUGIN_UNAVAILABLE,
   PluginError,
@@ -80,7 +88,12 @@ import { GeminiClient } from '@volund/provider-gemini'
 import { InMemoryProviderRegistry } from '@volund/provider-kit'
 import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
 import { OpenAIClient } from '@volund/provider-openai'
-import { parseRoleRouterConfig, RoleRouter, SingleProviderRouter } from '@volund/router'
+import {
+  FallbackRouter,
+  parseRoleRouterConfig,
+  RoleRouter,
+  SingleProviderRouter,
+} from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
 import {
   VolundError,
@@ -112,7 +125,12 @@ import {
   SessionStore,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import { SubagentDispatcher } from '@volund/subagent'
+import {
+  AgentDefinitionRegistry,
+  SubagentDispatcher,
+  untrustedAgentBody,
+  type ResolvedAgentDefinition,
+} from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import { ToolRegistry } from '@volund/tool-kit'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
@@ -143,6 +161,7 @@ import type {
   StatusValue,
   SessionCandidate,
   McpPanelController,
+  SubagentsPanelController,
   SkillsPanelController,
   SkillsPanelEntry,
 } from '@volund/ui'
@@ -173,6 +192,8 @@ import {
 } from './mcp'
 import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
+import { PermissionRuleStore } from './permissions-store'
+import type { PermissionRuleSource } from './permissions-store'
 import {
   fetchMarketIndex,
   installFromMarket,
@@ -198,7 +219,12 @@ import type { AppIdentity } from './shared/app-identity'
 import { SkillSlashCommands } from './skill-commands'
 import { DirectoryTrustStore } from './trust'
 
-export type RunnerFactory = (state: SessionState, events: EventBus) => Runner | Promise<Runner>
+/** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
+export type RunnerFactory = (
+  state: SessionState,
+  events: EventBus,
+  agent?: ResolvedAgentDefinition,
+) => Runner | Promise<Runner>
 const terminalStatuses = new Set(['done', 'aborted', 'error'])
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const historySecretPattern =
@@ -280,6 +306,8 @@ export interface StatusViewModelInput {
   }
   sandbox?: SandboxDisclosure
   dangerousPermissions?: boolean
+  /** §4.4 三档会话模式（--yolo 旁路时显示 full）。 */
+  permissionMode?: PermissionSessionMode
   authConfigured?: boolean
   authMethod?: 'keychain' | 'encrypted_file' | 'env'
   memoryMode?: string
@@ -354,9 +382,10 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
           ? statusUnavailable('permission_mode_unavailable')
           : {
               status: 'available',
-              value: input.dangerousPermissions
-                ? { mode: 'bypassed', source: 'flag' }
-                : { mode: 'ask', source: 'default' },
+              value: {
+                mode: input.dangerousPermissions ? 'full' : (input.permissionMode ?? 'ask'),
+                source: input.dangerousPermissions ? 'flag' : 'default',
+              },
             },
       memory: input.memoryMode
         ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
@@ -419,6 +448,8 @@ export interface StatusSnapshotAdapterOptions {
   sandbox(): Promise<SandboxDisclosure | undefined>
   configAvailable(): Promise<boolean>
   dangerousPermissions(state: SessionState): boolean
+  /** §4.4 当前生效的三档模式（活动会话优先，否则该会话冻结快照/默认 ask）。 */
+  permissionMode(state: SessionState): PermissionSessionMode
 }
 
 export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
@@ -432,6 +463,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       version: options.version,
       ...(sandbox ? { sandbox } : {}),
       dangerousPermissions: options.dangerousPermissions(state),
+      permissionMode: options.permissionMode(state),
       configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
     })
   }
@@ -440,6 +472,8 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
 export interface ProductionPermissionSessionSnapshot {
   readonly dangerouslySkip: boolean
   readonly interactionMode: PermissionInteractionMode
+  /** §4.4 三档会话模式；缺省按 ask 处理（确定型测试可省略）。 */
+  readonly mode?: PermissionSessionMode
 }
 
 export class PermissionSessionInvariantError extends Error {
@@ -457,6 +491,7 @@ export class PermissionSessionInvariantError extends Error {
 export class ProductionPermissionSessionPolicy {
   #nextDangerouslySkip = false
   #nextInteractionMode: PermissionInteractionMode = 'none'
+  #nextMode: PermissionSessionMode = 'ask'
   readonly #snapshots = new Map<string, ProductionPermissionSessionSnapshot>()
 
   configureSecurity(input: { skipPermissions: boolean }): void {
@@ -467,6 +502,15 @@ export class ProductionPermissionSessionPolicy {
     this.#nextInteractionMode = input.mode
   }
 
+  /** §4.4 三档模式：新会话的冻结快照取这里；/mode 热切换另走活动会话控制。 */
+  configureMode(input: { mode: PermissionSessionMode }): void {
+    this.#nextMode = input.mode
+  }
+
+  currentMode(): PermissionSessionMode {
+    return this.#nextMode
+  }
+
   snapshotFor(state: Pick<SessionState, 'id' | 'lineage'>): ProductionPermissionSessionSnapshot {
     const existing = this.#snapshots.get(state.id)
     if (existing) return existing
@@ -474,6 +518,7 @@ export class ProductionPermissionSessionPolicy {
       const snapshot = Object.freeze({
         dangerouslySkip: this.#nextDangerouslySkip,
         interactionMode: this.#nextInteractionMode,
+        mode: this.#nextMode,
       })
       this.#snapshots.set(state.id, snapshot)
       return snapshot
@@ -1229,7 +1274,7 @@ async function permissionPrompt(
   const answer = (
     (await linePrompt(
       request.display.approvable
-        ? `Permission required: ${request.display.toolName} ${request.display.spec}\n[a]llow once, allow [s]ession, allow [p]roject, allow for[e]ver, [d]eny, deny forever [x]: `
+        ? `Permission required: ${request.display.toolName} ${request.display.spec}\nmemory is exact-match: the same operation won't ask again; new ones ask once\n[a]llow once, allow [s]ession, [g]rant full access, [d]eny · more: allow [p]roject, for [e]ver, deny forever [x]: `
         : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
     )) ?? ''
   )
@@ -1239,6 +1284,7 @@ async function permissionPrompt(
   const byAnswer: Record<string, PermissionDecision['kind']> = {
     a: 'allow-once',
     s: 'allow-session',
+    g: 'allow-all-session',
     p: 'allow-project',
     e: 'allow-forever',
     d: 'deny',
@@ -1461,6 +1507,35 @@ function buildPermissionDisplay(
   return { approvable: true, spec: sanitizedSpec.text, toolName: sanitizedToolName.text }
 }
 
+/**
+ * [models.aliases] 解析（§8.3）：preferences.model / 面板里可以写别名，命中返回
+ * 目标 model（去掉 provider 前缀）；别名指向的 provider 与当前会话不一致时返回
+ * mismatch 由调用方告警——绝不静默换 provider。
+ */
+export function resolveModelAlias(
+  raw: string,
+  aliases: Record<string, { provider: string; model: string }>,
+  activeProvider = 'anthropic',
+): { model: string } | { mismatch: string } | undefined {
+  const entry = aliases[raw.replace(new RegExp(`^${activeProvider}/`), '')]
+  if (!entry) return undefined
+  if (entry.provider !== activeProvider) return { mismatch: entry.provider }
+  return { model: entry.model.replace(new RegExp(`^${activeProvider}/`), '') }
+}
+
+/**
+ * [preferences] language 的回复语言强制片段（§6b）：显式配置才注册——不配则模型
+ * 跟随输入语言，中英混杂；配置后即使输入是英文也按配置语言回复。
+ */
+export function languagePromptFragment(language: string): PromptFragment {
+  return {
+    id: 'preferences:language',
+    source: 'preferences:language',
+    priority: 900,
+    text: `## Language\nAlways respond in ${language}, regardless of the language of the user's message, tool output, or any other content. Keep code, identifiers, and file paths as-is.`,
+  }
+}
+
 export async function requestPermission(input: {
   events: EventBus
   interactionMode: PermissionInteractionMode
@@ -1534,12 +1609,19 @@ export interface ProductionToolPermissionChainOptions {
     | undefined
   /** Deterministic test seam; omitted by createProductionPorts. */
   terminalIsInteractive?: () => boolean
-  /** Deterministic test seam; omitted by createProductionPorts. */
+  /** Deterministic line-input seam; production uses promptLineMaybe. */
   linePermissionPrompt?: (question: string) => Promise<string | undefined>
+  /** 持久化 project/global 权限规则（spec §4.4 决策链 1/2/4/5）；必须已完成装载
+   * （生产路径 createRunner 先 await ready()），确定型测试可省略。 */
+  rules?: PermissionRuleSource
 }
 
 export interface ProductionToolPermissionChain {
   permissionRequests: Pick<PermissionManager, 'request'>
+  /** 当前生效的三档模式（活动会话的 /mode 读数走这里）。 */
+  mode(): PermissionSessionMode
+  /** /mode 热切换：只影响持有此 chain 的会话。 */
+  setMode(mode: PermissionSessionMode): void
   bindExecutor(
     context: (signal: AbortSignal) => ToolContext,
     dispatchHook?: ToolHookDispatcher,
@@ -1560,7 +1642,29 @@ export function createProductionToolPermissionChain(
     ...(options.logger ? { logger: options.logger } : {}),
   })
   const interactionMode = options.permissionSnapshot.interactionMode
-  const permissions = new PermissionManager({}, configuration)
+  // r13 §4.4 决策链落地：持久化规则的 deny（1/2）先于 session cache（3），
+  // allow（4/5）在 cache 之后、auto-allow 之前——PermissionManager 内置顺序与此一致。
+  const rules = options.rules
+  const permissions = new PermissionManager(
+    rules
+      ? {
+          projectDeny: (request) => rules.isDenied('project', request),
+          globalDeny: (request) => rules.isDenied('global', request),
+          projectAllow: (request) => rules.isAllowed('project', request),
+          globalAllow: (request) => rules.isAllowed('global', request),
+        }
+      : {},
+    {
+      ...configuration,
+      ...(options.permissionSnapshot.mode ? { mode: options.permissionSnapshot.mode } : {}),
+      ...(rules
+        ? {
+            persist: (scope: 'project' | 'global', request: PermissionRequest, allow: boolean) =>
+              rules.persist(scope, request, allow),
+          }
+        : {}),
+    },
+  )
   permissions.setPromptHandler(async (request) => {
     const decision = await requestPermission({
       events: options.events,
@@ -1583,6 +1687,8 @@ export function createProductionToolPermissionChain(
   let bound = false
   return {
     permissionRequests: Object.freeze({ request: permissions.request.bind(permissions) }),
+    mode: () => permissions.mode,
+    setMode: (mode) => permissions.setMode(mode),
     bindExecutor(context, dispatchHook) {
       if (bound) throw new Error('Production permission executor is already bound')
       bound = true
@@ -2006,6 +2112,28 @@ export function builtinPluginRoot(): string | undefined {
 }
 
 /**
+ * SM-08b：收集插件捆绑 skills 目录（`<pluginDir>/skills/`，随插件信任）。
+ * builtin 无条件收录（产物自带，与二进制同信任级）；dev/market 以
+ * plugin-state.v2 的 enabled 为门——禁用的插件不进 skills 发现面。
+ */
+export async function collectPluginSkillDirs(input: {
+  builtinRoot: string | undefined
+  stateEntries: readonly { dir: string; enabled: boolean }[]
+}): Promise<string[]> {
+  const dirs: string[] = []
+  if (input.builtinRoot) {
+    try {
+      for (const entry of await readdir(input.builtinRoot, { withFileTypes: true }))
+        if (entry.isDirectory()) dirs.push(join(input.builtinRoot, entry.name, 'skills'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  for (const entry of input.stateEntries) if (entry.enabled) dirs.push(join(entry.dir, 'skills'))
+  return dirs
+}
+
+/**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
  * 值可含 [env] 段写入 process.env 的配置）透传进 volund-sandbox——Rust 侧
@@ -2051,6 +2179,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const telemetry = new Telemetry(new LocalTelemetrySink(telemetryPath))
   const telemetryStore = new TelemetryStore(telemetryPath)
   const logger = new TelemetryLogger(telemetry, 'cli')
+  // r13 §4.4：持久化权限规则单例——allow-project → <cwd>/.volund/permissions.toml，
+  // allow/deny-forever → <home>/permissions.toml。进程共享一份，子 session 的
+  // grant 对父 session 立即可见；ready() 在首个 runner 构造前装载。
+  const permissionRules = new PermissionRuleStore({
+    project: join(process.cwd(), '.volund', 'permissions.toml'),
+    global: join(home, 'permissions.toml'),
+    logger,
+  })
   const pluginRoot = join(home, 'plugins')
   const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
   const pluginsReady = plugins.init()
@@ -2559,6 +2695,72 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   let skipAuthEmitted = false
   const http = new NodeHttpPort()
   const permissionPolicy = new ProductionPermissionSessionPolicy()
+  // §4.4 /mode 热切换的活动顶层会话句柄：createRunner 建 chain 时登记，端口 set 时热切。
+  let activePermissionControl:
+    | {
+        get(): PermissionSessionMode
+        set(mode: PermissionSessionMode): void
+      }
+    | undefined
+  // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
+  let overridePermissionMode: PermissionSessionMode | undefined
+  let configPermissionMode: PermissionSessionMode | undefined
+  // 启动期一次性装载的用户级 config 会话默认值：[subagent] 限制与 [models.aliases]。
+  // config 是异步读的；dispatcher 在装载完成后整体替换（启动期必然没有在跑的 subagent）。
+  let configSubagentLimits: {
+    maxDepth?: number
+    maxConcurrency?: number
+    defaultBudget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }
+  } = {}
+  let configModelAliases: Record<string, { provider: string; model: string }> = {}
+  void readConfigFileOrEmpty(join(home, 'config.toml'))
+    .then((config) => {
+      const permissions = config.permissions
+      if (permissions && typeof permissions === 'object' && !Array.isArray(permissions)) {
+        const mode = (permissions as Record<string, JsonValue>).mode
+        if (mode === 'ask' || mode === 'auto' || mode === 'full') {
+          configPermissionMode = mode
+          if (!overridePermissionMode) permissionPolicy.configureMode({ mode })
+        }
+      }
+      const subagent = config.subagent
+      if (subagent && typeof subagent === 'object' && !Array.isArray(subagent)) {
+        const section = subagent as Record<string, JsonValue>
+        const limits: typeof configSubagentLimits = {}
+        if (typeof section.max_depth === 'number' && section.max_depth > 0)
+          limits.maxDepth = section.max_depth
+        if (typeof section.max_concurrent === 'number' && section.max_concurrent > 0)
+          limits.maxConcurrency = section.max_concurrent
+        const budget = section.default_budget
+        if (budget && typeof budget === 'object' && !Array.isArray(budget)) {
+          const raw = budget as Record<string, JsonValue>
+          const parsed: typeof limits.defaultBudget = {}
+          if (typeof raw.costUSDMax === 'number') parsed.costUSDMax = raw.costUSDMax
+          if (typeof raw.tokenMax === 'number') parsed.tokenMax = raw.tokenMax
+          if (typeof raw.timeMsMax === 'number') parsed.timeMsMax = raw.timeMsMax
+          if (Object.keys(parsed).length > 0) limits.defaultBudget = parsed
+        }
+        if (Object.keys(limits).length > 0) {
+          configSubagentLimits = limits
+          if (dispatcher && dispatcher.activeCount === 0) dispatcher = buildDispatcher()
+        }
+      }
+      const models = config.models
+      if (models && typeof models === 'object' && !Array.isArray(models)) {
+        const aliases = (models as Record<string, JsonValue>).aliases
+        if (aliases && typeof aliases === 'object' && !Array.isArray(aliases)) {
+          const parsed: Record<string, { provider: string; model: string }> = {}
+          for (const [name, value] of Object.entries(aliases as Record<string, JsonValue>)) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+            const entry = value as Record<string, JsonValue>
+            if (typeof entry.provider === 'string' && typeof entry.model === 'string')
+              parsed[name] = { provider: entry.provider, model: entry.model }
+          }
+          configModelAliases = parsed
+        }
+      }
+    })
+    .catch(() => {})
 
   // ── SKILLS-MCPS-r1：/skills 与 /mcp 的运行期装配（原生，不经插件桥）──────────
   // skills：多作用域发现（每个 Runner 一个 SkillsRuntime，共享同一个可变 disabled
@@ -2596,7 +2798,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       volundHome: home,
       cwd,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, fields) => void telemetry.emit(event, 'mcp', sanitize(fields)),
     })
+    const previousStatuses = new Map<string, string>()
     mcpManager = new McpManager({
       servers,
       disabled: mcpDisabled,
@@ -2604,6 +2808,26 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
       // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
       logPath: join(home, 'mcp.log'),
+      // W7：headers 的 keyref:// 占位在连接期经 auth store 解析。
+      resolveKeyref: (reference) => auth.getCredential(reference),
+      // §S3.8：状态迁移采样；server 名 sha256 前 8 位（不落明文名字）。
+      onStateChange: () => {
+        if (!mcpManager) return
+        for (const entry of mcpManager.snapshot()) {
+          const from = previousStatuses.get(entry.name)
+          if (from !== undefined && from !== entry.status)
+            void telemetry.emit(
+              'mcp.server_state_changed',
+              'mcp',
+              sanitize({
+                name_kind: createHash('sha256').update(entry.name).digest('hex').slice(0, 8),
+                from,
+                to: entry.status,
+              }),
+            )
+          previousStatuses.set(entry.name, entry.status)
+        }
+      },
     })
     void mcpManager.connect()
     return mcpManager
@@ -2624,19 +2848,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const runtime = [...skillsRuntimes][0]
       if (!runtime) throw new Error('No active session; open a session first')
       const invocation = await runtime.readInvocation(name)
-      const task = args.length
-        ? args.join(' ')
-        : `Follow the "${name}" skill's instructions for my next request.`
       return {
         kind: 'submit',
-        text: [
-          `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
-          // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
-          invocation.body.replaceAll('</skill', '<\\/skill'),
-          '</skill>',
-          '',
-          task,
-        ].join('\n'),
+        text: buildSkillInvocationText(invocation, args),
       }
     },
     onWarn: (message) => logger.warn(message),
@@ -2662,7 +2876,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   }
   const skillsPanelController: SkillsPanelController = {
     async list() {
-      return skillsPanelEntries()
+      // §S3.8：面板数据加载采样（打开/刷新）。
+      const entries = skillsPanelEntries()
+      void telemetry.emit(
+        'skills.panel_opened',
+        'skills',
+        sanitize({
+          count: entries.length,
+          broken_count: entries.filter(
+            (entry) => entry.status === 'broken' || entry.status === 'incompatible',
+          ).length,
+        }),
+      )
+      return entries
     },
     async reload() {
       for (const runtime of skillsRuntimes) {
@@ -2708,15 +2934,21 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   async function listingSkillsRuntime(): Promise<SkillsRuntime> {
     await ensureSkillsConfig()
     return new SkillsRuntime({
-      sources: defaultSkillSources({
-        volundHome: home,
-        userHome: homedir(),
-        cwd: process.cwd(),
-      }),
+      sources: async () =>
+        defaultSkillSources({
+          volundHome: home,
+          userHome: homedir(),
+          cwd: process.cwd(),
+          pluginDirs: await collectPluginSkillDirs({
+            builtinRoot: builtinPluginRoot(),
+            stateEntries: await localPluginState.list().catch(() => []),
+          }),
+        }),
       volundVersion: options.identity.version,
       composer: new DefaultPromptComposer(),
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
     })
   }
   const skillPort: SkillPort = {
@@ -2803,6 +3035,39 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
   }
   const mcpPort: McpPort = {
+    async login(serverName) {
+      // SM-07：浏览器 OAuth 2.1 + PKCE + DCR。token 存 auth（`mcp.<name>.oauth`
+      // + `Bearer` 头快照 `mcp.<name>.Authorization`），连接期经 resolveKeyref
+      // / 无 header 自动注入消费。
+      const servers = await loadMcpServerConfigs({
+        volundHome: home,
+        cwd: process.cwd(),
+        onWarning: (message) => logger.warn(message),
+      })
+      const server = servers.find((entry) => entry.name === serverName)
+      if (!server) throw new Error(`Unknown MCP server: ${serverName}`)
+      if (server.transport.kind !== 'http')
+        throw new Error(`mcp login applies to http servers only: '${serverName}' is stdio`)
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: server.transport.url,
+        store: encrypted,
+      })
+      await oauth.login()
+      return { server: serverName }
+    },
+    async logout(serverName) {
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: `https://${serverName}.invalid`,
+        store: encrypted,
+      })
+      await oauth.logout()
+      // AuthManager 进程内缓存不在 oauth client 的视野里：显式逐 key 失效，
+      // 否则同进程的 keyref 解析会继续命中已删除的旧 token。
+      await auth.logout(oauthCredentialKey(serverName))
+      await auth.logout(oauthHeaderKey(serverName))
+    },
     async list() {
       const manager = await ensureMcpManager(process.cwd())
       // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
@@ -2893,7 +3158,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   }
   const mcpPanelController: McpPanelController = {
     async list() {
-      return mcpManager?.snapshot() ?? []
+      // §S3.8：面板数据加载采样（打开/刷新）。
+      const snapshot = mcpManager?.snapshot() ?? []
+      void telemetry.emit(
+        'mcp.panel_opened',
+        'mcp',
+        sanitize({
+          count: snapshot.length,
+          connected: snapshot.filter((entry) => entry.status === 'connected').length,
+          failed: snapshot.filter((entry) => entry.status === 'failed').length,
+          needs_auth: snapshot.filter((entry) => entry.status === 'needs-auth').length,
+        }),
+      )
+      return snapshot
     },
     async reload() {
       if (!mcpManager) return []
@@ -2921,24 +3198,68 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
   }
 
+  // ── SUBAGENTS-UI-r1：/subagents 面板控制器（dispatcher 运行注册表）──────────
+  // 运行是 REPL 进程本地的：面板即管理面，取消走 dispatcher.cancel 的
+  // interrupt 语义（子 session abort → DispatchResult.cancelled）。
+  const subagentsPanelController: SubagentsPanelController = {
+    async list() {
+      return dispatcher.list().map((entry) => ({
+        sessionId: entry.sessionId,
+        ...(entry.agentType ? { agentType: entry.agentType } : {}),
+        depth: entry.depth,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        ...(entry.endedAt === undefined ? {} : { endedAt: entry.endedAt }),
+        promptPreview: entry.promptPreview,
+        prompt: entry.prompt,
+        ...(entry.usage === undefined ? {} : { usage: entry.usage }),
+        ...(entry.toolCalls === undefined ? {} : { toolCalls: entry.toolCalls }),
+        ...(entry.detail === undefined ? {} : { detail: entry.detail }),
+      }))
+    },
+    async cancel(sessionId) {
+      if (!dispatcher.cancel(sessionId)) throw new Error(`Subagent ${sessionId} is not running`)
+      return `Subagent cancelled`
+    },
+    async cancelAll() {
+      return dispatcher.cancelAllRunning()
+    },
+  }
+
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
+  // §2.7.1（r13-G3）：自定义 agent 定义两层装载（<home>/agents 与
+  // <cwd>/.volund/agents，项目级同名覆盖全局）；失败文件跳过仅告警。
+  const agentRegistry = new AgentDefinitionRegistry({
+    volundHome: home,
+    cwd: process.cwd(),
+    onWarning: (message) => logger.warn(message),
+  })
+  agentRegistry.discover()
   // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 RuntimeSessionPort
   // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
   const background = new BackgroundShells()
-  const createRunner: RunnerFactory = async (state, events) => {
+  const createRunner: RunnerFactory = async (state, events, agent) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
+    await permissionRules.ready()
     const permissionChain = createProductionToolPermissionChain({
       state,
       events,
       permissionSnapshot,
       logger,
       interactivePermissionPrompt: () => interactivePermissionPrompt,
+      rules: permissionRules,
     })
+    // /mode 只挂顶层会话；子会话沿用其冻结快照里的模式。
+    if (state.lineage.depth === 0)
+      activePermissionControl = {
+        get: () => permissionChain.mode(),
+        set: (mode) => permissionChain.setMode(mode),
+      }
     const { permissionRequests } = permissionChain
     // §15 T0: persisted values apply only after an explicit, typed boolean opt-in.
     const { config: userConfig, values: tuned } = await loadProductionContextTuning({
@@ -2990,15 +3311,37 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       ollamaEntry && typeof ollamaEntry.endpoint === 'string' && ollamaEntry.endpoint
         ? ollamaEntry.endpoint
         : undefined
-    // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'）
-    // → provider.anthropic.model（静态配置）→ 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
+    // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'，
+    // 也接受 [models.aliases] 里的别名）→ provider.anthropic.model（静态配置）→
+    // 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
     const preferencesSection = userConfig.preferences
-    const preferencesModel =
+    const rawPreferredModel =
       preferencesSection &&
       typeof preferencesSection === 'object' &&
       !Array.isArray(preferencesSection) &&
-      typeof preferencesSection.model === 'string'
-        ? preferencesSection.model.replace(/^anthropic\//, '')
+      typeof preferencesSection.model === 'string' &&
+      preferencesSection.model.trim().length > 0
+        ? preferencesSection.model.trim()
+        : undefined
+    const aliasResolution =
+      rawPreferredModel && Object.keys(configModelAliases).length > 0
+        ? resolveModelAlias(rawPreferredModel, configModelAliases)
+        : undefined
+    if (aliasResolution && 'mismatch' in aliasResolution)
+      logger.warn(
+        `[models.aliases] alias '${rawPreferredModel}' targets provider '${aliasResolution.mismatch}'; only anthropic is active in this session — ignoring`,
+      )
+    const aliasModel =
+      aliasResolution && 'model' in aliasResolution ? aliasResolution.model : undefined
+    const preferencesModel =
+      aliasModel ?? (rawPreferredModel ? rawPreferredModel.replace(/^anthropic\//, '') : undefined)
+    const preferredLanguage =
+      preferencesSection &&
+      typeof preferencesSection === 'object' &&
+      !Array.isArray(preferencesSection) &&
+      typeof preferencesSection.language === 'string' &&
+      preferencesSection.language.trim().length > 0
+        ? preferencesSection.language.trim()
         : undefined
     const providerModel =
       anthropicEntry &&
@@ -3015,6 +3358,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     })
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
+    // [preferences] language：显式配置才注入回复语言强制；不配则模型跟随输入语言。
+    if (typeof preferredLanguage === 'string' && preferredLanguage !== 'system')
+      composer.register(languagePromptFragment(preferredLanguage))
     registerRuntimeMemoryPrompts(composer, memory, state)
     const promptLoader = new PromptLoader({
       cwd: state.cwd,
@@ -3022,16 +3368,41 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       permissions: permissionRequests,
     })
     await promptLoader.registerProject(composer)
+    if (agent) {
+      // §2.7.1：正文 = 该 agent 的 system prompt，独立槽位 priority=800（与 skill
+      // 同级）；正文懒加载。project 级文件随 clone 进来属 untrusted 来源，必须包裹。
+      composer.register({
+        id: `agent-def:${agent.definition.name}`,
+        source: `agent-def:${agent.path}`,
+        priority: 800,
+        text: async () => {
+          const body = await agentRegistry.readBody(agent.path)
+          return agent.trusted ? body : untrustedAgentBody(`agent-def:${agent.path}`, body)
+        },
+      })
+    }
     // SKILLS-MCPS-r1：多作用域发现（project > user > .agents/skills 互操作），
     // disabled 名单跨 Runner 共享（面板切换即时生效）。每个 Runner 一个实例
     // （composer 是 per-session 的）；主会话最先创建，面板取 [...set][0]。
     await ensureSkillsConfig()
     const skills = new SkillsRuntime({
-      sources: defaultSkillSources({ volundHome: home, userHome: homedir(), cwd: state.cwd }),
+      // SM-08b：sources 惰性求值——插件捆绑 skills 的目录随安装/启停变化，
+      // 每次 discover()（含面板 r 重扫）重新解析，优先级 project > plugin > user。
+      sources: async () =>
+        defaultSkillSources({
+          volundHome: home,
+          userHome: homedir(),
+          cwd: state.cwd,
+          pluginDirs: await collectPluginSkillDirs({
+            builtinRoot: builtinPluginRoot(),
+            stateEntries: await localPluginState.list().catch(() => []),
+          }),
+        }),
       volundVersion: options.identity.version,
       composer,
       disabled: skillsDisabled,
       onWarning: (message) => logger.warn(message),
+      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
     })
     skillsRuntimes.add(skills)
     await skills.discover()
@@ -3160,9 +3531,57 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       routerConfig &&
       typeof routerConfig === 'object' &&
       !Array.isArray(routerConfig) &&
+      routerConfig.type === 'fallback'
+    ) {
+      // §3.8.2：按 config chain 构造 FallbackRouter（priority 高者优先，失败
+      // provider 进入 cooldown_seconds 冷却）。chain 里未注册的 provider 跳过
+      // 并告警；过滤后为空则维持 single 并告警，不让启动失败。
+      const rawChain = Array.isArray(routerConfig.chain) ? routerConfig.chain : []
+      const chain = rawChain.flatMap((entry) => {
+        const route = entry as Record<string, JsonValue>
+        const providerName = typeof route.provider === 'string' ? route.provider : ''
+        const model = typeof route.model === 'string' ? route.model : ''
+        const priority = typeof route.priority === 'number' ? route.priority : 0
+        const registered = providerName ? providers.get(providerName) : undefined
+        if (!registered) {
+          logger.warn(
+            `[router] fallback chain: provider '${providerName}' is not registered; skipping`,
+          )
+          return []
+        }
+        return [{ provider: registered, model, priority }]
+      })
+      if (chain.length > 0) {
+        const cooldownSeconds =
+          typeof routerConfig.cooldown_seconds === 'number' ? routerConfig.cooldown_seconds : 60
+        router = new FallbackRouter(chain, { cooldownMs: cooldownSeconds * 1000 })
+      } else {
+        logger.warn('[router] type=fallback but no chain provider resolved; using single provider')
+      }
+    }
+    if (
+      routerConfig &&
+      typeof routerConfig === 'object' &&
+      !Array.isArray(routerConfig) &&
       routerConfig.type === 'role'
     )
       router = new RoleRouter(providers, parseRoleRouterConfig(routerConfig))
+    // §2.7.1：agent 定义可指定 provider/model；目标 provider 未注册时继承父
+    // router 并告警（不阻塞派发）。
+    if (agent?.definition.model) {
+      const registered = providers.get(agent.definition.model.provider)
+      if (registered)
+        router = new SingleProviderRouter(
+          registered,
+          agent.definition.model.model,
+          undefined,
+          providers,
+        )
+      else
+        logger.warn(
+          `agent '${agent.definition.name}': provider '${agent.definition.model.provider}' is not registered; inheriting the parent model`,
+        )
+    }
     // [tools] 段（§4.3.1 / r13-I11）在这里接线进 Bash 工具：shell 固定逻辑与
     // env 继承白名单；缺省时 BashTool 走内置默认（Unix /bin/bash；PATH/HOME/LANG/TZ）。
     const toolsSection = userConfig.tools
@@ -3248,8 +3667,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       logger,
       ui: { requestInput: promptLine },
     }))
+    // §2.7.1：agent 的 tools 白名单只能收紧——schemas 与 execute 两处同时过滤，
+    // 白名单外的工具对模型不可见、调用即拒绝。
+    const allowedTools = agent?.definition.tools
     const tools: RunnerToolPort = {
-      schemas: () => registry.forProvider(),
+      schemas: () => {
+        const all = registry.forProvider()
+        return allowedTools ? all.filter(({ name }) => allowedTools.includes(name)) : all
+      },
       async execute(use, signal) {
         const tool = registry.get(use.name)
         if (!tool)
@@ -3257,6 +3682,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
             toolUseId: use.id,
             isError: true,
             content: [{ type: 'text', text: `Unknown tool: ${use.name}` }],
+          }
+        if (allowedTools && !allowedTools.includes(use.name))
+          return {
+            toolUseId: use.id,
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Tool '${use.name}' is not in the tool whitelist of agent '${agent?.definition.name}'`,
+              },
+            ],
           }
         const result = await executor.execute(tool, use.input, signal, use.id)
         return {
@@ -3270,20 +3706,34 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         }
       },
     }
-    runner = new Runner(state, router, composer, tools, events, {}, contextPolicy)
+    runner = new Runner(
+      state,
+      router,
+      composer,
+      tools,
+      events,
+      // §2.7.1：maxTurns 等价于该 agent 的 maxToolLoopsPerTurn。
+      agent?.definition.maxTurns ? { maxToolLoopsPerTurn: agent.definition.maxTurns } : {},
+      contextPolicy,
+    )
     return runner
   }
-  dispatcher = new SubagentDispatcher({
-    runnerFactory: createRunner,
-    maxDepth: 3,
-    maxConcurrency: 4,
-    defaultBudget: {
-      costUSDMax: 1,
-      tokenMax: 200_000,
-      timeMsMax: 10 * 60_000,
-      toolCallMax: 100,
-    },
-  })
+  // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
+  // [subagent] 段覆盖；config 异步装载完成后整体替换 dispatcher。
+  const buildDispatcher = () =>
+    new SubagentDispatcher({
+      runnerFactory: createRunner,
+      agents: agentRegistry,
+      maxDepth: configSubagentLimits.maxDepth ?? 3,
+      maxConcurrency: configSubagentLimits.maxConcurrency ?? 4,
+      defaultBudget: {
+        costUSDMax: configSubagentLimits.defaultBudget?.costUSDMax ?? 1,
+        tokenMax: configSubagentLimits.defaultBudget?.tokenMax ?? 200_000,
+        timeMsMax: configSubagentLimits.defaultBudget?.timeMsMax ?? 10 * 60_000,
+        toolCallMax: 100,
+      },
+    })
+  dispatcher = buildDispatcher()
   const session = new RuntimeSessionPort(
     join(home, 'sessions'),
     createRunner,
@@ -3303,6 +3753,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       version: options.identity.version,
       dangerousPermissions: (state) =>
         permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
+      permissionMode: (state) =>
+        activePermissionControl?.get() ??
+        permissionPolicy.snapshotForSession(state.id)?.mode ??
+        'ask',
       configAvailable: () =>
         access(join(home, 'config.toml')).then(
           () => true,
@@ -3346,12 +3800,24 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（原生装配，§S3.3/§S3.6）
           skills: skillsPanelController,
           mcp: mcpPanelController,
+          // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
+          subagents: subagentsPanelController,
           ...input,
         }),
       renderDirectoryTrustPrompt,
       renderSessionPicker,
     },
     trust,
+    // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
+    permissionMode: {
+      current: () =>
+        activePermissionControl?.get() ?? overridePermissionMode ?? configPermissionMode ?? 'ask',
+      set: (mode) => {
+        overridePermissionMode = mode
+        permissionPolicy.configureMode({ mode })
+        activePermissionControl?.set(mode)
+      },
+    },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
@@ -3892,6 +4358,31 @@ function preference(
 /** skill invocation 框架的属性值转义（§S3.3a：skill 元数据是不可信输入）。 */
 function escapeSkillAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
+}
+
+/** skill 调用提交文本：SKILL.md 正文 + 任务文本装进 <skill> 框架（§S3.3a）。 */
+export function buildSkillInvocationText(
+  invocation: { name: string; directory: string; body: string },
+  args: readonly string[],
+): string {
+  const task = args.length
+    ? args.join(' ')
+    : `Follow the "${invocation.name}" skill's instructions for my next request.`
+  // Claude Code 惯例：body 里的 $ARGUMENTS 占位在带参调用时插值为任务文本；
+  // 无占位时保持既有行为（args 作为整体任务附在 skill 框架后）。args 来自
+  // 用户本人的 REPL 输入（可信指令源），插值在不可信 body 转义之后进行。
+  const body =
+    args.length > 0 && invocation.body.includes('$ARGUMENTS')
+      ? invocation.body.replaceAll('$ARGUMENTS', args.join(' '))
+      : invocation.body
+  return [
+    `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
+    // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
+    body.replaceAll('</skill', '<\\/skill'),
+    '</skill>',
+    '',
+    task,
+  ].join('\n')
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {

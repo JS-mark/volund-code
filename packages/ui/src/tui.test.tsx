@@ -549,6 +549,123 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toHaveBeenCalledWith('hello', undefined)
   })
 
+  it('keeps subagent bubble events out of the transcript (SUBAGENTS-UI-r1 background semantics)', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    // subagent 冒泡（dispatcher 经 EventBus.forward 加 D.3 tag）：对主转录不可见。
+    // forward 是真实转发路径（emit 类型上禁止自带 tag）。
+    await events.forward(
+      {
+        id: 'child-m-1-ev',
+        sessionId: 'child-session',
+        type: 'message.appended',
+        version: 1,
+        payload: {
+          messageId: 'child-m-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'child streaming chatter' }],
+        },
+        at: Date.now(),
+      },
+      { parentDepth: 1, parentTurnId: 'parent-turn' },
+    )
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).not.toContain('child streaming chatter')
+    // 父会话自己的事件照常渲染
+    await events.emit({
+      payload: {
+        messageId: 'm-1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'parent reply' }],
+      },
+      sessionId: 'session-1234567890',
+      type: 'message.appended',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('parent reply')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('accepts input during a turn: slash commands run live, text queues until the turn ends', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: Array<string | undefined> = []
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onSubmit: (value) => {
+          submitted.push(value)
+        },
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    // turn 进入 active（stream 事件驱动）
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.started',
+      version: 1,
+    })
+
+    // 运行期输入不直接提交，而是排队
+    stdin.write('check the subagents result')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('queued'))
+    expect(submitted).toEqual([])
+
+    // 运行期斜杠命令即时执行（/help 只读）
+    stdin.write('/help')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Show slash commands'))
+
+    // turn 收尾 → 排队文本自动发出
+    await events.emit({
+      payload: { messageId: 'm-1' },
+      sessionId: 'session-1234567890',
+      type: 'stream.completed',
+      version: 1,
+    })
+    await vi.waitFor(() => expect(submitted).toEqual(['check the subagents result']))
+    expect(stdout.output).toContain('1 queued message(s)')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders the static Ink shell and stream updates', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
@@ -1688,9 +1805,13 @@ describe('renderInteractiveApp', () => {
     expect(stdout.output).toContain('out.md')
     expect(stdout.output).not.toContain('{"fs"')
     expect(stdout.output).toContain('Allow once')
+    // 次要范围选项（project/always/never）收进底部暗字提示，快捷键仍直接生效
+    expect(stdout.output).toContain('p For this project · f Always · x Never ask again')
+    expect(stdout.output).toContain('Full access (this session)')
+    expect(stdout.output).toContain('grants match exactly')
   })
 
-  it('exposes all six decision kinds and decides instantly via quick keys', async () => {
+  it('exposes all seven decision kinds and decides instantly via quick keys', async () => {
     const permissions = new PermissionPromptController()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
@@ -1734,6 +1855,7 @@ describe('renderInteractiveApp', () => {
       'For this session',
       'For this project',
       'Always',
+      'Full access (this session)',
       'Deny',
       'Never ask again',
     ])

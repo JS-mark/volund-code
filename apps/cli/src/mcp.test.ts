@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import type { McpTransport } from '@volund/mcp-client'
 import { ToolRegistry } from '@volund/tool-kit'
@@ -29,11 +29,17 @@ afterEach(async () =>
 class FakeTransport implements McpTransport {
   sent: unknown[] = []
   onMessage?: (message: unknown) => void
+  onClose: ((error?: Error) => void) | undefined
   closed = false
   constructor(readonly behavior: 'ok' | 'unauthorized' | 'crash' = 'ok') {}
-  async start(onMessage: (message: unknown) => void) {
+  async start(onMessage: (message: unknown) => void, onClose?: (error?: Error) => void) {
     this.onMessage = onMessage
+    this.onClose = onClose
     if (this.behavior === 'crash') throw new Error('spawn failed ENOENT')
+  }
+  /** 模拟连接建立后意外断线（§S3.7 自动重连的触发源）。 */
+  simulateClose(error?: Error) {
+    this.onClose?.(error)
   }
   async send(message: unknown) {
     this.sent.push(message)
@@ -74,6 +80,15 @@ function stdioServer(name: string, scope: 'user' | 'project' = 'user'): McpServe
     scope,
     source: 'test',
     transport: { kind: 'stdio', command: 'fake', args: [], env: {} },
+  }
+}
+
+function httpServer(name: string, headers: Record<string, string>): McpServerConfig {
+  return {
+    name,
+    scope: 'user',
+    source: 'test',
+    transport: { kind: 'http', url: `https://${name}.example.com/mcp`, headers, legacySse: false },
   }
 }
 
@@ -310,6 +325,176 @@ describe('McpManager', () => {
     await expect(manager.inspect('missing')).rejects.toThrow('Unknown MCP server')
     await manager.close()
   })
+
+  it('reconnects with exponential backoff after an unexpected disconnect (§S3.7)', async () => {
+    const transports: FakeTransport[] = []
+    const manager = new McpManager({
+      servers: [stdioServer('flaky')],
+      disabled: new Set(),
+      transportFactory: () => {
+        const transport = new FakeTransport('ok')
+        transports.push(transport)
+        return transport
+      },
+      reconnectBaseDelayMs: 1,
+    })
+    const registry = new ToolRegistry()
+    manager.attach(registry)
+    await manager.connect()
+    expect(transports).toHaveLength(1)
+
+    transports[0]!.simulateClose(new Error('socket hang up'))
+    // 立即进入退避等待（connecting + 重连提示），工具已摘除。
+    const waiting = manager.snapshot()[0]!
+    expect(waiting.status).toBe('connecting')
+    expect(waiting.detail).toContain('reconnect 1/3')
+    expect(registry.get('mcp__flaky__read')).toBeUndefined()
+
+    await vi.waitFor(() => expect(manager.snapshot()[0]).toMatchObject({ status: 'connected' }))
+    expect(transports).toHaveLength(2)
+    // 成功重连后计数清零，工具重新挂回。
+    expect(manager.snapshot()[0]).toEqual(
+      expect.objectContaining({ status: 'connected', tools: 2 }),
+    )
+    expect(registry.get('mcp__flaky__read')).toBeDefined()
+    await manager.close()
+    // 新 transport（当前 client）被关闭；断线的旧 transport 本就已死，不会被二次 close。
+    expect(transports[1]!.closed).toBe(true)
+  })
+
+  it('gives up after three reconnect attempts and marks the server failed (§S3.7)', async () => {
+    let call = 0
+    const transports: FakeTransport[] = []
+    const warnings: string[] = []
+    const manager = new McpManager({
+      servers: [stdioServer('gone')],
+      disabled: new Set(),
+      onWarning: (message) => warnings.push(message),
+      transportFactory: () => {
+        const transport = new FakeTransport(call++ === 0 ? 'ok' : 'crash')
+        transports.push(transport)
+        return transport
+      },
+      reconnectBaseDelayMs: 1,
+    })
+    await manager.connect()
+    // 首连成功后意外断线；重连轮全部 crash：×3 退避（1/2/4ms）后置 failed。
+    transports[0]!.simulateClose(new Error('ECONNRESET'))
+    await vi.waitFor(() =>
+      expect(manager.snapshot()[0]).toMatchObject({
+        status: 'failed',
+        detail: expect.stringContaining('gave up after 3 reconnect attempts'),
+      }),
+    )
+    expect(call).toBe(4) // 首连 + 3 次重连
+    expect(warnings.join('\n')).toContain('gave up after 3 reconnect attempts')
+    await manager.close()
+  })
+
+  it('does not schedule reconnects after manager.close() or an intentional disconnect', async () => {
+    const transports: FakeTransport[] = []
+    const manager = new McpManager({
+      servers: [stdioServer('demo')],
+      disabled: new Set(),
+      transportFactory: () => {
+        const transport = new FakeTransport('ok')
+        transports.push(transport)
+        return transport
+      },
+      reconnectBaseDelayMs: 1,
+    })
+    await manager.connect()
+    transports[0]!.simulateClose(new Error('closed by test'))
+    await manager.close()
+    // close() 清掉挂起的重连 timer：不再产生新 transport，也不再回到 connected。
+    const count = transports.length
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(transports).toHaveLength(count)
+    expect(manager.snapshot()[0]!.status).not.toBe('connected')
+  })
+
+  it('resolves keyref:// headers from the auth store at connect time (W7)', async () => {
+    const seenConfigs: McpServerConfig[] = []
+    const manager = new McpManager({
+      servers: [
+        httpServer('keyed', {
+          Authorization: 'keyref://mcp.keyed.Authorization',
+          'X-Plain': 'literal',
+        }),
+      ],
+      disabled: new Set(),
+      transportFactory: (config) => {
+        seenConfigs.push(config)
+        return new FakeTransport('ok')
+      },
+      resolveKeyref: async (reference) =>
+        reference === 'mcp.keyed.Authorization' ? 'secret-token' : undefined,
+    })
+    await manager.connect()
+    const headers = (seenConfigs[0]!.transport as { headers: Record<string, string> }).headers
+    expect(headers.Authorization).toBe('secret-token')
+    expect(headers['X-Plain']).toBe('literal')
+    expect(JSON.stringify(seenConfigs)).not.toContain('keyref://')
+    await manager.close()
+  })
+
+  it('fails the connection closed when a keyref credential is missing (W7)', async () => {
+    const seenConfigs: McpServerConfig[] = []
+    const manager = new McpManager({
+      servers: [httpServer('missing', { Authorization: 'keyref://mcp.missing.Authorization' })],
+      disabled: new Set(),
+      transportFactory: (config) => {
+        seenConfigs.push(config)
+        return new FakeTransport('ok')
+      },
+      resolveKeyref: async () => undefined,
+    })
+    await manager.connect()
+    expect(seenConfigs).toHaveLength(0)
+    expect(manager.snapshot()[0]).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        detail: expect.stringContaining('keyref://mcp.missing.Authorization not found'),
+      }),
+    )
+    await manager.close()
+  })
+})
+
+describe('§S3.8 telemetry sampling', () => {
+  it('emits mcp.interop_json_loaded when a project .mcp.json contributes servers', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-events-'))
+    dirs.push(root)
+    await writeFile(
+      join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          one: { command: 'cmd-one' },
+          two: { command: 'cmd-two' },
+        },
+      }),
+    )
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = []
+    const configs = await loadMcpServerConfigs({
+      volundHome: join(root, 'home'),
+      cwd: root,
+      onEvent: (event, fields) => events.push({ event, fields }),
+    })
+    expect(configs).toHaveLength(2)
+    expect(events).toEqual([{ event: 'mcp.interop_json_loaded', fields: { count: 2 } }])
+  })
+
+  it('does not emit interop events when .mcp.json is absent', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-mcp-events-'))
+    dirs.push(root)
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = []
+    await loadMcpServerConfigs({
+      volundHome: join(root, 'home'),
+      cwd: root,
+      onEvent: (event, fields) => events.push({ event, fields }),
+    })
+    expect(events).toEqual([])
+  })
 })
 
 describe('McpManager diagnostics log (§S3.6)', () => {
@@ -451,9 +636,7 @@ describe('resolveSkillSpecToDirectories nested git repos (SKILLS-MCPS-r1.8)', ()
     )
     const { directories, cleanup } = await resolveSkillSpecToDirectories(`file://${repo}`)
     await cleanup()
-    const names = directories
-      .map((dir) => dir.split('/').pop())
-      .toSorted((a, b) => a!.localeCompare(b!))
+    const names = directories.map((dir) => basename(dir)).toSorted((a, b) => a.localeCompare(b))
     expect(names).toEqual(['pdf-tools', 'skill-creator'])
   })
 })

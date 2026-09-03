@@ -192,6 +192,7 @@ export * from './tabbed-list'
 export * from './memory-panel'
 export * from './skills-panel'
 export * from './mcp-panel'
+export * from './subagents-panel'
 export type {
   InteractiveAppOptions,
   ResumedInteractiveSession,

@@ -1,6 +1,6 @@
 import type { CoreEvent, EventBus } from '@volund/core'
 import { productIdentity } from '@volund/shared'
-import { Box, useApp, useStdout } from 'ink'
+import { Box, Text, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -16,6 +16,7 @@ import { SkillsPanel } from './components/SkillsPanel'
 import { StatusLine, type StatusLevel } from './components/StatusLine'
 import { StatusPanel } from './components/StatusPanel'
 import { StreamingStatus, type StreamingPhase } from './components/StreamingStatus'
+import { SubagentsPanel } from './components/SubagentsPanel'
 import { TabbedListView } from './components/TabbedListView'
 import { TopBar } from './components/TopBar'
 import { WelcomeScreen } from './components/welcome/WelcomeScreen'
@@ -34,6 +35,8 @@ import { skillsListCommandView } from './skills-panel'
 import type { SkillsPanelController } from './skills-panel'
 import type { SlashCommandRegistry } from './slash-command-registry'
 import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelData } from './status'
+import type { SubagentsPanelController } from './subagents-panel'
+import { subagentListCommandView } from './subagents-panel'
 import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
 import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
@@ -160,6 +163,8 @@ export interface InteractiveAppOptions {
   skills?: SkillsPanelController
   /** SKILLS-MCPS-r1 §S3.6：/mcp 面板控制器（apps/cli 原生装配）。 */
   mcp?: McpPanelController
+  /** SUBAGENTS-UI-r1：/subagents 运行管理面板控制器（apps/cli 原生装配）。 */
+  subagents?: SubagentsPanelController
   modelPicker?: ModelPickerState
   noColor?: boolean
   /**
@@ -173,6 +178,11 @@ export interface InteractiveAppOptions {
   onModelSelect?: (model: string) => Promise<void> | void
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
+  /** §4.4 三档会话权限模式（/mode 命令的后端）；缺省时 /mode 显示为不可用。 */
+  permissionMode?: {
+    current(): 'ask' | 'auto' | 'full' | undefined
+    set(mode: 'ask' | 'auto' | 'full'): Promise<void> | void
+  }
   resume?: SessionResumeController
   /**
    * r13-P1: resolves the settled native sandbox state after probing. When the
@@ -219,6 +229,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [skillsPanelOpen, setSkillsPanelOpen] = useState(false)
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false)
+  const [subagentsPanelOpen, setSubagentsPanelOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
@@ -239,6 +250,17 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // 斜杠命令执行中（如 /plugins 拉市场索引）：spinner 期 esc 不挂中断——
   // 命令不是会话 turn，interrupt 语义不适用。
   const [commandRunning, setCommandRunning] = useState(false)
+  // SUBAGENTS-UI-r1 §S4：turn 运行期输入框保持可用——斜杠命令即时执行
+  // （undo/compact/model/resume 除外），纯文本排队、turn 结束自动发出。
+  const [queuedInputs, setQueuedInputs] = useState<string[]>([])
+  const anyPanelOpen =
+    statusPanelOpen ||
+    memoryOpen ||
+    skillsPanelOpen ||
+    mcpPanelOpen ||
+    subagentsPanelOpen ||
+    modelPickerOpen ||
+    commandListView !== undefined
   const [registryCommands, setRegistryCommands] = useState(
     () => options.slashCommandRegistry?.snapshot() ?? [],
   )
@@ -293,6 +315,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     activeEvents,
     useCallback(
       (event) => {
+        // SUBAGENTS-UI-r1：subagent 冒泡事件（附录 D.3 tag）不进交互态——
+        // 子会话在后台静默执行，进度走 /subagents 面板；主转录只保留 Task 的
+        // 最终 tool_result。持久化由 runtime 层订阅负责，不受此过滤影响。
+        if ('parentTurnId' in event || (event.parentDepth ?? 0) > 0) return
         if (event.type === 'stream.started') {
           streamBuffer.reset()
           setShowWelcome(false)
@@ -413,6 +439,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setStatusPanelOpen(false)
           setSkillsPanelOpen(false)
           setMcpPanelOpen(false)
+          setSubagentsPanelOpen(false)
           setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
         },
       },
@@ -475,6 +502,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setStatusPanelOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               setResumeCandidates(undefined)
               setMemoryOpen(true)
               setState((current) => ({
@@ -522,6 +550,28 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('model', 'Switch model', 100),
+      options.permissionMode
+        ? {
+            name: 'mode',
+            order: 105,
+            description: 'Switch permission mode (ask | auto | full)',
+            run: async ({ args }) => {
+              const target = args[0]?.trim().toLowerCase()
+              if (target !== 'ask' && target !== 'auto' && target !== 'full') {
+                const current = options.permissionMode!.current() ?? 'ask'
+                return [
+                  `permission mode: ${current}`,
+                  'usage: /mode ask|auto|full',
+                  '  ask  — confirm before changes (default)',
+                  '  auto — auto-approve file edits in this project; commands and network still confirm',
+                  '  full — no prompts for the rest of this session (deny rules still apply)',
+                ].join('\n')
+              }
+              await options.permissionMode!.set(target)
+              return `permission mode: ${target}`
+            },
+          }
+        : unavailableSlashCommand('mode', 'Switch permission mode', 105),
       options.skills
         ? {
             name: 'skills',
@@ -534,6 +584,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setMemoryOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
               setSkillsPanelOpen(true)
               setState((current) => ({
@@ -556,6 +607,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setMemoryOpen(false)
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
               if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
               setMcpPanelOpen(true)
               setState((current) => ({
@@ -566,6 +618,30 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('mcp', 'Browse and manage MCP servers', 120),
+      options.subagents
+        ? {
+            name: 'subagents',
+            order: 125,
+            description: 'Browse and manage subagent runs',
+            run: async ({ args }) => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
+              if (args[0] === 'list')
+                return subagentListCommandView(await options.subagents!.list())
+              setSubagentsPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'subagents',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('subagents', 'Browse and manage subagent runs', 125),
       options.skills
         ? {
             name: 'skill',
@@ -620,10 +696,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         memoryOpen ||
         skillsPanelOpen ||
         mcpPanelOpen ||
+        subagentsPanelOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
         commandListView !== undefined ||
-        state.statusLevel === 'active' ||
+        commandRunning ||
         permissionRequests.length > 0
       }
       history={historyEntries}
@@ -634,6 +711,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       onSubmit={async (input) => {
         const trimmed = input.trim()
         if (!trimmed) return
+        const turnInFlight = state.statusLevel === 'active'
+        if (turnInFlight && trimmed.startsWith('/')) {
+          const busyName = trimmed.slice(1).split(/\s+/)[0] ?? ''
+          if (['undo', 'compact', 'model', 'resume'].includes(busyName)) {
+            appendSystemMessage(setState, `/${busyName} is not available while a turn is running`)
+            return
+          }
+        }
         if (trimmed === 'exit' || trimmed === 'quit') {
           await activeOnExit?.()
           exit()
@@ -681,6 +766,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           if (outcome.kind === 'submit') {
             setShowWelcome(false)
             settleStatus('info')
+            if (turnInFlight) {
+              setQueuedInputs((current) => [...current, outcome.text])
+              appendSystemMessage(
+                setState,
+                'queued — the skill will run when the current turn finishes',
+              )
+              return
+            }
             try {
               await options.history?.append(input)
               setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
@@ -695,6 +788,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           return
         }
         setShowWelcome(false)
+        if (turnInFlight) {
+          setQueuedInputs((current) => [...current, input])
+          appendSystemMessage(
+            setState,
+            'queued — the message will be sent when the current turn finishes',
+          )
+          return
+        }
         try {
           await options.history?.append(input)
           setHistoryEntries(await Promise.resolve(options.history?.list() ?? []))
@@ -721,6 +822,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // estimate, and esc-to-interrupt hint. Suppressed while a permission prompt
   // is open so esc unambiguously means "deny" there.
   const turnInFlight = state.statusLevel === 'active' && permissionRequests.length === 0
+  // 排队消息在 turn 收尾后自动发出（permission 弹窗期不算收尾，statusLevel 仍 active）
+  useEffect(() => {
+    if (state.statusLevel === 'active' || queuedInputs.length === 0) return
+    const next = queuedInputs.join('\n\n')
+    setQueuedInputs([])
+    void activeOnSubmit?.(next, submitOptions(modelOverride ?? ''))
+  }, [state.statusLevel, queuedInputs])
   const toolName = state.status.startsWith('running ')
     ? state.status.slice('running '.length)
     : undefined
@@ -732,7 +840,10 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const turnStatus = turnInFlight ? (
     <StreamingStatus
       active
-      {...(!commandRunning && activeOnInterrupt ? { onInterrupt: activeOnInterrupt } : {})}
+      // 面板打开时 esc 归面板（关面板），不得同时中断 turn——ink useInput 广播。
+      {...(!commandRunning && !anyPanelOpen && activeOnInterrupt
+        ? { onInterrupt: activeOnInterrupt }
+        : {})}
       {...(toolName ? { phaseDetail: toolName } : {})}
       phase={streamPhase}
       streamedChars={state.pendingAssistantText.length}
@@ -758,6 +869,13 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
           ) : null}
           {turnStatus}
+          {queuedInputs.length > 0 ? (
+            <Box paddingLeft={1}>
+              <Text color="gray">
+                {queuedInputs.length} queued message(s) — sent when the turn finishes
+              </Text>
+            </Box>
+          ) : null}
           {commandInput}
         </>
       )}
@@ -832,6 +950,19 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           onClose={() => {
             setMcpPanelOpen(false)
             setState((current) => ({ ...current, status: 'mcp closed' }))
+          }}
+        />
+      ) : null}
+      {subagentsPanelOpen && options.subagents ? (
+        <SubagentsPanel
+          controller={options.subagents}
+          {...(options.noColor === undefined ? {} : { noColor: options.noColor })}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onNotice={(text) => appendSystemMessage(setState, text)}
+          onClose={() => {
+            setSubagentsPanelOpen(false)
+            setState((current) => ({ ...current, status: 'subagents closed' }))
           }}
         />
       ) : null}

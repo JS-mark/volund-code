@@ -49,6 +49,7 @@ const argsDefinition = {
   dangerousNoSandbox: { type: 'boolean' as const },
   dangerouslySkipPermissions: { type: 'boolean' as const },
   yolo: { type: 'boolean' as const },
+  permissionMode: { type: 'string' as const },
   apiKeyStdin: { type: 'boolean' as const },
   skipVerify: { type: 'boolean' as const },
   dangerous: { type: 'boolean' as const },
@@ -170,6 +171,7 @@ export async function runCli(
         buildWelcomePanelData({
           cwd: fallbackCwd,
           dangerousPermissions: false,
+          permissionMode: ports.permissionMode?.current() ?? 'ask',
           ports,
           sandbox: welcomeSandboxFrom(await ports.native.probe()),
           sessionId: 'not available',
@@ -346,6 +348,27 @@ export async function runCli(
         } else {
           await ports.mcp.setEnabled(name, action === 'enable')
           stdout += `MCP server ${name} ${action}d\n`
+        }
+        return { exitCode: 0, stdout, stderr }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return args.json
+          ? jsonFailure(message, 1, 'mcp_action_failed')
+          : { exitCode: 1, stdout, stderr: message }
+      }
+    }
+    if (action === 'login' || action === 'logout') {
+      if (!ports.mcp)
+        return { exitCode: 2, stdout, stderr: 'mcp integration port is not connected' }
+      const name = args._[2]
+      if (!name) return { exitCode: 2, stdout, stderr: `mcp ${action} requires a server name` }
+      try {
+        if (action === 'login') {
+          await ports.mcp.login(name)
+          stdout += `Authorized ${name}; stored the token in the credential store\n`
+        } else {
+          await ports.mcp.logout(name)
+          stdout += `Logged out ${name}; cleared stored credentials\n`
         }
         return { exitCode: 0, stdout, stderr }
       } catch (error) {
@@ -774,6 +797,22 @@ export async function runCli(
   ports.session.configureSecurity?.({
     skipPermissions: Boolean(args.yolo || args.dangerouslySkipPermissions),
   })
+  // §4.4 三档模式：--yolo 等价 full；--permission-mode <ask|auto|full> 配置新会话默认档。
+  {
+    const flagMode =
+      args.permissionMode === 'ask' ||
+      args.permissionMode === 'auto' ||
+      args.permissionMode === 'full'
+        ? args.permissionMode
+        : undefined
+    if (args.permissionMode !== undefined && flagMode === undefined)
+      throw new Error(
+        `invalid --permission-mode '${String(args.permissionMode)}' (ask | auto | full)`,
+      )
+    // 显式 flag 才覆盖；否则落到 [permissions] mode 用户级 config 或默认 ask
+    if (args.yolo || args.dangerouslySkipPermissions) ports.permissionMode?.set('full')
+    else if (flagMode) ports.permissionMode?.set(flagMode)
+  }
   ports.session.configurePermissionInteraction?.({ mode: permissionInteractionMode })
   ports.session.configureOutput?.({ json: jsonMode, write: (value) => (stdout += value) })
   ports.session.configureTerminalOutput?.({ streamToStdout: !jsonMode && !shouldUseTui })
@@ -848,6 +887,7 @@ export async function runCli(
       const welcome = await buildWelcomePanelData({
         cwd,
         dangerousPermissions: permissionsBypassed,
+        permissionMode: ports.permissionMode?.current() ?? (permissionsBypassed ? 'full' : 'ask'),
         ports,
         sandbox: { status: 'probing' },
         sessionId: interactive.id,
@@ -866,6 +906,7 @@ export async function runCli(
       const app = ports.ui!.renderInteractiveApp({
         cwd,
         events: interactive.events,
+        ...(ports.permissionMode ? { permissionMode: ports.permissionMode } : {}),
         ...(ports.memory
           ? {
               memory: createMemoryPanelController(
@@ -977,6 +1018,7 @@ function welcomeSandboxFrom(probe: SandboxDisclosure): WelcomeSandboxStatus {
 async function buildWelcomePanelData(input: {
   cwd: string
   dangerousPermissions: boolean
+  permissionMode: 'ask' | 'auto' | 'full'
   ports: VolundPorts
   sandbox: WelcomeSandboxStatus
   sessionId: string
@@ -1009,7 +1051,7 @@ async function buildWelcomePanelData(input: {
     },
     sandbox: input.sandbox,
     permission: {
-      mode: input.dangerousPermissions ? 'bypassed' : 'ask',
+      mode: input.permissionMode,
       dangerous: input.dangerousPermissions,
       source: input.dangerousPermissions ? 'flag' : 'default',
     },

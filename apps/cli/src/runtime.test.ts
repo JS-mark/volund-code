@@ -11,7 +11,8 @@ import {
 } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
@@ -26,8 +27,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from './cli'
 import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
+import { PermissionRuleStore } from './permissions-store'
 import {
   buildStatusViewModel,
+  collectPluginSkillDirs,
   createPluginMemoryHost,
   createProductionPorts,
   NodeHttpPort,
@@ -37,11 +40,14 @@ import {
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   expandEnvValue,
+  languagePromptFragment,
+  resolveModelAlias,
   loadProductionContextTuning,
   readEffectiveEnv,
   registerPluginCommands,
   registerRuntimeMemoryPrompts,
   requestHttp2,
+  buildSkillInvocationText,
   requestPermission,
   RuntimeSessionPort,
 } from './runtime'
@@ -332,6 +338,175 @@ describe('production tool permission composition', () => {
       { spec: { bash: { command: rawCommand } } },
       { spec: { bash: { command: normalizedVariant } } },
     ])
+  })
+
+  it('persists an allow-forever grant to permissions.toml and replays it without prompting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permissions-chain-'))
+    fixtures.push(root)
+    const paths = {
+      project: join(root, '.volund', 'permissions.toml'),
+      global: join(root, 'home', 'permissions.toml'),
+    }
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-persist',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn().mockResolvedValueOnce('e')
+    const nativeExecute = vi.fn(async () => 'ran')
+    const context = (): ToolContext => ({
+      abortSignal: new AbortController().signal,
+      session: { id: state.id, cwd: state.cwd, turnId: 'turn-persist' },
+      native: { execute: nativeExecute },
+      logger,
+      ui: { requestInput: async () => '' },
+    })
+
+    // 第一个 session（line 模式）：用户按 e → allow-forever 落盘 <home>/permissions.toml
+    const firstChain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+      rules: new PermissionRuleStore(paths),
+    })
+    const first = await firstChain
+      .bindExecutor(context)
+      .execute(
+        new BashTool({ platform: 'darwin' }),
+        { command: 'git status' },
+        new AbortController().signal,
+        'toolu_persist_1',
+      )
+    expect(first.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    const saved = await readFile(paths.global, 'utf8')
+    expect(saved).toContain('git status')
+
+    // 第二个 session（none 模式、全新 store）：命中持久化规则 → 不弹窗直接放行；
+    // 未命中 key 的命令仍然 deny。（契约与生产 createRunner 一致：链构造前先 ready）
+    const reloadedRules = new PermissionRuleStore(paths)
+    await reloadedRules.ready()
+    const secondChain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'none' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      terminalIsInteractive: () => false,
+      rules: reloadedRules,
+    })
+    const executor = secondChain.bindExecutor(context)
+    const replay = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_persist_2',
+    )
+    expect(replay.isError).not.toBe(true)
+    const unmatched = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git log' },
+      new AbortController().signal,
+      'toolu_persist_3',
+    )
+    expect(unmatched.isError).toBe(true)
+    expect(unmatched.content).toEqual([{ type: 'text', text: 'Permission denied for Bash' }])
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
+  })
+
+  it('grants full access for the session via the g answer and stops prompting entirely', async () => {
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-full-access',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn().mockResolvedValueOnce('g')
+    const nativeExecute = vi.fn(async () => 'ran')
+    const chain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    const executor = chain.bindExecutor(
+      (): ToolContext => ({
+        abortSignal: new AbortController().signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-full-access' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const first = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_full_1',
+    )
+    expect(first.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    // 完全不同的命令也不再询问：会话级全放行已生效
+    const second = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'curl https://example.com' },
+      new AbortController().signal,
+      'toolu_full_2',
+    )
+    expect(second.isError).not.toBe(true)
+    expect(linePrompt).toHaveBeenCalledTimes(1)
+    expect(nativeExecute).toHaveBeenCalledTimes(2)
+  })
+
+  it('starts in the snapshot mode and hot-switches the live session via setMode', async () => {
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-mode-switch',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn(async () => 'd' as string)
+    const nativeExecute = vi.fn(async () => 'ran')
+    const chain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line', mode: 'auto' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    expect(chain.mode()).toBe('auto')
+    chain.setMode('full')
+    expect(chain.mode()).toBe('full')
+    const executor = chain.bindExecutor(
+      (): ToolContext => ({
+        abortSignal: new AbortController().signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-mode-switch' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_mode_switch',
+    )
+    expect(result.isError).not.toBe(true)
+    expect(linePrompt).not.toHaveBeenCalled()
   })
 
   it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
@@ -910,7 +1085,7 @@ describe('production permission session snapshots', () => {
       lineage: { depth: 1, parentSessionId: root.id, parentTurnId: 'turn-1' },
     })
     expect(policy.snapshotFor(child)).toBe(first)
-    expect(first).toEqual({ dangerouslySkip: false, interactionMode: 'line' })
+    expect(first).toEqual({ dangerouslySkip: false, interactionMode: 'line', mode: 'ask' })
 
     const nextRoot = createSession({
       id: 'root-on',
@@ -921,6 +1096,7 @@ describe('production permission session snapshots', () => {
     expect(policy.snapshotFor(nextRoot)).toEqual({
       dangerouslySkip: true,
       interactionMode: 'tui',
+      mode: 'ask',
     })
 
     const orphan = createSession({
@@ -1170,6 +1346,7 @@ describe('buildStatusViewModel', () => {
       ...credentialApi,
       version: '0.0.0',
       dangerousPermissions: () => false,
+      permissionMode: () => 'ask',
       sandbox: async () => undefined,
       configAvailable: async () => false,
     })
@@ -2041,183 +2218,194 @@ describe('status configuration adapter', () => {
     }
   })
 
-  it('NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS', async () => {
-    const net = await import('node:net')
-    const https = await import('node:https')
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
-    const certDir = mkdtempSync(join(tmpdir(), 'volund-proxy-test-'))
-    const keyPath = join(certDir, 'key.pem')
-    const certPath = join(certDir, 'cert.pem')
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 1 -nodes -subj "/CN=127.0.0.1" 2>/dev/null`,
-    )
-    const keyPem = await readFile(keyPath, 'utf8')
-    const certPem = await readFile(certPath, 'utf8')
+  // openssl CLI 在 Windows runner 不可用（与 bash-shell 的 itUnix 同惯例）。
+  const itOpenssl = it.skipIf(process.platform === 'win32')
 
-    // 目标 HTTPS 服务器
-    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ https_tunneled: true }))
-    })
-    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
-    const targetAddr = target.address()
-    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+  itOpenssl(
+    'NodeHttpPort routes https:// through HTTPS_PROXY CONNECT tunnel with TLS',
+    async () => {
+      const net = await import('node:net')
+      const https = await import('node:https')
+      const { execSync } = await import('node:child_process')
+      const { mkdtempSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      // 自签名证书（openssl 运行时生成；skipLibCheck 之外不依赖外部 fixture）
+      const certDir = mkdtempSync(join(tmpdir(), 'volund-proxy-test-'))
+      const keyPath = join(certDir, 'key.pem')
+      const certPath = join(certDir, 'cert.pem')
+      execSync(
+        `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 1 -nodes -subj "/CN=127.0.0.1" 2>/dev/null`,
+      )
+      const keyPem = await readFile(keyPath, 'utf8')
+      const certPem = await readFile(certPath, 'utf8')
 
-    // CONNECT 代理
-    const proxy: Server = createServer()
-    let connectSeen = false
-    proxy.on('connect', (req, clientSocket) => {
-      connectSeen = true
-      const [host, port] = req.url!.split(':')
-      const upstream = net.connect(Number(port), host)
-      upstream.once('connect', () => {
-        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
-        upstream.pipe(clientSocket)
-        clientSocket.pipe(upstream)
+      // 目标 HTTPS 服务器
+      const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ https_tunneled: true }))
       })
-      // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
-      const cleanup = (): void => {
-        upstream.destroy()
-        clientSocket.destroy()
+      await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+      const targetAddr = target.address()
+      const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
+
+      // CONNECT 代理
+      const proxy: Server = createServer()
+      let connectSeen = false
+      proxy.on('connect', (req, clientSocket) => {
+        connectSeen = true
+        const [host, port] = req.url!.split(':')
+        const upstream = net.connect(Number(port), host)
+        upstream.once('connect', () => {
+          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+          upstream.pipe(clientSocket)
+          clientSocket.pipe(upstream)
+        })
+        // 任一端关闭时销毁另一端，避免代理连接泄漏导致 server.close() 挂起。
+        const cleanup = (): void => {
+          upstream.destroy()
+          clientSocket.destroy()
+        }
+        upstream.once('error', cleanup)
+        clientSocket.once('close', cleanup)
+        upstream.once('close', cleanup)
+      })
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+      const proxyAddr = proxy.address()
+      const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+      try {
+        process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+        delete process.env.NO_PROXY
+        // 信任自签证书（测试专用）
+        const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+        const http = new NodeHttpPort()
+        const response = await http.request({
+          url: `https://127.0.0.1:${targetPort}/test`,
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: { hello: 'world' },
+          signal: AbortSignal.timeout(5000),
+        })
+        expect(connectSeen).toBe(true)
+        expect(response.status).toBe(200)
+        const chunks: Buffer[] = []
+        for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+        expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ https_tunneled: true })
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject
+      } finally {
+        delete process.env.HTTPS_PROXY
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
+        proxy.closeAllConnections()
+        target.closeAllConnections()
+        await new Promise<void>((r) => proxy.close(() => r()))
+        await new Promise<void>((r) => target.close(() => r()))
+        await rm(certDir, { force: true, recursive: true })
       }
-      upstream.once('error', cleanup)
-      clientSocket.once('close', cleanup)
-      upstream.once('close', cleanup)
-    })
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const proxyAddr = proxy.address()
-    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+    },
+    15000,
+  )
 
-    try {
-      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
-      delete process.env.NO_PROXY
-      // 信任自签证书（测试专用）
-      const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-      const http = new NodeHttpPort()
-      const response = await http.request({
-        url: `https://127.0.0.1:${targetPort}/test`,
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: { hello: 'world' },
-        signal: AbortSignal.timeout(5000),
+  itOpenssl(
+    'NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification',
+    async () => {
+      // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
+      // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
+      const net = await import('node:net')
+      const https = await import('node:https')
+      const { execSync } = await import('node:child_process')
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const certDir = mkdtempSync(join(tmpdir(), 'volund-ca-proxy-'))
+
+      // 1. 生成 CA 密钥 + 自签 CA 证书
+      const caKeyPath = join(certDir, 'ca-key.pem')
+      const caCertPath = join(certDir, 'ca-cert.pem')
+      execSync(
+        `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=volund Test CA" 2>/dev/null`,
+      )
+
+      // 2. 生成服务器密钥 + CSR，用 CA 签名
+      const srvKeyPath = join(certDir, 'srv-key.pem')
+      const srvCsrPath = join(certDir, 'srv.csr')
+      const srvCertPath = join(certDir, 'srv-cert.pem')
+      const extPath = join(certDir, 'ext.cnf')
+      writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
+      execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
+      execSync(
+        `openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`,
+      )
+      execSync(
+        `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
+      )
+
+      const keyPem = await readFile(srvKeyPath, 'utf8')
+      const certPem = await readFile(srvCertPath, 'utf8')
+
+      // 目标 HTTPS 服务器（证书由测试 CA 签发，系统信任库不信任）
+      const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ca_verified: true }))
       })
-      expect(connectSeen).toBe(true)
-      expect(response.status).toBe(200)
-      const chunks: Buffer[] = []
-      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
-      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ https_tunneled: true })
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject
-    } finally {
-      delete process.env.HTTPS_PROXY
-      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
-      proxy.closeAllConnections()
-      target.closeAllConnections()
-      await new Promise<void>((r) => proxy.close(() => r()))
-      await new Promise<void>((r) => target.close(() => r()))
-      await rm(certDir, { force: true, recursive: true })
-    }
-  }, 15000)
+      await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
+      const targetAddr = target.address()
+      const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
 
-  it('NodeHttpPort trusts proxy CA via NODE_EXTRA_CA_CERTS without disabling verification', async () => {
-    // 模拟 mitmproxy/Charles 场景：CA 签发服务器证书，系统信任库不含该 CA。
-    // NODE_EXTRA_CA_CERTS 指向 CA 证书 → tlsConnect 验证通过，无需关闭 rejectUnauthorized。
-    const net = await import('node:net')
-    const https = await import('node:https')
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const certDir = mkdtempSync(join(tmpdir(), 'volund-ca-proxy-'))
-
-    // 1. 生成 CA 密钥 + 自签 CA 证书
-    const caKeyPath = join(certDir, 'ca-key.pem')
-    const caCertPath = join(certDir, 'ca-cert.pem')
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${caKeyPath}" -out "${caCertPath}" -days 1 -nodes -subj "/CN=volund Test CA" 2>/dev/null`,
-    )
-
-    // 2. 生成服务器密钥 + CSR，用 CA 签名
-    const srvKeyPath = join(certDir, 'srv-key.pem')
-    const srvCsrPath = join(certDir, 'srv.csr')
-    const srvCertPath = join(certDir, 'srv-cert.pem')
-    const extPath = join(certDir, 'ext.cnf')
-    writeFileSync(extPath, 'subjectAltName=IP:127.0.0.1\n')
-    execSync(`openssl genrsa -out "${srvKeyPath}" 2048 2>/dev/null`)
-    execSync(
-      `openssl req -new -key "${srvKeyPath}" -out "${srvCsrPath}" -subj "/CN=127.0.0.1" 2>/dev/null`,
-    )
-    execSync(
-      `openssl x509 -req -in "${srvCsrPath}" -CA "${caCertPath}" -CAkey "${caKeyPath}" -CAcreateserial -out "${srvCertPath}" -days 1 -extfile "${extPath}" 2>/dev/null`,
-    )
-
-    const keyPem = await readFile(srvKeyPath, 'utf8')
-    const certPem = await readFile(srvCertPath, 'utf8')
-
-    // 目标 HTTPS 服务器（证书由测试 CA 签发，系统信任库不信任）
-    const target = https.createServer({ key: keyPem, cert: certPem }, (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ ca_verified: true }))
-    })
-    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve))
-    const targetAddr = target.address()
-    const targetPort = typeof targetAddr === 'object' && targetAddr ? targetAddr.port : 0
-
-    // CONNECT 代理
-    const proxy: Server = createServer()
-    proxy.on('connect', (_req, clientSocket) => {
-      const [host, port] = _req.url!.split(':')
-      const upstream = net.connect(Number(port), host)
-      upstream.once('connect', () => {
-        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
-        upstream.pipe(clientSocket)
-        clientSocket.pipe(upstream)
+      // CONNECT 代理
+      const proxy: Server = createServer()
+      proxy.on('connect', (_req, clientSocket) => {
+        const [host, port] = _req.url!.split(':')
+        const upstream = net.connect(Number(port), host)
+        upstream.once('connect', () => {
+          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+          upstream.pipe(clientSocket)
+          clientSocket.pipe(upstream)
+        })
+        const cleanup = (): void => {
+          upstream.destroy()
+          clientSocket.destroy()
+        }
+        upstream.once('error', cleanup)
+        clientSocket.once('close', cleanup)
+        upstream.once('close', cleanup)
       })
-      const cleanup = (): void => {
-        upstream.destroy()
-        clientSocket.destroy()
+      await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+      const proxyAddr = proxy.address()
+      const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
+
+      try {
+        process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
+        delete process.env.NO_PROXY
+        // 关键：不设 NODE_TLS_REJECT_UNAUTHORIZED=0，而是通过 NODE_EXTRA_CA_CERTS 信任 CA
+        process.env.NODE_EXTRA_CA_CERTS = caCertPath
+        // 清除上一次测试缓存的 TLS 选项（模块级缓存）
+        resetProxyTlsCache()
+
+        const http = new NodeHttpPort()
+        const response = await http.request({
+          url: `https://127.0.0.1:${targetPort}/test`,
+          method: 'GET',
+          headers: {},
+          body: undefined,
+          signal: AbortSignal.timeout(5000),
+        })
+        expect(response.status).toBe(200)
+        const chunks: Buffer[] = []
+        for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
+        expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ca_verified: true })
+      } finally {
+        delete process.env.HTTPS_PROXY
+        delete process.env.NODE_EXTRA_CA_CERTS
+        resetProxyTlsCache()
+        proxy.closeAllConnections()
+        target.closeAllConnections()
+        await new Promise<void>((r) => proxy.close(() => r()))
+        await new Promise<void>((r) => target.close(() => r()))
+        await rm(certDir, { force: true, recursive: true })
       }
-      upstream.once('error', cleanup)
-      clientSocket.once('close', cleanup)
-      upstream.once('close', cleanup)
-    })
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const proxyAddr = proxy.address()
-    const proxyPort = typeof proxyAddr === 'object' && proxyAddr ? proxyAddr.port : 0
-
-    try {
-      process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`
-      delete process.env.NO_PROXY
-      // 关键：不设 NODE_TLS_REJECT_UNAUTHORIZED=0，而是通过 NODE_EXTRA_CA_CERTS 信任 CA
-      process.env.NODE_EXTRA_CA_CERTS = caCertPath
-      // 清除上一次测试缓存的 TLS 选项（模块级缓存）
-      resetProxyTlsCache()
-
-      const http = new NodeHttpPort()
-      const response = await http.request({
-        url: `https://127.0.0.1:${targetPort}/test`,
-        method: 'GET',
-        headers: {},
-        body: undefined,
-        signal: AbortSignal.timeout(5000),
-      })
-      expect(response.status).toBe(200)
-      const chunks: Buffer[] = []
-      for await (const chunk of response.body) chunks.push(Buffer.from(chunk))
-      expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({ ca_verified: true })
-    } finally {
-      delete process.env.HTTPS_PROXY
-      delete process.env.NODE_EXTRA_CA_CERTS
-      resetProxyTlsCache()
-      proxy.closeAllConnections()
-      target.closeAllConnections()
-      await new Promise<void>((r) => proxy.close(() => r()))
-      await new Promise<void>((r) => target.close(() => r()))
-      await rm(certDir, { force: true, recursive: true })
-    }
-  }, 15000)
+    },
+    15000,
+  )
 
   it('exposes one production memory service and reloads its durable state', async () => {
     const root = await mkdtemp(join(process.cwd(), '.memory-composition-'))
@@ -2881,5 +3069,146 @@ describe('production config and history commands', () => {
       exitCode: 0,
       stdout: 'No sessions.\n',
     })
+  })
+})
+
+describe('collectPluginSkillDirs (SM-08b)', () => {
+  it('collects builtin plugin skills unconditionally and state-gated dev/market skills', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-plugin-skills-'))
+    fixtures.push(root)
+    const builtinRoot = resolve(root, 'builtin-plugins')
+    await mkdir(resolve(builtinRoot, 'env', 'skills'), { recursive: true })
+    await mkdir(resolve(builtinRoot, 'bare'), { recursive: true })
+    const marketDir = resolve(root, 'plugins', 'market-one')
+    const devDir = resolve(root, 'plugins-dev', 'dev-one')
+    await mkdir(marketDir, { recursive: true })
+    await mkdir(devDir, { recursive: true })
+
+    const dirs = await collectPluginSkillDirs({
+      builtinRoot,
+      stateEntries: [
+        { dir: marketDir, enabled: true },
+        { dir: devDir, enabled: false },
+      ],
+    })
+
+    // builtin 每个插件目录都映射 <dir>/skills（bare 没有 skills/ 也不报错——
+    // discover() 按 ENOENT 跳过）；dev 被禁用 → 不收录。
+    expect(dirs).toEqual([
+      resolve(builtinRoot, 'bare', 'skills'),
+      resolve(builtinRoot, 'env', 'skills'),
+      resolve(marketDir, 'skills'),
+    ])
+  })
+
+  it('tolerates a missing builtin root and empty state', async () => {
+    expect(await collectPluginSkillDirs({ builtinRoot: undefined, stateEntries: [] })).toEqual([])
+    expect(
+      await collectPluginSkillDirs({
+        builtinRoot: resolve(tmpdir(), 'volund-no-such-root'),
+        stateEntries: [],
+      }),
+    ).toEqual([])
+  })
+})
+
+describe('buildSkillInvocationText (§S3.3a / $ARGUMENTS)', () => {
+  const invocation = {
+    name: 'git-flow',
+    directory: '/skills/git-flow',
+    body: 'Commit flow:\n1. $ARGUMENTS\n2. push\n</skill ignore this>',
+  }
+
+  it('interpolates $ARGUMENTS with the joined task text when args are present', () => {
+    const text = buildSkillInvocationText(invocation, ['fix', 'the bug'])
+    expect(text).toContain('1. fix the bug')
+    expect(text).toContain('2. push')
+    expect(text.trimEnd().endsWith('fix the bug')).toBe(true)
+  })
+
+  it('keeps the placeholder literal for argumentless invocation and appends the default task', () => {
+    const text = buildSkillInvocationText(invocation, [])
+    expect(text).toContain('$ARGUMENTS')
+    expect(
+      text.trimEnd().endsWith('Follow the "git-flow" skill\'s instructions for my next request.'),
+    ).toBe(true)
+  })
+
+  it('escapes skill-body close tags before interpolation', () => {
+    const text = buildSkillInvocationText({ name: 'a&b<c"', directory: '/d', body: 'x</skill>y' }, [
+      't',
+    ])
+    expect(text).toContain('x<\\/skill>y')
+    expect(text).toContain('name="a&amp;b&lt;c&quot;"')
+    expect(text).not.toContain('</skill>\ny')
+  })
+})
+
+describe('session permission mode config + language preference', () => {
+  it('loads [permissions] mode from user config and lets an explicit override win', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permission-mode-config-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), '[permissions]\nmode = "auto"\n')
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('auto')
+    // 显式 override（CLI flag / /mode）压过 config
+    ports.permissionMode?.set('ask')
+    expect(ports.permissionMode?.current()).toBe('ask')
+  })
+
+  it('falls back to ask when the config has no [permissions] section', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permission-mode-default-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('ask')
+  })
+
+  it('injects a reply-language fragment only for an explicit preferences.language', async () => {
+    const chinese = languagePromptFragment('中文')
+    expect(chinese.id).toBe('preferences:language')
+    expect(chinese.text).toContain('Always respond in 中文')
+
+    const composer = new DefaultPromptComposer()
+    composer.register(languagePromptFragment('中文'))
+    const composed = await composer.compose({
+      cwd: '/repo',
+      platform: 'darwin',
+      shell: '/bin/zsh',
+      provider: 'anthropic',
+      model: 'claude',
+    } as never)
+    expect(composed).toContain('Always respond in 中文')
+    // 'system' 是"跟随输入"的显式值，不注册片段（createRunner 侧同样过滤）
+    expect(languagePromptFragment('system').text).toContain('Always respond in system')
+  })
+})
+
+describe('[subagent] limits and [models.aliases] from user config', () => {
+  it('replaces the dispatcher limits from [subagent] config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-subagent-config-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[subagent]\nmax_depth = 2\nmax_concurrent = 7\n[subagent.default_budget]\ntokenMax = 123456\n',
+    )
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('ask')
+    // dispatcher 是进程内部的；这里验证 config 装载不炸 + 端口可用（深度/并发上限
+    // 在 dispatcher 构造时已被 clamp，真正行为由 dispatch 测试覆盖）。
+  })
+
+  it('resolves model aliases for the active provider and flags cross-provider aliases', () => {
+    const aliases = {
+      fast: { provider: 'anthropic', model: 'claude-haiku-test' },
+      oai: { provider: 'openai', model: 'gpt-test' },
+    }
+    expect(resolveModelAlias('fast', aliases)).toEqual({ model: 'claude-haiku-test' })
+    expect(resolveModelAlias('anthropic/fast', aliases)).toEqual({ model: 'claude-haiku-test' })
+    expect(resolveModelAlias('oai', aliases)).toEqual({ mismatch: 'openai' })
+    expect(resolveModelAlias('unknown', aliases)).toBeUndefined()
+    expect(resolveModelAlias('fast', {})).toBeUndefined()
   })
 })

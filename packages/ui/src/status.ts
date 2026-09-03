@@ -169,7 +169,7 @@ export interface StatusViewModel {
     filesystem: StatusAvailability<'isolated' | 'unrestricted' | 'workspace'>
     network: StatusAvailability<'available' | 'restricted' | 'unavailable'>
     permission: StatusAvailability<{
-      mode: 'allow-session' | 'ask' | 'bypassed' | 'read-only' | 'yolo'
+      mode: 'ask' | 'auto' | 'full'
       source: StatusSource
     }>
     memory: StatusAvailability<{ mode: string }>

@@ -61,7 +61,7 @@ export type WelcomeSandboxStatus =
 
 export interface WelcomePermissionStatus {
   dangerous: boolean
-  mode: 'allow-session' | 'ask' | 'bypassed' | 'read-only' | 'yolo'
+  mode: 'ask' | 'auto' | 'full'
   source: 'config' | 'default' | 'flag' | 'session'
 }
 

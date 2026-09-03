@@ -30,7 +30,15 @@ export interface PermissionRequest {
   toolUseId?: string
 }
 export type PermissionDecision = {
-  kind: 'allow-once' | 'allow-session' | 'allow-project' | 'allow-forever' | 'deny' | 'deny-forever'
+  kind:
+    | 'allow-once'
+    | 'allow-session'
+    /** 用户在弹窗里主动升级：本会话内不再询问（deny 规则仍然优先）。 */
+    | 'allow-all-session'
+    | 'allow-project'
+    | 'allow-forever'
+    | 'deny'
+    | 'deny-forever'
 }
 export interface PermissionRules {
   projectDeny?: (request: PermissionRequest) => boolean
@@ -40,18 +48,30 @@ export interface PermissionRules {
 }
 export type PromptHandler = (request: PermissionRequest) => Promise<PermissionDecision>
 
+/**
+ * 会话权限模式（§4.4 三档）：
+ * - ask  变更前确认：未显式允许的操作一律弹窗；
+ * - auto 自动编辑：cwd 内的纯文件写（fs-only spec，无 bash/net）自动放行；
+ * - full 完全访问：本会话不再询问（deny 黑名单仍优先）。
+ */
+export type PermissionSessionMode = 'ask' | 'auto' | 'full'
+
 function inCwd(path: string, cwd: string): boolean {
   const full = isAbsolute(path) ? resolve(path) : resolve(cwd, path)
   const rel = relative(resolve(cwd), full)
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
-function keyOf(request: PermissionRequest): string {
-  if (request.spec.net) {
+/** Grant key for a tool+spec pair: the matching unit shared by session cache and persisted rules. */
+export function permissionKey(toolName: string, spec: PermissionSpec): string {
+  if (spec.net) {
     // net 粒度 = origin（r13-D1）：scheme://host[:port] 归一，同域不同路径共享 allow-session
-    const origin = normalizeOrigin(request.spec.net.url)
-    return JSON.stringify([request.toolName, { net: { ...request.spec.net, url: origin } }])
+    const origin = normalizeOrigin(spec.net.url)
+    return JSON.stringify([toolName, { net: { ...spec.net, url: origin } }])
   }
-  return JSON.stringify([request.toolName, request.spec])
+  return JSON.stringify([toolName, spec])
+}
+function keyOf(request: PermissionRequest): string {
+  return permissionKey(request.toolName, request.spec)
 }
 
 export class PermissionManager {
@@ -62,10 +82,13 @@ export class PermissionManager {
   >()
   #queue = Promise.resolve()
   #prompt?: PromptHandler
+  readonly #initialMode: PermissionSessionMode
+  #mode: PermissionSessionMode
   constructor(
     readonly rules: PermissionRules = {},
     readonly options: {
       dangerouslySkip?: boolean
+      mode?: PermissionSessionMode
       logger?: Logger
       persist?: (
         scope: 'project' | 'global',
@@ -73,18 +96,31 @@ export class PermissionManager {
         allow: boolean,
       ) => Promise<void>
     } = {},
-  ) {}
+  ) {
+    this.#initialMode = options.mode ?? 'ask'
+    this.#mode = this.#initialMode
+  }
+  get mode(): PermissionSessionMode {
+    return this.#mode
+  }
+  /** 会话中切换三档模式（/mode 命令、弹窗 full-access 升级都走这里）。 */
+  setMode(mode: PermissionSessionMode): void {
+    this.#mode = mode
+  }
   setPromptHandler(handler: PromptHandler): void {
     this.#prompt = handler
   }
   clearSession(): void {
     this.#cache.clear()
+    this.#mode = this.#initialMode
   }
   async request(request: PermissionRequest): Promise<PermissionDecision> {
     if (this.rules.projectDeny?.(request)) return { kind: 'deny' }
     if (this.rules.globalDeny?.(request)) return { kind: 'deny' }
     const cached = this.#cache.get(keyOf(request))
     if (cached) return { kind: cached }
+    // 会话级完全访问：deny 规则与已缓存决策之后、scoped allow 之前短路。
+    if (this.#mode === 'full') return { kind: 'allow-session' }
     if (this.rules.projectAllow?.(request)) return { kind: 'allow-project' }
     if (this.rules.globalAllow?.(request)) return { kind: 'allow-forever' }
     const automatic = this.autoAllow(request)
@@ -113,6 +149,18 @@ export class PermissionManager {
       reads.every((path) => inCwd(path, request.session.cwd))
     )
       return { kind: 'allow-session' }
+    // auto 模式：只自动放行纯文件写入（fs-only spec）；带 bash / net 的 spec
+    // （Bash 自带 fs.write ['.']）绝不静默——没有基于命令字符串的白名单。
+    if (this.#mode === 'auto') {
+      const writes = request.spec.fs?.write ?? []
+      if (
+        !request.spec.bash &&
+        !request.spec.net &&
+        writes.length > 0 &&
+        writes.every((path) => inCwd(path, request.session.cwd))
+      )
+        return { kind: 'allow-session' }
+    }
   }
   private async record(
     request: PermissionRequest,
@@ -127,6 +175,7 @@ export class PermissionManager {
       decision.kind === 'deny-forever'
     )
       this.#cache.set(keyOf(request), decision.kind)
+    if (decision.kind === 'allow-all-session') this.#mode = 'full'
     if (decision.kind === 'allow-project') await this.options.persist?.('project', request, true)
     if (decision.kind === 'allow-forever') await this.options.persist?.('global', request, true)
     if (decision.kind === 'deny-forever') await this.options.persist?.('global', request, false)

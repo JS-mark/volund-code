@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PermissionManager, type PermissionRequest } from './index'
+import { PermissionManager, permissionKey, type PermissionRequest } from './index'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },
@@ -382,5 +382,72 @@ describe('PermissionManager', () => {
     expect((await manager.request(network('git://example.com:9418/x'))).kind).toBe('allow-session')
     expect((await manager.request(network('git://example.com:9418/y'))).kind).toBe('allow-session')
     expect(prompt).toHaveBeenCalledTimes(2)
+  })
+})
+describe('permissionKey', () => {
+  it('is the shared grant-key unit: net collapses to origin, spec differences split keys', () => {
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/b', method: 'GET' } }))
+    expect(
+      permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'GET' } }),
+    ).not.toBe(permissionKey('WebFetch', { net: { url: 'https://example.com/a', method: 'POST' } }))
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).not.toBe(
+      permissionKey('Bash', { bash: { command: 'git log' } }),
+    )
+    expect(permissionKey('Bash', { bash: { command: 'git status' } })).toBe(
+      permissionKey('Bash', { bash: { command: 'git status' } }),
+    )
+  })
+})
+describe('session full access', () => {
+  it('stops prompting for the rest of the session after allow-all-session, deny rules still win', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-all-session' as const }))
+    const manager = new PermissionManager({
+      globalDeny: (request) => request.spec.bash?.command === 'rm -rf /',
+    })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-all-session')
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-session')
+    expect((await manager.request(bashReq('anything at all'))).kind).toBe('allow-session')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // 黑名单仍然优先于完全访问
+    expect((await manager.request(bashReq('rm -rf /'))).kind).toBe('deny')
+    manager.clearSession()
+    // 清会话后完全访问失效，重新进入弹窗
+    expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-all-session')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+})
+describe('session permission modes', () => {
+  const writeReq = (path: string) => ({
+    toolName: 'Write',
+    spec: { fs: { write: [path] } },
+    input: {},
+    session: { id: 's', cwd: process.cwd() },
+    attempt: 1,
+  })
+  it('auto mode approves in-project file edits but still asks for bash and out-of-cwd writes', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager({}, { mode: 'auto' })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(writeReq('in-project.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    expect((await manager.request(writeReq('/etc/outside.md'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // Bash 自带 fs.write ['.'] 也绝不能被 auto 档静默放行
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+  it('full mode short-circuits every prompt until reset', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    manager.setMode('full')
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-session')
+    expect((await manager.request(writeReq('anything.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    manager.clearSession()
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
   })
 })

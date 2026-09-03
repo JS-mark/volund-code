@@ -124,6 +124,26 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(isProjectOverrideForbidden('router.allow_cross_provider_tool_use')).toBe(false)
   })
 
+  it('accepts a §3.8.2 fallback chain and keeps chain/cooldown forbidden for projects', () => {
+    const parsed = ConfigSchema.parse({
+      router: {
+        type: 'fallback',
+        chain: [
+          { provider: 'anthropic', model: 'claude-sonnet-4-5', priority: 100 },
+          { provider: 'openai', model: 'gpt-4o', priority: 80 },
+        ],
+        cooldown_seconds: 30,
+      },
+    })
+    expect(parsed.router).toMatchObject({ type: 'fallback', cooldown_seconds: 30 })
+    expect(parsed.router?.chain).toHaveLength(2)
+    expect(() =>
+      ConfigSchema.parse({ router: { chain: [{ provider: 'a', model: 'b' }] } }),
+    ).toThrow() // priority 缺失 → strict 拒绝
+    expect(isProjectOverrideForbidden('router.chain')).toBe(true)
+    expect(isProjectOverrideForbidden('router.cooldown_seconds')).toBe(true)
+  })
+
   it('keeps §8.3.1 generic data-flow patterns beyond the registry', () => {
     expect(isProjectOverrideForbidden('plugin.custom.baseUrl')).toBe(true)
     expect(isProjectOverrideForbidden('memory.paths.endpoint')).toBe(true)
@@ -138,5 +158,21 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(isProjectOverrideForbidden('env.NO_PROXY')).toBe(false)
     // §8.3.1 通用模式：*_api_key 结尾的名字只能来自用户级 config
     expect(isProjectOverrideForbidden('env.MY_SERVICE_API_KEY')).toBe(true)
+  })
+})
+describe('[permissions] mode (§4.4 three session modes)', () => {
+  it('accepts ask/auto/full and rejects other values as config_invalid', () => {
+    for (const mode of ['ask', 'auto', 'full']) {
+      const result = ConfigSchema.safeParse({ permissions: { mode } })
+      expect(result.success).toBe(true)
+    }
+    const invalid = ConfigSchema.safeParse({ permissions: { mode: 'yolo' } })
+    expect(invalid.success).toBe(false)
+    const unknownKey = ConfigSchema.safeParse({ permissions: { skip: true } })
+    expect(unknownKey.success).toBe(false)
+  })
+  it('forbids project-level override of permissions.mode (repos cannot escalate)', () => {
+    expect(isProjectOverrideForbidden('permissions.mode')).toBe(true)
+    expect(projectOverrideFor('permissions.mode')).toBe('forbidden')
   })
 })

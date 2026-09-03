@@ -8,7 +8,7 @@
     "dev": "vitepress dev",
     "preview": "vitepress preview",
     "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
-    "typecheck": "vitepress build"
+    "typecheck": "pnpm --dir ../.. docs:api && vitepress build"
   },
   "devDependencies": {
     "three": "^0.185.1",

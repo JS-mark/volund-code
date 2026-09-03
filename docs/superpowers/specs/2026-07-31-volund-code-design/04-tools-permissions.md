@@ -186,6 +186,7 @@ export interface PermissionRequest {
 export type PermissionDecision =
   | { kind: 'allow-once' }
   | { kind: 'allow-session' }                       // 加入 SessionState.permissionCache
+  | { kind: 'allow-all-session' }                   // 弹窗内用户主动升级：本会话不再询问（deny 规则仍优先；仅内存，不持久化，子 session 不可授予）
   | { kind: 'allow-project' }                       // 写入 <cwd>/.volund/permissions.toml
   | { kind: 'allow-forever' }                       // 写入 ~/.volund/permissions.toml
   | { kind: 'deny' }                                // 单次拒绝
@@ -199,11 +200,12 @@ permission.request(req):
   1. 项目黑名单？→ deny
   2. 全局黑名单？→ deny
   3. SessionState.permissionCache 命中？→ allow
-  4. 项目 permissions.toml 命中？→ allow
-  5. 全局 permissions.toml 命中？→ allow
-  6. 内置 auto-allow 规则（仅 Read / Grep / Glob 在 cwd 内的显式文件读取）？→ allow
-  7. --dangerously-skip-permissions 标志？→ allow（写日志）
-  8. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储；无交互 prompt 时 deny
+  4. 会话 full-access 授权（allow-all-session）？→ allow
+  5. 项目 permissions.toml 命中？→ allow
+  6. 全局 permissions.toml 命中？→ allow
+  7. 内置 auto-allow 规则（仅 Read / Grep / Glob 在 cwd 内的显式文件读取）？→ allow
+  8. --dangerously-skip-permissions 标志？→ allow（写日志）
+  9. 无匹配 → 弹窗询问用户 → 结果按 decision 写入相应存储；无交互 prompt 时 deny
 ```
 
 **auto-allow 内置规则**（保守，用户可关）：
@@ -237,7 +239,9 @@ permission.request(req):
 
 **★ 显式交互策略**：每个顶层 session 在创建 Runner 前冻结 `none | line | tui`。secure default 为 `none`；`--json` 即使运行在物理 TTY 上也必须为 `none`，不得调用 readline/TUI handler；`line` 仅允许非 JSON line 模式且 stdin/stdout 都是物理 TTY；`tui` 只允许已注入的 TUI handler，handler 缺失时 deny，绝不回退 readline。
 
-**★ 冻结安全快照**：`--dangerously-skip-permissions` 与交互策略在顶层 session / Runner 构造边界复制为不可变快照。后续 CLI 配置只影响下一个新顶层 session，不能 live-flip 已存在 executor；所有 child session 按 `parentSessionId` 继承同一快照但使用独立 `PermissionManager` / session cache。找不到 parent snapshot 属于 invariant failure，必须拒绝构造；顶层 session 结束时清理整条 lineage 的快照。
+**★ 冻结安全快照**：`--dangerously-skip-permissions` 与交互策略在顶层 session / Runner 构造边界复制为不可变快照。后续 CLI 配置只影响下一个新顶层 session，不能 live-flip 已存在 executor；所有 child session 按 `parentSessionId` 继承同一快照但使用独立 `PermissionManager` / session cache。找不到 parent snapshot 属于 invariant failure，必须拒绝构造；顶层 session 结束时清理整条 lineage 的快照。**例外**：用户显式发起的会话内切换（`/mode` 命令、弹窗 allow-all-session）允许热切换当前顶层 session 的模式——这是用户在环中的显式同意，不构成配置 live-flip；子 session 不跟随热切换，沿用其冻结快照。
+
+**★ 会话权限模式（三档）**：`ask`（变更前确认，默认）/ `auto`（自动模式：cwd 内纯文件写 fs-only spec 自动放行；带 bash / net 的 spec 绝不静默——Bash 自带 `fs.write ['.']` 因此永远不落入 auto）/ `full`（完全访问：本会话不再询问，deny 黑名单仍优先；不持久化）。入口：启动 `--permission-mode <ask|auto|full>`（`--yolo` 等价 `full` 且仍走 skip 路径）、会话中 `/mode` 命令、弹窗 `Full access (this session)` 快捷键。
 
 ### 4.5 PermissionSpec ↔ 沙箱执行
 

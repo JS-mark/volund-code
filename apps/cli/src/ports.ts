@@ -145,11 +145,16 @@ export interface McpPort {
   add(input: McpAddInput): Promise<{ file: string }>
   remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string }>
   setEnabled(name: string, enabled: boolean): Promise<void>
+  /** SM-07：浏览器 OAuth 2.1 + PKCE + DCR；token 存 auth，回程 loopback。 */
+  login(name: string): Promise<{ server: string }>
+  /** SM-07：吊销（best-effort）并清除凭据。 */
+  logout(name: string): Promise<void>
 }
 export interface SkillListing {
   name: string
   description: string
-  scope: 'user' | 'project'
+  /** plugin = 已启用插件捆绑的 skills（随插件信任，只读面）。 */
+  scope: 'user' | 'project' | 'plugin'
   status: string
   version?: string
   path: string
@@ -348,6 +353,11 @@ export interface VolundPorts {
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   trust: TrustPort
   session: SessionPort
+  /** §4.4 三档会话权限模式（ask | auto | full）；set 对新会话生效并热切活动顶层会话。 */
+  permissionMode?: {
+    current(): 'ask' | 'auto' | 'full' | undefined
+    set(mode: 'ask' | 'auto' | 'full'): void
+  }
   restore?: {
     restore(
       sessionId: string,

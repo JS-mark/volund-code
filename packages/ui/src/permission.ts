@@ -1,6 +1,7 @@
 export type InteractivePermissionDecisionKind =
   | 'allow-once'
   | 'allow-session'
+  | 'allow-all-session'
   | 'allow-project'
   | 'allow-forever'
   | 'deny'

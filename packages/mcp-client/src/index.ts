@@ -120,35 +120,51 @@ export class HttpSseTransport implements McpTransport {
   #endpoint: string
   #lastEventId?: string
   #loop?: Promise<void>
+  #onMessage?: (message: unknown) => void
+  #onClose?: (error?: Error) => void
+  /** SM-08：探测后的协议模式（streamable-http = POST+SSE 混合；sse = 旧 HTTP+SSE）。 */
+  #mode: 'streamable-http' | 'sse' = 'sse'
+  /** 服务器在 initialize 响应头分配的 Mcp-Session-Id（streamable 模式回传）。 */
+  #sessionId: string | undefined = undefined
+  /** streamable 模式下服务器对 GET 监听流返回 405/404 时置位：静默降级为 POST-only。 */
+  #listenStreamDisabled = false
   constructor(readonly options: HttpSseOptions) {
     this.#endpoint = options.url
   }
   async start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void) {
     if (this.#abort) throw new Error('MCP HTTP/SSE transport already started')
     this.#abort = new AbortController()
+    this.#onMessage = onMessage
+    this.#onClose = onClose
     // 规范回退（2025-06-18）：先 POST initialize 探测 Streamable HTTP 端点；
-    // 4xx/405 → 回退旧 HTTP+SSE（GET 等 endpoint 事件）。探测结果告知 client，
-    // client 会用对应协议模式完成握手。
+    // 4xx/405 → 回退旧 HTTP+SSE（GET 等 endpoint 事件）。
     try {
-      const probe = await this.#probeStreamable()
-      this.options.onProbe?.(probe === 'streamable-http' ? 'streamable-http' : 'sse')
+      this.#mode = await this.#probeStreamable()
+      this.options.onProbe?.(this.#mode)
     } catch (error) {
       onClose(asError(error))
       return
     }
-    this.#loop = this.#readLoop(onMessage).catch((error) => {
-      if (!this.#abort?.signal.aborted) onClose(asError(error))
-    })
+    this.#loop =
+      this.#mode === 'sse'
+        ? this.#readLoop(onMessage).catch((error) => {
+            if (!this.#abort?.signal.aborted) onClose(asError(error))
+          })
+        : this.#listenLoop(onMessage).catch((error) => {
+            // 服务器不提供 GET 监听流（405/404）是规范内降级，不算断线。
+            if (!this.#listenStreamDisabled && !this.#abort?.signal.aborted) onClose(asError(error))
+          })
   }
   /**
-   * POST initialize 探测：200 → 这是 Streamable HTTP 端点（Mcp-Session-Id 由
-   * client 后续请求携带）；4xx → 端点是旧 SSE。网络失败抛给 onClose。
+   * POST initialize 探测：200 → Streamable HTTP 端点（响应头的
+   * Mcp-Session-Id 记为当前会话）；4xx → 旧 SSE 端点。网络失败抛给 onClose。
    */
   async #probeStreamable(): Promise<'streamable-http' | 'sse'> {
     const response = await (this.options.fetch ?? fetch)(this.options.url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
         ...this.options.headers,
       },
       body: JSON.stringify({
@@ -163,11 +179,17 @@ export class HttpSseTransport implements McpTransport {
       }),
       signal: this.#abort!.signal,
     })
-    if (response.ok) return 'streamable-http'
-    if (response.status === 404 || response.status === 405) return 'sse'
-    if (response.status === 401 || response.status === 403) return 'sse'
+    if (response.ok) {
+      const session = response.headers.get('mcp-session-id')
+      if (session) this.#sessionId = session
+      // 探测只看状态码：不消费响应体会让连接滞留在 undici 池里。
+      void response.body?.cancel().catch(() => undefined)
+      return 'streamable-http'
+    }
+    void response.body?.cancel().catch(() => undefined)
     return 'sse'
   }
+  /** 旧 HTTP+SSE：GET 流既是服务端→客户端通道，也承载 endpoint 事件。 */
   async #readLoop(onMessage: (message: unknown) => void) {
     const fetcher = this.options.fetch ?? fetch
     const maxReconnects = this.options.maxReconnects ?? 5
@@ -181,30 +203,8 @@ export class HttpSseTransport implements McpTransport {
         signal: this.#abort!.signal,
       })
       if (!response.ok || !response.body) throw new Error(`MCP SSE failed: HTTP ${response.status}`)
-      const reader = response.body.getReader()
-      let buffer = ''
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += new TextDecoder().decode(value, { stream: true })
-        if (Buffer.byteLength(buffer) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
-          throw new Error('MCP SSE event exceeds size limit')
-        let boundary: number
-        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-          const event = buffer.slice(0, boundary).replace(/\r/g, '')
-          buffer = buffer.slice(boundary + 2)
-          let type = 'message',
-            data = ''
-          for (const line of event.split('\n')) {
-            if (line.startsWith('id:')) this.#lastEventId = line.slice(3).trim()
-            else if (line.startsWith('event:')) type = line.slice(6).trim()
-            else if (line.startsWith('data:')) data += `${line.slice(5).trim()}\n`
-          }
-          data = data.trimEnd()
-          if (type === 'endpoint') this.#endpoint = new URL(data, this.options.url).toString()
-          else if (data) onMessage(JSON.parse(data))
-        }
-      }
+      await this.#consumeSse(response, onMessage)
+      if (this.#abort!.signal.aborted) return
       if (attempt >= maxReconnects) throw new Error('MCP SSE reconnect limit exceeded')
       await delay(
         Math.min((this.options.reconnectBaseMs ?? 100) * 2 ** attempt, 5000),
@@ -212,19 +212,118 @@ export class HttpSseTransport implements McpTransport {
       )
     }
   }
+  /**
+   * Streamable HTTP 的可选 GET 监听流（服务端→客户端通知/请求）。
+   * 会话建立（拿到 Mcp-Session-Id）后才发起；405/404 → 规范内降级，静默退出。
+   */
+  async #listenLoop(onMessage: (message: unknown) => void) {
+    const fetcher = this.options.fetch ?? fetch
+    for (let attempt = 0; ; attempt++) {
+      while (!this.#sessionId) {
+        if (this.#abort!.signal.aborted) return
+        await delay(25, this.#abort!.signal)
+      }
+      const response = await fetcher(this.options.url, {
+        headers: {
+          accept: 'text/event-stream',
+          ...this.options.headers,
+          'mcp-session-id': this.#sessionId,
+          ...(this.#lastEventId ? { 'Last-Event-ID': this.#lastEventId } : {}),
+        },
+        signal: this.#abort!.signal,
+      })
+      if (response.status === 405 || response.status === 404) {
+        this.#listenStreamDisabled = true
+        return
+      }
+      if (!response.ok || !response.body) throw new Error(`MCP SSE failed: HTTP ${response.status}`)
+      await this.#consumeSse(response, onMessage)
+      if (this.#abort!.signal.aborted) return
+      if (attempt >= (this.options.maxReconnects ?? 5))
+        throw new Error('MCP SSE reconnect limit exceeded')
+      await delay(
+        Math.min((this.options.reconnectBaseMs ?? 100) * 2 ** attempt, 5000),
+        this.#abort!.signal,
+      )
+    }
+  }
+  /** 读一个 SSE 响应体到流结束（POST SSE 应答与 GET 监听流共用）。 */
+  async #consumeSse(response: Response, onMessage: (message: unknown) => void): Promise<void> {
+    const reader = response.body!.getReader()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += new TextDecoder().decode(value, { stream: true })
+      if (Buffer.byteLength(buffer) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
+        throw new Error('MCP SSE event exceeds size limit')
+      let boundary: number
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        const event = buffer.slice(0, boundary).replace(/\r/g, '')
+        buffer = buffer.slice(boundary + 2)
+        let type = 'message',
+          data = ''
+        for (const line of event.split('\n')) {
+          if (line.startsWith('id:')) this.#lastEventId = line.slice(3).trim()
+          else if (line.startsWith('event:')) type = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += `${line.slice(5).trim()}\n`
+        }
+        data = data.trimEnd()
+        if (type === 'endpoint') this.#endpoint = new URL(data, this.options.url).toString()
+        else if (data) onMessage(JSON.parse(data))
+      }
+    }
+  }
   async send(message: unknown, signal?: AbortSignal) {
-    const response = await (this.options.fetch ?? fetch)(this.#endpoint, {
+    const fetcher = this.options.fetch ?? fetch
+    const streamable = this.#mode === 'streamable-http'
+    const response = await fetcher(this.#endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...this.options.headers },
+      headers: {
+        'content-type': 'application/json',
+        ...(streamable ? { accept: 'application/json, text/event-stream' } : {}),
+        ...this.options.headers,
+        ...(streamable && this.#sessionId ? { 'mcp-session-id': this.#sessionId } : {}),
+        // 2025-06-18 规范修订：握手后的请求带 MCP-Protocol-Version 头。
+        ...(streamable ? { 'mcp-protocol-version': MCP_PROTOCOL_VERSION } : {}),
+      },
       body: JSON.stringify(message),
       ...(signal ? { signal } : {}),
     })
+    const session = response.headers.get('mcp-session-id')
+    if (session) this.#sessionId = session
+    if (streamable && response.status === 404) {
+      // 服务器不认识当前会话：清 sid 并断开，交由上层重连（新 initialize 建新会话）。
+      this.#sessionId = undefined
+      this.#onClose?.(new Error('MCP session expired: HTTP 404'))
+    }
     if (!response.ok) throw new Error(`MCP HTTP request failed: HTTP ${response.status}`)
+    if (response.status === 202) return
+    const contentType = response.headers.get('content-type') ?? ''
+    if (streamable && contentType.includes('text/event-stream') && response.body) {
+      // POST 应答以 SSE 流返回：逐事件投递后等流关闭。
+      await this.#consumeSse(response, (message_) => this.#onMessage?.(message_))
+      return
+    }
     const text = await response.text()
     if (Buffer.byteLength(text) > (this.options.maxMessageBytes ?? DEFAULT_LIMIT))
       throw new Error('MCP HTTP response exceeds size limit')
+    if (streamable && text.trim()) {
+      try {
+        this.#onMessage?.(JSON.parse(text))
+      } catch {
+        throw new Error('Malformed MCP HTTP response')
+      }
+    }
   }
   async close() {
+    const sessionId = this.#sessionId
+    // 规范建议显式终止会话；fire-and-forget，不阻塞本地关闭。
+    if (this.#mode === 'streamable-http' && sessionId)
+      void (this.options.fetch ?? fetch)(this.#endpoint, {
+        method: 'DELETE',
+        headers: { ...this.options.headers, 'mcp-session-id': sessionId },
+      }).catch(() => undefined)
     this.#abort?.abort()
     await this.#loop?.catch(() => {})
     this.#abort = undefined
@@ -244,6 +343,8 @@ export interface McpClientOptions {
   maxPending?: number
   /** 结构化诊断（stderr/异常面）——Manager 侧据此写 mcp.log。 */
   onDiagnostics?: (entry: { level: 'warn' | 'error'; code: string; message: string }) => void
+  /** 传输层意外断开（区别于 client.close() 发起的正常关闭）时回调。 */
+  onClose?: (error?: Error) => void
 }
 
 export class McpClient {
@@ -257,7 +358,10 @@ export class McpClient {
   async initialize() {
     await this.options.transport.start(
       (message) => this.#receive(message),
-      (error) => this.#fail(error ?? new Error('MCP transport closed')),
+      (error) => {
+        this.options.onClose?.(error)
+        this.#fail(error ?? new Error('MCP transport closed'))
+      },
     )
     const result = await this.request('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
