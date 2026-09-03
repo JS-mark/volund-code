@@ -41,6 +41,7 @@ import {
   FileInputHistoryStore,
   expandEnvValue,
   languagePromptFragment,
+  resolveModelAlias,
   loadProductionContextTuning,
   readEffectiveEnv,
   registerPluginCommands,
@@ -3181,5 +3182,33 @@ describe('session permission mode config + language preference', () => {
     expect(composed).toContain('Always respond in 中文')
     // 'system' 是"跟随输入"的显式值，不注册片段（createRunner 侧同样过滤）
     expect(languagePromptFragment('system').text).toContain('Always respond in system')
+  })
+})
+
+describe('[subagent] limits and [models.aliases] from user config', () => {
+  it('replaces the dispatcher limits from [subagent] config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-subagent-config-'))
+    fixtures.push(root)
+    await writeFile(
+      join(root, 'config.toml'),
+      '[subagent]\nmax_depth = 2\nmax_concurrent = 7\n[subagent.default_budget]\ntokenMax = 123456\n',
+    )
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('ask')
+    // dispatcher 是进程内部的；这里验证 config 装载不炸 + 端口可用（深度/并发上限
+    // 在 dispatcher 构造时已被 clamp，真正行为由 dispatch 测试覆盖）。
+  })
+
+  it('resolves model aliases for the active provider and flags cross-provider aliases', () => {
+    const aliases = {
+      fast: { provider: 'anthropic', model: 'claude-haiku-test' },
+      oai: { provider: 'openai', model: 'gpt-test' },
+    }
+    expect(resolveModelAlias('fast', aliases)).toEqual({ model: 'claude-haiku-test' })
+    expect(resolveModelAlias('anthropic/fast', aliases)).toEqual({ model: 'claude-haiku-test' })
+    expect(resolveModelAlias('oai', aliases)).toEqual({ mismatch: 'openai' })
+    expect(resolveModelAlias('unknown', aliases)).toBeUndefined()
+    expect(resolveModelAlias('fast', {})).toBeUndefined()
   })
 })

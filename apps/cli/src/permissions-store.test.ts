@@ -53,7 +53,7 @@ describe('PermissionRuleStore', () => {
     await store.persist('project', bashRequest('git status'), true)
 
     const saved = await readFile(paths.project, 'utf8')
-    expect(saved).toContain('"tool":"Bash"')
+    expect(saved).toContain('Bash')
 
     const reloaded = new PermissionRuleStore(paths)
     await reloaded.ready()

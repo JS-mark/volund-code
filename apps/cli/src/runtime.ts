@@ -1508,6 +1508,22 @@ function buildPermissionDisplay(
 }
 
 /**
+ * [models.aliases] 解析（§8.3）：preferences.model / 面板里可以写别名，命中返回
+ * 目标 model（去掉 provider 前缀）；别名指向的 provider 与当前会话不一致时返回
+ * mismatch 由调用方告警——绝不静默换 provider。
+ */
+export function resolveModelAlias(
+  raw: string,
+  aliases: Record<string, { provider: string; model: string }>,
+  activeProvider = 'anthropic',
+): { model: string } | { mismatch: string } | undefined {
+  const entry = aliases[raw.replace(new RegExp(`^${activeProvider}/`), '')]
+  if (!entry) return undefined
+  if (entry.provider !== activeProvider) return { mismatch: entry.provider }
+  return { model: entry.model.replace(new RegExp(`^${activeProvider}/`), '') }
+}
+
+/**
  * [preferences] language 的回复语言强制片段（§6b）：显式配置才注册——不配则模型
  * 跟随输入语言，中英混杂；配置后即使输入是英文也按配置语言回复。
  */
@@ -2689,14 +2705,60 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
   let overridePermissionMode: PermissionSessionMode | undefined
   let configPermissionMode: PermissionSessionMode | undefined
+  // 启动期一次性装载的用户级 config 会话默认值：[subagent] 限制与 [models.aliases]。
+  // config 是异步读的；dispatcher 在装载完成后整体替换（启动期必然没有在跑的 subagent）。
+  let configSubagentLimits: {
+    maxDepth?: number
+    maxConcurrency?: number
+    defaultBudget?: { costUSDMax?: number; tokenMax?: number; timeMsMax?: number }
+  } = {}
+  let configModelAliases: Record<string, { provider: string; model: string }> = {}
   void readConfigFileOrEmpty(join(home, 'config.toml'))
     .then((config) => {
-      const section = config.permissions
-      if (!section || typeof section !== 'object' || Array.isArray(section)) return
-      const mode = (section as Record<string, JsonValue>).mode
-      if (mode !== 'ask' && mode !== 'auto' && mode !== 'full') return
-      configPermissionMode = mode
-      if (!overridePermissionMode) permissionPolicy.configureMode({ mode })
+      const permissions = config.permissions
+      if (permissions && typeof permissions === 'object' && !Array.isArray(permissions)) {
+        const mode = (permissions as Record<string, JsonValue>).mode
+        if (mode === 'ask' || mode === 'auto' || mode === 'full') {
+          configPermissionMode = mode
+          if (!overridePermissionMode) permissionPolicy.configureMode({ mode })
+        }
+      }
+      const subagent = config.subagent
+      if (subagent && typeof subagent === 'object' && !Array.isArray(subagent)) {
+        const section = subagent as Record<string, JsonValue>
+        const limits: typeof configSubagentLimits = {}
+        if (typeof section.max_depth === 'number' && section.max_depth > 0)
+          limits.maxDepth = section.max_depth
+        if (typeof section.max_concurrent === 'number' && section.max_concurrent > 0)
+          limits.maxConcurrency = section.max_concurrent
+        const budget = section.default_budget
+        if (budget && typeof budget === 'object' && !Array.isArray(budget)) {
+          const raw = budget as Record<string, JsonValue>
+          const parsed: typeof limits.defaultBudget = {}
+          if (typeof raw.costUSDMax === 'number') parsed.costUSDMax = raw.costUSDMax
+          if (typeof raw.tokenMax === 'number') parsed.tokenMax = raw.tokenMax
+          if (typeof raw.timeMsMax === 'number') parsed.timeMsMax = raw.timeMsMax
+          if (Object.keys(parsed).length > 0) limits.defaultBudget = parsed
+        }
+        if (Object.keys(limits).length > 0) {
+          configSubagentLimits = limits
+          if (dispatcher && dispatcher.activeCount === 0) dispatcher = buildDispatcher()
+        }
+      }
+      const models = config.models
+      if (models && typeof models === 'object' && !Array.isArray(models)) {
+        const aliases = (models as Record<string, JsonValue>).aliases
+        if (aliases && typeof aliases === 'object' && !Array.isArray(aliases)) {
+          const parsed: Record<string, { provider: string; model: string }> = {}
+          for (const [name, value] of Object.entries(aliases as Record<string, JsonValue>)) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+            const entry = value as Record<string, JsonValue>
+            if (typeof entry.provider === 'string' && typeof entry.model === 'string')
+              parsed[name] = { provider: entry.provider, model: entry.model }
+          }
+          configModelAliases = parsed
+        }
+      }
     })
     .catch(() => {})
 
@@ -3249,16 +3311,30 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       ollamaEntry && typeof ollamaEntry.endpoint === 'string' && ollamaEntry.endpoint
         ? ollamaEntry.endpoint
         : undefined
-    // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'）
-    // → provider.anthropic.model（静态配置）→ 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
+    // 模型解析（§8.3）：preferences.model（TUI 状态面板选择，id 形如 'anthropic/<model>'，
+    // 也接受 [models.aliases] 里的别名）→ provider.anthropic.model（静态配置）→
+    // 调用方覆盖/默认值在 SingleProviderRouter 入参处收口
     const preferencesSection = userConfig.preferences
-    const preferencesModel =
+    const rawPreferredModel =
       preferencesSection &&
       typeof preferencesSection === 'object' &&
       !Array.isArray(preferencesSection) &&
-      typeof preferencesSection.model === 'string'
-        ? preferencesSection.model.replace(/^anthropic\//, '')
+      typeof preferencesSection.model === 'string' &&
+      preferencesSection.model.trim().length > 0
+        ? preferencesSection.model.trim()
         : undefined
+    const aliasResolution =
+      rawPreferredModel && Object.keys(configModelAliases).length > 0
+        ? resolveModelAlias(rawPreferredModel, configModelAliases)
+        : undefined
+    if (aliasResolution && 'mismatch' in aliasResolution)
+      logger.warn(
+        `[models.aliases] alias '${rawPreferredModel}' targets provider '${aliasResolution.mismatch}'; only anthropic is active in this session — ignoring`,
+      )
+    const aliasModel =
+      aliasResolution && 'model' in aliasResolution ? aliasResolution.model : undefined
+    const preferencesModel =
+      aliasModel ?? (rawPreferredModel ? rawPreferredModel.replace(/^anthropic\//, '') : undefined)
     const preferredLanguage =
       preferencesSection &&
       typeof preferencesSection === 'object' &&
@@ -3642,18 +3718,22 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     )
     return runner
   }
-  dispatcher = new SubagentDispatcher({
-    runnerFactory: createRunner,
-    maxDepth: 3,
-    maxConcurrency: 4,
-    agents: agentRegistry,
-    defaultBudget: {
-      costUSDMax: 1,
-      tokenMax: 200_000,
-      timeMsMax: 10 * 60_000,
-      toolCallMax: 100,
-    },
-  })
+  // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
+  // [subagent] 段覆盖；config 异步装载完成后整体替换 dispatcher。
+  const buildDispatcher = () =>
+    new SubagentDispatcher({
+      runnerFactory: createRunner,
+      agents: agentRegistry,
+      maxDepth: configSubagentLimits.maxDepth ?? 3,
+      maxConcurrency: configSubagentLimits.maxConcurrency ?? 4,
+      defaultBudget: {
+        costUSDMax: configSubagentLimits.defaultBudget?.costUSDMax ?? 1,
+        tokenMax: configSubagentLimits.defaultBudget?.tokenMax ?? 200_000,
+        timeMsMax: configSubagentLimits.defaultBudget?.timeMsMax ?? 10 * 60_000,
+        toolCallMax: 100,
+      },
+    })
+  dispatcher = buildDispatcher()
   const session = new RuntimeSessionPort(
     join(home, 'sessions'),
     createRunner,
