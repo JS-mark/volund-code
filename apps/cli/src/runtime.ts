@@ -54,7 +54,12 @@ import {
 } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import { PermissionManager } from '@volund/permission'
-import type { PermissionDecision, PermissionRequest, PermissionSpec } from '@volund/permission'
+import type {
+  PermissionDecision,
+  PermissionRequest,
+  PermissionSessionMode,
+  PermissionSpec,
+} from '@volund/permission'
 import {
   LEGACY_PLUGIN_UNAVAILABLE,
   PluginError,
@@ -300,6 +305,8 @@ export interface StatusViewModelInput {
   }
   sandbox?: SandboxDisclosure
   dangerousPermissions?: boolean
+  /** §4.4 三档会话模式（--yolo 旁路时显示 full）。 */
+  permissionMode?: PermissionSessionMode
   authConfigured?: boolean
   authMethod?: 'keychain' | 'encrypted_file' | 'env'
   memoryMode?: string
@@ -374,9 +381,10 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
           ? statusUnavailable('permission_mode_unavailable')
           : {
               status: 'available',
-              value: input.dangerousPermissions
-                ? { mode: 'bypassed', source: 'flag' }
-                : { mode: 'ask', source: 'default' },
+              value: {
+                mode: input.dangerousPermissions ? 'full' : (input.permissionMode ?? 'ask'),
+                source: input.dangerousPermissions ? 'flag' : 'default',
+              },
             },
       memory: input.memoryMode
         ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
@@ -439,6 +447,8 @@ export interface StatusSnapshotAdapterOptions {
   sandbox(): Promise<SandboxDisclosure | undefined>
   configAvailable(): Promise<boolean>
   dangerousPermissions(state: SessionState): boolean
+  /** §4.4 当前生效的三档模式（活动会话优先，否则该会话冻结快照/默认 ask）。 */
+  permissionMode(state: SessionState): PermissionSessionMode
 }
 
 export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
@@ -452,6 +462,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       version: options.version,
       ...(sandbox ? { sandbox } : {}),
       dangerousPermissions: options.dangerousPermissions(state),
+      permissionMode: options.permissionMode(state),
       configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
     })
   }
@@ -460,6 +471,8 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
 export interface ProductionPermissionSessionSnapshot {
   readonly dangerouslySkip: boolean
   readonly interactionMode: PermissionInteractionMode
+  /** §4.4 三档会话模式；缺省按 ask 处理（确定型测试可省略）。 */
+  readonly mode?: PermissionSessionMode
 }
 
 export class PermissionSessionInvariantError extends Error {
@@ -477,6 +490,7 @@ export class PermissionSessionInvariantError extends Error {
 export class ProductionPermissionSessionPolicy {
   #nextDangerouslySkip = false
   #nextInteractionMode: PermissionInteractionMode = 'none'
+  #nextMode: PermissionSessionMode = 'ask'
   readonly #snapshots = new Map<string, ProductionPermissionSessionSnapshot>()
 
   configureSecurity(input: { skipPermissions: boolean }): void {
@@ -487,6 +501,15 @@ export class ProductionPermissionSessionPolicy {
     this.#nextInteractionMode = input.mode
   }
 
+  /** §4.4 三档模式：新会话的冻结快照取这里；/mode 热切换另走活动会话控制。 */
+  configureMode(input: { mode: PermissionSessionMode }): void {
+    this.#nextMode = input.mode
+  }
+
+  currentMode(): PermissionSessionMode {
+    return this.#nextMode
+  }
+
   snapshotFor(state: Pick<SessionState, 'id' | 'lineage'>): ProductionPermissionSessionSnapshot {
     const existing = this.#snapshots.get(state.id)
     if (existing) return existing
@@ -494,6 +517,7 @@ export class ProductionPermissionSessionPolicy {
       const snapshot = Object.freeze({
         dangerouslySkip: this.#nextDangerouslySkip,
         interactionMode: this.#nextInteractionMode,
+        mode: this.#nextMode,
       })
       this.#snapshots.set(state.id, snapshot)
       return snapshot
@@ -1564,6 +1588,10 @@ export interface ProductionToolPermissionChainOptions {
 
 export interface ProductionToolPermissionChain {
   permissionRequests: Pick<PermissionManager, 'request'>
+  /** 当前生效的三档模式（活动会话的 /mode 读数走这里）。 */
+  mode(): PermissionSessionMode
+  /** /mode 热切换：只影响持有此 chain 的会话。 */
+  setMode(mode: PermissionSessionMode): void
   bindExecutor(
     context: (signal: AbortSignal) => ToolContext,
     dispatchHook?: ToolHookDispatcher,
@@ -1598,6 +1626,7 @@ export function createProductionToolPermissionChain(
       : {},
     {
       ...configuration,
+      ...(options.permissionSnapshot.mode ? { mode: options.permissionSnapshot.mode } : {}),
       ...(rules
         ? {
             persist: (scope: 'project' | 'global', request: PermissionRequest, allow: boolean) =>
@@ -1628,6 +1657,8 @@ export function createProductionToolPermissionChain(
   let bound = false
   return {
     permissionRequests: Object.freeze({ request: permissions.request.bind(permissions) }),
+    mode: () => permissions.mode,
+    setMode: (mode) => permissions.setMode(mode),
     bindExecutor(context, dispatchHook) {
       if (bound) throw new Error('Production permission executor is already bound')
       bound = true
@@ -2634,6 +2665,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   let skipAuthEmitted = false
   const http = new NodeHttpPort()
   const permissionPolicy = new ProductionPermissionSessionPolicy()
+  // §4.4 /mode 热切换的活动顶层会话句柄：createRunner 建 chain 时登记，端口 set 时热切。
+  let activePermissionControl:
+    | {
+        get(): PermissionSessionMode
+        set(mode: PermissionSessionMode): void
+      }
+    | undefined
 
   // ── SKILLS-MCPS-r1：/skills 与 /mcp 的运行期装配（原生，不经插件桥）──────────
   // skills：多作用域发现（每个 Runner 一个 SkillsRuntime，共享同一个可变 disabled
@@ -3127,6 +3165,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       interactivePermissionPrompt: () => interactivePermissionPrompt,
       rules: permissionRules,
     })
+    // /mode 只挂顶层会话；子会话沿用其冻结快照里的模式。
+    if (state.lineage.depth === 0)
+      activePermissionControl = {
+        get: () => permissionChain.mode(),
+        set: (mode) => permissionChain.setMode(mode),
+      }
     const { permissionRequests } = permissionChain
     // §15 T0: persisted values apply only after an explicit, typed boolean opt-in.
     const { config: userConfig, values: tuned } = await loadProductionContextTuning({
@@ -3591,6 +3635,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       version: options.identity.version,
       dangerousPermissions: (state) =>
         permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
+      permissionMode: (state) =>
+        activePermissionControl?.get() ??
+        permissionPolicy.snapshotForSession(state.id)?.mode ??
+        'ask',
       configAvailable: () =>
         access(join(home, 'config.toml')).then(
           () => true,
@@ -3642,6 +3690,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       renderSessionPicker,
     },
     trust,
+    // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
+    permissionMode: {
+      current: () => activePermissionControl?.get() ?? permissionPolicy.currentMode(),
+      set: (mode) => {
+        permissionPolicy.configureMode({ mode })
+        activePermissionControl?.set(mode)
+      },
+    },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),

@@ -27,6 +27,7 @@ export const BUILTIN_SLASH_COMMAND_NAMES = Object.freeze([
   'memory',
   'resume',
   'model',
+  'mode',
   // SKILLS-MCPS-r1：/skills 与 /mcp（业界单数惯例）为内置保留名；
   // /skill（activate|deactivate|show 动词式入口，§11.4）同样保留
   'skills',

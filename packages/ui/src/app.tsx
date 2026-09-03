@@ -178,6 +178,11 @@ export interface InteractiveAppOptions {
   onModelSelect?: (model: string) => Promise<void> | void
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
+  /** §4.4 三档会话权限模式（/mode 命令的后端）；缺省时 /mode 显示为不可用。 */
+  permissionMode?: {
+    current(): 'ask' | 'auto' | 'full' | undefined
+    set(mode: 'ask' | 'auto' | 'full'): Promise<void> | void
+  }
   resume?: SessionResumeController
   /**
    * r13-P1: resolves the settled native sandbox state after probing. When the
@@ -545,6 +550,28 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('model', 'Switch model', 100),
+      options.permissionMode
+        ? {
+            name: 'mode',
+            order: 105,
+            description: 'Switch permission mode (ask | auto | full)',
+            run: async ({ args }) => {
+              const target = args[0]?.trim().toLowerCase()
+              if (target !== 'ask' && target !== 'auto' && target !== 'full') {
+                const current = options.permissionMode!.current() ?? 'ask'
+                return [
+                  `permission mode: ${current}`,
+                  'usage: /mode ask|auto|full',
+                  '  ask  — confirm before changes (default)',
+                  '  auto — auto-approve file edits in this project; commands and network still confirm',
+                  '  full — no prompts for the rest of this session (deny rules still apply)',
+                ].join('\n')
+              }
+              await options.permissionMode!.set(target)
+              return `permission mode: ${target}`
+            },
+          }
+        : unavailableSlashCommand('mode', 'Switch permission mode', 105),
       options.skills
         ? {
             name: 'skills',

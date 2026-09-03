@@ -419,3 +419,35 @@ describe('session full access', () => {
     expect(prompt).toHaveBeenCalledTimes(2)
   })
 })
+describe('session permission modes', () => {
+  const writeReq = (path: string) => ({
+    toolName: 'Write',
+    spec: { fs: { write: [path] } },
+    input: {},
+    session: { id: 's', cwd: process.cwd() },
+    attempt: 1,
+  })
+  it('auto mode approves in-project file edits but still asks for bash and out-of-cwd writes', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager({}, { mode: 'auto' })
+    manager.setPromptHandler(prompt)
+    expect((await manager.request(writeReq('in-project.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    expect((await manager.request(writeReq('/etc/outside.md'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(1)
+    // Bash 自带 fs.write ['.'] 也绝不能被 auto 档静默放行
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+    expect(prompt).toHaveBeenCalledTimes(2)
+  })
+  it('full mode short-circuits every prompt until reset', async () => {
+    const prompt = vi.fn(async () => ({ kind: 'allow-once' as const }))
+    const manager = new PermissionManager()
+    manager.setPromptHandler(prompt)
+    manager.setMode('full')
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-session')
+    expect((await manager.request(writeReq('anything.md'))).kind).toBe('allow-session')
+    expect(prompt).not.toHaveBeenCalled()
+    manager.clearSession()
+    expect((await manager.request(bashReq('git status'))).kind).toBe('allow-once')
+  })
+})

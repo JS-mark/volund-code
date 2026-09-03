@@ -239,7 +239,9 @@ permission.request(req):
 
 **★ 显式交互策略**：每个顶层 session 在创建 Runner 前冻结 `none | line | tui`。secure default 为 `none`；`--json` 即使运行在物理 TTY 上也必须为 `none`，不得调用 readline/TUI handler；`line` 仅允许非 JSON line 模式且 stdin/stdout 都是物理 TTY；`tui` 只允许已注入的 TUI handler，handler 缺失时 deny，绝不回退 readline。
 
-**★ 冻结安全快照**：`--dangerously-skip-permissions` 与交互策略在顶层 session / Runner 构造边界复制为不可变快照。后续 CLI 配置只影响下一个新顶层 session，不能 live-flip 已存在 executor；所有 child session 按 `parentSessionId` 继承同一快照但使用独立 `PermissionManager` / session cache。找不到 parent snapshot 属于 invariant failure，必须拒绝构造；顶层 session 结束时清理整条 lineage 的快照。
+**★ 冻结安全快照**：`--dangerously-skip-permissions` 与交互策略在顶层 session / Runner 构造边界复制为不可变快照。后续 CLI 配置只影响下一个新顶层 session，不能 live-flip 已存在 executor；所有 child session 按 `parentSessionId` 继承同一快照但使用独立 `PermissionManager` / session cache。找不到 parent snapshot 属于 invariant failure，必须拒绝构造；顶层 session 结束时清理整条 lineage 的快照。**例外**：用户显式发起的会话内切换（`/mode` 命令、弹窗 allow-all-session）允许热切换当前顶层 session 的模式——这是用户在环中的显式同意，不构成配置 live-flip；子 session 不跟随热切换，沿用其冻结快照。
+
+**★ 会话权限模式（三档）**：`ask`（变更前确认，默认）/ `auto`（自动模式：cwd 内纯文件写 fs-only spec 自动放行；带 bash / net 的 spec 绝不静默——Bash 自带 `fs.write ['.']` 因此永远不落入 auto）/ `full`（完全访问：本会话不再询问，deny 黑名单仍优先；不持久化）。入口：启动 `--permission-mode <ask|auto|full>`（`--yolo` 等价 `full` 且仍走 skip 路径）、会话中 `/mode` 命令、弹窗 `Full access (this session)` 快捷键。
 
 ### 4.5 PermissionSpec ↔ 沙箱执行
 
