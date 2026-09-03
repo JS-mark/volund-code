@@ -976,7 +976,7 @@ describe('runCli', () => {
         status: 'sandbox probing; permissions bypassed',
         welcome: expect.objectContaining({
           sandbox: { status: 'probing' },
-          permission: expect.objectContaining({ mode: 'bypassed', dangerous: true }),
+          permission: expect.objectContaining({ mode: 'full', dangerous: true }),
         }),
       }),
     )

@@ -466,6 +466,47 @@ describe('production tool permission composition', () => {
     expect(nativeExecute).toHaveBeenCalledTimes(2)
   })
 
+  it('starts in the snapshot mode and hot-switches the live session via setMode', async () => {
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const state = createSession({
+      id: 'session-mode-switch',
+      cwd: process.cwd(),
+      maxTokens: 200_000,
+      toolRegistrySnapshot: 'runtime-permission-test',
+    })
+    const linePrompt = vi.fn(async () => 'd' as string)
+    const nativeExecute = vi.fn(async () => 'ran')
+    const chain = createProductionToolPermissionChain({
+      state,
+      events: new EventBus(),
+      permissionSnapshot: { dangerouslySkip: false, interactionMode: 'line', mode: 'auto' },
+      logger,
+      interactivePermissionPrompt: () => undefined,
+      linePermissionPrompt: linePrompt,
+      terminalIsInteractive: () => true,
+    })
+    expect(chain.mode()).toBe('auto')
+    chain.setMode('full')
+    expect(chain.mode()).toBe('full')
+    const executor = chain.bindExecutor(
+      (): ToolContext => ({
+        abortSignal: new AbortController().signal,
+        session: { id: state.id, cwd: state.cwd, turnId: 'turn-mode-switch' },
+        native: { execute: nativeExecute },
+        logger,
+        ui: { requestInput: async () => '' },
+      }),
+    )
+    const result = await executor.execute(
+      new BashTool({ platform: 'darwin' }),
+      { command: 'git status' },
+      new AbortController().signal,
+      'toolu_mode_switch',
+    )
+    expect(result.isError).not.toBe(true)
+    expect(linePrompt).not.toHaveBeenCalled()
+  })
+
   it('shows a deny-only marker when sanitization would hide part of a raw Bash command', async () => {
     const events = new EventBus()
     const state = createSession({
@@ -1042,7 +1083,7 @@ describe('production permission session snapshots', () => {
       lineage: { depth: 1, parentSessionId: root.id, parentTurnId: 'turn-1' },
     })
     expect(policy.snapshotFor(child)).toBe(first)
-    expect(first).toEqual({ dangerouslySkip: false, interactionMode: 'line' })
+    expect(first).toEqual({ dangerouslySkip: false, interactionMode: 'line', mode: 'ask' })
 
     const nextRoot = createSession({
       id: 'root-on',
@@ -1053,6 +1094,7 @@ describe('production permission session snapshots', () => {
     expect(policy.snapshotFor(nextRoot)).toEqual({
       dangerouslySkip: true,
       interactionMode: 'tui',
+      mode: 'ask',
     })
 
     const orphan = createSession({
@@ -1302,6 +1344,7 @@ describe('buildStatusViewModel', () => {
       ...credentialApi,
       version: '0.0.0',
       dangerousPermissions: () => false,
+      permissionMode: () => 'ask',
       sandbox: async () => undefined,
       configAvailable: async () => false,
     })

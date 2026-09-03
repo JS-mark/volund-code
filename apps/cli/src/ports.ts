@@ -353,6 +353,11 @@ export interface VolundPorts {
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   trust: TrustPort
   session: SessionPort
+  /** §4.4 三档会话权限模式（ask | auto | full）；set 对新会话生效并热切活动顶层会话。 */
+  permissionMode?: {
+    current(): 'ask' | 'auto' | 'full' | undefined
+    set(mode: 'ask' | 'auto' | 'full'): void
+  }
   restore?: {
     restore(
       sessionId: string,
