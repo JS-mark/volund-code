@@ -104,7 +104,8 @@ describe('welcome screen', () => {
       ),
     )
     expect(output).toContain('Native modules')
-    expect(output).toContain('sandbox loaded')
+    // sandbox 不再单列一行：底行 "sandbox <mechanism> (tier)" 已覆盖。
+    expect(output).not.toContain('sandbox loaded')
     expect(output).toContain('search loaded')
     expect(output).toContain('fs not loaded')
     expect(output).not.toContain('probing')
@@ -120,7 +121,6 @@ describe('welcome screen', () => {
       },
     })
     expect(state.native).toEqual([
-      { label: 'sandbox', state: 'loaded', tone: 'success' },
       { label: 'search', state: 'probing', tone: 'warning' },
       { label: 'fs', state: 'not loaded', tone: 'danger' },
     ])
