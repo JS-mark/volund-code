@@ -77,10 +77,13 @@ describe('welcome screen', () => {
     expect(stdout.output).toContain('╭─ Volund CLI v0.0.0-test ')
     if (layout === 'minimal') {
       expect(stdout.output).not.toContain('Tips for getting started')
+      expect(stdout.output).not.toContain('Native modules')
     } else {
       expect(stdout.output).toContain('Tips for getting started')
-      expect(stdout.output).toContain('Recent activity')
-      expect(stdout.output).toContain('No recent activity')
+      expect(stdout.output).toContain('Native modules')
+      // fixture 未带 native 快照：探针未回填时保持 probing，不谎报结果。
+      expect(stdout.output).toContain('probing')
+      expect(stdout.output).not.toContain('not loaded')
     }
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
@@ -90,32 +93,39 @@ describe('welcome screen', () => {
     expect(stdout.output).not.toContain('BOTTOM STATUS\nBOTTOM STATUS')
   })
 
-  it('lists recent session titles under Recent activity when provided', async () => {
+  it('renders settled native probe states as loaded or not loaded', async () => {
     const output = stripVTControlCharacters(
       await renderWelcome(
         { columns: 120, rows: 30 },
         {
           ...fixture({ status: 'unknown' }),
-          recentActivity: ['fix sandbox probe flake', 'r13-G2 background shells'],
+          native: { sandbox: 'loaded', search: 'loaded', fs: 'unavailable' },
         },
       ),
     )
-    expect(output).toContain('Recent activity')
-    expect(output).toContain('fix sandbox probe flake')
-    expect(output).toContain('r13-G2 background shells')
-    expect(output).not.toContain('No recent activity')
+    expect(output).toContain('Native modules')
+    expect(output).toContain('sandbox loaded')
+    expect(output).toContain('search loaded')
+    expect(output).toContain('fs not loaded')
+    expect(output).not.toContain('probing')
   })
 
-  it('dedupes identical recent activity titles so React keys stay unique', () => {
-    // 同目录多个会话的自动标题相同（"Session in <cwd>"），重复行会让
-    // React key 冲突、启动时往屏幕上刷 duplicate-key 警告。
+  it('maps probe tri-states onto display labels and tones', () => {
+    // 同目录多会话场景已随 Recent activity 移除；这里锁定三态映射，
+    // 防止把 probing 误报成 loaded/unavailable。
     const state = buildWelcomeScreenState({
       data: {
         ...fixture({ status: 'unknown' }),
-        recentActivity: ['Session in /repo', 'Session in /repo', 'other work'],
+        native: { sandbox: 'loaded', search: 'probing', fs: 'unavailable' },
       },
     })
-    expect(state.recentActivity).toEqual(['Session in /repo', 'other work'])
+    expect(state.native).toEqual([
+      { label: 'sandbox', state: 'loaded', tone: 'success' },
+      { label: 'search', state: 'probing', tone: 'warning' },
+      { label: 'fs', state: 'not loaded', tone: 'danger' },
+    ])
+    const fallback = buildWelcomeScreenState({ data: fixture({ status: 'unknown' }) })
+    expect(fallback.native.every((module) => module.state === 'probing')).toBe(true)
   })
 
   it.each([

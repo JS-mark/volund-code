@@ -1,4 +1,5 @@
 import { PassThrough, Writable } from 'node:stream'
+import { stripVTControlCharacters } from 'node:util'
 
 import { EventBus } from '@volund/core'
 import { render } from 'ink'
@@ -50,10 +51,12 @@ describe('renderInteractiveApp', () => {
     const stdin = new MemoryReadStream()
     let resolveProbe!: (value: {
       sandbox: import('./welcome').WelcomeSandboxStatus
+      native?: import('./welcome').WelcomeNativeStatus
       status: string
     }) => void
     const probe = new Promise<{
       sandbox: import('./welcome').WelcomeSandboxStatus
+      native?: import('./welcome').WelcomeNativeStatus
       status: string
     }>((resolve) => {
       resolveProbe = resolve
@@ -88,6 +91,7 @@ describe('renderInteractiveApp', () => {
         filesystem: 'isolated',
         network: 'available',
       },
+      native: { sandbox: 'loaded', search: 'loaded', fs: 'unavailable' },
       status: 'sandbox full',
     })
     await app.waitUntilRenderFlush()
@@ -96,6 +100,11 @@ describe('renderInteractiveApp', () => {
     // Backfill refreshed both the welcome badge and the status line.
     expect(stdout.output).toContain('seatbelt (full)')
     expect(stdout.output).toContain('sandbox full')
+    // The native module rows backfilled in the same pass (search/fs workers).
+    // label 与状态是两个 Text span，先去 VT 码再断言拼接结果。
+    const flattened = stripVTControlCharacters(stdout.output)
+    expect(flattened).toContain('search loaded')
+    expect(flattened).toContain('fs not loaded')
   })
 
   it('renders and switches all five status tabs at narrow width', async () => {
@@ -325,7 +334,7 @@ describe('renderInteractiveApp', () => {
 
     expect(stdout.output).toContain('╭─ Volund CLI v0.0.0-test ')
     expect(stdout.output).toContain('Tips for getting started')
-    expect(stdout.output).toContain('Recent activity')
+    expect(stdout.output).toContain('Native modules')
     expect(stdout.output).toContain('session-1234')
     expect(stdout.output).toContain('runtime resolved')
     expect(stdout.output).toMatch(/>\s*▌Ask Volund/)

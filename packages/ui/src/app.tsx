@@ -38,7 +38,7 @@ import { statusPanelFromWelcome, type StatusPanelController, type StatusPanelDat
 import type { SubagentsPanelController } from './subagents-panel'
 import { subagentListCommandView } from './subagents-panel'
 import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
-import type { WelcomePanelData, WelcomeSandboxStatus } from './welcome'
+import type { WelcomeNativeStatus, WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export interface TranscriptEntry {
   id: string
@@ -188,8 +188,13 @@ export interface InteractiveAppOptions {
    * r13-P1: resolves the settled native sandbox state after probing. When the
    * welcome panel still shows `sandbox: probing`, the app refreshes the welcome
    * badge and top status once this promise resolves (asynchronous backfill).
+   * `native`（可缺省）随同一轮回填 search/fs 探针的加载状态。
    */
-  sandboxProbe?: () => Promise<{ sandbox: WelcomeSandboxStatus; status: string }>
+  sandboxProbe?: () => Promise<{
+    sandbox: WelcomeSandboxStatus
+    native?: WelcomeNativeStatus
+    status: string
+  }>
   sessionId?: string
   slashCommands?: readonly SlashCommand[]
   slashCommandRegistry?: SlashCommandRegistry
@@ -391,7 +396,15 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     options.sandboxProbe().then(
       (resolved) => {
         if (disposed || resolved.sandbox.status === 'probing') return
-        setWelcome((current) => (current ? { ...current, sandbox: resolved.sandbox } : current))
+        setWelcome((current) =>
+          current
+            ? {
+                ...current,
+                sandbox: resolved.sandbox,
+                ...(resolved.native ? { native: resolved.native } : {}),
+              }
+            : current,
+        )
         setState((current) =>
           current.status === (options.status ?? 'ready')
             ? { ...current, status: resolved.status }

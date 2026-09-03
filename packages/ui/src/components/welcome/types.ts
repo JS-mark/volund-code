@@ -12,8 +12,8 @@ export interface WelcomeScreenState {
   permission: { label: string; tone: StatusTone }
   session: { label: string; tokensRemainingLabel: string | null }
   agent: { mode: string; status: string; thinking: 'on' | 'off' }
-  /** 最近会话标题（已过滤当前会话，至多 3 条）；空数组渲染 "No recent activity"。 */
-  recentActivity: ReadonlyArray<string>
+  /** native-bridge 探针加载状态（sandbox/search/fs 各一行）；缺省视为 probing。 */
+  native: ReadonlyArray<{ label: string; state: string; tone: StatusTone }>
 }
 
 export interface WelcomeScreenProps {
