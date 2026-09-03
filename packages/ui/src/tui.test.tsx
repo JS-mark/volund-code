@@ -97,12 +97,11 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     await app.unmount()
     await app.waitUntilExit()
-    // Backfill refreshed both the welcome badge and the status line.
-    expect(stdout.output).toContain('seatbelt (full)')
+    // Backfill refreshed the welcome native rows and the status line.
+    // （sandbox 徽标即 Native modules 的 sandbox 行；底行不再展示 mechanism/tier。）
     expect(stdout.output).toContain('sandbox full')
-    // The native module rows backfilled in the same pass (search/fs workers).
-    // label 与状态是两个 Text span，先去 VT 码再断言拼接结果。
     const flattened = stripVTControlCharacters(stdout.output)
+    expect(flattened).toContain('sandbox loaded')
     expect(flattened).toContain('search loaded')
     expect(flattened).toContain('fs not loaded')
   })

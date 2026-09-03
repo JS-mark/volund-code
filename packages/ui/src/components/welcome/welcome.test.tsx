@@ -104,11 +104,12 @@ describe('welcome screen', () => {
       ),
     )
     expect(output).toContain('Native modules')
-    // sandbox 不再单列一行：底行 "sandbox <mechanism> (tier)" 已覆盖。
-    expect(output).not.toContain('sandbox loaded')
+    expect(output).toContain('sandbox loaded')
     expect(output).toContain('search loaded')
     expect(output).toContain('fs not loaded')
     expect(output).not.toContain('probing')
+    // 底行不再重复 sandbox 机制/tier（避免与 Native modules 的 sandbox 行双写）。
+    expect(output).not.toContain('seatbelt (full)')
   })
 
   it('maps probe tri-states onto display labels and tones', () => {
@@ -121,6 +122,7 @@ describe('welcome screen', () => {
       },
     })
     expect(state.native).toEqual([
+      { label: 'sandbox', state: 'loaded', tone: 'success' },
       { label: 'search', state: 'probing', tone: 'warning' },
       { label: 'fs', state: 'not loaded', tone: 'danger' },
     ])
