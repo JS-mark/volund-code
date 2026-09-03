@@ -1816,7 +1816,7 @@ describe('renderInteractiveApp', () => {
     // 次要范围选项（project/always/never）收进底部暗字提示，快捷键仍直接生效
     expect(stdout.output).toContain('p For this project · f Always · x Never ask again')
     expect(stdout.output).toContain('Full access (this session)')
-    expect(stdout.output).toContain('grants match exactly')
+    expect(stdout.output).toContain('in-repo paths remembered as <repo>/**')
   })
 
   it('exposes all seven decision kinds and decides instantly via quick keys', async () => {

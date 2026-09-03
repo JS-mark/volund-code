@@ -3,14 +3,24 @@ import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { parseTomlFile } from '@volund/config'
-import { permissionKey, type PermissionRequest, type PermissionSpec } from '@volund/permission'
+import {
+  generalizePermissionSpec,
+  permissionKey,
+  permissionRuleMatches,
+  type PermissionRequest,
+  type PermissionSpec,
+} from '@volund/permission'
 import type { JsonValue, Logger } from '@volund/shared'
 
 import { serializeToml } from './mcp'
 
 export type PermissionRuleScope = 'project' | 'global'
 
-/** 落盘条目：tool + spec 对就是匹配单位（permissionKey 全等），不做前缀/glob 推断。 */
+/**
+ * 落盘条目：tool + spec 对就是匹配单位。fs 路径在落盘前泛化为 `<cwd>/**`
+ * 子树模式（generalizePermissionSpec），匹配走 permissionRuleMatches 的
+ * 「请求 ⊆ 规则」模式语义；bash / net 保持 command / origin 精确形态。
+ */
 export interface StoredPermission {
   tool: string
   spec: PermissionSpec
@@ -102,22 +112,31 @@ export class PermissionRuleStore implements PermissionRuleSource {
   }
 
   isDenied(scope: PermissionRuleScope, request: PermissionRequest): boolean {
-    return this.#entries[scope].deny.has(permissionKey(request.toolName, request.spec))
+    return [...this.#entries[scope].deny.values()].some((entry) =>
+      permissionRuleMatches(entry, request),
+    )
   }
 
   isAllowed(scope: PermissionRuleScope, request: PermissionRequest): boolean {
-    return this.#entries[scope].allow.has(permissionKey(request.toolName, request.spec))
+    return [...this.#entries[scope].allow.values()].some((entry) =>
+      permissionRuleMatches(entry, request),
+    )
   }
 
-  /** 新决策取代同 key 的旧决策（allow 翻 deny / deny 翻 allow 都成立）；写盘失败只告警，内存决策保留。 */
+  /**
+   * 新决策取代同 key 的旧决策（allow 翻 deny / deny 翻 allow 都成立）；allow
+   * 先把项目内路径泛化为 `<cwd>/**` 模式再落盘，deny 保持精确（宁缺毋滥）。
+   * 写盘失败只告警，内存决策保留。
+   */
   async persist(
     scope: PermissionRuleScope,
     request: PermissionRequest,
     allow: boolean,
   ): Promise<void> {
     await this.ready()
-    const key = permissionKey(request.toolName, request.spec)
-    const entry: StoredPermission = { tool: request.toolName, spec: request.spec }
+    const spec = allow ? generalizePermissionSpec(request.spec, request.session.cwd) : request.spec
+    const key = permissionKey(request.toolName, spec)
+    const entry: StoredPermission = { tool: request.toolName, spec }
     const buckets = this.#entries[scope]
     ;(allow ? buckets.allow : buckets.deny).set(key, entry)
     ;(allow ? buckets.deny : buckets.allow).delete(key)

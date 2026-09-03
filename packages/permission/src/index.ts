@@ -1,8 +1,10 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
+import picomatch from 'picomatch'
 import type { Logger } from '@volund/shared'
 
 import { normalizeOrigin } from './net-origin'
+import { matchPath, toPosixSeparators } from './path-pattern'
 
 export {
   canonicalizePath,
@@ -72,6 +74,91 @@ export function permissionKey(toolName: string, spec: PermissionSpec): string {
 }
 function keyOf(request: PermissionRequest): string {
   return permissionKey(request.toolName, request.spec)
+}
+
+/** 规则值出现这些字符即视为 glob 模式（fs 路径与 bash command 共用判断）。 */
+const GLOB_CHARS = /[*?[]/
+
+/**
+ * 弹窗授权（allow-project / allow-forever）落盘前的规则泛化 —— 对齐 codex 的
+ * 项目级信任与 claude-code 的 glob 规则：项目内文件路径不落成具体文件（否则写
+ * 第二个文件还要再弹窗），收敛为 `<cwd>/**` 子树模式；既有 glob 与 cwd 外路径
+ * 原样保留（宁可多问，不做目录越权）。bash / net 的身份就在 command / origin
+ * 上，整体原样保留，规则保持手写友好的精确形态。
+ */
+export function generalizePermissionSpec(spec: PermissionSpec, cwd: string): PermissionSpec {
+  if (spec.bash || spec.net || !spec.fs) return spec
+  const generalize = (paths: string[]): string[] => [
+    ...new Set(
+      paths.map((path) =>
+        GLOB_CHARS.test(path) || !inCwd(path, cwd)
+          ? path
+          : toPosixSeparators(join(resolve(cwd), '**')),
+      ),
+    ),
+  ]
+  const fs: PermissionSpec['fs'] = {}
+  if (spec.fs.read) fs.read = generalize(spec.fs.read)
+  if (spec.fs.write) fs.write = generalize(spec.fs.write)
+  return { ...spec, fs }
+}
+
+/**
+ * 持久化规则（permissions.toml 的 tool+spec 条目）对请求的匹配：
+ * - fs.read/write / env.read：请求 ⊆ 规则 —— 请求的每个具体值都要被规则的某个
+ *   模式覆盖（统一走 matchPath 的钉死方言，字面量即退化为其 canonicalize 相等）；
+ *   请求未触及的能力面（字段为空/缺失）不参与判定；
+ * - bash：规则 command 含 glob 字符时按 picomatch 全串匹配（`git *` 前缀语义），
+ *   否则全等；background 需一致；
+ * - net：origin 归一相等（r13-D1）且 method 相等；
+ * - custom：JSON 全等（与 permissionKey 同语义）。
+ * 非法存储模式（如裸名 glob）按不命中处理——弹窗总比崩溃或静默放行好。
+ */
+export function permissionRuleMatches(
+  rule: { tool: string; spec: PermissionSpec },
+  request: PermissionRequest,
+): boolean {
+  if (rule.tool !== request.toolName) return false
+  const ruleSpec = rule.spec
+  const requestSpec = request.spec
+  if (ruleSpec.bash || requestSpec.bash) {
+    if (!ruleSpec.bash || !requestSpec.bash) return false
+    const matched = GLOB_CHARS.test(ruleSpec.bash.command)
+      ? picomatch.isMatch(requestSpec.bash.command, ruleSpec.bash.command, {
+          dot: true,
+          nonegate: true,
+        })
+      : ruleSpec.bash.command === requestSpec.bash.command
+    if (!matched) return false
+    if ((ruleSpec.bash.background ?? false) !== (requestSpec.bash.background ?? false)) return false
+  }
+  if (ruleSpec.net || requestSpec.net) {
+    if (!ruleSpec.net || !requestSpec.net) return false
+    if (normalizeOrigin(ruleSpec.net.url) !== normalizeOrigin(requestSpec.net.url)) return false
+    if (ruleSpec.net.method !== requestSpec.net.method) return false
+  }
+  const covered = (patterns: string[] | undefined, paths: string[] | undefined): boolean => {
+    const required = paths ?? []
+    if (required.length === 0) return true
+    if (!patterns || patterns.length === 0) return false
+    return required.every((path) =>
+      patterns.some((pattern) => {
+        try {
+          return matchPath(pattern, path, { cwd: request.session.cwd })
+        } catch {
+          return false
+        }
+      }),
+    )
+  }
+  if (!covered(ruleSpec.fs?.read, requestSpec.fs?.read)) return false
+  if (!covered(ruleSpec.fs?.write, requestSpec.fs?.write)) return false
+  if (!covered(ruleSpec.env?.read, requestSpec.env?.read)) return false
+  if (ruleSpec.custom !== undefined || requestSpec.custom !== undefined) {
+    if (JSON.stringify(ruleSpec.custom ?? null) !== JSON.stringify(requestSpec.custom ?? null))
+      return false
+  }
+  return true
 }
 
 export class PermissionManager {
