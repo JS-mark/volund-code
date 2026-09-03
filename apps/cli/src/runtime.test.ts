@@ -40,6 +40,7 @@ import {
   createStatusSnapshotAdapter,
   FileInputHistoryStore,
   expandEnvValue,
+  languagePromptFragment,
   loadProductionContextTuning,
   readEffectiveEnv,
   registerPluginCommands,
@@ -3139,5 +3140,46 @@ describe('buildSkillInvocationText (§S3.3a / $ARGUMENTS)', () => {
     expect(text).toContain('x<\\/skill>y')
     expect(text).toContain('name="a&amp;b&lt;c&quot;"')
     expect(text).not.toContain('</skill>\ny')
+  })
+})
+
+describe('session permission mode config + language preference', () => {
+  it('loads [permissions] mode from user config and lets an explicit override win', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permission-mode-config-'))
+    fixtures.push(root)
+    await writeFile(join(root, 'config.toml'), '[permissions]\nmode = "auto"\n')
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('auto')
+    // 显式 override（CLI flag / /mode）压过 config
+    ports.permissionMode?.set('ask')
+    expect(ports.permissionMode?.current()).toBe('ask')
+  })
+
+  it('falls back to ask when the config has no [permissions] section', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permission-mode-default-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(ports.permissionMode?.current()).toBe('ask')
+  })
+
+  it('injects a reply-language fragment only for an explicit preferences.language', async () => {
+    const chinese = languagePromptFragment('中文')
+    expect(chinese.id).toBe('preferences:language')
+    expect(chinese.text).toContain('Always respond in 中文')
+
+    const composer = new DefaultPromptComposer()
+    composer.register(languagePromptFragment('中文'))
+    const composed = await composer.compose({
+      cwd: '/repo',
+      platform: 'darwin',
+      shell: '/bin/zsh',
+      provider: 'anthropic',
+      model: 'claude',
+    } as never)
+    expect(composed).toContain('Always respond in 中文')
+    // 'system' 是"跟随输入"的显式值，不注册片段（createRunner 侧同样过滤）
+    expect(languagePromptFragment('system').text).toContain('Always respond in system')
   })
 })

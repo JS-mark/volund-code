@@ -43,6 +43,7 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[prompt]` | `@include` 参数（max_depth 32 / max_expansions 64） | 见 §6.5.6 | §6b | allowed |
 | `[native]` | `ipc_max_line_bytes` | int，默认 4194304（r13-I6） | §5.6.2 | allowed |
 | `[preferences]` | `outputStyle` / `language` | string（状态面板读写；REM-61 发现的实现侧 key，补录） | §11 状态面板 | allowed |
+| `[permissions]` | `mode` | `"ask" \| "auto" \| "full"`，§4.4 三档会话权限模式的用户级默认档（flag / `/mode` 可覆盖） | §4.4 | **forbidden**（仓库不得给自己提权） |
 | `[ui]` | `theme` | `"auto" \| ...` | §8.3 | allowed |
 | `[ui]` | `color` | bool，默认 true | §8.3 | allowed |
 | `[telemetry]` | `sink` | `"local" \| "otel"`，默认 `local` | §8.7 | **forbidden**（§8.3.1） |

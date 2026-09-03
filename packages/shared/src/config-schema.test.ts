@@ -160,3 +160,19 @@ describe('projectOverrideFor / isProjectOverrideForbidden (§8.3.1)', () => {
     expect(isProjectOverrideForbidden('env.MY_SERVICE_API_KEY')).toBe(true)
   })
 })
+describe('[permissions] mode (§4.4 three session modes)', () => {
+  it('accepts ask/auto/full and rejects other values as config_invalid', () => {
+    for (const mode of ['ask', 'auto', 'full']) {
+      const result = ConfigSchema.safeParse({ permissions: { mode } })
+      expect(result.success).toBe(true)
+    }
+    const invalid = ConfigSchema.safeParse({ permissions: { mode: 'yolo' } })
+    expect(invalid.success).toBe(false)
+    const unknownKey = ConfigSchema.safeParse({ permissions: { skip: true } })
+    expect(unknownKey.success).toBe(false)
+  })
+  it('forbids project-level override of permissions.mode (repos cannot escalate)', () => {
+    expect(isProjectOverrideForbidden('permissions.mode')).toBe(true)
+    expect(projectOverrideFor('permissions.mode')).toBe('forbidden')
+  })
+})
