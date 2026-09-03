@@ -11,9 +11,11 @@ import {
 } from '@volund/ui'
 import type {
   DangerousMode,
+  NativeModuleStatus,
   SandboxDisclosure,
   StatusPanelData,
   WelcomeModelStatus,
+  WelcomeNativeStatus,
   WelcomePanelData,
   WelcomeSandboxStatus,
 } from '@volund/ui'
@@ -923,11 +925,16 @@ export async function runCli(
         onSubmit: interactive.submit,
         modelPicker: buildModelPicker(effectiveModelId, configuredModel),
         permissions,
+        // 沙箱探针 + search/fs worker 探针并行跑；等全部 settle（预算封顶 5s）
+        // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
         sandboxProbe: () =>
-          probePromise.then((probe) => ({
-            sandbox: welcomeSandboxFrom(probe),
-            status: statusText(probe.tier),
-          })),
+          Promise.all([probePromise, ports.native.settled?.() ?? Promise.resolve()]).then(
+            ([probe]) => ({
+              sandbox: welcomeSandboxFrom(probe),
+              native: welcomeNativeFrom(ports),
+              status: statusText(probe.tier),
+            }),
+          ),
         ...(ports.session.list && ports.session.resumeInteractive
           ? {
               resume: {
@@ -1027,17 +1034,6 @@ async function buildWelcomePanelData(input: {
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
-  // 欢迎屏 "Recent activity"：最近会话标题（排除刚启动的当前会话），失败时降级为空。
-  const recentActivity = input.ports.session.list
-    ? await input.ports.session.list().then(
-        (sessions) =>
-          sessions
-            .filter((session) => session.id !== input.sessionId)
-            .slice(0, 3)
-            .map((session) => session.title || session.cwd || session.id),
-        () => [] as string[],
-      )
-    : []
   return {
     version: input.ports.identity.version,
     sessionId: input.sessionId,
@@ -1050,12 +1046,12 @@ async function buildWelcomePanelData(input: {
       source: 'default',
     },
     sandbox: input.sandbox,
+    native: welcomeNativeFrom(input.ports),
     permission: {
       mode: input.permissionMode,
       dangerous: input.dangerousPermissions,
       source: input.dangerousPermissions ? 'flag' : 'default',
     },
-    recentActivity,
     config,
     mcp,
     history: {
@@ -1064,6 +1060,19 @@ async function buildWelcomePanelData(input: {
       entries: 0,
       maxEntries: 1000,
     },
+  }
+}
+
+/** 探针快照 → 欢迎屏三态；端口未接或仍在 probing 时保持 probing 不谎报。 */
+function welcomeNativeFrom(ports: VolundPorts): WelcomeNativeStatus | undefined {
+  const available = ports.native.available?.()
+  if (!available) return undefined
+  const status = (value: boolean | 'probing'): NativeModuleStatus =>
+    value === 'probing' ? 'probing' : value ? 'loaded' : 'unavailable'
+  return {
+    sandbox: status(available.sandbox),
+    search: status(available.search),
+    fs: status(available.fs),
   }
 }
 

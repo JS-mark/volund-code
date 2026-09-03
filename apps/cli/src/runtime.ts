@@ -4127,6 +4127,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       startProbes() {
         nativeProbes.start()
       },
+      /** Resolves when every probe settled or its budget expired (probe.ts contract). */
+      settled() {
+        return nativeProbes.settled()
+      },
       async probe() {
         const info = await probeSandbox()
         const features = info.features as Record<string, unknown>

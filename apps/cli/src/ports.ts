@@ -288,6 +288,8 @@ export interface VolundPorts {
     available?(): NativeAvailabilityView
     /** r13-P1: fire all native probes in parallel (REPL startup path). */
     startProbes?(): void
+    /** Resolves once every probe settled (budget-bounded); for welcome backfill. */
+    settled?(): Promise<void>
   }
   auth: {
     health(): Promise<DoctorHealth>

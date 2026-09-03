@@ -49,16 +49,13 @@ export function WelcomeScreen({
                     </Text>
                   ))}
                   <Divider />
-                  <Text color={welcomeTheme.brandAccent}>Recent activity</Text>
-                  {state.recentActivity.length === 0 ? (
-                    <Text color="gray">No recent activity</Text>
-                  ) : (
-                    state.recentActivity.map((item) => (
-                      <Text key={item} wrap="truncate-end">
-                        {item}
-                      </Text>
-                    ))
-                  )}
+                  <Text color={welcomeTheme.brandAccent}>Native modules</Text>
+                  {state.native.map((module) => (
+                    <Text key={module.label} wrap="truncate-end">
+                      {`${module.label} `}
+                      <Text color={colorForTone(module.tone)}>{module.state}</Text>
+                    </Text>
+                  ))}
                   <Divider />
                 </>
               )}

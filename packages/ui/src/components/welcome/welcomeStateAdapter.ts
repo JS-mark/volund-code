@@ -1,6 +1,6 @@
 import { productIdentity } from '@volund/shared'
 
-import type { WelcomePanelData } from '../../welcome'
+import type { WelcomeNativeStatus, WelcomePanelData } from '../../welcome'
 import type { StatusTone, WelcomeScreenState } from './types'
 import { formatDisplayCwd } from './welcomeLayout'
 
@@ -46,10 +46,28 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
       tokensRemainingLabel: '200k remaining',
     },
     agent: { mode: 'auto', status: 'ready', thinking: 'off' },
-    // 去重：同目录多个会话的自动标题相同（"Session in <cwd>"），重复行既无信息
-    // 量也会让 React key 冲突刷警告。
-    recentActivity: [...new Set(data.recentActivity ?? [])].slice(0, 3),
+    native: nativeRows(data.native),
   }
+}
+
+/** 探针三态 → 欢迎屏展示行：loaded 绿 / probing 黄 / 不可用红。 */
+function nativeRows(native: WelcomeNativeStatus | undefined) {
+  const modules = [
+    { key: 'sandbox' as const, state: native?.sandbox },
+    { key: 'search' as const, state: native?.search },
+    { key: 'fs' as const, state: native?.fs },
+  ]
+  return modules.map(({ key, state }) => ({
+    label: key,
+    state:
+      state === 'loaded'
+        ? 'loaded'
+        : state === 'unavailable'
+          ? 'not loaded'
+          : // 缺省与 'probing' 同态：启动探针未回填时不谎报结果。
+            'probing',
+    tone: (state === 'loaded' ? 'success' : state === 'unavailable' ? 'danger' : 'warning') as StatusTone,
+  }))
 }
 
 function sandboxTone(tier: string): StatusTone {

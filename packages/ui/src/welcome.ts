@@ -10,9 +10,9 @@ export interface WelcomePanelData {
   history: WelcomeHistoryStatus
   mcp: WelcomeMcpStatus
   model: WelcomeModelStatus
+  /** 欢迎屏 "Native modules"：native-bridge 三个探针的加载状态；缺省渲染 probing。 */
+  native?: WelcomeNativeStatus
   permission: WelcomePermissionStatus
-  /** 欢迎屏 "Recent activity"：最近会话标题（至多 3 条），空/缺省渲染 "No recent activity"。 */
-  recentActivity?: readonly string[]
   sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel?: string
@@ -63,6 +63,15 @@ export interface WelcomePermissionStatus {
   dangerous: boolean
   mode: 'ask' | 'auto' | 'full'
   source: 'config' | 'default' | 'flag' | 'session'
+}
+
+/** r13-P1 探针三态：probing 表示启动探针尚未回填。 */
+export type NativeModuleStatus = 'probing' | 'loaded' | 'unavailable'
+
+export interface WelcomeNativeStatus {
+  fs: NativeModuleStatus
+  sandbox: NativeModuleStatus
+  search: NativeModuleStatus
 }
 
 export interface WelcomeConfigStatus {
