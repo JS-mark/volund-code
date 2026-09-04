@@ -12,6 +12,19 @@ import type { MutableSlashCommandRegistry, SlashSubmitView } from '@volund/ui'
  * - 撞 builtin / 已注册命令名 → warn + 跳过（skill 名空间不覆盖命令名空间）；
  * - sync() 幂等：新增注册、消失注销，面板 r / 启停后重调即可。
  */
+/** slash 可注册集合：user-invocable 且非 broken/shadowed/disabled 的 winner——
+ *  同一集合也是斜杠堆叠（`/a /b task`）识别后续 skill 名的依据。 */
+export function slashInvocableSkillNames(entries: readonly SkillEntry[]): Set<string> {
+  const names = new Set<string>()
+  for (const entry of entries) {
+    if (!entry.userInvocable) continue
+    if (entry.status === 'broken' || entry.status === 'shadowed' || entry.status === 'disabled')
+      continue
+    names.add(entry.name)
+  }
+  return names
+}
+
 export class SkillSlashCommands {
   readonly #registered = new Map<string, () => void>()
   constructor(
@@ -24,9 +37,7 @@ export class SkillSlashCommands {
   sync(entries: readonly SkillEntry[]): void {
     const wanted = new Map<string, SkillEntry>()
     for (const entry of entries) {
-      if (!entry.userInvocable) continue
-      if (entry.status === 'broken' || entry.status === 'shadowed' || entry.status === 'disabled')
-        continue
+      if (!slashInvocableSkillNames([entry]).has(entry.name)) continue
       if (!wanted.has(entry.name)) wanted.set(entry.name, entry)
     }
     for (const [name, dispose] of this.#registered)

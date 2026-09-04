@@ -32,7 +32,9 @@ export function MessageBlock({ entry }: MessageBlockProps) {
           {collapsed ? (
             <Box flexDirection="column">
               <Text color="green" wrap="truncate">
-                skill {collapsed.name} invoked{collapsed.task ? ` · ${collapsed.task}` : ''}
+                skill {collapsed.name}
+                {collapsed.stack?.length ? ` +${collapsed.stack.length} more` : ''} invoked
+                {collapsed.task ? ` · ${collapsed.task}` : ''}
               </Text>
               <Text color="gray">
                 ({collapsed.lines} lines of skill instructions attached; sent to the model in full)

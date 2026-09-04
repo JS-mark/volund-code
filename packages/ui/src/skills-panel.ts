@@ -86,29 +86,45 @@ export function skillsListCommandView(entries: readonly SkillsPanelEntry[]): {
  * 用户消息折叠成一行摘要 + 附带行数提示。判定只依赖文本自身（resume / 重放
  * 从 session JSONL 重建的 transcript 同样折叠）。
  */
-const SKILL_INVOCATION_PATTERN =
-  /^<skill name="((?:[^"&]|&(?:amp|lt|quot);)+)"(?: directory="[^"]*")?>\n([\s\S]*?)\n<\/skill>\n\n?([\s\S]*)$/
+const SKILL_FRAME_PATTERN =
+  /^<skill name="((?:[^"&]|&(?:amp|lt|quot);)+)"(?: directory="[^"]*")?>\n([\s\S]*?)\n<\/skill>/
 
 export interface CollapsedSkillInvocation {
   name: string
+  /** 斜杠堆叠（`/a /b task`）里首个之后的其余 skill 名。 */
+  stack?: string[]
   /** 任务首行（截断显示）。 */
   task: string
   /** 折叠掉的 skill 指令行数（含框架）。 */
   lines: number
 }
 
+/**
+ * 识别一个或多个连续的 `<skill>` 框架（业界堆叠：一条消息首框架 + 至多 5 个
+ * 后续），其余文本视为共享任务行。无框架 → undefined（按普通消息渲染）。
+ */
 export function collapseSkillInvocation(text: string): CollapsedSkillInvocation | undefined {
-  const match = SKILL_INVOCATION_PATTERN.exec(text)
-  if (!match) return undefined
-  const name = unescapeSkillAttribute(match[1]!)
-  const body = match[2] ?? ''
-  const remainder = (match[3] ?? '').trim()
+  let rest = text
+  const names: string[] = []
+  let lines = 0
+  for (;;) {
+    const match = SKILL_FRAME_PATTERN.exec(rest)
+    if (!match) break
+    names.push(unescapeSkillAttribute(match[1]!))
+    const body = match[2] ?? ''
+    lines += body ? body.split('\n').length + 2 : 2
+    rest = rest.slice(match[0].length)
+    if (rest.startsWith('\n')) rest = rest.slice(1)
+  }
+  if (names.length === 0) return undefined
+  const remainder = rest.trim()
   const taskLine = remainder.split('\n', 1)[0] ?? ''
   const task = taskLine.length <= 60 ? taskLine : `${taskLine.slice(0, 59)}…`
   return {
-    name,
+    name: names[0]!,
+    ...(names.length > 1 ? { stack: names.slice(1) } : {}),
     task,
-    lines: body ? body.split('\n').length + 2 : 2,
+    lines,
   }
 }
 
