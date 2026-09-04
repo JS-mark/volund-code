@@ -55,6 +55,10 @@ function nativeRows(native: WelcomeNativeStatus | undefined) {
           ? 'not loaded'
           : // 缺省与 'probing' 同态：启动探针未回填时不谎报结果。
             'probing',
-      tone: (state === 'loaded' ? 'success' : state === 'unavailable' ? 'danger' : 'warning') as StatusTone,
+    tone: (state === 'loaded'
+      ? 'success'
+      : state === 'unavailable'
+        ? 'danger'
+        : 'warning') as StatusTone,
   }))
 }
