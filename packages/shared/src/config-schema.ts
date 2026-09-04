@@ -75,6 +75,8 @@ export const configKeyRegistry = {
   // [plugins] 市场源（PLUGIN-MANAGER-r1）：信任配置，禁止项目级覆盖
   // （项目 config 不得把市场指向第三方源）
   'plugins.market': 'forbidden',
+  // builtin_disabled（F1 插件一等公民）：禁用的第一方工具域 id（volund.exec 等）
+  'plugins.builtin_disabled': 'allowed',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -240,7 +242,12 @@ export const ConfigSchema = z.strictObject({
     .optional(),
   // [plugins] 市场源（PLUGIN-MANAGER-r1）：HTTPS（或回环 http）索引 URL；
   // 信任语义校验（同源 / digest）在 apps/cli 的 plugin-market.ts，schema 只管形状
-  plugins: z.strictObject({ market: z.string().optional() }).optional(),
+  plugins: z
+    .strictObject({
+      market: z.string().optional(),
+      builtin_disabled: z.array(z.string()).optional(),
+    })
+    .optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地
   reflection: z
     .strictObject({
