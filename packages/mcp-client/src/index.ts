@@ -1,14 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { createHash } from 'node:crypto'
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { PermissionSpec } from '@volund/permission'
 import type { JsonValue } from '@volund/shared'
 import type { Tool, ToolContext, ToolRegistry, ToolResult } from '@volund/tool-kit'
 
+import { SdkTransportAdapter } from './sdk-transport'
+
 export const MCP_PROTOCOL_VERSION = '2025-03-26'
 const DEFAULT_LIMIT = 4 * 1024 * 1024
 
-type Id = number
 export interface McpTransport {
   start(onMessage: (message: unknown) => void, onClose: (error?: Error) => void): Promise<void>
   send(message: unknown, signal?: AbortSignal): Promise<void>
@@ -340,55 +341,63 @@ export interface McpClientOptions {
   name: string
   transport: McpTransport
   timeoutMs?: number
-  maxPending?: number
   /** 结构化诊断（stderr/异常面）——Manager 侧据此写 mcp.log。 */
   onDiagnostics?: (entry: { level: 'warn' | 'error'; code: string; message: string }) => void
   /** 传输层意外断开（区别于 client.close() 发起的正常关闭）时回调。 */
   onClose?: (error?: Error) => void
 }
 
+/**
+ * 协议层薄包装：握手/翻页/超时/取消交给官方 SDK Client，字节面走注入的自研
+ * McpTransport（stdio 行分帧 / HTTP SSE 探测回退 / 代理栈）。SDK 之外的自研
+ * 行为只剩两处——callTool 的 <untrusted> 包裹，与 permissionSpec 透传
+ * （服务器经 Tool._meta.permissionSpec 携带，spec 内的自定义元数据位）。
+ */
 export class McpClient {
-  #nextId = 1
-  #pending = new Map<Id, { resolve(value: unknown): void; reject(error: Error): void }>()
-  #unregister: Array<() => void> = []
+  readonly #adapter: SdkTransportAdapter
+  readonly #client: Client
+  readonly #unregister: Array<() => void> = []
   #started = false
   constructor(readonly options: McpClientOptions) {
     if (!/^[A-Za-z0-9._-]+$/.test(options.name)) throw new Error('Invalid MCP server name')
+    this.#adapter = new SdkTransportAdapter(options.transport)
+    this.#adapter.onUnderlyingClose = (error) => this.options.onClose?.(error)
+    this.#adapter.onerror = (error) =>
+      this.options.onDiagnostics?.({ level: 'error', code: 'transport', message: error.message })
+    this.#client = new Client({ name: 'volund-cli', version: '0.0.0' })
   }
-  async initialize() {
-    await this.options.transport.start(
-      (message) => this.#receive(message),
-      (error) => {
-        this.options.onClose?.(error)
-        this.#fail(error ?? new Error('MCP transport closed'))
-      },
-    )
-    const result = await this.request('initialize', {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: 'volund-cli', version: '0.0.0' },
-    })
-    await this.notify('notifications/initialized')
+  async initialize(): Promise<{ protocolVersion?: string; serverInfo?: unknown }> {
+    await this.#client.connect(this.#adapter)
     this.#started = true
-    return result
+    const protocolVersion = this.#adapter.initializeProtocolVersion
+    const serverInfo = this.#client.getServerVersion()
+    return {
+      ...(protocolVersion === undefined ? {} : { protocolVersion }),
+      ...(serverInfo ? { serverInfo } : {}),
+    }
   }
+  /** 全量工具清单：循环 nextCursor 翻页聚合（大 server 不再静默截断）。 */
   async listTools(): Promise<McpToolDescription[]> {
-    const result = asRecord(await this.request('tools/list', {}))
-    if (!Array.isArray(result.tools)) throw new Error('Malformed MCP tools/list response')
-    return result.tools.map((tool) => {
-      const value = asRecord(tool)
-      if (typeof value.name !== 'string') throw new Error('Malformed MCP tool definition')
-      return {
-        name: value.name,
-        ...(typeof value.description === 'string' ? { description: value.description } : {}),
-        ...(isRecord(value.inputSchema)
-          ? { inputSchema: value.inputSchema as Record<string, JsonValue> }
-          : {}),
-        ...(isRecord(value.permissionSpec)
-          ? { permissionSpec: value.permissionSpec as PermissionSpec }
-          : {}),
+    const tools: McpToolDescription[] = []
+    let cursor: string | undefined
+    do {
+      const page = await this.#client.listTools(cursor === undefined ? undefined : { cursor })
+      for (const tool of page.tools) {
+        const meta = isRecord(tool._meta) ? tool._meta : undefined
+        tools.push({
+          name: tool.name,
+          ...(typeof tool.description === 'string' ? { description: tool.description } : {}),
+          ...(isRecord(tool.inputSchema)
+            ? { inputSchema: tool.inputSchema as Record<string, JsonValue> }
+            : {}),
+          ...(meta && isRecord(meta.permissionSpec)
+            ? { permissionSpec: meta.permissionSpec as PermissionSpec }
+            : {}),
+        })
       }
-    })
+      cursor = typeof page.nextCursor === 'string' ? page.nextCursor : undefined
+    } while (cursor !== undefined)
+    return tools
   }
   async registerTools(registry: ToolRegistry) {
     const tools = await this.listTools()
@@ -413,10 +422,13 @@ export class McpClient {
     context?: Pick<ToolContext, 'abortSignal'>,
   ): Promise<ToolResult> {
     const result = asRecord(
-      await this.request(
-        'tools/call',
-        { name, arguments: input as JsonValue },
-        context?.abortSignal,
+      await this.#client.callTool(
+        { name, arguments: input as Record<string, unknown> },
+        undefined,
+        {
+          ...(context?.abortSignal ? { signal: context.abortSignal } : {}),
+          ...(this.options.timeoutMs === undefined ? {} : { timeout: this.options.timeoutMs }),
+        },
       ),
     )
     const text = escapeUntrusted(JSON.stringify(result.content ?? result))
@@ -430,95 +442,14 @@ export class McpClient {
       ...(result.isError === true ? { isError: true } : {}),
     }
   }
-  async notify(method: string, params?: JsonValue) {
-    await this.options.transport.send({
-      jsonrpc: '2.0',
-      method,
-      ...(params === undefined ? {} : { params }),
-    })
-  }
-  async request(method: string, params?: JsonValue, signal?: AbortSignal): Promise<unknown> {
-    if (this.#pending.size >= (this.options.maxPending ?? 64))
-      throw new Error('MCP backpressure limit exceeded')
-    const id = this.#nextId++
-    const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
-    return new Promise((resolve, reject) => {
-      const abort = () => {
-        this.#pending.delete(id)
-        void this.notify('notifications/cancelled', {
-          requestId: id,
-          reason: String(combined.reason ?? 'cancelled'),
-        }).catch(() => {})
-        reject(asError(combined.reason ?? new Error('MCP request aborted')))
-      }
-      combined.addEventListener('abort', abort, { once: true })
-      this.#pending.set(id, {
-        resolve: (value) => {
-          combined.removeEventListener('abort', abort)
-          resolve(value)
-        },
-        reject: (error) => {
-          combined.removeEventListener('abort', abort)
-          reject(error)
-        },
-      })
-      this.options.transport
-        .send({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }, combined)
-        .catch((error) => {
-          this.#pending.delete(id)
-          reject(asError(error))
-        })
-    })
-  }
-  #receive(message: unknown) {
-    if (
-      !isRecord(message) ||
-      message.jsonrpc !== '2.0' ||
-      (typeof message.id !== 'number' && typeof message.id !== 'string')
-    )
-      throw new Error('Malformed MCP response')
-    if (typeof message.id !== 'number') return
-    const pending = this.#pending.get(message.id)
-    if (!pending) return
-    this.#pending.delete(message.id)
-    if (isRecord(message.error))
-      pending.reject(
-        new Error(`MCP error ${String(message.error.code)}: ${String(message.error.message)}`),
-      )
-    else if ('result' in message) pending.resolve(message.result)
-    else pending.reject(new Error('Malformed MCP response'))
-  }
-  #fail(error: Error) {
-    for (const pending of this.#pending.values()) pending.reject(error)
-    this.#pending.clear()
-  }
   async close() {
     this.#unregister.splice(0).forEach((remove) => remove())
-    this.#fail(new Error('MCP client closed'))
-    await this.options.transport.close()
+    await this.#client.close()
     this.#started = false
   }
   get started() {
     return this.#started
   }
-}
-
-export function mcpToolSetHash(tools: readonly McpToolDescription[]): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify(
-        tools
-          .map(({ name, description, inputSchema, permissionSpec }) => ({
-            name,
-            description,
-            inputSchema,
-            permissionSpec,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      ),
-    )
-    .digest('hex')
 }
 /**
  * SKILLS-MCPS-r1 §S3.5：工具命名对齐业界 `mcp__<server>__<tool>`（双下划线），
