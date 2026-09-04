@@ -189,17 +189,18 @@ Terminal / automation
   apps/cli ──────── interactive UI, commands, JSON output
         │
         ▼
- packages/core ──── session and agent loop
+ packages/kernel ── Cordis Context tree: model/tools/bus/session/sandbox/ui services
    │      │      │
    │      │      └── tools, permissions, context, storage
    │      └───────── provider router and provider adapters
-   └──────────────── plugin, skill, and MCP runtimes
+   └──────────────── plugin, skill, and MCP runtimes (plugin-contributed tools,
+                     hooks, and prompts register into the same kernel services)
         │
         ▼
  crates/* ───────── native sandbox, search, and filesystem helpers
 ```
 
-The TypeScript packages keep the agent loop, providers, tools, permissions, storage, UI, plugins, and native bridge separated. The Rust workspace contains `volund-sandbox`, `volund-search`, and `volund-fs`. For the detailed design, read the [architecture specification](docs/superpowers/specs/2026-07-31-volund-code-design/README.md).
+The TypeScript packages keep the agent loop, providers, tools, permissions, storage, UI, plugins, and native bridge separated; `packages/kernel` is the runtime spine where first-party subsystems and third-party plugin contributions meet under one service tree (plugins always execute inside the Rust sandbox, never in-process). The Rust workspace contains `volund-sandbox`, `volund-search`, and `volund-fs`. For the detailed design, read the [architecture specification](docs/superpowers/specs/2026-07-31-volund-code-design/README.md).
 
 ## Development
 
@@ -238,7 +239,7 @@ Current planning and evidence are maintained in:
 - [release readiness evidence](docs/releases/);
 - the [capability traceability document](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md).
 
-Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
+Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
 
 ## Contributing and support
 

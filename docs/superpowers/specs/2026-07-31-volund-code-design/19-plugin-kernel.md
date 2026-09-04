@@ -4,13 +4,30 @@
 
 ## §19 Plugin Kernel：Everything Extensible Is a Plugin
 
-> **状态：PROPOSED / PHASE RE-PLAN · ABI-00 CONTRACT DRAFT — NOT SHIPPED。**
+> **状态：PARTIALLY SHIPPED（2026-09-05）——运行时内核已按 Cordis 路线落地（S0/S1/G），capability bundle / signing / catalog 面仍为 ABI-00 草案未交付。**落地映射见 §19.0。
 >
-> **日期：2026-08-21。**
+> **日期：2026-08-21（草案）· 2026-09-05（落地状态更新）。**
 >
 > **目标产品原则：Everything extensible is a plugin; the security kernel is not.**
 >
 > 本节是 §4、§5、§6 与 §18 之间的新架构总约束。它取代“把所有东西，包括安全边界本身，都做成可替换插件”的字面理解。Canonical display identity 已冻结为 **Volund CLI**，canonical CLI/npm identity 为 `volund`、`volund-cli` 与 `@volund/*`；本节不重新决定品牌，也不授权迁移 home/env、wire/schema、native/release 或 signing identity。
+
+### 19.0 落地状态（2026-09-05，kernel 化改造 S0/S1/G）
+
+**决策变更**：运行时组合内核不再自研 ABI-00，直接采用 **Cordis**（`@cordisjs/core` 3.18.1 稳定线，MIT，deps 仅 cosmokit + standard-schema）作为 Context 树 / 服务注册 / 依赖解析 / 卸载语义的骨架——与 DeepSeek Harness 同内核，生态契约距离最小化。本节其余原则不变：**Rust sandbox、权限决策链、事件 payload 契约（D.2 + zod）、UI 渲染权仍属 TCB，不是插件**。
+
+已落地（`@volund/kernel` 包，提交 95658bd…3b03da3）：
+
+| Surface | 落地形态 |
+|---|---|
+| `model` | 每会话 Context 的 `model` 服务（ProviderRegistry 封装） |
+| `tool` | `tools` 服务 + 内置件按域拆分（`volund.core-tools` / `volund.exec` / `volund.orchestration`，`[plugins] builtin_disabled` 可整域禁用，/plugins 与 `volund plugins builtin` 可见可切）+ 桥 `tools.register/unregister`（名字强制 `plugin:<manifest.name>:` 前缀，permissionSpec 收敛 `{custom:{pluginTool}}` 进统一权限链，输出 `<untrusted>` 包裹） |
+| `prompt-source` | 桥 `prompt.contribute/revoke` → 每会话 composer（`plugin:<名>:` id 命名空间，priority 缺省 600） |
+| `hook` | 桥 `hooks.on` / `session.on` → 插件 hook 订阅；`preToolUse/postToolUse` 由 ToolExecutor dispatchHook 消费（首个 HookResult 生效、fail-open），`sessionStart/sessionEnd` 由会话事件广播 |
+| 卸载语义 | 会话中途卸载/禁用插件：命令/页签立即摘除，贡献工具经 `ToolsService.unregisterPlugin` 对全部活会话内核广播摘除 |
+| 可见性 | 内置域在 /plugins 面板 Domains 页签 + `volund plugins builtin` CLI |
+
+未落地（保持草案）：provider/router-policy 的插件注册面（`ProviderRegistry` 已有 `{kind:'plugin'}` 源位与 manifest `kind:'provider'` 校验，宿主未接）、sandbox/session-store 可替换化、capability bundle 签名/catalog、L4 热重载完整语义。
 
 ### 19.1 决策与边界
 

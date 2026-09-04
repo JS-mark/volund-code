@@ -18,6 +18,9 @@ volund-code/
 ├─ packages/                      # 所有可发布 TS 包
 │  │
 │  ├─ ── 内核 (kernel) ──
+│  ├─ kernel/                     # Cordis Context 树（@cordisjs/core）：model/tools/
+│  │                              # bus/session/sandbox/ui 服务；插件贡献与第一方
+│  │                              # 子系统同树（依赖 core/provider-kit/tool-kit + cordis）
 │  ├─ core/                       # Runner / EventBus / SessionState / HookRegistry
 │  │                              # 仅依赖 provider-kit + tool-kit + shared
 │  │
@@ -138,6 +141,7 @@ volund-code/
 | **web-server**     | app-runtime / core（type-only）/ storage（type-only）/ shared；禁止 Ink 和 secret store 直连 |
 | **ui-model**       | core / permission / shared（均 browser-safe 或 type-only）；禁止 Node I/O / Ink / React DOM |
 | **core**           | provider-kit / tool-kit / shared                    |
+| **kernel**         | cordis（@cordisjs/core）/ core / provider-kit / tool-kit |
 | **router**         | provider-kit / shared                               |
 | **provider-kit**   | **shared 仅**                                       |
 | **provider-\***    | provider-kit / http-kit / auth / shared             |
