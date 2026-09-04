@@ -3737,6 +3737,39 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         }),
       )
     }
+    // G 插件一等公民：已激活插件的工具贡献注册进本会话注册表——
+    // permissionSpec 收敛到 {custom:{pluginTool:{plugin,tool}}} 进统一权限决策链；
+    // 输出按不可信内容包裹（与 MCP 工具同策略）。插件在会话中途卸载时，本会话
+    // 已注册工具保留到会话结束（invoke 经已关闭的桥会以错误收场，不会静默）。
+    for (const loaded of loadedPluginEntries) {
+      if (!loaded.handle) continue
+      for (const tool of loaded.handle.tools) {
+        kernel.tools.registry.register(
+          {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema as Record<string, JsonValue>,
+            permissionSpec: () => ({
+              custom: { pluginTool: { plugin: loaded.name, tool: tool.name } },
+            }),
+            invoke: async (input) => {
+              const started = Date.now()
+              const raw = await tool.invoke(input)
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `<untrusted source="${escapeUntrustedText(tool.name)}">\n${escapeUntrustedText(JSON.stringify(raw ?? null))}\n</untrusted>`,
+                  },
+                ],
+                meta: { durationMs: Date.now() - started, costImpact: 'moderate' },
+              }
+            },
+          },
+          { kind: 'plugin', plugin: loaded.name },
+        )
+      }
+    }
     // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
     // Runner 的 registry；invoke 走 runtime 级共享连接，子 agent 不重复 spawn。
     ;(await ensureMcpManager(state.cwd)).attach(registry)
@@ -4451,6 +4484,11 @@ function preference(
   kind: Exclude<StatusConfigItem['kind'], undefined>,
 ): StatusConfigItem {
   return { id, label, value: value as StatusValue, editable: true, kind }
+}
+
+/** 插件工具输出的不可信包裹转义（与 MCP 工具同策略）。 */
+function escapeUntrustedText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {

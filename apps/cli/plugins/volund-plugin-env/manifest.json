@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "main": "index.mjs",
-  "engines": { "volund": "^0.1.0" },
+  "engines": {
+    "volund": "^0.1.0"
+  },
   "permissions": {
-    "volund": ["commands.register", "env.read", "log.write"]
+    "volund": ["commands.register", "env.read", "log.write", "tools.register"]
   }
 }

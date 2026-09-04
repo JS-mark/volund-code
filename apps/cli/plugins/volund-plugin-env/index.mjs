@@ -13,6 +13,25 @@
  * 区别仅在目录来源：产物自带的 apps/cli/plugins/<name>/。
  */
 export async function activate(volund) {
+  // G 插件一等公民：工具贡献——把 [env] 生效快照以结构化工具暴露给模型
+  // （名字必须带 plugin:<manifest.name>: 前缀；invoke 经桥回到沙箱执行）。
+  await volund.tools.register({
+    name: 'plugin:volund-plugin-env:effective-env',
+    description: 'Return the effective [env] config snapshot (name, configured value, status)',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const entries = await volund.env.getEffective()
+      return {
+        count: entries.length,
+        variables: entries.map((entry) => ({
+          name: entry.key,
+          configured: entry.configured,
+          status: entry.status,
+          sandboxPassthrough: entry.sandboxPassthrough,
+        })),
+      }
+    },
+  })
   await volund.commands.register({
     name: 'env',
     order: 55,
