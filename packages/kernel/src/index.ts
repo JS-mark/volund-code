@@ -83,3 +83,40 @@ declare module '@cordisjs/core' {
     sandbox: SandboxService
   }
 }
+
+/**
+ * `ui` 服务：面板收集器（应用级内核持有）。控制器经 registerPanel 挂上树，
+ * 渲染层按 id 取用——插件面板与原生面板同一条收集路径，渲染权仍在内核。
+ * 控制器类型由消费方断言（内核不依赖 @volund/ui）。
+ */
+export class UiService extends Service {
+  /** cordis 以代理转发服务访问，私有字段（#）会因品牌检查失败——用普通属性。 */
+  readonly panels = new Map<string, unknown>()
+  constructor(ctx: Context) {
+    super(ctx, 'ui', true)
+  }
+  registerPanel(id: string, controller: unknown): () => void {
+    this.panels.set(id, controller)
+    return () => {
+      if (this.panels.get(id) === controller) this.panels.delete(id)
+    }
+  }
+  /** 取面板控制器；未注册即抛（登记顺序错误要炸在装配期而不是渲染期）。 */
+  panel<T = unknown>(id: string): T {
+    const controller = this.panels.get(id)
+    if (controller === undefined) throw new Error(`UI panel not registered: ${id}`)
+    return controller as T
+  }
+  peek<T = unknown>(id: string): T | undefined {
+    return this.panels.get(id) as T | undefined
+  }
+  ids(): string[] {
+    return [...this.panels.keys()].toSorted()
+  }
+}
+
+declare module '@cordisjs/core' {
+  interface Context {
+    ui: UiService
+  }
+}

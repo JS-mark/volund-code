@@ -53,6 +53,7 @@ import {
   SandboxService,
   SessionService,
   ToolsService,
+  UiService,
 } from '@volund/kernel'
 import {
   execSandbox,
@@ -2187,6 +2188,10 @@ export function createSandboxNativeBridge(options: {
 
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
+  // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
+  // 它的会话级兄弟层，S2 起插件贡献也经应用级内核汇聚。
+  const appKernel = new Context()
+  appKernel.plugin(UiService)
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
@@ -3265,6 +3270,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       return dispatcher.cancelAllRunning()
     },
   }
+  // 面板控制器汇入应用级内核收集器（渲染层按 id 取用，插件面板同路进场）。
+  appKernel.ui.registerPanel('skills', skillsPanelController)
+  appKernel.ui.registerPanel('mcp', mcpPanelController)
+  appKernel.ui.registerPanel('subagents', subagentsPanelController)
 
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
@@ -3840,11 +3849,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           // r13-G4 (spec 08-session-config.md §8.6.2): `/undo` single-step tool
           // rollback backed by the session backup store.
           undo: { undoStep: (sessionId) => backups.undoStep(sessionId) },
-          // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（原生装配，§S3.3/§S3.6）
-          skills: skillsPanelController,
-          mcp: mcpPanelController,
+          // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（经应用级内核面板收集器）
+          skills: appKernel.ui.panel<SkillsPanelController>('skills'),
+          mcp: appKernel.ui.panel<McpPanelController>('mcp'),
           // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
-          subagents: subagentsPanelController,
+          subagents: appKernel.ui.panel<SubagentsPanelController>('subagents'),
           ...input,
         }),
       renderDirectoryTrustPrompt,
