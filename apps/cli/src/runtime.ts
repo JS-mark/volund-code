@@ -46,6 +46,7 @@ import type {
   RunnerToolPort,
   SessionState,
 } from '@volund/core'
+import { Context, ModelService } from '@volund/kernel'
 import {
   execSandbox,
   nativeProbes,
@@ -85,7 +86,6 @@ import type {
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
 import { GeminiClient } from '@volund/provider-gemini'
-import { InMemoryProviderRegistry } from '@volund/provider-kit'
 import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
 import { OpenAIClient } from '@volund/provider-openai'
 import {
@@ -3496,7 +3496,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         if (streamToStdout) stdout.write('\n')
       },
     }
-    const providers = new InMemoryProviderRegistry()
+    // 内核脊柱（S0）：每会话一棵 Context 树，模型注册表以 `model` 服务提供——
+    // 后续 tools/sandbox/session/events/ui 逐个迁为同形态服务，第三方插件的
+    // 贡献也注册进同一棵树。
+    const kernel = new Context()
+    kernel.plugin(ModelService)
+    const providers = kernel.model.registry
     providers.register(
       client,
       { kind: 'core' },
