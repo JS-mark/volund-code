@@ -216,8 +216,13 @@ import type {
   SessionPort,
 } from './ports'
 import type { AppIdentity } from './shared/app-identity'
-import { SkillSlashCommands } from './skill-commands'
-import { buildSkillInvocationText, createSkillTool, mapAllowedTools } from './skill-tool'
+import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
+import {
+  buildStackedSkillInvocationText,
+  createSkillTool,
+  mapAllowedTools,
+  splitSkillStack,
+} from './skill-tool'
 import { DirectoryTrustStore } from './trust'
 
 /** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
@@ -2862,14 +2867,24 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     invoke: async (name, args) => {
       const runtime = [...skillsRuntimes][0]
       if (!runtime) throw new Error('No active session; open a session first')
-      const invocation = await runtime.readInvocation(name)
-      if (invocation.allowedTools?.length)
-        activeSkillGrants?.grant(
-          mapAllowedTools(invocation.allowedTools, (message) => logger.warn(message)),
-        )
+      // 业界堆叠：`/a /b task` —— 后续 token 命中已注册 skill 名即续堆（上限 6）。
+      const { stack, taskArgs } = splitSkillStack(
+        name,
+        args,
+        slashInvocableSkillNames(runtime.entries()),
+      )
+      const invocations = []
+      for (const skillName of stack) invocations.push(await runtime.readInvocation(skillName))
+      // 堆叠里每个 skill 的 allowed-tools 都授予回合级放行（我们的特点：授权语义
+      // 与单调用一致，且会话级激活/自动激活不受影响）。
+      for (const invocation of invocations)
+        if (invocation.allowedTools?.length)
+          activeSkillGrants?.grant(
+            mapAllowedTools(invocation.allowedTools, (message) => logger.warn(message)),
+          )
       return {
         kind: 'submit',
-        text: buildSkillInvocationText(invocation, args),
+        text: buildStackedSkillInvocationText(invocations, taskArgs),
       }
     },
     onWarn: (message) => logger.warn(message),

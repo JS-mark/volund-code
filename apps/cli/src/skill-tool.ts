@@ -12,25 +12,65 @@ export function buildSkillInvocationText(
   invocation: { name: string; directory: string; body: string },
   args: readonly string[],
 ): string {
-  const task = args.length
-    ? args.join(' ')
-    : `Follow the "${invocation.name}" skill's instructions for my next request.`
+  return buildStackedSkillInvocationText([invocation], args)
+}
+
+/**
+ * 业界堆叠语义（Claude Code）：一条消息 `/a /b task` = 首个 + 至多 5 个后续
+ * （MAX_SKILL_STACK），任务文本由堆叠里的 skill 共享——每个 body 独立插值
+ * `$ARGUMENTS`，共享任务行只附加一次在末尾。单元素堆叠与既有单 skill
+ * 提交文本逐字节一致。
+ */
+export function buildStackedSkillInvocationText(
+  invocations: ReadonlyArray<{ name: string; directory: string; body: string }>,
+  args: readonly string[],
+): string {
+  const first = invocations[0]
+  if (!first) return ''
   // Claude Code 惯例：body 里的 $ARGUMENTS 占位在带参调用时插值为任务文本；
   // 无占位时保持既有行为（args 作为整体任务附在 skill 框架后）。args 来自
   // 用户本人的 REPL 输入（可信指令源），插值在不可信 body 转义之后进行。
-  const body =
-    args.length > 0 && invocation.body.includes('$ARGUMENTS')
-      ? invocation.body.replaceAll('$ARGUMENTS', args.join(' '))
-      : invocation.body
-  return [
-    `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
-    // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
-    body.replaceAll('</skill', '<\\/skill'),
-    '</skill>',
-    '',
-    task,
-  ].join('\n')
+  const task = args.length
+    ? args.join(' ')
+    : `Follow the "${first.name}" skill's instructions for my next request.`
+  const frames = invocations.map((invocation) => {
+    const body =
+      args.length > 0 && invocation.body.includes('$ARGUMENTS')
+        ? invocation.body.replaceAll('$ARGUMENTS', args.join(' '))
+        : invocation.body
+    return [
+      `<skill name="${escapeSkillAttribute(invocation.name)}" directory="${escapeSkillAttribute(invocation.directory)}">`,
+      // 防框架逃逸：body 内闭合标签转义（skill 内容是不可信第三方输入）
+      body.replaceAll('</skill', '<\\/skill'),
+      '</skill>',
+    ].join('\n')
+  })
+  return [...frames, '', task].join('\n')
 }
+
+/**
+ * 解析斜杠堆叠：`/a /b task` → stack=['a','b'], taskArgs=['task']。后续 token
+ * 必须精确命中已注册 skill 名才算堆叠（否则归入任务文本，如 `/a /tmp/x`）；
+ * 上限 MAX_SKILL_STACK，超限 token 保留在任务文本里（自可见，不静默丢弃）。
+ */
+export function splitSkillStack(
+  name: string,
+  args: readonly string[],
+  known: ReadonlySet<string>,
+): { stack: string[]; taskArgs: string[] } {
+  const stack = [name]
+  let index = 0
+  while (index < args.length && stack.length < MAX_SKILL_STACK) {
+    const token = args[index]!
+    if (!token.startsWith('/') || !known.has(token.slice(1))) break
+    stack.push(token.slice(1))
+    index += 1
+  }
+  return { stack, taskArgs: args.slice(index) }
+}
+
+/** 业界上限：一条消息首个 + 至多 5 个后续（Claude Code 同款）。 */
+export const MAX_SKILL_STACK = 6
 
 /**
  * SKILLS-MCPS-r1 §allowed-tools：Claude 规则语法 → 回合级放行规则的子集映射。
