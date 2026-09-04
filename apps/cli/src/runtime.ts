@@ -2419,6 +2419,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       registry = { error: error instanceof Error ? error.message : String(error) }
     }
     return {
+      domains: localPlugins ? await localPlugins.builtinDomains() : [],
       builtin: await inventorySnapshot('builtin'),
       dev: await inventorySnapshot('dev'),
       market: { installed: await inventorySnapshot('market'), registry },
