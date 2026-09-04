@@ -929,11 +929,14 @@ export async function runCli(
         // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
         sandboxProbe: () =>
           Promise.all([probePromise, ports.native.settled?.() ?? Promise.resolve()]).then(
-            ([probe]) => ({
-              sandbox: welcomeSandboxFrom(probe),
-              native: welcomeNativeFrom(ports),
-              status: statusText(probe.tier),
-            }),
+            ([probe]) => {
+              const native = welcomeNativeFrom(ports)
+              return {
+                sandbox: welcomeSandboxFrom(probe),
+                ...(native ? { native } : {}),
+                status: statusText(probe.tier),
+              }
+            },
           ),
         ...(ports.session.list && ports.session.resumeInteractive
           ? {
@@ -1034,6 +1037,7 @@ async function buildWelcomePanelData(input: {
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
   const mcp = await welcomeMcp(input.ports)
+  const native = welcomeNativeFrom(input.ports)
   return {
     version: input.ports.identity.version,
     sessionId: input.sessionId,
@@ -1046,7 +1050,7 @@ async function buildWelcomePanelData(input: {
       source: 'default',
     },
     sandbox: input.sandbox,
-    native: welcomeNativeFrom(input.ports),
+    ...(native ? { native } : {}),
     permission: {
       mode: input.permissionMode,
       dangerous: input.dangerousPermissions,
