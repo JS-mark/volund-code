@@ -476,12 +476,21 @@ function readHookSpec(params: unknown): {
   event: string
   handler: PluginCallbackRef
 } {
-  const spec = (params ?? {}) as { event?: unknown; handler?: unknown }
-  if (typeof spec.event !== 'string' || !HOOK_EVENTS.has(spec.event))
+  // 线格式 = 插件代理对多参调用的编码 `[event, handler]`（对象形状也收，宽容省事）。
+  const array = Array.isArray(params) ? params : undefined
+  const spec = (array ?? params ?? {}) as {
+    event?: unknown
+    handler?: unknown
+    0?: unknown
+    1?: unknown
+  }
+  const event = array ? spec[0] : spec.event
+  const handler = array ? spec[1] : spec.handler
+  if (typeof event !== 'string' || !HOOK_EVENTS.has(event))
     throw new PluginBridgeError('plugin_hook_invalid', `hooks.on requires a known HookEvent`)
-  if (!(spec.handler instanceof PluginCallbackRef))
+  if (!(handler instanceof PluginCallbackRef))
     throw new PluginBridgeError('plugin_hook_invalid', 'hooks.on requires a handler function')
-  return { event: spec.event, handler: spec.handler }
+  return { event, handler }
 }
 
 function readToolSpec(

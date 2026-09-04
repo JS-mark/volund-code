@@ -3835,41 +3835,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // H1：插件 hook 管线——已激活插件的 preToolUse/postToolUse 订阅按装载顺序
     // 执行，首个 HookResult（veto/rewrite）生效；handler 错误 fail-open（warn 后
     // 继续），回合中止即停止派发。builtin/project/user 域留待宿主 hook 注册面。
-    const dispatchHook: ToolHookDispatcher = (event, payload, options) => {
-      const run = async (): Promise<ToolHookOutcome | undefined> => {
-        for (const loaded of loadedPluginEntries) {
-          if (!loaded.handle) continue
-          if (options?.signal?.aborted) return undefined
-          for (const hook of loaded.handle.hooks) {
-            if (hook.event !== event) continue
-            try {
-              const result = (await hook.invoke(payload)) as
-                | { veto?: unknown; reason?: unknown; value?: unknown }
-                | undefined
-              if (result && typeof result === 'object') {
-                return {
-                  ...(result.veto === true
-                    ? {
-                        veto: true,
-                        ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
-                      }
-                    : {}),
-                  ...('value' in result ? { value: result.value } : {}),
-                }
-              }
-            } catch (error) {
-              logger.warn(
-                `plugin hook ${event} from ${loaded.name} failed (fail-open): ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              )
-            }
-          }
-        }
-        return undefined
-      }
-      return run()
-    }
+    const dispatchHook = createPluginHookDispatcher(loadedPluginEntries, logger)
     const executor = permissionChain.bindExecutor(
       (signal) => ({
         abortSignal: signal,
@@ -4575,6 +4541,55 @@ function preference(
 /** 插件工具输出的不可信包裹转义（与 MCP 工具同策略）。 */
 function escapeUntrustedText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+/**
+ * H1：插件 hook 派发器——已激活插件的 hook 订阅按装载顺序执行，首个 HookResult
+ * （veto/rewrite）生效；handler 错误 fail-open（warn 后继续），回合中止即停止
+ * 派发。独立导出以便沙箱 e2e 正测（veto 必须真的拦下工具调用）。
+ */
+export function createPluginHookDispatcher(
+  entries: readonly {
+    name: string
+    handle?: Pick<ActivatedLocalPlugin, 'hooks'> | undefined
+  }[],
+  logger: { warn(message: string): void },
+): ToolHookDispatcher {
+  return (event, payload, options) => {
+    const run = async (): Promise<ToolHookOutcome | undefined> => {
+      for (const loaded of entries) {
+        if (!loaded.handle) continue
+        if (options?.signal?.aborted) return undefined
+        for (const hook of loaded.handle.hooks) {
+          if (hook.event !== event) continue
+          try {
+            const result = (await hook.invoke(payload)) as
+              | { veto?: unknown; reason?: unknown; value?: unknown }
+              | undefined
+            if (result && typeof result === 'object') {
+              return {
+                ...(result.veto === true
+                  ? {
+                      veto: true,
+                      ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
+                    }
+                  : {}),
+                ...('value' in result ? { value: result.value } : {}),
+              }
+            }
+          } catch (error) {
+            logger.warn(
+              `plugin hook ${event} from ${loaded.name} failed (fail-open): ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          }
+        }
+      }
+      return undefined
+    }
+    return run()
+  }
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {

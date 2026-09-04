@@ -6,10 +6,18 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { probeSandbox, resolveBinary } from '@volund/native-bridge'
+import { PermissionManager } from '@volund/permission'
 import { activateLocalPlugin, type ActivatedLocalPlugin } from '@volund/plugin-runtime'
+import type { Tool } from '@volund/tool-kit'
+import { ToolExecutor } from '@volund/tools'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { builtinPluginRoot, createProductionPorts, readEffectiveEnv } from './runtime'
+import {
+  builtinPluginRoot,
+  createPluginHookDispatcher,
+  createProductionPorts,
+  readEffectiveEnv,
+} from './runtime'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const envPluginDir = join(repoRoot, 'apps', 'cli', 'plugins', 'volund-plugin-env')
@@ -359,5 +367,103 @@ describe('production ports shutdown（进程收尾）', () => {
     expect(await childProcessCount()).toBeGreaterThan(0)
     await ports.shutdown!()
     expect(await childProcessCount()).toBe(0)
+  }, 30_000)
+})
+
+describe('plugin hooks e2e（H1：沙箱订阅 preToolUse → veto 真的拦下工具）', () => {
+  async function hookPluginFixture() {
+    const dir = await mkdtemp(join(tmpdir(), 'volund-plugin-hooktest-'))
+    dirs.push(dir)
+    await writeFile(
+      join(dir, 'manifest.json'),
+      JSON.stringify({
+        name: 'volund-plugin-hooktest',
+        version: '0.1.0',
+        type: 'module',
+        main: 'index.mjs',
+        engines: { volund: '^0.1.0' },
+        permissions: { volund: ['hooks.on', 'log.write'] },
+      }),
+    )
+    await writeFile(
+      join(dir, 'index.mjs'),
+      [
+        'export async function activate(volund) {',
+        "  await volund.hooks.on('preToolUse', (payload) => {",
+        "    if (payload?.tool === 'Bash' && payload?.input?.command === 'rm -rf /')",
+        "      return { veto: true, reason: 'hooktest: catastrophic command blocked' }",
+        '    return undefined',
+        '  })',
+        '}',
+      ].join('\n'),
+    )
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-hookdata-'))
+    dirs.push(dataDir)
+    const activated = await activateLocalPlugin({
+      dir,
+      volundVersion: '0.1.0',
+      dataDirRoot: dataDir,
+      services: {},
+    })
+    handles.push(activated)
+    return activated
+  }
+
+  let executed = false
+  const probeTool: Tool = {
+    name: 'Bash',
+    description: 'probe',
+    inputSchema: { type: 'object', properties: { command: { type: 'string' } } },
+    permissionSpec: () => ({}),
+    invoke: async () => {
+      executed = true
+      return { content: [{ type: 'text', text: 'ran' }] }
+    },
+  }
+  const contextFactory = (signal: AbortSignal) => ({
+    abortSignal: signal,
+    session: { id: 's', cwd: process.cwd(), turnId: 't' },
+    native: { execute: async () => '' },
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    ui: { requestInput: async () => '' },
+  })
+  const executorFor = (activated: ActivatedLocalPlugin) =>
+    new ToolExecutor(
+      new PermissionManager({ globalAllow: () => true }),
+      contextFactory,
+      createPluginHookDispatcher([{ name: activated.manifest.name, handle: activated }], {
+        warn: () => {},
+      }),
+    )
+
+  it('veto from the sandbox plugin hook blocks the tool call', async () => {
+    executed = false
+    if (!(await sandboxAvailable())) return
+    const activated = await hookPluginFixture()
+    const executor = executorFor(activated)
+    const result = await executor.execute(
+      probeTool,
+      { command: 'rm -rf /' },
+      new AbortController().signal,
+    )
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain(
+      'blocked by hook: hooktest: catastrophic command blocked',
+    )
+    expect(executed).toBe(false)
+  }, 30_000)
+
+  it('lets non-matching calls through (fail-open control)', async () => {
+    executed = false
+    if (!(await sandboxAvailable())) return
+    const activated = await hookPluginFixture()
+    const executor = executorFor(activated)
+    const result = await executor.execute(
+      probeTool,
+      { command: 'git status' },
+      new AbortController().signal,
+    )
+    expect(executed).toBe(true)
+    expect(result.isError).toBeUndefined()
   }, 30_000)
 })
