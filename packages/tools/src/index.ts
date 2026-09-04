@@ -707,6 +707,55 @@ export const builtinTools = (options: BuiltinToolsOptions = {}): Tool[] => [
   new WebFetchTool(options.webFetch),
   ...(options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : []),
 ]
+
+export interface BuiltinToolDomain {
+  id: 'volund.core-tools' | 'volund.exec' | 'volund.orchestration'
+  label: string
+  description: string
+  tools: Tool[]
+}
+/**
+ * F1 插件一等公民：内置件按域分组（/plugins 可见、[plugins] builtin_disabled 可
+ * 整域禁用）。builtinTools 保持原数组与原顺序——兼容路径零变化；组合根改走域
+ * 装配（runtime 按域门控注册）。
+ */
+export function builtinToolDomains(options: BuiltinToolsOptions = {}): BuiltinToolDomain[] {
+  return [
+    {
+      id: 'volund.core-tools',
+      label: 'Core tools',
+      description: 'File editing, search and web tools',
+      tools: [
+        new ReadTool(),
+        new WriteTool(options.backups),
+        new EditTool(options.backups),
+        new MultiEditTool(options.backups),
+        new GrepTool(),
+        new GlobTool(),
+        new TodoTool(),
+        new WebSearchTool(options.webSearch?.provider),
+        new WebFetchTool(options.webFetch),
+      ],
+    },
+    {
+      id: 'volund.exec',
+      label: 'Execution',
+      description: 'Shell execution with background jobs',
+      tools: [
+        new BashTool(options.bash),
+        ...(options.background
+          ? [new ShellOutputTool(options.background), new KillShellTool(options.background)]
+          : []),
+      ],
+    },
+    {
+      id: 'volund.orchestration',
+      label: 'Orchestration',
+      description: 'Subagent dispatch and task coordination',
+      tools: options.task ? [new TaskTool(options.task.dispatcher, options.task.parent)] : [],
+    },
+  ]
+}
 function validate(schema: Record<string, unknown>, input: unknown): string | undefined {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return 'input must be an object'
   for (const key of (schema.required as string[]) ?? [])

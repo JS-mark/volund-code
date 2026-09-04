@@ -226,6 +226,13 @@ export interface LocalPluginPort {
   enablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
   disablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
   /**
+   * F1 插件一等公民：第一方工具域（volund.core-tools / volund.exec /
+   * volund.orchestration）——/plugins 与 CLI 可见可禁用，落
+   * [plugins] builtin_disabled。
+   */
+  builtinDomains(): Promise<{ id: string; label: string; description: string; enabled: boolean }[]>
+  setBuiltinDomain(id: string, enabled: boolean): Promise<void>
+  /**
    * 卸载市场插件（热生效）：停用（命令/页签当场摘除）+ 删除
    * ~/.volund/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
    * dev 目录归开发者管理（命中即明确拒绝）。

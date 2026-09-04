@@ -141,7 +141,7 @@ import {
 } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
-import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
+import { BackgroundShells, builtinToolDomains, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
 import type { ToolHookDispatcher } from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
@@ -184,7 +184,9 @@ import {
   assignConfigValue,
   assertConfigKeyValue,
   deleteConfigValue,
+  builtinDisabledFrom,
   disabledNamesFrom,
+  updateConfigBuiltinDisabled,
   readConfigFileOrEmpty,
   updateConfigDisabledList,
   writeConfigFile,
@@ -2532,6 +2534,23 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
      * 沙箱/桥链路，差异仅在目录来源。内置插件只信产物本身，manifest 校验、
      * bundle 完整性检查、权限 guard 一样不少。
      */
+    /** F1：第一方工具域清单（enabled = 未列入 [plugins] builtin_disabled）。 */
+    async builtinDomains() {
+      await ensureBuiltinToolsConfig()
+      return builtinToolDomains().map((domain) => ({
+        id: domain.id,
+        label: domain.label,
+        description: domain.description,
+        enabled: !builtinToolsDisabled.has(domain.id),
+      }))
+    },
+    async setBuiltinDomain(id: string, enabled: boolean) {
+      if (!/^volund\.(core-tools|exec|orchestration)$/.test(id))
+        throw new Error(`Unknown builtin tool domain: ${id}`)
+      await updateConfigBuiltinDisabled({ home, domain: id, disable: !enabled })
+      if (enabled) builtinToolsDisabled.delete(id)
+      else builtinToolsDisabled.add(id)
+    },
     async loadBuiltinPlugins() {
       const root = builtinPluginRoot()
       if (!root) return { loaded: [], failed: [] }
@@ -2796,6 +2815,22 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // ── SKILLS-MCPS-r1：/skills 与 /mcp 的运行期装配（原生，不经插件桥）──────────
   // skills：多作用域发现（每个 Runner 一个 SkillsRuntime，共享同一个可变 disabled
   // 名单——面板 / config 任一侧改名单对所有会话即时生效）。
+  // F1：第一方工具域禁用名单（[plugins] builtin_disabled）——createRunner 装配
+  // 与 volund plugins builtin 面板/CLI 共用同一份可变状态。
+  const builtinToolsDisabled = new Set<string>()
+  let builtinToolsConfigLoaded = false
+  async function ensureBuiltinToolsConfig(): Promise<void> {
+    if (builtinToolsConfigLoaded) return
+    builtinToolsConfigLoaded = true
+    try {
+      const config = await loadTomlFile(join(home, 'config.toml'), {
+        onWarning: (message) => logger.warn(message),
+      })
+      for (const domain of builtinDisabledFrom(config.plugins)) builtinToolsDisabled.add(domain)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
   const skillsRuntimes = new Set<SkillsRuntime>()
   const skillsDisabled = new Set<string>()
   let skillsConfigLoaded = false
@@ -3669,7 +3704,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // 内核 `tools` 服务：注册表从 Context 取（与 model 同形态，S1 批次 A）。
     kernel.plugin(ToolsService)
     const registry = kernel.tools.registry
-    for (const tool of builtinTools({
+    await ensureBuiltinToolsConfig()
+    // F1 插件一等公民：内置工具按域装配——[plugins] builtin_disabled 整域禁用；
+    // memory/Skill 工具归 orchestration 域门控。工具名与注册顺序对既有会话零变化。
+    for (const domain of builtinToolDomains({
       backups,
       background,
       bash: {
@@ -3685,16 +3723,20 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           signal,
         }),
       },
-    }))
-      registry.register(tool)
-    for (const tool of createMemoryTools(memory)) registry.register(tool)
-    registry.register(
-      createSkillTool({
-        skills,
-        grantEphemeral: (rules) => permissionChain.grantEphemeral(rules),
-        onWarn: (message) => logger.warn(message),
-      }),
-    )
+    })) {
+      if (builtinToolsDisabled.has(domain.id)) continue
+      for (const tool of domain.tools) registry.register(tool)
+    }
+    if (!builtinToolsDisabled.has('volund.orchestration')) {
+      for (const tool of createMemoryTools(memory)) registry.register(tool)
+      registry.register(
+        createSkillTool({
+          skills,
+          grantEphemeral: (rules) => permissionChain.grantEphemeral(rules),
+          onWarn: (message) => logger.warn(message),
+        }),
+      )
+    }
     // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
     // Runner 的 registry；invoke 走 runtime 级共享连接，子 agent 不重复 spawn。
     ;(await ensureMcpManager(state.cwd)).attach(registry)

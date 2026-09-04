@@ -14,6 +14,37 @@ export function disabledNamesFrom(section: JsonValue | undefined): string[] {
   return Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string') : []
 }
 
+/** [plugins] builtin_disabled 名单读取（F1 第一方工具域可见可禁用）。 */
+export function builtinDisabledFrom(section: JsonValue | undefined): string[] {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) return []
+  const list = (section as Record<string, JsonValue>).builtin_disabled
+  return Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string') : []
+}
+
+/**
+ * F1：[plugins] builtin_disabled 名单的读改写（原子替换）——第一方工具域的
+ * 禁用/启用落盘，不触及其余段。
+ */
+export async function updateConfigBuiltinDisabled(input: {
+  home: string
+  domain: string
+  disable: boolean
+}): Promise<void> {
+  const path = join(input.home, 'config.toml')
+  const config = await readConfigFileOrEmpty(path)
+  const current = builtinDisabledFrom(config.plugins)
+  const next = input.disable
+    ? [...new Set([...current, input.domain])]
+    : current.filter((item) => item !== input.domain)
+  const sectionObject =
+    config.plugins && typeof config.plugins === 'object' && !Array.isArray(config.plugins)
+      ? (config.plugins as Record<string, JsonValue>)
+      : {}
+  sectionObject.builtin_disabled = next
+  config.plugins = sectionObject
+  await writeConfigFile(path, config)
+}
+
 /**
  * 原型污染护栏（与 packages/config 的 assign 同一约定）：魔术 key segment 会让
  * 游标落到 Object.prototype，一律拒绝而不是静默跳过。

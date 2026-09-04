@@ -75,6 +75,8 @@ const argsDefinition = {
   source: { type: 'string' as const },
   pinned: { type: 'boolean' as const },
   cursor: { type: 'string' as const },
+  enable: { type: 'string' as const },
+  disable: { type: 'string' as const },
   id: { type: 'string' as const },
   content: { type: 'string' as const },
   bodyStdin: { type: 'boolean' as const },
@@ -277,6 +279,39 @@ export async function runCli(
           ? candidateCode
           : 'plugin_internal_error'
       return args.json ? jsonFailure(message, 1, code) : { exitCode: 1, stdout, stderr: message }
+    }
+  }
+  if (subcommand === 'plugins') {
+    if (!ports.localPlugins)
+      return { exitCode: 2, stdout, stderr: 'local plugin port is not connected' }
+    const action = args._[1] ?? 'builtin'
+    if (action !== 'builtin') {
+      return { exitCode: 2, stdout, stderr: `Unknown plugins action: ${action}` }
+    }
+    try {
+      // volund plugins builtin [--enable <id> | --disable <id>]：第一方工具域
+      // 可见可禁用（落 [plugins] builtin_disabled，新会话生效）。
+      const enable = typeof args.enable === 'string' ? args.enable : undefined
+      const disable = typeof args.disable === 'string' ? args.disable : undefined
+      if (enable) await ports.localPlugins.setBuiltinDomain(enable, true)
+      if (disable) await ports.localPlugins.setBuiltinDomain(disable, false)
+      const domains = await ports.localPlugins.builtinDomains()
+      stdout += args.json
+        ? `${JSON.stringify(domains)}\n`
+        : `${domains
+            .map((domain) => {
+              const state = domain.enabled ? 'enabled' : 'disabled'
+              const flag =
+                enable === domain.id ? ' (enabled)' : disable === domain.id ? ' (disabled)' : ''
+              return `${domain.id}\t${state}${flag}\t${domain.label}: ${domain.description}`
+            })
+            .join('\n')}\n`
+      return { exitCode: 0, stdout, stderr }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return args.json
+        ? jsonFailure(message, 1, 'plugins_action_failed')
+        : { exitCode: 1, stdout, stderr: message }
     }
   }
   if (subcommand === 'mcp') {

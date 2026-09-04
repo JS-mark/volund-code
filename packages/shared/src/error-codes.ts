@@ -134,6 +134,7 @@ export const ErrorCodes = {
   mcpAddFailed: 'mcp_add_failed',
   mcpActionFailed: 'mcp_action_failed',
   skillCommandFailed: 'skill_command_failed',
+  pluginsActionFailed: 'plugins_action_failed',
   pluginMarketFetchFailed: 'plugin_market_fetch_failed',
   pluginMarketIndexInvalid: 'plugin_market_index_invalid',
   pluginMarketMetadataInvalid: 'plugin_market_metadata_invalid',
