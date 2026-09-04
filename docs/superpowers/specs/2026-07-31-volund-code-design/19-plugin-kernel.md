@@ -27,7 +27,11 @@
 | 卸载语义 | 会话中途卸载/禁用插件：命令/页签立即摘除，贡献工具经 `ToolsService.unregisterPlugin` 对全部活会话内核广播摘除 |
 | 可见性 | 内置域在 /plugins 面板 Domains 页签 + `volund plugins builtin` CLI |
 
-未落地（保持草案）：provider/router-policy 的插件注册面（`ProviderRegistry` 已有 `{kind:'plugin'}` 源位与 manifest `kind:'provider'` 校验，宿主未接）、sandbox/session-store 可替换化、capability bundle 签名/catalog、L4 热重载完整语义。
+未落地（保持草案）：provider/router-policy 的插件注册面（`ProviderRegistry` 已有 `{kind:'plugin'}` 源位与 manifest `kind:'provider'` 校验，宿主未接；OpenAI 兼容配置路径已覆盖绝大多数场景，等真实适配器需求）、capability bundle 签名/catalog、L4 热重载完整语义。
+
+**明确不做（TCB，按 §19.1）**：sandbox / session-store 的第三方可替换面——沙箱与会话重放属可信计算基，做成可替换插件会形成循环信任；`sandbox` / `session` 内核服务仅为内部实现端口，不开放贡献。
+
+hook 管线已有沙箱 e2e 正测：插件订阅 `preToolUse` 返回 veto → ToolExecutor 在权限决策之前拦下调用（fail-open 对照用例同行）。
 
 ### 19.1 决策与边界
 
