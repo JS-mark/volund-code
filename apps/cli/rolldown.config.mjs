@@ -54,9 +54,13 @@ export default defineConfig({
     codeSplitting: false,
     file: 'dist/volund.js',
     format: 'esm',
-    // 产物全量压缩混淆（compress + 顶层 mangle）：npm bin 直跑与 bun --compile
+    // 产物压缩混淆（compress + 顶层 mangle）：npm bin 直跑与 bun --compile
     // 分发同一份字节，源码不随产物外发。
-    minify: true,
+    // ⚠ mangle 必须关：bun build --compile 会对本文件再打包一次，其名字分配器
+    // 与 rolldown 已混淆的顶层短名（t7 等）相撞，JSC 里模块级函数解析到错误
+    // 绑定，二进制启动即崩（node/bun 直跑同一字节均正常，只有 compile 崩）。
+    // mangle:false 保留 compress 的死代码/空格压缩，体积略增换启动正确性。
+    minify: { mangle: false },
   },
   platform: 'node',
   plugins: [

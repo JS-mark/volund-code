@@ -34,7 +34,6 @@ import {
   collectPluginSkillDirs,
   createPluginMemoryHost,
   createProductionPorts,
-  createSkillTool,
   NodeHttpPort,
   ProductionPermissionSessionPolicy,
   resetProxyTlsCache,
@@ -45,15 +44,14 @@ import {
   languagePromptFragment,
   resolveModelAlias,
   loadProductionContextTuning,
-  mapAllowedTools,
   readEffectiveEnv,
   registerPluginCommands,
   registerRuntimeMemoryPrompts,
   requestHttp2,
-  buildSkillInvocationText,
   requestPermission,
   RuntimeSessionPort,
 } from './runtime'
+import { buildSkillInvocationText, createSkillTool, mapAllowedTools } from './skill-tool'
 
 const fixtures: string[] = []
 afterEach(async () =>
