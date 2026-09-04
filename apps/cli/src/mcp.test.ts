@@ -44,26 +44,34 @@ class FakeTransport implements McpTransport {
   async send(message: unknown) {
     this.sent.push(message)
     const request = message as { id?: number; method?: string }
-    if (this.behavior === 'unauthorized' && request.id && request.method === 'initialize') {
+    if (this.behavior === 'unauthorized' && request.id !== undefined && request.method === 'initialize') {
       throw new Error('MCP HTTP request failed: HTTP 401')
     }
-    if (request.id && request.method === 'initialize')
+    if (request.id !== undefined && request.method === 'initialize')
       queueMicrotask(() =>
         this.onMessage?.({
           jsonrpc: '2.0',
           id: request.id,
-          result: { protocolVersion: '2025-03-26' },
+          result: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            serverInfo: { name: 'fake', version: '0.0.0' },
+          },
         }),
       )
-    if (request.id && request.method === 'tools/list')
+    if (request.id !== undefined && request.method === 'tools/list')
       queueMicrotask(() =>
         this.onMessage?.({
           jsonrpc: '2.0',
           id: request.id,
           result: {
             tools: [
-              { name: 'read', description: 'reads things', inputSchema: { type: 'object' } },
-              { name: 'search:query', description: 'searches' },
+              {
+                name: 'read',
+                description: 'reads things',
+                inputSchema: { type: 'object' },
+              },
+              { name: 'search:query', description: 'searches', inputSchema: { type: 'object' } },
             ],
           },
         }),
