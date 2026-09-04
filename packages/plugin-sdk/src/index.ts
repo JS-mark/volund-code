@@ -156,6 +156,13 @@ export interface PluginMarketListing {
   readonly publisher?: string
 }
 export interface PluginInventory {
+  /** F1：第一方工具域（kernel 化）——/plugins 面板首组展示，enabled 可切。 */
+  readonly domains?: readonly {
+    id: string
+    label: string
+    description: string
+    enabled: boolean
+  }[]
   readonly builtin: readonly PluginInventoryEntry[]
   readonly dev: readonly PluginInventoryEntry[]
   readonly market: {

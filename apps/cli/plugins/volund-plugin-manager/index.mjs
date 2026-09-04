@@ -206,11 +206,35 @@ export async function activate(volund) {
             'Failures never block the REPL — they show up as startup notices.',
           ].join('\n'),
         })
+      // F1/H4：第一方工具域（kernel 化）——可见可禁用（经 CLI 开关落 config）。
+      const domainEntries = (inventory.domains ?? []).map((domain) => ({
+        id: domain.id,
+        label: domain.label,
+        value: domain.id,
+        status: domain.enabled ? 'enabled' : 'disabled',
+        detail: [
+          `${domain.id} — ${domain.description}`,
+          `status: ${domain.enabled ? 'enabled' : 'disabled'}`,
+          '',
+          `Toggle: volund plugins builtin --disable ${domain.id}`,
+          `        volund plugins builtin --enable ${domain.id}`,
+          'Disabled domains stop registering their tools for new sessions.',
+        ].join('\n'),
+      }))
       return {
         kind: 'tabs',
-        title: 'Plugins — builtin · dev · market',
+        title: 'Plugins — builtin domains · builtin · dev · market',
         placeholder: 'Search by name, version, or status',
         tabs: [
+          ...(domainEntries.length
+            ? [
+                {
+                  id: 'domains',
+                  label: `Domains (${domainEntries.length})`,
+                  entries: domainEntries,
+                },
+              ]
+            : []),
           {
             id: 'builtin',
             label: `Built-in (${inventory.builtin.length})`,
