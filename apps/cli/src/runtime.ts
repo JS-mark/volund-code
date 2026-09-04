@@ -133,7 +133,7 @@ import {
 } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import { ToolRegistry } from '@volund/tool-kit'
-import type { NativeBridge, ToolContext } from '@volund/tool-kit'
+import type { NativeBridge, Tool, ToolContext } from '@volund/tool-kit'
 import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
 import type { ToolHookDispatcher } from '@volund/tools'
 import {
@@ -3618,32 +3618,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     }))
       registry.register(tool)
     for (const tool of createMemoryTools(memory)) registry.register(tool)
-    registry.register({
-      name: 'Skill.activate',
-      description: 'Activate an installed prompt skill for the current session',
-      readonly: true,
-      parallelSafe: true,
-      inputSchema: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name'],
-        properties: { name: { type: 'string' } },
-      },
-      permissionSpec: () => ({}),
-      async invoke(input: unknown) {
-        const name = (input as { name: string }).name
-        const activated = await skills.activate(name)
-        return {
-          content: [
-            {
-              type: 'text',
-              text: activated ? `Activated skill: ${name}` : `Skill already active: ${name}`,
-            },
-          ],
-          meta: { durationMs: 0, costImpact: 'safe' },
-        }
-      },
-    })
+    registry.register(createSkillTool({ skills }))
     // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
     // Runner 的 registry；invoke 走 runtime 级共享连接，子 agent 不重复 spawn。
     ;(await ensureMcpManager(state.cwd)).attach(registry)
@@ -4387,6 +4362,46 @@ export function buildSkillInvocationText(
     '',
     task,
   ].join('\n')
+}
+
+/**
+ * §S3.3a：模型可调用的 Skill 工具——一次性 invocation（业界惯例：Claude Code /
+ * zcode 的 Skill tool）。name 枚举随 discover() 动态刷新（forProvider 每轮重读
+ * inputSchema）；permissionSpec 按 skill 名收敛，用户可对单个技能落 allow/deny。
+ */
+export function createSkillTool(options: {
+  skills: Pick<SkillsRuntime, 'modelInvocableNames' | 'readInvocation'>
+}): Tool {
+  const skills = options.skills
+  return {
+    name: 'Skill',
+    description: "Load an installed skill's instructions into the conversation by name",
+    readonly: true,
+    parallelSafe: true,
+    get inputSchema() {
+      return {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name'],
+        properties: {
+          name: { type: 'string', enum: skills.modelInvocableNames() },
+          args: { type: 'string' },
+        },
+      }
+    },
+    permissionSpec: (input: unknown) => {
+      const name = (input as { name?: unknown }).name
+      return typeof name === 'string' ? { custom: { skill: name } } : {}
+    },
+    async invoke(input: unknown) {
+      const { name, args } = input as { name: string; args?: string }
+      const invocation = await skills.readInvocation(name)
+      return {
+        content: [{ type: 'text', text: buildSkillInvocationText(invocation, args ? [args] : []) }],
+        meta: { durationMs: 0, costImpact: 'safe' },
+      }
+    },
+  }
 }
 
 function serializeConfig(config: Record<string, JsonValue>) {

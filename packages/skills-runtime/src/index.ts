@@ -393,6 +393,16 @@ export class SkillsRuntime {
   active(): string[] {
     return [...this.#active.keys()].toSorted()
   }
+  /**
+   * 模型可调用名集（Skill 工具枚举）：disabled 与 disable-model-invocation 不可见；
+   * user-invocable: false 只影响 slash 注册，模型仍可调用（业界惯例）。
+   */
+  modelInvocableNames(): string[] {
+    return [...this.#skills.values()]
+      .filter((skill) => !this.isDisabled(skill.name) && !skill.disableModelInvocation)
+      .map((skill) => skill.name)
+      .toSorted()
+  }
   /** SKILLS-MCPS-r1 §S3.3：面板快照——winners + shadowed + broken 全量。 */
   entries(): SkillEntry[] {
     const result: SkillEntry[] = []
@@ -459,5 +469,5 @@ function truncateDescription(description: string): string {
     : `${description.slice(0, DESCRIPTION_MAX - 1)}…`
 }
 function renderIndex(lines: string[]): string {
-  return `Available skills (activate via /skill activate <name>):\n${lines.join('\n')}`
+  return `Available skills (invoke the Skill tool when a user request matches):\n${lines.join('\n')}`
 }
