@@ -20,6 +20,7 @@
     "@volund/config": "workspace:*",
     "@volund/context": "workspace:*",
     "@volund/core": "workspace:*",
+    "@volund/kernel": "workspace:*",
     "@volund/mcp-client": "workspace:*",
     "@volund/native-bridge": "workspace:*",
     "@volund/permission": "workspace:*",
