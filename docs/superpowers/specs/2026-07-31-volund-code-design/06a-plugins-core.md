@@ -6,7 +6,20 @@
 
 本节先落地**插件系统**（用户 2026-07-31 追问点），其它三块（Skill/MCP/Hooks 深化）等 §3-§5 后再补。
 
-### 6.1 设计目标
+### 6.0 落地增补（2026-09-05：kernel 化后插件贡献面）
+
+插件已升为一等运行时扩展点（Cordis 内核，详见 §19.0 落地状态）。本章 6.2 起的目录约定、manifest、沙箱链路不变；贡献面在 commands / statusTabs 之外新增：
+
+| 桥方法 | 贡献 | 宿主落点 |
+|---|---|---|
+| `tools.register` / `tools.unregister` | 模型可调用工具（名字必须 `plugin:<manifest.name>:` 前缀） | 每会话内核 `tools` 服务；permissionSpec 收敛 `{custom:{pluginTool}}` 进统一权限决策链；输出 `<untrusted>` 包裹 |
+| `hooks.on` / `session.on` | 生命周期订阅（15 种 HookEvent） | `preToolUse/postToolUse` 走 ToolExecutor dispatchHook；`sessionStart/sessionEnd` 由会话事件广播 |
+| `prompt.contribute` / `prompt.revoke` | 静态 prompt fragment | 每会话 PromptComposer（`plugin:<名>:` id 命名空间，priority 缺省 600） |
+| `plugins.list` 扩展 | `domains` 组：第一方工具域（volund.core-tools / volund.exec / volund.orchestration） | /plugins 面板 Domains 页签 + `volund plugins builtin --enable/--disable`，落 `[plugins] builtin_disabled` |
+
+会话中途卸载/禁用：命令、页签立即摘除；插件工具对全部活会话内核广播摘除。manifest 需要声明对应权限（`tools.register` / `hooks.on` / `prompt.contribute`），deny-by-default 不变。
+
+## 6.1 设计目标
 
 | 目标                       | 具体含义                                                                     |
 |----------------------------|------------------------------------------------------------------------------|
