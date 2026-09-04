@@ -53,6 +53,36 @@ export interface ToolContribution {
   invoke(input: unknown): Promise<unknown>
 }
 
+/** 插件可订阅的 hook 事件全集（plugin-sdk HookEvent 同名）。 */
+export const HOOK_EVENTS: ReadonlySet<string> = new Set([
+  'prePrompt',
+  'postPrompt',
+  'preToolUse',
+  'postToolUse',
+  'sessionStart',
+  'sessionEnd',
+  'pluginEnabled',
+  'pluginDisabled',
+  'permissionsChanged',
+  'memory.preRecall',
+  'memory.postRecall',
+  'memory.preWrite',
+  'memory.postWrite',
+  'memory.preRead',
+  'deleted',
+])
+
+/**
+ * 插件贡献的 hook 订阅（hooks.on）。handler 经 callback.invoke 回到沙箱执行，
+ * 返回 HookResult（{veto?, reason?, value?}）；preToolUse/postToolUse 由
+ * ToolExecutor 的 dispatchHook 管线消费，其余事件等宿主广播面接通。
+ */
+export interface HookContribution {
+  readonly event: string
+  readonly plugin: string
+  invoke(payload: unknown): Promise<unknown>
+}
+
 /**
  * 本地（dev / 内置 / 市场）插件可用的宿主侧服务集。刻意保持最小：日志、会话
  * 用量快照、[env] 生效快照、装载清单与市场管理、/status 贡献注册。其余 bridge
@@ -81,6 +111,7 @@ export interface ActivatedLocalPlugin {
   readonly statusSections: readonly StatusSectionContribution[]
   readonly commands: readonly CommandContribution[]
   readonly tools: readonly ToolContribution[]
+  readonly hooks: readonly HookContribution[]
   deactivate(): Promise<void>
 }
 
@@ -114,6 +145,7 @@ export function createLocalPluginDispatch(options: {
     statusSections: StatusSectionContribution[]
     commands: CommandContribution[]
     tools: ToolContribution[]
+    hooks: HookContribution[]
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
@@ -176,6 +208,16 @@ export function createLocalPluginDispatch(options: {
         throw new PluginError('plugin_rpc_params_invalid', 'tools.unregister requires a name')
       const index = contributions.tools.findIndex((tool) => tool.name === params)
       if (index >= 0) contributions.tools.splice(index, 1)
+      return null
+    }
+    if (short === 'hooks.on') {
+      const spec = readHookSpec(params)
+      // 同 event+handler 重复订阅按一条计（handler 是独立 ref，findIndex 恒 -1 也无害）。
+      contributions.hooks.push({
+        event: spec.event,
+        plugin: manifest.name,
+        invoke: (payload) => invokeCallback(spec.handler, [payload]),
+      })
       return null
     }
     if (short === 'session.getUsage') return services.getSessionUsage?.() ?? null
@@ -269,6 +311,7 @@ export async function activateLocalPlugin(
     statusSections: [] as StatusSectionContribution[],
     commands: [] as CommandContribution[],
     tools: [] as ToolContribution[],
+    hooks: [] as HookContribution[],
   }
   server.onRequest = createLocalPluginDispatch({
     manifest,
@@ -299,6 +342,9 @@ export async function activateLocalPlugin(
     },
     get tools() {
       return contributions.tools
+    },
+    get hooks() {
+      return contributions.hooks
     },
     deactivate: async () => {
       process.off('exit', onExit)
@@ -368,6 +414,19 @@ function readCommandSpec(params: unknown): {
     ...(order !== undefined ? { order } : {}),
     handler: spec.handler,
   }
+}
+
+/** 校验 hooks.on 参数：event ∈ HOOK_EVENTS，handler 必须是桥回调。 */
+function readHookSpec(params: unknown): {
+  event: string
+  handler: PluginCallbackRef
+} {
+  const spec = (params ?? {}) as { event?: unknown; handler?: unknown }
+  if (typeof spec.event !== 'string' || !HOOK_EVENTS.has(spec.event))
+    throw new PluginBridgeError('plugin_hook_invalid', `hooks.on requires a known HookEvent`)
+  if (!(spec.handler instanceof PluginCallbackRef))
+    throw new PluginBridgeError('plugin_hook_invalid', 'hooks.on requires a handler function')
+  return { event: spec.event, handler: spec.handler }
 }
 
 function readToolSpec(
