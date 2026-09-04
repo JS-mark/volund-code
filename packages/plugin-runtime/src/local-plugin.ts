@@ -40,6 +40,20 @@ export interface CommandContribution {
 }
 
 /**
+ * G 插件一等公民：插件贡献的工具（tools.register）。invoke 经 callback.invoke
+ * 回到沙箱执行插件 handler；宿主侧包成 tool-kit Tool（permissionSpec 收敛到
+ * {custom:{pluginTool:{plugin,tool}}}，进统一权限决策链）注册进内核 tools 服务。
+ * 名字必须带 `plugin:<manifest.name>:` 前缀（与 ToolRegistry 的 plugin 来源约束
+ * 一致，避免与内置/MCP 工具撞名）。
+ */
+export interface ToolContribution {
+  readonly name: string
+  readonly description: string
+  readonly inputSchema: Readonly<Record<string, unknown>>
+  invoke(input: unknown): Promise<unknown>
+}
+
+/**
  * 本地（dev / 内置 / 市场）插件可用的宿主侧服务集。刻意保持最小：日志、会话
  * 用量快照、[env] 生效快照、装载清单与市场管理、/status 贡献注册。其余 bridge
  * 方法一律 unknown-method 拒绝。
@@ -66,6 +80,7 @@ export interface ActivatedLocalPlugin {
   readonly statusTabs: readonly StatusTabContribution[]
   readonly statusSections: readonly StatusSectionContribution[]
   readonly commands: readonly CommandContribution[]
+  readonly tools: readonly ToolContribution[]
   deactivate(): Promise<void>
 }
 
@@ -98,6 +113,7 @@ export function createLocalPluginDispatch(options: {
     statusTabs: StatusTabContribution[]
     statusSections: StatusSectionContribution[]
     commands: CommandContribution[]
+    tools: ToolContribution[]
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
@@ -140,6 +156,26 @@ export function createLocalPluginDispatch(options: {
         ...(command.order !== undefined ? { order: command.order } : {}),
         run: (args) => invokeCallback(command.handler, [args]),
       })
+      return null
+    }
+    if (short === 'tools.register') {
+      const spec = readToolSpec(params, manifest.name)
+      // 同名重注册 = 插件侧热更新语义：先摘旧再挂新。
+      const existing = contributions.tools.findIndex((tool) => tool.name === spec.name)
+      if (existing >= 0) contributions.tools.splice(existing, 1)
+      contributions.tools.push({
+        name: spec.name,
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        invoke: (input) => invokeCallback(spec.handler, [input]),
+      })
+      return null
+    }
+    if (short === 'tools.unregister') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', 'tools.unregister requires a name')
+      const index = contributions.tools.findIndex((tool) => tool.name === params)
+      if (index >= 0) contributions.tools.splice(index, 1)
       return null
     }
     if (short === 'session.getUsage') return services.getSessionUsage?.() ?? null
@@ -232,6 +268,7 @@ export async function activateLocalPlugin(
     statusTabs: [] as StatusTabContribution[],
     statusSections: [] as StatusSectionContribution[],
     commands: [] as CommandContribution[],
+    tools: [] as ToolContribution[],
   }
   server.onRequest = createLocalPluginDispatch({
     manifest,
@@ -259,6 +296,9 @@ export async function activateLocalPlugin(
     },
     get commands() {
       return contributions.commands
+    },
+    get tools() {
+      return contributions.tools
     },
     deactivate: async () => {
       process.off('exit', onExit)
@@ -326,6 +366,39 @@ function readCommandSpec(params: unknown): {
     name: spec.name,
     description: typeof spec.description === 'string' ? spec.description : '',
     ...(order !== undefined ? { order } : {}),
+    handler: spec.handler,
+  }
+}
+
+function readToolSpec(
+  params: unknown,
+  pluginName: string,
+): {
+  name: string
+  description: string
+  inputSchema: Readonly<Record<string, unknown>>
+  handler: PluginCallbackRef
+} {
+  const spec = (params ?? {}) as {
+    name?: unknown
+    description?: unknown
+    inputSchema?: unknown
+    handler?: unknown
+  }
+  const prefix = `plugin:${pluginName}:`
+  if (typeof spec.name !== 'string' || !spec.name.startsWith(prefix))
+    throw new PluginBridgeError(
+      'plugin_tool_invalid',
+      `tools.register requires a name with '${prefix}' prefix`,
+    )
+  if (!(spec.handler instanceof PluginCallbackRef))
+    throw new PluginBridgeError('plugin_tool_invalid', 'tools.register requires a handler function')
+  if (!spec.inputSchema || typeof spec.inputSchema !== 'object' || Array.isArray(spec.inputSchema))
+    throw new PluginBridgeError('plugin_tool_invalid', 'tools.register requires an inputSchema')
+  return {
+    name: spec.name,
+    description: typeof spec.description === 'string' ? spec.description : '',
+    inputSchema: spec.inputSchema as Readonly<Record<string, unknown>>,
     handler: spec.handler,
   }
 }

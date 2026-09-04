@@ -142,6 +142,38 @@ describe('volund-plugin-env（内置 /env，沙箱端到端）', () => {
       else process.env.VOLUND_E2E_EFFECTIVE = previousEffective
       if (previousPending !== undefined) process.env.VOLUND_E2E_PENDING = previousPending
     }
+  })
+
+  it('exposes the effective-env tool contribution across the bridge (G 插件一等公民)', async () => {
+    if (!(await sandboxAvailable())) return
+    const home = await mkdtemp(join(tmpdir(), 'volund-builtin-env-tool-'))
+    dirs.push(home)
+    await writeFile(join(home, 'config.toml'), '[env]\nVOLUND_E2E_TOOL = "structured"\n')
+    process.env.VOLUND_E2E_TOOL = 'structured'
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-data-'))
+    dirs.push(dataDir)
+    try {
+      const activated = await activateLocalPlugin({
+        dir: envPluginDir,
+        volundVersion: '0.1.0',
+        dataDirRoot: dataDir,
+        services: { getEffectiveEnv: () => readEffectiveEnv(home) },
+      })
+      handles.push(activated)
+      const tool = activated.tools.find(
+        (candidate) => candidate.name === 'plugin:volund-plugin-env:effective-env',
+      )
+      expect(tool).toBeDefined()
+      expect(tool!.inputSchema).toMatchObject({ type: 'object' })
+      const raw = (await tool!.invoke({})) as {
+        count: number
+        variables: { name: string; configured: string; status: string }[]
+      }
+      const entry = raw.variables.find((variable) => variable.name === 'VOLUND_E2E_TOOL')
+      expect(entry).toMatchObject({ configured: 'structured', status: 'effective' })
+    } finally {
+      delete process.env.VOLUND_E2E_TOOL
+    }
   }, 30_000)
 
   it('prints setup guidance when no [env] section is configured', async () => {

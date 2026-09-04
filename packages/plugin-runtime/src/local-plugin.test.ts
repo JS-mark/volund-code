@@ -6,6 +6,7 @@ import {
   createLocalPluginDispatch,
   type CommandContribution,
   type StatusTabContribution,
+  type ToolContribution,
 } from './local-plugin'
 
 function manifest(permissions: string[]): PluginManifest {
@@ -24,6 +25,7 @@ function dispatchFixture(permissions: string[]) {
     statusTabs: [] as StatusTabContribution[],
     statusSections: [] as { id: string; title: string; render(): Promise<unknown> }[],
     commands: [] as CommandContribution[],
+    tools: [] as ToolContribution[],
   }
   const invocations: { callbackId: string; args: readonly unknown[] }[] = []
   const managed: { method: string; value: unknown }[] = []
