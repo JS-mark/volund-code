@@ -84,6 +84,18 @@ export interface HookContribution {
 }
 
 /**
+ * H3：插件贡献的提示词 fragment（prompt.contribute）。静态文本（桥上传值，
+ * 不传回调）；createRunner 把已激活插件的 fragment 注册进每会话 composer，
+ * id 加 `plugin:<名>:` 命名空间防撞，priority 缺省 600（skills 800 / builtin
+ * 1000 之下）。
+ */
+export interface PromptContribution {
+  readonly id: string
+  readonly content: string
+  readonly priority: number
+}
+
+/**
  * 本地（dev / 内置 / 市场）插件可用的宿主侧服务集。刻意保持最小：日志、会话
  * 用量快照、[env] 生效快照、装载清单与市场管理、/status 贡献注册。其余 bridge
  * 方法一律 unknown-method 拒绝。
@@ -112,6 +124,7 @@ export interface ActivatedLocalPlugin {
   readonly commands: readonly CommandContribution[]
   readonly tools: readonly ToolContribution[]
   readonly hooks: readonly HookContribution[]
+  readonly prompts: readonly PromptContribution[]
   deactivate(): Promise<void>
 }
 
@@ -146,6 +159,7 @@ export function createLocalPluginDispatch(options: {
     commands: CommandContribution[]
     tools: ToolContribution[]
     hooks: HookContribution[]
+    prompts: PromptContribution[]
   }
 }): (method: string, params: unknown) => unknown {
   const { manifest, invokeCallback, services, contributions } = options
@@ -218,6 +232,31 @@ export function createLocalPluginDispatch(options: {
         plugin: manifest.name,
         invoke: (payload) => invokeCallback(spec.handler, [payload]),
       })
+      return null
+    }
+    if (short === 'session.on') {
+      // H5：session.on 与 hooks.on 同语义（事件面为 sessionStart/sessionEnd 等
+      // 会话生命周期事件），复用同一订阅通道。
+      const spec = readHookSpec(params)
+      contributions.hooks.push({
+        event: spec.event,
+        plugin: manifest.name,
+        invoke: (payload) => invokeCallback(spec.handler, [payload]),
+      })
+      return null
+    }
+    if (short === 'prompt.contribute') {
+      const spec = readPromptSpec(params)
+      const existing = contributions.prompts.findIndex((prompt) => prompt.id === spec.id)
+      if (existing >= 0) contributions.prompts.splice(existing, 1)
+      contributions.prompts.push(spec)
+      return null
+    }
+    if (short === 'prompt.revoke') {
+      if (typeof params !== 'string' || !params)
+        throw new PluginError('plugin_rpc_params_invalid', 'prompt.revoke requires an id')
+      const index = contributions.prompts.findIndex((prompt) => prompt.id === params)
+      if (index >= 0) contributions.prompts.splice(index, 1)
       return null
     }
     if (short === 'session.getUsage') return services.getSessionUsage?.() ?? null
@@ -312,6 +351,7 @@ export async function activateLocalPlugin(
     commands: [] as CommandContribution[],
     tools: [] as ToolContribution[],
     hooks: [] as HookContribution[],
+    prompts: [] as PromptContribution[],
   }
   server.onRequest = createLocalPluginDispatch({
     manifest,
@@ -345,6 +385,9 @@ export async function activateLocalPlugin(
     },
     get hooks() {
       return contributions.hooks
+    },
+    get prompts() {
+      return contributions.prompts
     },
     deactivate: async () => {
       process.off('exit', onExit)
@@ -414,6 +457,18 @@ function readCommandSpec(params: unknown): {
     ...(order !== undefined ? { order } : {}),
     handler: spec.handler,
   }
+}
+
+/** 校验 prompt.contribute 参数：id/content 非空字符串，priority 有限数。 */
+function readPromptSpec(params: unknown): PromptContribution {
+  const spec = (params ?? {}) as { id?: unknown; content?: unknown; priority?: unknown }
+  if (typeof spec.id !== 'string' || !spec.id)
+    throw new PluginBridgeError('plugin_prompt_invalid', 'prompt.contribute requires an id')
+  if (typeof spec.content !== 'string' || !spec.content.trim())
+    throw new PluginBridgeError('plugin_prompt_invalid', 'prompt.contribute requires content')
+  const priority =
+    typeof spec.priority === 'number' && Number.isFinite(spec.priority) ? spec.priority : 600
+  return { id: spec.id, content: spec.content, priority }
 }
 
 /** 校验 hooks.on 参数：event ∈ HOOK_EVENTS，handler 必须是桥回调。 */

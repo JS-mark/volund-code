@@ -3462,6 +3462,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     })
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
+    // H3：已激活插件的 prompt fragments 注册进本会话 composer（id 加插件命名
+    // 空间防撞；priority 缺省 600，低于 skills/builtin）。中途卸载插件的
+    // fragment 保留到会话结束（与插件工具同语义）。
+    for (const loaded of loadedPluginEntries) {
+      if (!loaded.handle) continue
+      for (const prompt of loaded.handle.prompts)
+        composer.register({
+          id: `plugin:${loaded.name}:${prompt.id}`,
+          source: `plugin:${loaded.name}`,
+          priority: prompt.priority,
+          text: prompt.content,
+        })
+    }
     // [preferences] language：显式配置才注入回复语言强制；不配则模型跟随输入语言。
     if (typeof preferredLanguage === 'string' && preferredLanguage !== 'system')
       composer.register(languagePromptFragment(preferredLanguage))
@@ -3712,6 +3725,29 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       if (event.type === 'session.ended') {
         liveToolServices.delete(kernel.tools)
         kernel.tools.unregisterAllPluginTools()
+      }
+      // H5：会话生命周期事件广播给插件 hooks（session.on / hooks.on 订阅）。
+      const pluginEvent =
+        event.type === 'session.started'
+          ? 'sessionStart'
+          : event.type === 'session.ended'
+            ? 'sessionEnd'
+            : undefined
+      if (!pluginEvent) return
+      for (const loaded of loadedPluginEntries) {
+        if (!loaded.handle) continue
+        for (const hook of loaded.handle.hooks) {
+          if (hook.event !== pluginEvent) continue
+          void hook
+            .invoke({ schemaVersion: 1, sessionId: event.sessionId })
+            .catch((error) =>
+              logger.warn(
+                `plugin hook ${pluginEvent} from ${loaded.name} failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              ),
+            )
+        }
       }
     })
     const registry = kernel.tools.registry
