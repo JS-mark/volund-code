@@ -97,7 +97,7 @@ describe('SkillsRuntime', () => {
     expect(await runtime.discover()).toHaveLength(1)
     await expect(runtime.installFromDirectory(skill)).rejects.toThrow('already installed')
   })
-  it('discovers only metadata, then progressively loads declared resources on activation', async () => {
+  it('discovers only metadata, then on activation injects body plus resource paths (no inlining)', async () => {
     const { root } = await fixture()
     const composer = new DefaultPromptComposer()
     const runtime = new SkillsRuntime({
@@ -116,11 +116,41 @@ describe('SkillsRuntime', () => {
     expect(await runtime.activate('testing')).toBe(false)
     prompt = await composer.compose({ cwd: root, model: 'm', provider: 'p' })
     expect(prompt).toContain('Run focused tests')
-    expect(prompt).toContain('Never skip failures')
+    // 渐进披露第 3 层：resource 只列路径让模型按需 Read，不内联内容
+    expect(prompt).toContain('references/details.md')
+    expect(prompt).not.toContain('Never skip failures')
     expect(runtime.deactivate('testing')).toBe(true)
     expect(await composer.compose({ cwd: root, model: 'm', provider: 'p' })).not.toContain(
       'Run focused tests',
     )
+  })
+
+  it('parses allowed-tools frontmatter (string and array forms) into metadata', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
+    dirs.push(root)
+    await writeSkill(
+      resolve(root, 'skills'),
+      'stringed',
+      'name: stringed\ndescription: x\nallowed-tools: "Bash(git:*) Read"',
+    )
+    await writeSkill(
+      resolve(root, 'skills'),
+      'listed',
+      'name: listed\ndescription: x\nallowed-tools:\n  - Grep\n  - Glob',
+    )
+    const runtime = new SkillsRuntime({
+      sources: [{ dir: resolve(root, 'skills'), scope: 'user' }],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+    })
+    const skills = await runtime.discover()
+    expect(skills.find((skill) => skill.name === 'stringed')?.allowedTools).toEqual([
+      'Bash(git:*)',
+      'Read',
+    ])
+    expect(skills.find((skill) => skill.name === 'listed')?.allowedTools).toEqual(['Grep', 'Glob'])
+    const invocation = await runtime.readInvocation('stringed')
+    expect(invocation.allowedTools).toEqual(['Bash(git:*)', 'Read'])
   })
 
   it('warns on incompatible versions and rejects undeclared or escaping resources', async () => {
@@ -318,14 +348,16 @@ describe('SkillsRuntime', () => {
     const sources = defaultSkillSources({ volundHome, userHome, cwd: repo })
     expect(sources.map((source) => source.dir)).toEqual([
       join(repo, '.volund', 'skills'),
+      join(repo, '.claude', 'skills'),
       join(repo, '.agents', 'skills'),
       join(volundHome, 'skills'),
+      join(userHome, '.claude', 'skills'),
       join(userHome, '.agents', 'skills'),
     ])
     expect(sources[0]!.scope).toBe('project')
     expect(sources[1]).toEqual(expect.objectContaining({ scope: 'project', interop: true }))
-    expect(sources[2]!.scope).toBe('user')
-    expect(sources[3]).toEqual(expect.objectContaining({ scope: 'user', interop: true }))
+    expect(sources[3]!.scope).toBe('user')
+    expect(sources[4]).toEqual(expect.objectContaining({ scope: 'user', interop: true }))
   })
 
   it('places plugin skill dirs between project and user scopes (SM-08b)', () => {
@@ -341,10 +373,12 @@ describe('SkillsRuntime', () => {
     })
     expect(sources.map((source) => `${source.scope}:${source.dir}`)).toEqual([
       `project:${join(repo, '.volund', 'skills')}`,
+      `project:${join(repo, '.claude', 'skills')}`,
       `project:${join(repo, '.agents', 'skills')}`,
       `plugin:${one}`,
       `plugin:${two}`,
       `user:${join(home, '.volund', 'skills')}`,
+      `user:${join(home, '.claude', 'skills')}`,
       `user:${join(home, '.agents', 'skills')}`,
     ])
   })

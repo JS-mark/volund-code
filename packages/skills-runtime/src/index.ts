@@ -32,6 +32,8 @@ export interface SkillMetadata {
   version?: string
   activation?: { manual?: boolean; auto?: Array<{ path_exists?: string; secret?: string }> }
   resources: string[]
+  /** Claude 语法规则串（`Bash(git:*) Read`）；skill 触发轮的回合级放行。 */
+  allowedTools?: string[]
   path: string
   scope: SkillScope
   interop?: boolean
@@ -67,10 +69,12 @@ export interface SkillsRuntimeOptions {
 
 /**
  * SKILLS-MCPS-r1 §S3.2 默认发现顺序（高 → 低）：
- * `<cwd>/.volund/skills` > `<cwd>/.agents/skills`（互操作）>
- * `<volundHome>/skills` > `<userHome>/.agents/skills`（互操作）。
- * userHome 独立于 volundHome：VOLUND_HOME 可指向自定义目录，而 `.agents` 互操作
- * 路径约定挂在真实用户主目录（业界事实，Gemini/Codex/Cursor/Copilot 共用）。
+ * `<cwd>/.volund/skills` > `<cwd>/.claude/skills`（互操作）>
+ * `<cwd>/.agents/skills`（互操作）> `<volundHome>/skills` >
+ * `<userHome>/.claude/skills`（互操作）> `<userHome>/.agents/skills`（互操作）。
+ * userHome 独立于 volundHome：VOLUND_HOME 可指向自定义目录，而 `.agents`/`.claude`
+ * 互操作路径约定挂在真实用户主目录（业界事实，Claude Code 用 `.claude/skills`，
+ * Gemini/Codex/Cursor/Copilot 共用 `.agents/skills`）。
  */
 export function defaultSkillSources(input: {
   volundHome: string
@@ -81,9 +85,11 @@ export function defaultSkillSources(input: {
 }): SkillSource[] {
   return [
     { dir: join(input.cwd, '.volund', 'skills'), scope: 'project' },
+    { dir: join(input.cwd, '.claude', 'skills'), scope: 'project', interop: true },
     { dir: join(input.cwd, '.agents', 'skills'), scope: 'project', interop: true },
     ...(input.pluginDirs ?? []).map((dir): SkillSource => ({ dir, scope: 'plugin' })),
     { dir: join(input.volundHome, 'skills'), scope: 'user' },
+    { dir: join(input.userHome, '.claude', 'skills'), scope: 'user', interop: true },
     { dir: join(input.userHome, '.agents', 'skills'), scope: 'user', interop: true },
   ]
 }
@@ -104,6 +110,12 @@ function requiredString(data: Record<string, unknown>, key: string): string {
 function optionalBoolean(data: Record<string, unknown>, key: string): boolean | undefined {
   const value = data[key]
   return typeof value === 'boolean' ? value : undefined
+}
+/** `allowed-tools`：字符串按空白拆分（`Bash(git:*) Read`），数组原样过滤。 */
+function parseAllowedTools(value: unknown): string[] | undefined {
+  if (typeof value === 'string') return value.trim() ? value.trim().split(/\s+/) : []
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
+  return undefined
 }
 function compatible(range: string, version: string): boolean {
   const wanted = /^(?:\^|~)?(\d+)/.exec(range)?.[1]
@@ -173,6 +185,8 @@ export class SkillsRuntime {
             userInvocable: optionalBoolean(data, 'user-invocable') ?? true,
             incompatible: false,
           }
+          const allowedTools = parseAllowedTools(data['allowed-tools'])
+          if (allowedTools) skill.allowedTools = allowedTools
           if (typeof data.version === 'string') skill.version = data.version
           // SKILLS-MCPS-r1 §S3.1：volundVersion 双读——存量字段可选，出现才校验。
           if (typeof data.volundVersion === 'string' && data.volundVersion)
@@ -320,22 +334,34 @@ export class SkillsRuntime {
     const load = this.options.loadMarkdown ?? readText
     const raw = await load(skill.path)
     const { body } = frontmatter(raw)
-    const resources: string[] = []
+    // frontmatter 是不可信输入：列路径前仍拒绝绝对路径与目录逃逸。
     for (const resource of skill.resources) {
       if (isAbsolute(resource)) throw new TypeError(`Skill resource must be relative: ${resource}`)
       const target = await realpath(resolve(root, resource))
       const rel = relative(root, target)
       if (rel.startsWith('..') || isAbsolute(rel))
         throw new TypeError(`Skill resource escapes skill directory: ${resource}`)
-      resources.push(`<!-- skill resource: ${resource} -->\n${await load(target)}`)
     }
+    // 渐进披露第 3 层：resources 不内联（大参考文档会撑爆上下文），只列路径
+    // 让模型按需 Read——与 readInvocation / 业界语义一致。
+    const text = [
+      body.trim(),
+      ...(skill.resources.length
+        ? [
+            `Skill resources (Read on demand from ${root}):`,
+            ...skill.resources.map((resource) => `- ${join(root, resource)}`),
+          ]
+        : []),
+    ]
+      .filter(Boolean)
+      .join('\n\n')
     this.#active.set(
       name,
       this.options.composer.register({
         id: `skill:${name}`,
         source: `skill:${name}`,
         priority: 800,
-        text: [body.trim(), ...resources].filter(Boolean).join('\n\n'),
+        text,
       }),
     )
     return true
@@ -370,7 +396,12 @@ export class SkillsRuntime {
    * 目录路径，模型按需自行 Read resources），**不**注册 composer fragment、
    * 不改会话 system prompt。业界 `/skill-name` 语义。
    */
-  async readInvocation(name: string): Promise<{ name: string; directory: string; body: string }> {
+  async readInvocation(name: string): Promise<{
+    name: string
+    directory: string
+    body: string
+    allowedTools?: string[]
+  }> {
     if (this.isDisabled(name)) throw new TypeError(`Skill is disabled: ${name}`)
     const skill = this.#skills.get(name)
     if (!skill) {
@@ -381,7 +412,12 @@ export class SkillsRuntime {
     const load = this.options.loadMarkdown ?? readText
     const { body } = frontmatter(await load(skill.path))
     const directory = await realpath(resolve(skill.path, '..'))
-    return { name, directory, body: body.trim() }
+    return {
+      name,
+      directory,
+      body: body.trim(),
+      ...(skill.allowedTools ? { allowedTools: skill.allowedTools } : {}),
+    }
   }
   deactivate(name: string): boolean {
     const active = this.#active.get(name)

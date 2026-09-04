@@ -551,3 +551,27 @@ describe('permissionRuleMatches', () => {
     expect(permissionRuleMatches(rule, writeReq(join(cwd, 'bare-x.toml')))).toBe(false)
   })
 })
+
+describe('PermissionManager grantEphemeral (skill allowed-tools)', () => {
+  const manager = (rules: ConstructorParameters<typeof PermissionManager>[0] = {}) => {
+    const instance = new PermissionManager(rules)
+    instance.setPromptHandler(async () => ({ kind: 'deny' }))
+    return instance
+  }
+  it('allows matching requests until cleared, without writing the session cache', async () => {
+    const permissions = manager()
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+    permissions.grantEphemeral([{ tool: 'Bash', spec: { bash: { command: 'git *' } } }])
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({
+      kind: 'allow-session',
+    })
+    await expect(permissions.request(bashReq('pnpm test'))).resolves.toEqual({ kind: 'deny' })
+    permissions.clearEphemeral()
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+  })
+  it('never overrides persisted deny rules', async () => {
+    const permissions = manager({ projectDeny: () => true })
+    permissions.grantEphemeral([{ tool: 'Bash', spec: {} }])
+    await expect(permissions.request(bashReq('git status'))).resolves.toEqual({ kind: 'deny' })
+  })
+})

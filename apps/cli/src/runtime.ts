@@ -1622,6 +1622,10 @@ export interface ProductionToolPermissionChain {
   mode(): PermissionSessionMode
   /** /mode 热切换：只影响持有此 chain 的会话。 */
   setMode(mode: PermissionSessionMode): void
+  /** skill allowed-tools 的回合级放行（Skill 工具与 /skill 路径共用）。 */
+  grantEphemeral(rules: ReadonlyArray<{ tool: string; spec: PermissionSpec }>): void
+  /** 回合终态清空 ephemeral 授权（createRunner 订阅 turn.completed/aborted）。 */
+  clearEphemeral(): void
   bindExecutor(
     context: (signal: AbortSignal) => ToolContext,
     dispatchHook?: ToolHookDispatcher,
@@ -1689,6 +1693,8 @@ export function createProductionToolPermissionChain(
     permissionRequests: Object.freeze({ request: permissions.request.bind(permissions) }),
     mode: () => permissions.mode,
     setMode: (mode) => permissions.setMode(mode),
+    grantEphemeral: (rules) => permissions.grantEphemeral(rules),
+    clearEphemeral: () => permissions.clearEphemeral(),
     bindExecutor(context, dispatchHook) {
       if (bound) throw new Error('Production permission executor is already bound')
       bound = true
@@ -2702,6 +2708,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         set(mode: PermissionSessionMode): void
       }
     | undefined
+  // /skill-name 路径的 allowed-tools 登记口：slash 处理在 runtime 层，触达不到
+  // per-Runner 的 permissionChain——顶层 chain 建好时登记，slash invoke 时授予。
+  let activeSkillGrants:
+    | {
+        grant(rules: ReadonlyArray<{ tool: string; spec: PermissionSpec }>): void
+        clear(): void
+      }
+    | undefined
   // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
   let overridePermissionMode: PermissionSessionMode | undefined
   let configPermissionMode: PermissionSessionMode | undefined
@@ -2848,6 +2862,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       const runtime = [...skillsRuntimes][0]
       if (!runtime) throw new Error('No active session; open a session first')
       const invocation = await runtime.readInvocation(name)
+      if (invocation.allowedTools?.length)
+        activeSkillGrants?.grant(
+          mapAllowedTools(invocation.allowedTools, (message) => logger.warn(message)),
+        )
       return {
         kind: 'submit',
         text: buildSkillInvocationText(invocation, args),
@@ -3255,11 +3273,21 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       rules: permissionRules,
     })
     // /mode 只挂顶层会话；子会话沿用其冻结快照里的模式。
-    if (state.lineage.depth === 0)
+    if (state.lineage.depth === 0) {
       activePermissionControl = {
         get: () => permissionChain.mode(),
         set: (mode) => permissionChain.setMode(mode),
       }
+      activeSkillGrants = {
+        grant: (rules) => permissionChain.grantEphemeral(rules),
+        clear: () => permissionChain.clearEphemeral(),
+      }
+    }
+    // skill allowed-tools 的回合边界：turn 终态即清空（业界语义=授权只活一轮）。
+    events.subscribe((event) => {
+      if (event.type === 'turn.completed' || event.type === 'turn.aborted')
+        permissionChain.clearEphemeral()
+    })
     const { permissionRequests } = permissionChain
     // §15 T0: persisted values apply only after an explicit, typed boolean opt-in.
     const { config: userConfig, values: tuned } = await loadProductionContextTuning({
@@ -3618,7 +3646,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     }))
       registry.register(tool)
     for (const tool of createMemoryTools(memory)) registry.register(tool)
-    registry.register(createSkillTool({ skills }))
+    registry.register(
+      createSkillTool({
+        skills,
+        grantEphemeral: (rules) => permissionChain.grantEphemeral(rules),
+        onWarn: (message) => logger.warn(message),
+      }),
+    )
     // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
     // Runner 的 registry；invoke 走 runtime 级共享连接，子 agent 不重复 spawn。
     ;(await ensureMcpManager(state.cwd)).attach(registry)
@@ -4365,12 +4399,45 @@ export function buildSkillInvocationText(
 }
 
 /**
+ * SKILLS-MCPS-r1 §allowed-tools：Claude 规则语法 → 回合级放行规则的子集映射。
+ * 支持裸工具名（整工具放行）、`Bash(cmd)`（全串匹配）与 `Bash(cmd:*)`（前缀
+ * glob）；其余语法（WebFetch(domain:*) 等）忽略并 warn——宁可多问不静默放行。
+ */
+export function mapAllowedTools(
+  rules: readonly string[],
+  onWarn?: (message: string) => void,
+): Array<{ tool: string; spec: PermissionSpec }> {
+  const mapped: Array<{ tool: string; spec: PermissionSpec }> = []
+  for (const rule of rules) {
+    const prefix = /^Bash\((.+):\*\)$/.exec(rule)
+    if (prefix?.[1]) {
+      mapped.push({ tool: 'Bash', spec: { bash: { command: `${prefix[1]} *` } } })
+      continue
+    }
+    const exact = /^Bash\((.+)\)$/.exec(rule)
+    if (exact?.[1]) {
+      mapped.push({ tool: 'Bash', spec: { bash: { command: exact[1] } } })
+      continue
+    }
+    if (/^[A-Za-z][A-Za-z0-9_]*$/.test(rule)) {
+      mapped.push({ tool: rule, spec: {} })
+      continue
+    }
+    onWarn?.(`skill allowed-tools rule ignored (unsupported syntax): ${rule}`)
+  }
+  return mapped
+}
+
+/**
  * §S3.3a：模型可调用的 Skill 工具——一次性 invocation（业界惯例：Claude Code /
  * zcode 的 Skill tool）。name 枚举随 discover() 动态刷新（forProvider 每轮重读
  * inputSchema）；permissionSpec 按 skill 名收敛，用户可对单个技能落 allow/deny。
  */
 export function createSkillTool(options: {
   skills: Pick<SkillsRuntime, 'modelInvocableNames' | 'readInvocation'>
+  /** allowed-tools → 回合级放行；缺省时 skill 照常调用只是不免批。 */
+  grantEphemeral?: (rules: ReadonlyArray<{ tool: string; spec: PermissionSpec }>) => void
+  onWarn?: (message: string) => void
 }): Tool {
   const skills = options.skills
   return {
@@ -4396,6 +4463,8 @@ export function createSkillTool(options: {
     async invoke(input: unknown) {
       const { name, args } = input as { name: string; args?: string }
       const invocation = await skills.readInvocation(name)
+      if (invocation.allowedTools?.length && options.grantEphemeral)
+        options.grantEphemeral(mapAllowedTools(invocation.allowedTools, options.onWarn))
       return {
         content: [{ type: 'text', text: buildSkillInvocationText(invocation, args ? [args] : []) }],
         meta: { durationMs: 0, costImpact: 'safe' },
