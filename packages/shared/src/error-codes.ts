@@ -137,6 +137,7 @@ export const ErrorCodes = {
   pluginsActionFailed: 'plugins_action_failed',
   pluginToolInvalid: 'plugin_tool_invalid',
   pluginHookInvalid: 'plugin_hook_invalid',
+  pluginPromptInvalid: 'plugin_prompt_invalid',
   pluginMarketFetchFailed: 'plugin_market_fetch_failed',
   pluginMarketIndexInvalid: 'plugin_market_index_invalid',
   pluginMarketMetadataInvalid: 'plugin_market_metadata_invalid',

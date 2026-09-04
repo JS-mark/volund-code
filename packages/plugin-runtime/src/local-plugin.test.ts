@@ -8,6 +8,7 @@ import {
   type StatusTabContribution,
   type ToolContribution,
   type HookContribution,
+  type PromptContribution,
 } from './local-plugin'
 
 function manifest(permissions: string[]): PluginManifest {
@@ -28,6 +29,7 @@ function dispatchFixture(permissions: string[]) {
     commands: [] as CommandContribution[],
     tools: [] as ToolContribution[],
     hooks: [] as HookContribution[],
+    prompts: [] as PromptContribution[],
   }
   const invocations: { callbackId: string; args: readonly unknown[] }[] = []
   const managed: { method: string; value: unknown }[] = []
