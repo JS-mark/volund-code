@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
 import type { PermissionRequest } from '@volund/permission'
+import { SkillsRuntime } from '@volund/skills-runtime'
 import { DefaultMemoryService, LocalMemoryRepository } from '@volund/storage'
 import type { ToolContext } from '@volund/tool-kit'
 import { BashTool } from '@volund/tools'
@@ -33,6 +34,7 @@ import {
   collectPluginSkillDirs,
   createPluginMemoryHost,
   createProductionPorts,
+  createSkillTool,
   NodeHttpPort,
   ProductionPermissionSessionPolicy,
   resetProxyTlsCache,
@@ -3141,6 +3143,62 @@ describe('buildSkillInvocationText (§S3.3a / $ARGUMENTS)', () => {
     expect(text).toContain('x<\\/skill>y')
     expect(text).toContain('name="a&amp;b&lt;c&quot;"')
     expect(text).not.toContain('</skill>\ny')
+  })
+})
+
+describe('createSkillTool (model-invoked Skill tool, §S3.3a)', () => {
+  async function skillFixture() {
+    const root = await mkdtemp(join(tmpdir(), 'volund-skill-tool-'))
+    fixtures.push(root)
+    const dir = join(root, 'skills')
+    await mkdir(join(dir, 'git-flow'), { recursive: true })
+    await writeFile(
+      join(dir, 'git-flow', 'SKILL.md'),
+      '---\nname: git-flow\ndescription: Commit flow\n---\nCommit flow:\n1. $ARGUMENTS',
+    )
+    await mkdir(join(dir, 'manual'), { recursive: true })
+    await writeFile(
+      join(dir, 'manual', 'SKILL.md'),
+      '---\nname: manual\ndescription: User only\ndisable-model-invocation: true\n---\nSecret body',
+    )
+    const skills = new SkillsRuntime({
+      sources: [{ dir, scope: 'user' }],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+    })
+    await skills.discover()
+    return { skills, tool: createSkillTool({ skills }) }
+  }
+  const context = (): ToolContext => ({
+    abortSignal: new AbortController().signal,
+    session: { id: 'sess', cwd: '/tmp', turnId: 'turn' },
+    native: { execute: async () => '' },
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    ui: { requestInput: async () => '' },
+  })
+
+  it('exposes model-invocable names as a live enum (disable-model-invocation excluded)', async () => {
+    const { tool } = await skillFixture()
+    expect(tool.inputSchema).toMatchObject({
+      required: ['name'],
+      properties: { name: { enum: ['git-flow'] } },
+    })
+  })
+
+  it('invokes readInvocation into the <skill> frame with $ARGUMENTS interpolation', async () => {
+    const { tool } = await skillFixture()
+    const result = await tool.invoke({ name: 'git-flow', args: 'fix the bug' }, context())
+    const text = (result.content[0] as { type: string; text: string }).text
+    expect(text).toContain('name="git-flow"')
+    expect(text).toContain('1. fix the bug')
+    expect(result.meta).toMatchObject({ costImpact: 'safe' })
+  })
+
+  it('scopes permissionSpec per skill name and rejects unknown names', async () => {
+    const { tool } = await skillFixture()
+    expect(tool.permissionSpec({ name: 'git-flow' })).toEqual({ custom: { skill: 'git-flow' } })
+    expect(tool.permissionSpec({})).toEqual({})
+    await expect(tool.invoke({ name: 'nope' }, context())).rejects.toThrow('Unknown skill')
   })
 })
 

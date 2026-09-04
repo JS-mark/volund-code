@@ -58,6 +58,33 @@ describe('SkillsRuntime', () => {
     expect(rejected?.payload).toMatchObject({ name: 'badname' })
     expect(String(rejected?.payload.reason)).toContain('Invalid skill name')
   })
+  it('modelInvocableNames filters disabled and disable-model-invocation, keeps user-invocable:false', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'volund-skills-'))
+    dirs.push(root)
+    await writeSkill(resolve(root, 'skills'), 'plain', 'name: plain\ndescription: x')
+    await writeSkill(
+      resolve(root, 'skills'),
+      'manual-only',
+      'name: manual-only\ndescription: x\ndisable-model-invocation: true',
+    )
+    await writeSkill(
+      resolve(root, 'skills'),
+      'model-only',
+      'name: model-only\ndescription: x\nuser-invocable: false',
+    )
+    const options = {
+      sources: [{ dir: resolve(root, 'skills'), scope: 'user' as const }],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+    }
+    const runtime = new SkillsRuntime(options)
+    await runtime.discover()
+    // user-invocable: false 只挡 slash 注册，模型仍可调用
+    expect(runtime.modelInvocableNames()).toEqual(['model-only', 'plain'])
+    const gated = new SkillsRuntime({ ...options, disabled: new Set(['plain']) })
+    await gated.discover()
+    expect(gated.modelInvocableNames()).toEqual(['model-only'])
+  })
   it('installs only a skill manifest and its declared resources', async () => {
     const { root, skill } = await fixture()
     const installRoot = resolve(root, 'installed')
