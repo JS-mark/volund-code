@@ -46,7 +46,14 @@ import type {
   RunnerToolPort,
   SessionState,
 } from '@volund/core'
-import { Context, ModelService } from '@volund/kernel'
+import {
+  BusService,
+  Context,
+  ModelService,
+  SandboxService,
+  SessionService,
+  ToolsService,
+} from '@volund/kernel'
 import {
   execSandbox,
   nativeProbes,
@@ -132,7 +139,6 @@ import {
   type ResolvedAgentDefinition,
 } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
-import { ToolRegistry } from '@volund/tool-kit'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
 import { BackgroundShells, builtinTools, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
 import type { ToolHookDispatcher } from '@volund/tools'
@@ -3299,8 +3305,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         clear: () => permissionChain.clearEphemeral(),
       }
     }
+    // 内核脊柱：每会话一棵 Context 树，先挂 bus/session；model/tools/sandbox
+    // 在各自装配点以同形态服务挂载。第三方插件的贡献最终也注册进同一棵树。
+    const kernel = new Context()
+    kernel.plugin(ModelService)
+    kernel.plugin(BusService, events)
+    kernel.plugin(SessionService, state)
     // skill allowed-tools 的回合边界：turn 终态即清空（业界语义=授权只活一轮）。
-    events.subscribe((event) => {
+    kernel.bus.events.subscribe((event) => {
       if (event.type === 'turn.completed' || event.type === 'turn.aborted')
         permissionChain.clearEphemeral()
     })
@@ -3496,11 +3508,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         if (streamToStdout) stdout.write('\n')
       },
     }
-    // 内核脊柱（S0）：每会话一棵 Context 树，模型注册表以 `model` 服务提供——
-    // 后续 tools/sandbox/session/events/ui 逐个迁为同形态服务，第三方插件的
+    // 内核脊柱：每会话一棵 Context 树；模型注册表以 `model` 服务提供——
+    // tools/sandbox/session/events/ui 逐个迁为同形态服务，第三方插件的
     // 贡献也注册进同一棵树。
-    const kernel = new Context()
-    kernel.plugin(ModelService)
     const providers = kernel.model.registry
     providers.register(
       client,
@@ -3647,7 +3657,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           (name): name is string => typeof name === 'string' && name !== '',
         )
       : undefined
-    const registry = new ToolRegistry()
+    // 内核 `tools` 服务：注册表从 Context 取（与 model 同形态，S1 批次 A）。
+    kernel.plugin(ToolsService)
+    const registry = kernel.tools.registry
     for (const tool of builtinTools({
       backups,
       background,
@@ -3690,6 +3702,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         })
       },
     })
+    kernel.plugin(SandboxService, native)
     const executor = permissionChain.bindExecutor((signal) => ({
       abortSignal: signal,
       session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },

@@ -310,9 +310,15 @@ importers:
       '@cordisjs/core':
         specifier: 'catalog:'
         version: 3.18.1
+      '@volund/core':
+        specifier: workspace:*
+        version: link:../core
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/tool-kit':
+        specifier: workspace:*
+        version: link:../tool-kit
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
