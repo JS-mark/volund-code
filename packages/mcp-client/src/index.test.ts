@@ -1,6 +1,6 @@
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import {
   CallToolRequestSchema,
   InitializeRequestSchema,
@@ -11,12 +11,7 @@ import {
 import { ToolRegistry } from '@volund/tool-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  HttpSseTransport,
-  McpClient,
-  MCP_PROTOCOL_VERSION,
-  type McpTransport,
-} from './index'
+import { HttpSseTransport, McpClient, MCP_PROTOCOL_VERSION, type McpTransport } from './index'
 
 /** SDK Transport（client 侧 InMemory 半桥）→ 自研 McpTransport 反向桥，供端到端回路测试。 */
 class InMemoryAsMcpTransport implements McpTransport {

@@ -45,6 +45,7 @@ import {
   languagePromptFragment,
   resolveModelAlias,
   loadProductionContextTuning,
+  mapAllowedTools,
   readEffectiveEnv,
   registerPluginCommands,
   registerRuntimeMemoryPrompts,
@@ -3199,6 +3200,53 @@ describe('createSkillTool (model-invoked Skill tool, §S3.3a)', () => {
     expect(tool.permissionSpec({ name: 'git-flow' })).toEqual({ custom: { skill: 'git-flow' } })
     expect(tool.permissionSpec({})).toEqual({})
     await expect(tool.invoke({ name: 'nope' }, context())).rejects.toThrow('Unknown skill')
+  })
+
+  it('grants ephemeral permissions from allowed-tools on invocation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-skill-grant-'))
+    fixtures.push(root)
+    const dir = join(root, 'skills')
+    await mkdir(join(dir, 'granted'), { recursive: true })
+    await writeFile(
+      join(dir, 'granted', 'SKILL.md'),
+      '---\nname: granted\ndescription: x\nallowed-tools: "Bash(git:*) Read"\n---\nBody',
+    )
+    const skills = new SkillsRuntime({
+      sources: [{ dir, scope: 'user' }],
+      volundVersion: '1.0.0',
+      composer: new DefaultPromptComposer(),
+    })
+    await skills.discover()
+    const grants: Array<ReadonlyArray<{ tool: string; spec: unknown }>> = []
+    const tool = createSkillTool({
+      skills,
+      grantEphemeral: (rules) => grants.push(rules),
+    })
+    await tool.invoke({ name: 'granted' }, context())
+    expect(grants).toEqual([
+      [
+        { tool: 'Bash', spec: { bash: { command: 'git *' } } },
+        { tool: 'Read', spec: {} },
+      ],
+    ])
+  })
+})
+
+describe('mapAllowedTools (Claude rule syntax → ephemeral rules)', () => {
+  it('maps bare names, Bash exact and Bash prefix patterns', () => {
+    expect(mapAllowedTools(['Read', 'Bash(git status)', 'Bash(git:*)'])).toEqual([
+      { tool: 'Read', spec: {} },
+      { tool: 'Bash', spec: { bash: { command: 'git status' } } },
+      { tool: 'Bash', spec: { bash: { command: 'git *' } } },
+    ])
+  })
+  it('ignores unsupported syntax with a warning instead of failing', () => {
+    const warnings: string[] = []
+    expect(
+      mapAllowedTools(['WebFetch(domain:example.com)', 'Task'], (m) => warnings.push(m)),
+    ).toEqual([{ tool: 'Task', spec: {} }])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('WebFetch(domain:example.com)')
   })
 })
 

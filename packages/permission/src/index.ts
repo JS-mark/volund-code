@@ -1,7 +1,7 @@
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
-import picomatch from 'picomatch'
 import type { Logger } from '@volund/shared'
+import picomatch from 'picomatch'
 
 import { normalizeOrigin } from './net-origin'
 import { matchPath, toPosixSeparators } from './path-pattern'
@@ -167,6 +167,8 @@ export class PermissionManager {
     string,
     'allow-session' | 'allow-project' | 'allow-forever' | 'deny-forever'
   >()
+  /** 回合级临时放行（skill allowed-tools）：见 grantEphemeral。 */
+  readonly #ephemeral: Array<{ tool: string; spec: PermissionSpec }> = []
   #queue = Promise.resolve()
   #prompt?: PromptHandler
   readonly #initialMode: PermissionSessionMode
@@ -197,6 +199,17 @@ export class PermissionManager {
   setPromptHandler(handler: PromptHandler): void {
     this.#prompt = handler
   }
+  /**
+   * skill allowed-tools 的回合级放行（业界语义：仅 skill 触发的那轮生效，调用方
+   * 在回合边界 clearEphemeral()）。判定位于 deny 规则、缓存与 full 模式之后——
+   * 显式 deny 与用户既定决策不被绕过；不入 #cache、不落盘。
+   */
+  grantEphemeral(rules: ReadonlyArray<{ tool: string; spec: PermissionSpec }>): void {
+    this.#ephemeral.push(...rules)
+  }
+  clearEphemeral(): void {
+    this.#ephemeral.splice(0)
+  }
   clearSession(): void {
     this.#cache.clear()
     this.#mode = this.#initialMode
@@ -208,6 +221,9 @@ export class PermissionManager {
     if (cached) return { kind: cached }
     // 会话级完全访问：deny 规则与已缓存决策之后、scoped allow 之前短路。
     if (this.#mode === 'full') return { kind: 'allow-session' }
+    // 回合级 skill 放行：direct return 不写缓存——授权只活到 clearEphemeral()。
+    if (this.#ephemeral.some((rule) => permissionRuleMatches(rule, request)))
+      return { kind: 'allow-session' }
     if (this.rules.projectAllow?.(request)) return { kind: 'allow-project' }
     if (this.rules.globalAllow?.(request)) return { kind: 'allow-forever' }
     const automatic = this.autoAllow(request)
