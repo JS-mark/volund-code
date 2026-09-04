@@ -31,9 +31,35 @@ declare module '@cordisjs/core' {
 /** `tools` 服务：会话级工具注册表（ToolRegistry 的 Cordis 化封装）。 */
 export class ToolsService extends Service {
   readonly registry: ToolRegistry
+  /** 插件卸载/禁用的按域摘除句柄（plugin 名 → register 返回的注销函数集）。 */
+  readonly pluginUnregisters = new Map<string, Set<() => void>>()
   constructor(ctx: Context) {
     super(ctx, 'tools', true)
     this.registry = new ToolRegistry()
+  }
+  /** 插件一等公民：注册插件贡献工具并登记摘除句柄（供 unregisterPlugin 批量摘除）。 */
+  registerPluginTool(plugin: string, tool: Parameters<ToolRegistry['register']>[0]): () => void {
+    const unregister = this.registry.register(tool, { kind: 'plugin', plugin })
+    const set = this.pluginUnregisters.get(plugin) ?? new Set()
+    set.add(() => {
+      unregister()
+      set.delete(unregister)
+    })
+    this.pluginUnregisters.set(plugin, set)
+    return unregister
+  }
+  /** 插件卸载/禁用时摘除其全部贡献工具（跨会话由宿主对每个活内核调用）。 */
+  unregisterPlugin(plugin: string): number {
+    const set = this.pluginUnregisters.get(plugin)
+    if (!set) return 0
+    const count = set.size
+    for (const unregister of [...set]) unregister()
+    this.pluginUnregisters.delete(plugin)
+    return count
+  }
+  /** 会话结束：清空本内核挂的全部插件贡献工具。 */
+  unregisterAllPluginTools(): void {
+    for (const plugin of [...this.pluginUnregisters.keys()]) this.unregisterPlugin(plugin)
   }
 }
 

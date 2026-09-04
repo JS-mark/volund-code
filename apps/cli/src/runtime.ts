@@ -142,7 +142,7 @@ import {
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
 import { BackgroundShells, builtinToolDomains, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
-import type { ToolHookDispatcher } from '@volund/tools'
+import type { ToolHookDispatcher, ToolHookOutcome } from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
@@ -2194,6 +2194,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 它的会话级兄弟层，S2 起插件贡献也经应用级内核汇聚。
   const appKernel = new Context()
   appKernel.plugin(UiService)
+  // H2：活会话内核的 tools 服务集合——插件卸载/禁用时对每个活内核广播摘除。
+  const liveToolServices = new Set<ToolsService>()
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
@@ -2342,6 +2344,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     const [entry] = loadedPluginEntries.splice(index, 1)
     for (const unsubscribe of entry?.unsubscribes || []) unsubscribe()
     await entry?.handle?.deactivate()
+    // H2：对每个活会话内核摘除该插件的贡献工具（下会话自然不再注册）。
+    if (entry) for (const tools of liveToolServices) tools.unregisterPlugin(entry.name)
     return entry
   }
   async function inventoryEntry(entry: LocalPluginStateEntry): Promise<PluginInventoryEntry> {
@@ -3703,6 +3707,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       : undefined
     // 内核 `tools` 服务：注册表从 Context 取（与 model 同形态，S1 批次 A）。
     kernel.plugin(ToolsService)
+    liveToolServices.add(kernel.tools)
+    kernel.bus.events.subscribe((event) => {
+      if (event.type === 'session.ended') {
+        liveToolServices.delete(kernel.tools)
+        kernel.tools.unregisterAllPluginTools()
+      }
+    })
     const registry = kernel.tools.registry
     await ensureBuiltinToolsConfig()
     // F1 插件一等公民：内置工具按域装配——[plugins] builtin_disabled 整域禁用；
@@ -3744,30 +3755,27 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     for (const loaded of loadedPluginEntries) {
       if (!loaded.handle) continue
       for (const tool of loaded.handle.tools) {
-        kernel.tools.registry.register(
-          {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema as Record<string, JsonValue>,
-            permissionSpec: () => ({
-              custom: { pluginTool: { plugin: loaded.name, tool: tool.name } },
-            }),
-            invoke: async (input) => {
-              const started = Date.now()
-              const raw = await tool.invoke(input)
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `<untrusted source="${escapeUntrustedText(tool.name)}">\n${escapeUntrustedText(JSON.stringify(raw ?? null))}\n</untrusted>`,
-                  },
-                ],
-                meta: { durationMs: Date.now() - started, costImpact: 'moderate' },
-              }
-            },
+        kernel.tools.registerPluginTool(loaded.name, {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema as Record<string, JsonValue>,
+          permissionSpec: () => ({
+            custom: { pluginTool: { plugin: loaded.name, tool: tool.name } },
+          }),
+          invoke: async (input) => {
+            const started = Date.now()
+            const raw = await tool.invoke(input)
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `<untrusted source="${escapeUntrustedText(tool.name)}">\n${escapeUntrustedText(JSON.stringify(raw ?? null))}\n</untrusted>`,
+                },
+              ],
+              meta: { durationMs: Date.now() - started, costImpact: 'moderate' },
+            }
           },
-          { kind: 'plugin', plugin: loaded.name },
-        )
+        })
       }
     }
     // SKILLS-MCPS-r1 §S3.5：共享 MCP 连接的工具（mcp__<server>__<tool>）挂进本
@@ -3787,13 +3795,54 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     })
     kernel.plugin(SandboxService, native)
-    const executor = permissionChain.bindExecutor((signal) => ({
-      abortSignal: signal,
-      session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
-      native,
-      logger,
-      ui: { requestInput: promptLine },
-    }))
+    // H1：插件 hook 管线——已激活插件的 preToolUse/postToolUse 订阅按装载顺序
+    // 执行，首个 HookResult（veto/rewrite）生效；handler 错误 fail-open（warn 后
+    // 继续），回合中止即停止派发。builtin/project/user 域留待宿主 hook 注册面。
+    const dispatchHook: ToolHookDispatcher = (event, payload, options) => {
+      const run = async (): Promise<ToolHookOutcome | undefined> => {
+        for (const loaded of loadedPluginEntries) {
+          if (!loaded.handle) continue
+          if (options?.signal?.aborted) return undefined
+          for (const hook of loaded.handle.hooks) {
+            if (hook.event !== event) continue
+            try {
+              const result = (await hook.invoke(payload)) as
+                | { veto?: unknown; reason?: unknown; value?: unknown }
+                | undefined
+              if (result && typeof result === 'object') {
+                return {
+                  ...(result.veto === true
+                    ? {
+                        veto: true,
+                        ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
+                      }
+                    : {}),
+                  ...('value' in result ? { value: result.value } : {}),
+                }
+              }
+            } catch (error) {
+              logger.warn(
+                `plugin hook ${event} from ${loaded.name} failed (fail-open): ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              )
+            }
+          }
+        }
+        return undefined
+      }
+      return run()
+    }
+    const executor = permissionChain.bindExecutor(
+      (signal) => ({
+        abortSignal: signal,
+        session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
+        native,
+        logger,
+        ui: { requestInput: promptLine },
+      }),
+      dispatchHook,
+    )
     // §2.7.1：agent 的 tools 白名单只能收紧——schemas 与 execute 两处同时过滤，
     // 白名单外的工具对模型不可见、调用即拒绝。
     const allowedTools = agent?.definition.tools
