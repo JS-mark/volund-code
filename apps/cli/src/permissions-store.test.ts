@@ -166,7 +166,11 @@ describe('PermissionRuleStore', () => {
     const projectRoot = realpathSync(await mkdtemp(join(tmpdir(), 'volund-permissions-glob-')))
     fixtures.push(projectRoot)
 
-    await store.persist('project', writeRequest(join(projectRoot, 'src', 'a.ts'), projectRoot), true)
+    await store.persist(
+      'project',
+      writeRequest(join(projectRoot, 'src', 'a.ts'), projectRoot),
+      true,
+    )
 
     const saved = await readFile(paths.project, 'utf8')
     expect(saved).toContain(`write = ["${projectRoot}/**"]`)
@@ -174,7 +178,9 @@ describe('PermissionRuleStore', () => {
     const reloaded = new PermissionRuleStore(paths)
     await reloaded.ready()
     // 兄弟文件命中模式：不再逐文件重复弹窗
-    expect(reloaded.isAllowed('project', writeRequest(join(projectRoot, 'docs', 'b.md'), projectRoot))).toBe(true)
+    expect(
+      reloaded.isAllowed('project', writeRequest(join(projectRoot, 'docs', 'b.md'), projectRoot)),
+    ).toBe(true)
     // 项目子树之外的路径不命中
     expect(reloaded.isAllowed('project', writeRequest('/etc/hosts', projectRoot))).toBe(false)
   })
@@ -186,8 +192,12 @@ describe('PermissionRuleStore', () => {
     const outside = realpathSync(await mkdtemp(join(tmpdir(), 'volund-permissions-out-')))
     fixtures.push(outside)
     await store.persist('global', writeRequest(join(outside, 'hosts'), process.cwd()), true)
-    expect(store.isAllowed('global', writeRequest(join(outside, 'hosts'), process.cwd()))).toBe(true)
-    expect(store.isAllowed('global', writeRequest(join(outside, 'passwd'), process.cwd()))).toBe(false)
+    expect(store.isAllowed('global', writeRequest(join(outside, 'hosts'), process.cwd()))).toBe(
+      true,
+    )
+    expect(store.isAllowed('global', writeRequest(join(outside, 'passwd'), process.cwd()))).toBe(
+      false,
+    )
   })
 
   it('keeps deny-forever exact while allow generalizes', async () => {
