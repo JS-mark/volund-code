@@ -246,6 +246,9 @@ importers:
       '@volund/permission':
         specifier: workspace:*
         version: link:../permission
+      '@volund/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@volund/shared':
         specifier: workspace:*
         version: link:../shared

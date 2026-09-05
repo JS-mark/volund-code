@@ -32,6 +32,7 @@
     "@volund/kernel": "workspace:*",
     "@volund/native-bridge": "workspace:*",
     "@volund/permission": "workspace:*",
+    "@volund/plugin-sdk": "workspace:*",
     "@volund/shared": "workspace:*",
     "@volund/storage": "workspace:*",
     "@volund/subagent": "workspace:*",

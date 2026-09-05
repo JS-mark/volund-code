@@ -15,6 +15,20 @@ import { BusService, Context, ModelService, SessionService, UiService } from '@v
 
 export { Context }
 export * from './contracts'
+export * from './memory-scope'
+export { createMemoryPanelController } from './memory-controller'
+export { createMemoryTools } from './memory-tools'
+export { createMemoryStack, createPluginMemoryHost, registerRuntimeMemoryPrompts } from './memory'
+export type { MemoryStack, PluginMemoryHost, PluginMemoryHostOptions } from './memory'
+export { memoryPanelError } from './memory-panel'
+export type {
+  MemoryPanelController,
+  MemoryPanelError,
+  MemoryPanelErrorCode,
+  MemoryPanelMode,
+  MemoryPanelPage,
+  MemoryPanelRecord,
+} from './memory-panel'
 export * from './status-view'
 export * from './welcome'
 export { buildStatusViewModel, createStatusSnapshotAdapter, runtimeStatusData } from './status'

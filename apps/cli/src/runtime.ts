@@ -26,6 +26,8 @@ import {
   createAppKernel,
   createProductionToolPermissionChain,
   createSessionKernel,
+  createMemoryStack,
+  registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
   ProductionPermissionSessionPolicy,
   runtimeStatusData,
@@ -43,13 +45,7 @@ import {
   EvolutionEngine,
   Runner,
 } from '@volund/core'
-import type {
-  ContextTunableParam,
-  EvolutionPersistence,
-  PromptComposer,
-  RunnerToolPort,
-  SessionState,
-} from '@volund/core'
+import type { ContextTunableParam, EvolutionPersistence, RunnerToolPort } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
 import {
   execSandbox,
@@ -79,7 +75,6 @@ import type {
   PluginInstallResult,
   PluginInventory,
   PluginInventoryEntry,
-  PluginMemoryScope,
 } from '@volund/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
@@ -103,22 +98,7 @@ import {
 } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
-import {
-  AttachmentStore,
-  BackupStore,
-  DefaultMemoryMaintenanceService,
-  DefaultMemoryRecallService,
-  DefaultMemoryService,
-  EvolutionStore,
-  IndexingMemoryService,
-  LocalKeywordMemoryIndex,
-  LocalMemoryRepository,
-  MemoryError,
-  MemoryPromptProvider,
-  MemoryTransferService,
-  PromptLoader,
-} from '@volund/storage'
-import type { MemoryRecallService, MemoryService } from '@volund/storage'
+import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge } from '@volund/tool-kit'
@@ -163,7 +143,6 @@ import {
   resolveSkillSpecToDirectories,
   upsertMcpServerToml,
 } from './mcp'
-import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import {
@@ -847,115 +826,6 @@ async function readContainedPluginDiagnostic(
   }
 }
 
-export function registerRuntimeMemoryPrompts(
-  composer: PromptComposer,
-  memory: MemoryService,
-  state: Pick<SessionState, 'cwd' | 'id'>,
-) {
-  return new MemoryPromptProvider(memory, {
-    scopes: [
-      sessionMemoryScope(state.cwd, state.id),
-      projectMemoryScope(state.cwd),
-      workspaceMemoryScope(),
-    ],
-  }).register(composer)
-}
-
-export interface PluginMemoryHostOptions {
-  readonly home: string
-  readonly cwd: string
-  readonly sessionId?: string
-  readonly memory: MemoryService
-  readonly memoryRecall: MemoryRecallService
-  readonly memoryTransfer: MemoryTransferService
-}
-
-export type PluginMemoryHost = (
-  plugin: string,
-  operation: string,
-  rawParams: unknown,
-) => Promise<unknown>
-
-/** Production plugin adapter. Memory content stays inside MemoryService and never enters audit. */
-export function createPluginMemoryHost(options: PluginMemoryHostOptions): PluginMemoryHost {
-  return async (plugin: string, operation: string, rawParams: unknown): Promise<unknown> => {
-    const params = rawParams as {
-      scope: PluginMemoryScope
-      id?: string
-      query?: string
-      options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
-      content?: string
-      tags?: readonly string[]
-      pinned?: boolean
-      patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
-    }
-    const scope =
-      params.scope === 'workspace'
-        ? workspaceMemoryScope()
-        : params.scope === 'project'
-          ? projectMemoryScope(options.cwd)
-          : options.sessionId
-            ? sessionMemoryScope(options.cwd, options.sessionId)
-            : (() => {
-                throw new MemoryError(
-                  'memory_scope_denied',
-                  'Session memory requires an active session',
-                )
-              })()
-    const auditPath = join(options.home, 'memory', 'audit.jsonl')
-    const writeOperation = ['create', 'update', 'delete'].includes(operation)
-    if (writeOperation) {
-      await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
-      await appendFile(
-        auditPath,
-        `${JSON.stringify({
-          schemaVersion: 1,
-          at: new Date().toISOString(),
-          phase: 'attempt',
-          plugin,
-          operation,
-          scope: params.scope,
-          ...(params.id ? { id: sanitize(params.id) } : {}),
-        })}\n`,
-        { encoding: 'utf8', mode: 0o600 },
-      )
-    }
-    let result: unknown
-    if (operation === 'get') result = (await options.memory.get(scope, String(params.id))) ?? null
-    else if (operation === 'list') result = await options.memory.list(scope, params.options)
-    else if (operation === 'search')
-      result = await options.memoryRecall.recall(scope, String(params.query ?? ''), params.options)
-    else if (operation === 'create')
-      result = await options.memory.create({
-        ...(params.id ? { id: params.id } : {}),
-        scope,
-        content: String(params.content ?? ''),
-        provenance: { source: 'agent', actorId: `plugin:${plugin}` },
-        ...(params.tags ? { tags: params.tags } : {}),
-        ...(params.pinned === undefined ? {} : { pinned: params.pinned }),
-      })
-    else if (operation === 'update')
-      result = await options.memory.update(scope, String(params.id), params.patch ?? {})
-    else if (operation === 'delete') result = await options.memory.delete(scope, String(params.id))
-    else result = await options.memoryTransfer.export([scope])
-    await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
-    await appendFile(
-      auditPath,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        at: new Date().toISOString(),
-        phase: 'success',
-        plugin,
-        operation,
-        scope: params.scope,
-        ...(params.id ? { id: sanitize(params.id) } : {}),
-      })}\n`,
-      { encoding: 'utf8', mode: 0o600 },
-    )
-    return result
-  }
-}
-
 /**
  * Resolve the legacy context-tuning compatibility switch for a production Runner.
  * A missing file is the documented default-off case. Unreadable, invalid, or non-boolean
@@ -1205,8 +1075,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const liveToolServices = new Set<ToolsService>()
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
-  const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
-  const memoryIndex = new LocalKeywordMemoryIndex(join(home, 'memory', 'index.json'))
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -1675,19 +1543,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       )
     },
   }
-  let memory: MemoryService
-  let memoryRecall: DefaultMemoryRecallService
-  let memoryTransfer: MemoryTransferService
-  memory = new IndexingMemoryService(
-    new DefaultMemoryService(memoryRepository),
-    memoryRepository,
-    memoryIndex,
-  )
-  memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
-  const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
-  memoryTransfer = new MemoryTransferService(memory, {
-    journalPath: join(home, 'memory', 'import-journal.json'),
-  })
+  // P1-04b：Memory 四件套的单一组合点在 app-runtime（createMemoryStack）。
+  const memoryStack = createMemoryStack(home)
+  const memory = memoryStack.memory
+  const memoryRecall = memoryStack.memoryRecall
+  const memoryMaintenance = memoryStack.memoryMaintenance
+  const memoryTransfer = memoryStack.memoryTransfer
   const slashCommands = new MutableSlashCommandRegistry()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {

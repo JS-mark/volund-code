@@ -17,9 +17,11 @@ import { join, resolve } from 'node:path'
 import {
   buildStatusViewModel,
   Context,
+  createPluginMemoryHost,
   createProductionToolPermissionChain,
   createStatusSnapshotAdapter,
   ProductionPermissionSessionPolicy,
+  registerRuntimeMemoryPrompts,
   requestPermission,
   SessionController,
 } from '@volund/app-runtime'
@@ -40,7 +42,6 @@ import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import {
   collectPluginSkillDirs,
-  createPluginMemoryHost,
   createProductionPorts,
   NodeHttpPort,
   resetProxyTlsCache,
@@ -51,7 +52,6 @@ import {
   loadProductionContextTuning,
   readEffectiveEnv,
   registerPluginCommands,
-  registerRuntimeMemoryPrompts,
   requestHttp2,
 } from './runtime'
 import { buildSkillInvocationText, createSkillTool, mapAllowedTools } from './skill-tool'
