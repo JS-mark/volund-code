@@ -15,11 +15,14 @@ import {
   createProductionToolPermissionChain,
   createSessionKernel,
   collectPluginSkillDirs,
+  createAuthDomain,
+  readAuthSection,
+  createConfigDomain,
   createMcpDomain,
+  createNativeDomain,
   createPluginDomain,
   createPluginHookDispatcher,
   escapeUntrustedText,
-  expandEnvValue,
   languagePromptFragment,
   loadProductionContextTuning,
   resolveBuiltinPluginRoot,
@@ -29,17 +32,15 @@ import {
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
   ProductionPermissionSessionPolicy,
-  runtimeStatusData,
   SessionController,
 } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
-import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
 import { builtinPromptFragment, DefaultPromptComposer, Runner } from '@volund/core'
 import type { RunnerToolPort } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
-import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@volund/native-bridge'
+import { execSandbox, probeSandbox } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import type { PermissionSessionMode, PermissionSpec } from '@volund/permission'
 import type { HookPipelineSignal } from '@volund/plugin-runtime'
@@ -55,7 +56,7 @@ import {
   SingleProviderRouter,
 } from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
-import { VolundError, isProjectOverrideForbidden, sanitize, type JsonValue } from '@volund/shared'
+import { sanitize, type JsonValue } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
@@ -67,7 +68,6 @@ import {
   renderInteractiveApp,
   renderSessionPicker,
   MutableSlashCommandRegistry,
-  validateStatusConfigValue,
 } from '@volund/ui'
 import type {
   InteractivePermissionDecision,
@@ -78,13 +78,7 @@ import type {
   SkillsPanelController,
 } from '@volund/ui'
 
-import {
-  assignConfigValue,
-  assertConfigKeyValue,
-  deleteConfigValue,
-  readConfigFileOrEmpty,
-  writeConfigFile,
-} from './config-edit'
+import { readConfigFileOrEmpty } from './config-edit'
 import { createHistoryPort } from './history'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
@@ -702,7 +696,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     logger,
     emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
     slashCommands,
-    getAppliedEnv: () => appliedEnvEntries,
+    getAppliedEnv: () => configDomain.appliedEnv(),
     liveToolServices,
     resolveBuiltinPluginRoot: builtinPluginRoot,
   })
@@ -712,9 +706,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const localPluginHub = pluginDomain.localPluginHub
   const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
   const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
-  // applyEnv 应用过的 [env] 键值（前置解析后）：readEffectiveEnv 的精确比较基准，
-  // 保证 /env 的 effective 判定与启动时实际写入 process.env 的值一致。
-  let appliedEnvEntries: Record<string, string> | undefined
   const memoryStack = createMemoryStack(home)
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
@@ -733,47 +724,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     passphrase,
     join(home, 'auth.state.json'),
   )
-  /**
-   * 用户级 config.toml 的 [auth] 段（§8.4 Layer 4 / skipAuth）。
-   * 项目级 config 到不了这里：§8.3.1 数据流向门把整段标为 forbidden。
-   */
-  const readAuthSection = async (): Promise<Record<string, JsonValue>> => {
-    let config: Record<string, JsonValue>
-    try {
-      config = await loadTomlFile(join(home, 'config.toml'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-      throw error
-    }
-    const section = config.auth
-    return section && typeof section === 'object' && !Array.isArray(section) ? section : {}
-  }
-  /** login 的 verify 请求要打向配置的网关（§8.3 provider.<name>.baseUrl），否则网关 key 在官方端点上必然 4xx。 */
-  const readAnthropicBaseUrl = async (): Promise<string | undefined> => {
-    let config: Record<string, JsonValue>
-    try {
-      config = await loadTomlFile(join(home, 'config.toml'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw error
-    }
-    const provider = config.provider
-    const entry =
-      provider && typeof provider === 'object' && !Array.isArray(provider)
-        ? (provider as Record<string, JsonValue>).anthropic
-        : undefined
-    const baseUrl =
-      entry && typeof entry === 'object' && !Array.isArray(entry)
-        ? (entry as Record<string, JsonValue>).baseUrl
-        : undefined
-    return typeof baseUrl === 'string' && baseUrl ? baseUrl : undefined
-  }
   const auth = new AuthManager({
     encrypted,
     env: process.env,
     telemetry,
     configKeys: async (provider) => {
-      const value = (await readAuthSection())[`${provider}_api_key`]
+      const value = (await readAuthSection(home))[`${provider}_api_key`]
       return typeof value === 'string' && value ? value : undefined
     },
   })
@@ -1578,6 +1534,25 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     terminal: { isInteractive: isInteractiveTerminal, promptLine: promptLineMaybe },
   })
   const session = appKernel.sessions as SessionController<StatusViewModel>
+  // P1-04e：auth/config/native 三域装配（app-runtime 工厂；凭据交互输入与
+  // verify 网络调用经 options 注入，行为等价）。
+  const authDomain = createAuthDomain({
+    home,
+    auth,
+    promptCredential: (prompt) => promptSecret(prompt),
+    verifyAnthropic: (credential, baseUrl) =>
+      verifyAnthropicCredential(http, credential, undefined, baseUrl),
+  })
+  const configDomain = createConfigDomain({
+    home,
+    logger,
+    statusRuntime: options,
+    localPluginHub,
+  })
+  const nativeDomain = createNativeDomain({
+    version: options.identity.version,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+  })
   return {
     identity: options.identity,
     version: options.identity.version,
@@ -1635,6 +1610,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     localPlugins,
     skill: skillPort,
     mcp: mcpPort,
+    auth: authDomain,
+    config: configDomain.port,
+    native: nativeDomain,
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
       summary: () => telemetryStore.summary(),
@@ -1646,269 +1624,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       confirmDangerousNoSandbox: async (sentence) =>
         (await promptLine(`Type "${sentence}" to continue: `)) === sentence,
     },
-    auth: {
-      async health() {
-        const section = await readAuthSection()
-        if (section.skipAuth === true) {
-          const keyIgnored =
-            typeof section.anthropic_api_key === 'string' && section.anthropic_api_key !== ''
-          return {
-            configured: true,
-            detail: `anthropic credential skipped by config (auth.skipAuth)${keyIgnored ? '; auth.anthropic_api_key is set but ignored while skipAuth=true' : ''}`,
-          }
-        }
-        const configured = Boolean(await auth.getCredential('anthropic'))
-        return {
-          configured,
-          detail: configured
-            ? 'anthropic credential available'
-            : 'anthropic credential unavailable',
-        }
-      },
-      async login(input) {
-        const section = await readAuthSection()
-        // §8.4：skipAuth / config Layer 4 已覆盖时，交互登录是 no-op——
-        // 不弹输入、不发 verify；显式 --api-key-stdin 仍可落盘
-        if (input.credential === undefined) {
-          if (section.skipAuth === true)
-            return {
-              detail: `${input.provider} authentication is skipped by config (auth.skipAuth=true); nothing to store`,
-            }
-          const configured = section[`${input.provider}_api_key`]
-          if (typeof configured === 'string' && configured)
-            return {
-              detail: `${input.provider} credential already provided by config (auth.${input.provider}_api_key); login is unnecessary`,
-            }
-        }
-        const credential = input.credential ?? (await promptSecret('Anthropic API key: ')).trim()
-        if (!credential) throw new Error('Credential input was cancelled')
-        const verifyBaseUrl = await readAnthropicBaseUrl()
-        await auth.login(
-          input.provider,
-          credential,
-          (value) => verifyAnthropicCredential(http, value, undefined, verifyBaseUrl),
-          { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
-        )
-        const skipNote =
-          section.skipAuth === true
-            ? ' (note: auth.skipAuth=true in config; the stored credential stays unused until it is removed)'
-            : ''
-        return {
-          detail: `${input.provider} credential stored in encrypted credential store${skipNote}`,
-        }
-      },
-      async logout(provider) {
-        await auth.logout(provider)
-        return { detail: `${provider} credential removed` }
-      },
-    },
-    config: {
-      /**
-       * [env] 段（§8.3 / 附录 C）：会话启动时把用户级 config.toml 的显式环境变量
-       * 写入 process.env——之后 spawn 的子进程（native worker / 插件宿主 / MCP
-       * stdio）随之继承；沙箱内 Bash 走 env_clear 白名单模型，仅 [tools]
-       * pass_through_env 列出的名字进入（值可来自这里写入的 process.env）。
-       * 值先经 expandEnvValue 前置解析（`~` / `${VAR}`）；解析后的应用值记入
-       * appliedEnvEntries，作为 /env 生效判定的精确基准。
-       * 缺文件是 no-op；类型错按 C.1 传播 config_invalid（启动 fail）。
-       */
-      async applyEnv() {
-        let config: Record<string, JsonValue>
-        try {
-          config = await loadTomlFile(join(home, 'config.toml'), {
-            onWarning: (message) => logger.warn(message),
-          })
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-          throw error
-        }
-        const section = config.env
-        if (!section || typeof section !== 'object' || Array.isArray(section)) return
-        // 展开基准 = 写入前的环境快照：${PATH} 这类"在已有值上追加"的写法拿到的
-        // 是启动时已有的值；同段 key 互引用不支持（快照里还没有它们）。
-        const basis = { ...process.env }
-        const applied: Record<string, string> = {}
-        for (const [key, value] of Object.entries(section)) {
-          if (typeof value !== 'string') continue
-          const resolvedValue = expandEnvValue(value, basis, (name) =>
-            logger.warn(
-              `[env] ${key}: referenced variable ${name} is not set; kept the placeholder literal`,
-            ),
-          )
-          process.env[key] = resolvedValue
-          applied[key] = resolvedValue
-        }
-        appliedEnvEntries = applied
-      },
-      async health(cwd) {
-        try {
-          const warnings: string[] = []
-          for (const path of [join(home, 'config.toml'), join(cwd, '.volund', 'config.toml')]) {
-            try {
-              await access(path)
-              // r13-I4 §8.3：未知 key warn + 忽略；已知 key 类型错 → fail（file + key + 期望类型）
-              await loadTomlFile(path, {
-                onWarning: (message) => warnings.push(message),
-              })
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-            }
-          }
-          return warnings.length > 0
-            ? { valid: true, detail: warnings.join('; ') }
-            : { valid: true, detail: 'valid' }
-        } catch (error) {
-          return { valid: false, detail: error instanceof Error ? error.message : String(error) }
-        }
-      },
-      async status(input) {
-        return runtimeStatusData(home, options, input, localPluginHub)
-      },
-      async updatePreference(id, value, input) {
-        const data = await runtimeStatusData(
-          home,
-          options,
-          { ...input, includeStats: true },
-          localPluginHub,
-        )
-        const item = data.config.find((candidate) => candidate.id === id)
-        if (!item) throw new Error(`Unknown configuration item: ${id}`)
-        validateStatusConfigValue(item, value)
-        const path = join(home, 'config.toml')
-        let config: Record<string, JsonValue> = {}
-        try {
-          config = await parseTomlFile(path)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        }
-        const preferences = config.preferences
-        const target =
-          preferences && typeof preferences === 'object' && !Array.isArray(preferences)
-            ? (preferences as Record<string, JsonValue>)
-            : ((config.preferences = {}) as Record<string, JsonValue>)
-        target[id] = value
-        await mkdir(home, { recursive: true })
-        const temporary = `${path}.${process.pid}.tmp`
-        await writeFile(temporary, serializeConfig(config), { encoding: 'utf8', mode: 0o600 })
-        await rename(temporary, path)
-        return runtimeStatusData(home, options, { ...input, includeStats: true }, localPluginHub)
-      },
-      /**
-       * §11.3.3 `volund config list` 的合并视图：user + project 两层文件经
-       * loadConfig 的层合并与 projectOverride forbidden 过滤。这是只读检视
-       * （同 health 的 parse-only），不等于会话生效语义——会话还叠加 defaults
-       * /env/flags 与项目配置信任门。
-       */
-      async listMerged({ cwd }: { cwd: string }) {
-        const warnings: string[] = []
-        const user = await loadTomlFile(join(home, 'config.toml'), {
-          onWarning: (message) => warnings.push(message),
-        }).catch((error: unknown) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-          throw error
-        })
-        const project = await loadTomlFile(join(cwd, '.volund', 'config.toml'), {
-          onWarning: (message) => warnings.push(message),
-        }).catch((error: unknown) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-          throw error
-        })
-        const forbidden: string[] = []
-        const { config: merged } = await loadConfig({
-          defaults: {},
-          global: user,
-          project,
-          trustProjectConfig: true,
-          warning: (key) =>
-            forbidden.push(`project override of '${key}' is forbidden (§8.3.1); ignored`),
-        })
-        return { config: merged, warnings: [...warnings, ...forbidden] }
-      },
-      async setValue({ cwd, key, value, project }) {
-        if (project && isProjectOverrideForbidden(key))
-          throw new VolundError(
-            'config_project_forbidden',
-            `'${key}' cannot be set in project config (data-flow gate, §8.3.1)`,
-          )
-        assertConfigKeyValue(key, value)
-        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
-        const config = await readConfigFileOrEmpty(file)
-        assignConfigValue(config, key, value)
-        await writeConfigFile(file, config)
-        return { file }
-      },
-      async unsetValue({ cwd, key, project }) {
-        // unset 不做 forbidden 门：从 project 配置里移除 forbidden key 是清理，应当允许。
-        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
-        const config = await readConfigFileOrEmpty(file)
-        const removed = deleteConfigValue(config, key)
-        if (removed) await writeConfigFile(file, config)
-        return { file, removed }
-      },
-      filePaths({ cwd }: { cwd: string }) {
-        return {
-          user: join(home, 'config.toml'),
-          project: join(cwd, '.volund', 'config.toml'),
-        }
-      },
-    },
-    native: {
-      /** Tri-state availability snapshot (r13-P1): 'probing' until backfill. */
-      available() {
-        const availability = nativeProbes.available
-        return {
-          sandbox: availability.sandbox,
-          search: availability.search,
-          fs: availability.fs,
-        }
-      },
-      /**
-       * r13-P1 startup contract (spec 05-rust-sidecar.md §5.8): fires every
-       * native probe (sandbox --probe + search/fs worker handshakes) in
-       * parallel. The REPL never awaits them — `available.*` starts as
-       * 'probing' and backfills asynchronously; side-effect waits are
-       * budget-bounded instead.
-       */
-      startProbes() {
-        nativeProbes.start()
-      },
-      /** Resolves when every probe settled or its budget expired (probe.ts contract). */
-      settled() {
-        return nativeProbes.settled()
-      },
-      async probe() {
-        const info = await probeSandbox()
-        const features = info.features as Record<string, unknown>
-        const mechanism =
-          typeof features.mechanism === 'string' ? features.mechanism : 'volund-sandbox'
-        const abi = typeof features.abi === 'string' ? features.abi : 'unknown'
-        const disclosure = {
-          tier: info.tier,
-          mechanism,
-          features: {
-            filesystem: Boolean(features.filesystem ?? info.tier !== 'none'),
-            network: Boolean(features.network),
-          },
-          degradationReasons: info.known_limitations,
-        }
-        await telemetry.emit('sandbox.probe', 'sandbox', {
-          tier: disclosure.tier,
-          mechanism: disclosure.mechanism,
-          abi,
-          version: options.identity.version,
-          probedAt: new Date().toISOString(),
-        })
-        return disclosure
-      },
-      async health() {
-        const [probe, search, fs] = await Promise.all([
-          probeSandbox(),
-          resolveBinary('search'),
-          resolveBinary('fs'),
-        ])
-        return { sandbox: probe.tier !== 'none', search: search !== null, fs: fs !== null }
-      },
-    },
     /**
      * 进程收尾：插件宿主的 fd3 管道与 MCP stdio/SSE 连接都是 ref 住事件循环的
      * 长驻句柄——不主动关闭，waitUntilExit 之后进程永不退出（此前仅靠
@@ -1919,17 +1634,4 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
     },
   }
-}
-
-function serializeConfig(config: Record<string, JsonValue>) {
-  const lines: string[] = []
-  for (const [section, raw] of Object.entries(config)) {
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      lines.push(`[${section}]`)
-      for (const [key, value] of Object.entries(raw))
-        lines.push(`${key} = ${JSON.stringify(value)}`)
-      lines.push('')
-    } else lines.push(`${section} = ${JSON.stringify(raw)}`)
-  }
-  return `${lines.join('\n').trim()}\n`
 }
