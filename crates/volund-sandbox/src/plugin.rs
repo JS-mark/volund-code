@@ -89,11 +89,20 @@ pub fn run_plugin(
 }
 
 fn plugin_host_command(node: &Path, entry: &Path, limits: &Limits) -> String {
+    // TS 插件入口（.ts/.mts/.cts）依赖 Node 22.6+ 的内置类型擦除（strip-types，
+    // 仅擦类型注释/标注，不支持 enum/namespace/参数属性——复杂 TS 请自行编译成
+    // JS 入口）。其余入口保持原命令，Node 20 用户不受影响。
+    let strip_types = matches!(
+        entry.extension().and_then(|ext| ext.to_str()),
+        Some("ts") | Some("mts") | Some("cts")
+    );
+    let strip_flag = if strip_types { " --experimental-strip-types" } else { "" };
     format!(
-        "ulimit -t {}; ulimit -n {}; exec {} --max-old-space-size={} --input-type=module -e {} -- {}",
+        "ulimit -t {}; ulimit -n {}; exec {}{} --max-old-space-size={} --input-type=module -e {} -- {}",
         limits.cpu_seconds,
         limits.open_files,
         shell_quote(&node.to_string_lossy()),
+        strip_flag,
         limits.rss_mb,
         shell_quote(HOST),
         shell_quote(&entry.to_string_lossy())

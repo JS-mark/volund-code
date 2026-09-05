@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -116,4 +116,72 @@ describe('volund-plugin-demo（示例插件 = 全贡献面可运行文档）', (
     const probe: Pick<Tool, 'name'> = { name: 'plugin:volund-plugin-demo:word-count' }
     expect(probe.name.startsWith('plugin:volund-plugin-demo:')).toBe(true)
   })
+})
+
+describe('TS 插件入口（strip-types）', () => {
+  async function tsPluginFixture() {
+    const dir = await mkdtemp(join(tmpdir(), 'volund-plugin-ts-'))
+    dirs.push(dir)
+    await writeFile(
+      join(dir, 'manifest.json'),
+      JSON.stringify({
+        name: 'volund-plugin-ts-demo',
+        version: '0.1.0',
+        type: 'module',
+        main: 'index.ts',
+        engines: { volund: '^0.1.0' },
+        permissions: { volund: ['tools.register', 'log.write'] },
+      }),
+    )
+    // interface + 泛型 + 类型标注——strip-types 可擦子集（无 enum/namespace）
+    await writeFile(
+      join(dir, 'index.ts'),
+      [
+        'interface CountInput {',
+        '  text: string',
+        '}',
+        'interface CountResult {',
+        '  words: number',
+        '  chars: number',
+        '}',
+        'const count = (input: CountInput): CountResult => ({',
+        '  words: input.text.split(/\\s+/).filter(Boolean).length,',
+        '  chars: [...input.text].length,',
+        '})',
+        '',
+        'export async function activate(volund: { log: { info(message: string): void } } & Record<string, any>) {',
+        '  await volund.tools.register({',
+        "    name: 'ts-count',",
+        '    description: CountResultLabel,',
+        '    handler: async (input: unknown) => count(input as CountInput),',
+        '  })',
+        "  await volund.log.info('ts demo activated')",
+        '}',
+        '',
+        'const CountResultLabel = ' + "'Count words and characters of a text'",
+      ].join('\n'),
+    )
+    const dataDir = await mkdtemp(join(tmpdir(), 'volund-plugin-tsdata-'))
+    dirs.push(dataDir)
+    const activated = await activateLocalPlugin({
+      dir,
+      volundVersion: '0.1.0',
+      dataDirRoot: dataDir,
+      services: {},
+    })
+    handles.push(activated)
+    return activated
+  }
+
+  it('loads a TypeScript entry and its tool works across the bridge', async () => {
+    if (!(await sandboxAvailable())) return
+    const activated = await tsPluginFixture()
+    expect(activated.manifest.main).toBe('index.ts')
+    const tool = activated.tools.find(
+      (candidate) => candidate.name === 'plugin:volund-plugin-ts-demo:ts-count',
+    )
+    expect(tool).toBeDefined()
+    const raw = (await tool!.invoke({ text: 'a b c' })) as { words: number; chars: number }
+    expect(raw).toEqual({ words: 3, chars: 5 })
+  }, 30_000)
 })
