@@ -27,7 +27,12 @@ volund-plugin-demo/
 ## TS 作者的类型面
 
 `volund` 参数**不是** Cordis Context——它是沙箱桥的客户端代理（见 §19.0：Cordis
-Context 只活在宿主进程的内核里，插件子进程永远拿不到）。TS 作者只需要
+Context 只活在宿主进程的内核里，插件子进程永远拿不到）。
+
+**TS 可以直接作为插件入口**：manifest 写 `"main": "index.ts"`，宿主以 Node
+`--experimental-strip-types` 装载（要求 Node ≥ 22.6）。类型擦除只支持可静态擦除的
+子集——interface / 类型标注 / 泛型可用；**enum / namespace / 参数属性不支持**，
+用这些或依赖其他编译期特性的插件请自行编译成 JS 入口。TS 作者只需要
 `@volund/plugin-sdk` 的**类型**（`import type` 不产生运行时导入，沙箱里零依赖）：
 
 ```ts
