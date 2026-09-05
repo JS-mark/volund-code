@@ -5,7 +5,7 @@ import { createSignalController } from './signals'
 describe('signal controller', () => {
   it('interrupts the current turn on SIGINT without ending the session', async () => {
     const session = {
-      start: vi.fn(),
+      startSession: vi.fn(),
       resume: vi.fn(),
       interrupt: vi.fn(async () => {}),
       end: vi.fn(async () => {}),
@@ -18,7 +18,7 @@ describe('signal controller', () => {
 
   it.each(['SIGTERM', 'SIGHUP'] as const)('gracefully ends on %s', async (signal) => {
     const session = {
-      start: vi.fn(),
+      startSession: vi.fn(),
       resume: vi.fn(),
       interrupt: vi.fn(async () => {}),
       end: vi.fn(async () => {}),

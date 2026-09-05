@@ -1035,7 +1035,10 @@ export async function runCli(
       }
       return { exitCode: interactive.exitCode(), stdout, stderr }
     }
-    const session = await ports.session.start({ cwd, ...(prompt === undefined ? {} : { prompt }) })
+    const session = await ports.session.startSession({
+      cwd,
+      ...(prompt === undefined ? {} : { prompt }),
+    })
     return { exitCode: session.exitCode ?? 0, stdout, stderr }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

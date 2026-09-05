@@ -1,10 +1,8 @@
-export interface SessionCandidate {
-  id: string
-  cwd: string
-  updatedAt: string
-  title: string
-  summary?: string
-}
+// SessionCandidate 契约已迁至 @volund/app-runtime（§22.7.1：TUI/Web 共用）；
+// 此处 re-export 保持既有引用兼容。
+import type { SessionCandidate } from '@volund/app-runtime'
+
+export type { SessionCandidate }
 
 export interface SessionPickerState {
   sessions: readonly SessionCandidate[]

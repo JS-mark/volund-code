@@ -3,7 +3,6 @@ import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
 import {
   access,
   appendFile,
-  glob,
   mkdir,
   open,
   readFile,
@@ -23,22 +22,24 @@ import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
 
-import { createAppKernel, createSessionKernel } from '@volund/app-runtime'
+import {
+  createAppKernel,
+  createSessionKernel,
+  SESSION_ID_PATTERN,
+  SessionController,
+} from '@volund/app-runtime'
+import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
 import {
   builtinPromptFragment,
-  createSession,
   DefaultPromptComposer,
   type PromptFragment,
   EventBus,
-  MachineEventFormatter,
   EvolutionEngine,
-  replaySessionState,
   Runner,
-  updateSession,
 } from '@volund/core'
 import type {
   ContextTunableParam,
@@ -123,15 +124,9 @@ import {
   MemoryPromptProvider,
   MemoryTransferService,
   PromptLoader,
-  SessionStore,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import {
-  AgentDefinitionRegistry,
-  SubagentDispatcher,
-  untrustedAgentBody,
-  type ResolvedAgentDefinition,
-} from '@volund/subagent'
+import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge, ToolContext } from '@volund/tool-kit'
 import { BackgroundShells, builtinToolDomains, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
@@ -155,11 +150,9 @@ import type {
   StatusSetting,
   StatusSource,
   StatusViewModel,
-  SubmitOptions,
   StatusConfigItem,
   StatusPanelData,
   StatusValue,
-  SessionCandidate,
   McpPanelController,
   SubagentsPanelController,
   SkillsPanelController,
@@ -212,10 +205,8 @@ import type { LocalPluginStateEntry } from './plugin-state'
 import type { McpPort, SkillPort } from './ports'
 import type {
   VolundPorts,
-  InteractiveSession,
   PermissionInteractionMode,
   PluginCompatibilityDiagnostic,
-  SessionPort,
 } from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
@@ -227,14 +218,6 @@ import {
 } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
 
-/** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
-export type RunnerFactory = (
-  state: SessionState,
-  events: EventBus,
-  agent?: ResolvedAgentDefinition,
-) => Runner | Promise<Runner>
-const terminalStatuses = new Set(['done', 'aborted', 'error'])
-const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const historySecretPattern =
   /\b(?:authorization|api[_-]?key|token|secret|passphrase|password|oauth[_-]?code|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key)\b/i
 const statusSecretKeyPattern =
@@ -548,280 +531,6 @@ export class ProductionPermissionSessionPolicy {
     for (const [candidate, value] of this.#snapshots)
       if (value === snapshot) this.#snapshots.delete(candidate)
   }
-}
-
-export class RuntimeSessionPort implements SessionPort {
-  #runner: Runner | undefined
-  #events: EventBus | undefined
-  // r13-G2：后台 shell 注册表；end() 时统一 killAll
-  readonly #background: BackgroundShells | undefined
-  #output?: { json: boolean; write: (value: string) => void }
-  #lastExitCode = 0
-  constructor(
-    readonly sessionsDir: string,
-    readonly createRunner: RunnerFactory,
-    readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
-    readonly onPermissionInteraction?: (input: { mode: PermissionInteractionMode }) => void,
-    readonly onEnd?: (sessionId: string) => void | Promise<void>,
-    readonly onTerminalOutput?: (input: { streamToStdout: boolean }) => void,
-    readonly onPermissionPromptHandler?: (
-      handler:
-        | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-        | undefined,
-    ) => void,
-    readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
-    readonly background?: BackgroundShells,
-  ) {
-    this.#background = background
-  }
-  configureSecurity(input: { skipPermissions: boolean }): void {
-    this.onSecurity?.(input)
-  }
-  configurePermissionInteraction(input: { mode: PermissionInteractionMode }): void {
-    this.onPermissionInteraction?.(input)
-  }
-  configureOutput(input: { json: boolean; write: (value: string) => void }): void {
-    this.#output = input
-  }
-  configureTerminalOutput(input: { streamToStdout: boolean }): void {
-    this.onTerminalOutput?.(input)
-  }
-  async start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }> {
-    const session = await this.startInteractive({ cwd: input.cwd })
-    if (input.prompt !== undefined) {
-      await this.#runner!.run(input.prompt)
-    } else {
-      if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
-      for (;;) {
-        const prompt = await promptLineMaybe('> ')
-        if (prompt === undefined) break
-        const trimmed = prompt.trim()
-        if (!trimmed) continue
-        if (trimmed === 'exit' || trimmed === 'quit') break
-        await this.#runner!.run(prompt)
-      }
-      await session.end()
-    }
-    return { id: session.id, exitCode: session.exitCode() }
-  }
-  async startInteractive(input: { cwd: string }) {
-    const id = uuidv7()
-    await this.activate(
-      createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
-    )
-    return this.interactiveSession()
-  }
-  async resumeInteractive(id: string) {
-    await this.resume(id)
-    return this.interactiveSession()
-  }
-  private interactiveSession(): InteractiveSession {
-    return {
-      id: this.#runner!.state.id,
-      cwd: this.#runner!.state.cwd,
-      events: this.#events!,
-      transcript: this.#runner!.state.messages.flatMap((message) => {
-        const text = messageFullText(message.content)
-        if (
-          !text ||
-          (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
-        )
-          return []
-        return [{ id: message.id, role: message.role, text }]
-      }),
-      ...(this.statusSnapshot
-        ? { getStatus: () => this.statusSnapshot!(this.#runner!.state) }
-        : {}),
-      setPermissionPromptHandler: (
-        handler:
-          | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-          | undefined,
-      ) => {
-        this.onPermissionPromptHandler?.(handler)
-      },
-      interrupt: async () => {
-        this.#runner?.interrupt()
-      },
-      submit: async (prompt: string, submitOptions?: SubmitOptions) => {
-        await this.#runner!.run(
-          prompt,
-          submitOptions?.model ? { explicitModel: submitOptions.model } : undefined,
-        )
-      },
-      end: async () => {
-        await this.end()
-      },
-      exitCode: () => {
-        const last = this.#runner?.state.turns.at(-1)
-        if (!this.#runner) return this.#lastExitCode
-        return last?.status === 'aborted' ? this.#lastExitCode : 0
-      },
-    }
-  }
-  async resume(id: string): Promise<{ id: string }> {
-    if (!sessionIdPattern.test(id)) throw new Error('Invalid session id')
-    const store = new SessionStore(this.path(id))
-    // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
-    // 行作为旧数据的基线兜底），禁止再写全量快照。
-    const all = await store.load()
-    const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
-    const tailTurns = 20
-    const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
-    const entries = all.slice(from)
-    const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
-    const skippedTurns = Math.max(
-      0,
-      turnStarts.filter((index) => index >= 0).length - replayedTurns,
-    )
-    const replay = replaySessionState(id, entries, {
-      maxTokens: 200_000,
-      toolRegistrySnapshot: 'builtin:l1',
-    })
-    if (!replay.found) throw new Error(`Session not found or has no resumable events: ${id}`)
-    const state = updateSession(replay.state, (draft) => {
-      draft.activeTurn = null
-      draft.pendingInterrupt = false
-      draft.turns = draft.turns.map((turn) =>
-        terminalStatuses.has(turn.status) ? turn : { ...turn, status: 'aborted' },
-      )
-    })
-    await this.activate(state, { tailTurns: replayedTurns, skippedTurns })
-    return { id }
-  }
-  async list(): Promise<readonly SessionCandidate[]> {
-    const candidates: SessionCandidate[] = []
-    for await (const path of glob(join(this.sessionsDir, '*.jsonl'))) {
-      try {
-        const entries = await new SessionStore(path).load()
-        if (entries.length === 0) continue
-        // REM-74：候选不再依赖 session.snapshot，事件 replay（附录 D）直接派生；
-        // 旧 session 的 snapshot 行由 replaySessionState 作为基线兜底。文件名是
-        // session id 的唯一真相（bubbled 子事件带子 sessionId，不参与）。
-        const id = basename(path, '.jsonl')
-        const replay = replaySessionState(id, entries, {
-          maxTokens: 200_000,
-          toolRegistrySnapshot: 'builtin:l1',
-        })
-        const state = replay.state
-        if (!sessionIdPattern.test(state.id) || typeof state.cwd !== 'string') continue
-        const firstUser = state.messages.find((message) => message.role === 'user')
-        const summary = firstUser ? messageText(firstUser.content) : undefined
-        candidates.push({
-          id: state.id,
-          cwd: state.cwd,
-          updatedAt: entries.at(-1)?.at ?? new Date().toISOString(),
-          title: summary?.slice(0, 72) || `Session in ${state.cwd}`,
-          ...(summary ? { summary } : {}),
-        })
-      } catch {
-        // Ignore corrupt records while keeping healthy sessions available.
-      }
-    }
-    return candidates.sort(
-      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id),
-    )
-  }
-  async interrupt(): Promise<void> {
-    this.#runner?.interrupt()
-  }
-  async end(): Promise<void> {
-    if (!this.#runner || !this.#events) return
-    const sessionId = this.#runner.state.id
-    // r13-G2（spec §4.3.1）：session 结束统一 kill 全部后台 shell
-    this.#background?.killAll('session_ended')
-    // 附录 D.2 session.ended：★reason（exit|signal|error） ?exitCode。
-    await this.#events.emit({
-      type: 'session.ended',
-      version: this.#runner.state.version,
-      sessionId: this.#runner.state.id,
-      payload: { reason: 'exit', exitCode: this.#lastExitCode },
-    })
-    await this.onEnd?.(sessionId)
-    this.onPermissionPromptHandler?.(undefined)
-    this.#runner = undefined
-    this.#events = undefined
-  }
-  private path(id: string): string {
-    return join(this.sessionsDir, `${id}.jsonl`)
-  }
-  private async activate(
-    state: SessionState,
-    resumed?: { tailTurns: number; skippedTurns: number },
-  ): Promise<void> {
-    const events = new EventBus()
-    // r13-G2：后台 shell 事件按附录 D 形状上本 session 总线（每 session 重挂）
-    if (this.#background) {
-      this.#background.events.started = (payload) => {
-        void events.emit({
-          type: 'shell.background_started',
-          version: state.version,
-          sessionId: state.id,
-          payload: { ...payload },
-        })
-      }
-      this.#background.events.exited = (payload) => {
-        void events.emit({
-          type: 'shell.background_exited',
-          version: state.version,
-          sessionId: state.id,
-          payload: { ...payload },
-        })
-      }
-    }
-    const store = new SessionStore(this.path(state.id))
-    store.attach(events)
-    const runner = await this.createRunner(state, events)
-    let lastExitCode = 0
-    events.subscribe((event) => {
-      if (event.type !== 'turn.aborted') return
-      // 附录 D.2 turn.aborted：{turnId, reason}——exitCode 由 reason 派生（130=用户中断）。
-      const reason = (event.payload as { reason?: unknown }).reason
-      lastExitCode = reason === 'user_interrupt' ? 130 : 1
-      if (this.#events === events) this.#lastExitCode = lastExitCode
-    })
-    if (this.#output?.json) {
-      const formatter = new MachineEventFormatter()
-      events.subscribe((event) => {
-        const line = formatter.encode(event)
-        if (line) this.#output?.write(line)
-      })
-    }
-    this.#events = events
-    this.#runner = runner
-    this.#lastExitCode = lastExitCode
-    // 附录 D.2：冷启动 session.started {cwd}；恢复 session.resumed {tailTurns, skippedTurns}
-    // 替代 session.started（W10）。
-    await events.emit({
-      type: resumed ? 'session.resumed' : 'session.started',
-      version: state.version,
-      sessionId: state.id,
-      payload: resumed
-        ? { tailTurns: resumed.tailTurns, skippedTurns: resumed.skippedTurns }
-        : { cwd: state.cwd },
-    })
-  }
-}
-
-/** 会话选择器的单行摘要：折叠所有空白，保证标题不折行。 */
-function messageText(content: SessionState['messages'][number]['content']): string {
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-/**
- * resume transcript 的全保真提取：markdown 的块级结构（标题/列表/表格/代码块）
- * 全靠换行界定，折叠空白会把整段塌成一行流水文本。
- */
-function messageFullText(content: SessionState['messages'][number]['content']): string {
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('')
-    .trim()
 }
 
 export class FileInputHistoryStore {
@@ -3320,7 +3029,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onWarning: (message) => logger.warn(message),
   })
   agentRegistry.discover()
-  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 RuntimeSessionPort
+  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 SessionController
   // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
   const background = new BackgroundShells()
   const createRunner: RunnerFactory = async (state, events, agent) => {
@@ -3902,22 +3611,25 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     })
   dispatcher = buildDispatcher()
-  const session = new RuntimeSessionPort(
-    join(home, 'sessions'),
+  // P1-03（§22.7.1）：会话控制器 = 应用级内核的 Cordis service（行为等价于原
+  // RuntimeSessionPort；新增 turn mutex，终端接缝经 options.terminal 注入）。
+  // cordis 的 Context 增强只能声明非泛型形态，这里按实际装配取回类型化实例。
+  appKernel.plugin(SessionController, {
+    sessionsDir: join(home, 'sessions'),
     createRunner,
-    (input) => permissionPolicy.configureSecurity(input),
-    (input) => permissionPolicy.configureInteraction(input),
-    async (sessionId) => {
+    onSecurity: (input) => permissionPolicy.configureSecurity(input),
+    onPermissionInteraction: (input) => permissionPolicy.configureInteraction(input),
+    onEnd: async (sessionId) => {
       permissionPolicy.releaseLineage(sessionId)
       await memory.flush()
     },
-    (input) => {
+    onTerminalOutput: (input) => {
       streamToStdout = input.streamToStdout
     },
-    (handler) => {
+    onPermissionPromptHandler: (handler) => {
       interactivePermissionPrompt = handler
     },
-    createStatusSnapshotAdapter({
+    statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,
       dangerousPermissions: (state) =>
         permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
@@ -3946,7 +3658,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     }),
     background,
-  )
+    terminal: { isInteractive: isInteractiveTerminal, promptLine: promptLineMaybe },
+  })
+  const session = appKernel.sessions as SessionController<StatusViewModel>
   return {
     identity: options.identity,
     version: options.identity.version,
@@ -4434,7 +4148,7 @@ async function runtimeStatusData(
   const sessionsDir = join(home, 'sessions')
   let usage: StatusPanelData['usage']
   let sessionScan: Awaited<ReturnType<typeof scanSessionFile>> | undefined
-  if (input.sessionId && sessionIdPattern.test(input.sessionId)) {
+  if (input.sessionId && SESSION_ID_PATTERN.test(input.sessionId)) {
     try {
       sessionScan = await scanSessionFile(
         join(sessionsDir, `${input.sessionId}.jsonl`),

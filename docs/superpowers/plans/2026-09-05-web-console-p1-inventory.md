@@ -95,9 +95,13 @@
 ## 6. 抽取依赖序（P1-02 起）
 
 ```text
-P1-02 packages/app-runtime 骨架 + RuntimeHostPorts/AppRuntime 类型
-  └─ P1-02a 内核组装：createAppKernel / createSessionKernel（Cordis 服务形态，见计划修正案）
-    └─ P1-03 SessionController ← RuntimeSessionPort 迁入 + turn mutex + idempotency
+✅ P1-02 packages/app-runtime 骨架 + RuntimeHostPorts/AppRuntime 类型（cb146dc）
+  ✅ P1-02a 内核组装：createAppKernel / createSessionKernel（Cordis 服务形态）
+    ✅ P1-03 SessionController：RuntimeSessionPort 迁入 app-runtime（Cordis service），
+       turn mutex（session_turn_in_progress）落地；InteractiveSession/权限契约/SessionCandidate
+       /SubmitOptions/TranscriptEntry 契约迁入 contracts.ts，ui/ports 以 re-export 兼容。
+       偏差记录：start → startSession 改名（Cordis Service 保留 start/stop 生命周期钩子）；
+       idempotency/revision 与多会话注册表留待 P2（Web server 起按需加）。
       └─ P1-04 域 controllers：Config/Memory/Skill/Mcp/Plugin/Status/Telemetry（端口原样搬，
          DTO 不动）→ PermissionController（decision source 抽象）
         └─ P1-06 ui-model 归属（status formatter/SafeDisplay 无 ANSI 化）

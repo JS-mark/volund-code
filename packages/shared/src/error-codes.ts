@@ -217,6 +217,7 @@ export const ErrorCodes = {
   sessionIdRequired: 'session_id_required',
   sessionNotFound: 'session_not_found',
   sessionResumeFailed: 'session_resume_failed',
+  sessionTurnInProgress: 'session_turn_in_progress', // §22 W-03 / Web P1-03（app-runtime SessionController turn mutex；Web 层映射 409 web_turn_in_progress）
   trustStoreUnavailable: 'trust_store_unavailable',
   unsupportedFlag: 'unsupported_flag',
 

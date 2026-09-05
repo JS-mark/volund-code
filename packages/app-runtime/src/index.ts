@@ -14,6 +14,13 @@ import type { EventBus, SessionState } from '@volund/core'
 import { BusService, Context, ModelService, SessionService, UiService } from '@volund/kernel'
 
 export { Context }
+export * from './contracts'
+export { SESSION_ID_PATTERN, SessionController } from './session-controller'
+export type {
+  RunnerFactory,
+  SessionControllerOptions,
+  SessionTerminalHost,
+} from './session-controller'
 
 /**
  * 界面相关的 host 能力注入口。CLI/TUI adapter 提供 readline/stdout 实现；

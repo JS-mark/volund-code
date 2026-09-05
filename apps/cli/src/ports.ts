@@ -1,4 +1,8 @@
-import type { EventBus } from '@volund/core'
+// §22.7.1 / Web P1-03：会话契约已迁至 @volund/app-runtime；此处 re-export 保持兼容。
+import type {
+  InteractiveSession as InteractiveSessionContract,
+  PermissionInteractionMode as PermissionInteractionModeContract,
+} from '@volund/app-runtime'
 import type { JsonValue } from '@volund/shared'
 import type {
   MemoryMaintenanceService,
@@ -8,8 +12,6 @@ import type {
 } from '@volund/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@volund/telemetry'
 import type {
-  InteractivePermissionDecision,
-  InteractivePermissionRequest,
   InteractiveAppHandle,
   InteractiveAppOptions,
   DirectoryTrustDecision,
@@ -17,9 +19,7 @@ import type {
   StatusPanelData,
   StatusValue,
   StatusViewModel,
-  SubmitOptions,
   SessionCandidate,
-  TranscriptEntry,
 } from '@volund/ui'
 
 import type { AppIdentity } from './shared/app-identity'
@@ -40,9 +40,9 @@ export interface NativeAvailabilityView {
   search: boolean | 'probing'
   fs: boolean | 'probing'
 }
-export type PermissionInteractionMode = 'none' | 'line' | 'tui'
+export type PermissionInteractionMode = PermissionInteractionModeContract
 export interface SessionPort {
-  start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
+  startSession(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
   resumeInteractive?(id: string): Promise<InteractiveSession>
   resume(id: string): Promise<{ id: string }>
@@ -54,23 +54,7 @@ export interface SessionPort {
   configureOutput?(input: { json: boolean; write: (value: string) => void }): void
   configureTerminalOutput?(input: { streamToStdout: boolean }): void
 }
-export interface InteractiveSession {
-  id: string
-  events: EventBus
-  cwd?: string
-  transcript?: readonly TranscriptEntry[]
-  getStatus?(): Promise<StatusViewModel>
-  /** Interrupts the in-flight turn (esc in the TUI). Optional: esc stays inert without it. */
-  interrupt?(): Promise<void>
-  setPermissionPromptHandler?(
-    handler:
-      | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-      | undefined,
-  ): void
-  submit(input: string, options?: SubmitOptions): Promise<void>
-  end(): Promise<void>
-  exitCode(): number
-}
+export type InteractiveSession = InteractiveSessionContract<StatusViewModel>
 export interface UiPort {
   renderInteractiveApp(options: InteractiveAppOptions): InteractiveAppHandle
   renderSessionPicker?(input: {
@@ -446,7 +430,7 @@ export function unavailablePorts(): VolundPorts {
       revokeAll: async () => 0,
     },
     session: {
-      start: async () => ({ id: 'unconnected-session' }),
+      startSession: async () => ({ id: 'unconnected-session' }),
       resume: async (id) => ({ id }),
       list: async () => [],
       interrupt: async () => {},

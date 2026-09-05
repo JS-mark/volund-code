@@ -1,3 +1,6 @@
+// TranscriptEntry 契约已迁至 @volund/app-runtime（§22.7.1：TUI/Web 共用）；
+// 此处 re-export 保持既有引用兼容。
+import type { TranscriptEntry } from '@volund/app-runtime'
 import type { CoreEvent, EventBus } from '@volund/core'
 import { productIdentity } from '@volund/shared'
 import { Box, Text, useApp, useStdout } from 'ink'
@@ -40,13 +43,7 @@ import { subagentListCommandView } from './subagents-panel'
 import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
 import type { WelcomeNativeStatus, WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
-export interface TranscriptEntry {
-  id: string
-  role: 'assistant' | 'system' | 'user'
-  text: string
-  /** B7（r13-G5）：该 assistant 消息因 max_tokens 截断，UI 渲染续写提示 */
-  truncated?: boolean
-}
+export type { TranscriptEntry }
 
 export interface SlashCommandInput {
   name: string

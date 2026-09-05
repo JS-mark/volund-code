@@ -228,12 +228,30 @@ importers:
 
   packages/app-runtime:
     dependencies:
+      '@cordisjs/core':
+        specifier: 'catalog:'
+        version: 3.18.1
       '@volund/core':
         specifier: workspace:*
         version: link:../core
       '@volund/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@volund/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@volund/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@volund/subagent':
+        specifier: workspace:*
+        version: link:../subagent
+      '@volund/tools':
+        specifier: workspace:*
+        version: link:../tools
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.1
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -788,6 +806,9 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.18
+      '@volund/app-runtime':
+        specifier: workspace:*
+        version: link:../app-runtime
       '@volund/core':
         specifier: workspace:*
         version: link:../core

@@ -18,8 +18,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cordisjs/core": "catalog:",
     "@volund/core": "workspace:*",
-    "@volund/kernel": "workspace:*"
+    "@volund/kernel": "workspace:*",
+    "@volund/shared": "workspace:*",
+    "@volund/storage": "workspace:*",
+    "@volund/subagent": "workspace:*",
+    "@volund/tools": "workspace:*",
+    "uuid": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
