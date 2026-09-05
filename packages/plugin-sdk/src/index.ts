@@ -378,6 +378,7 @@ export interface VolundBridge {
     on(event: HookEvent, handler: HookHandler, options?: { priority?: number }): Disposable
     off(event: HookEvent, handler: HookHandler): void
     readonly kv: {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
       get<T = unknown>(key: string): T | undefined
       set(key: string, value: unknown): void
       delete(key: string): void
@@ -453,6 +454,7 @@ export interface VolundBridge {
     delete(key: string): Promise<void>
   }
   readonly memory: PluginMemoryBridge
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
   readonly config: { get<T = unknown>(key: string): T }
   readonly log: {
     debug(message: string, meta?: object): void

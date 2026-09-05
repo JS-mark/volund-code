@@ -24,6 +24,27 @@ volund-plugin-demo/
 | `volund.session.on('sessionStart' \| 'sessionEnd', handler)` | 会话生命周期事件（payload `{schemaVersion, sessionId}`） | `session.read` |
 | `volund.commands.register({ name, description, handler })` | 斜杠命令；返回字符串进 transcript，返回 `{kind:'list'/…}` 纯数据视图渲染成面板 | `commands.register` |
 
+## TS 作者的类型面
+
+`volund` 参数**不是** Cordis Context——它是沙箱桥的客户端代理（见 §19.0：Cordis
+Context 只活在宿主进程的内核里，插件子进程永远拿不到）。TS 作者只需要
+`@volund/plugin-sdk` 的**类型**（`import type` 不产生运行时导入，沙箱里零依赖）：
+
+```ts
+import type { VolundBridge } from '@volund/plugin-sdk'
+
+export async function activate(volund: VolundBridge) {
+  await volund.tools.register({
+    name: 'word-count',
+    handler: async (input) => ({ words: 0 }),
+  })
+}
+```
+
+`definePlugin/defineTool` 是纯恒等助手（值导入也只是三行函数，无任何运行时依赖）；
+若坚持值导入，dev 插件目录需能解析 `@volund/plugin-sdk`（node_modules 软链）——
+与 dsh 生态的 node_modules 软链痛点同源，`import type` 是推荐解。
+
 ## 两种作者风格
 
 **零依赖（本示例）**——单文件 `.mjs`，直接在 handler 里写业务，工具名宿主会自动收敛到
