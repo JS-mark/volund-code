@@ -10,6 +10,7 @@ import type {
   MemoryService,
   MemoryTransferService,
 } from '@volund/storage'
+import type { SessionChanges, UndoPreview, UndoStepResult } from '@volund/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@volund/telemetry'
 import type {
   InteractiveAppHandle,
@@ -190,6 +191,12 @@ export interface VolundPorts {
   localPlugins?: LocalPluginPort
   history?: HistoryPort
   ui?: UiPort
+  /** W-08：会话文件变更聚合 + undo 预览/执行（BackupStore 背书）。 */
+  changes?: {
+    list(sessionId: string): Promise<SessionChanges>
+    previewUndo(sessionId: string): Promise<UndoPreview>
+    undoStep(sessionId: string): Promise<UndoStepResult>
+  }
   /** §22 W-01：`volund web` 本地控制台；serve 阻塞到 server 关闭。 */
   web?: {
     serve(input: {

@@ -143,6 +143,50 @@ describe('BackupStore', () => {
     await expect(store.restore('session-2')).rejects.toThrow('corrupt')
   })
 
+  it('aggregates per-path changes and previews the undo batch without consuming it (W-08)', async () => {
+    const dir = await temp(),
+      modified = resolve(dir, 'modified.txt'),
+      created = resolve(dir, 'created.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(modified, 'v0')
+    const first = await store.prepare('session-w08', [modified])
+    await writeFile(modified, 'v1')
+    await first.commit()
+    const second = await store.prepare('session-w08', [modified, created])
+    await writeFile(modified, 'v2')
+    await writeFile(created, 'new')
+    await second.commit()
+
+    const changes = await store.changes('session-w08')
+    expect(changes.missing).toBe(false)
+    const byPath = new Map(changes.paths.map((row) => [row.path, row]))
+    expect(byPath.get(modified)).toMatchObject({ created: false, batches: 2, allConsumed: false })
+    expect(byPath.get(created)).toMatchObject({ created: true, batches: 1 })
+
+    // 预览返回最新批次（modified+created），不消费——重复预览结果稳定。
+    const preview = await store.previewUndoStep('session-w08')
+    expect(preview.undoable).toBe(true)
+    expect(preview.paths).toEqual([created, modified].toSorted())
+    const again = await store.previewUndoStep('session-w08')
+    expect(again.paths).toEqual(preview.paths)
+    expect((await store.changes('session-w08')).paths.map((row) => row.allConsumed)).toEqual([
+      false,
+      false,
+    ])
+
+    // 撤销消费该批次：created.txt（批次内新建）被移除，modified.txt 回到批次前 v1。
+    const undone = await store.undoStep('session-w08')
+    expect(undone.undone).toBe(true)
+    await expect(readFile(created, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(modified, 'utf8')).toBe('v1')
+    // 第一批（modified v0→v1）未被消费：仍可继续撤销。
+    expect((await store.previewUndoStep('session-w08')).undoable).toBe(true)
+    const consumedChanges = await store.changes('session-w08')
+    const rows = new Map(consumedChanges.paths.map((row) => [row.path, row]))
+    expect(rows.get(created)?.allConsumed).toBe(true)
+    expect(rows.get(modified)?.allConsumed).toBe(false)
+  })
+
   it('rolls back new and existing files when a mutation is interrupted', async () => {
     const dir = await temp(),
       existing = resolve(dir, 'existing.txt'),

@@ -90,6 +90,7 @@ export function createWebPort(ports: VolundPorts): NonNullable<VolundPorts['web'
         staticDir: webAssetDir(),
         sessionHub,
         management,
+        ...(ports.changes ? { changes: ports.changes } : {}),
         ports: {
           identity: ports.identity,
           cwd,

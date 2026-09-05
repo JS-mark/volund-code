@@ -1594,6 +1594,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
+    changes: {
+      list: (sessionId) => backups.changes(sessionId),
+      previewUndo: (sessionId) => backups.previewUndoStep(sessionId),
+      undoStep: (sessionId) => backups.undoStep(sessionId),
+    },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
       rollback: (rollbackOptions) =>

@@ -18,6 +18,13 @@ import type { IncomingMessage } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 
 import { actionDispatcher, type ManagementPorts } from './management'
+
+/** W-08：会话变更/undo 的宿主端口（BackupStore 背书）。 */
+export interface ChangesPortLike {
+  list(sessionId: string): Promise<unknown>
+  previewUndo(sessionId: string): Promise<unknown>
+  undoStep(sessionId: string): Promise<unknown>
+}
 import { SessionHub } from './session-hub'
 
 /** §22.8.2 之外的管理面宿主端口的最小结构面（由 apps/cli 用真实 VolundPorts 装配）。 */
@@ -54,6 +61,8 @@ export interface WebServerOptions {
   readonly sessionHub?: SessionHub
   /** P4：管理面（memory/skills/mcp/plugins/telemetry）。 */
   readonly management?: ManagementPorts
+  /** W-08：会话变更与 undo。 */
+  readonly changes?: ChangesPortLike
 }
 
 export interface WebServerHandle {
@@ -437,6 +446,62 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     if (hub && path === '/api/v1/sessions/active/end' && req.method === 'POST') {
       await hub.closeActive()
       ok(res, { ended: true })
+      return
+    }
+    // ── W-08 变更/undo（preview → 确认 → 执行的 destructive 门）────────────
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/changes' &&
+      req.method === 'GET'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      try {
+        const changes = (await options.changes.list(activeId)) as Record<string, unknown>
+        ok(res, { sessionId: activeId, ...changes })
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/undo/preview' &&
+      req.method === 'GET'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      try {
+        ok(res, await options.changes.previewUndo(activeId))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/undo' &&
+      req.method === 'POST'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      try {
+        ok(res, await options.changes.undoStep(activeId))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
       return
     }
     if (hub && path === '/api/v1/permissions/decide' && req.method === 'POST') {

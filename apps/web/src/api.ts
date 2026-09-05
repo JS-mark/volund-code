@@ -126,6 +126,38 @@ export class WebApi {
       await fetch('/api/v1/sessions/active/end', { method: 'POST', headers: this.headers() }),
     )
   }
+  // ── W-08 变更/undo ────────────────────────────────────────────────
+  async changes(): Promise<{
+    sessionId: string
+    paths: {
+      path: string
+      created: boolean
+      batches: number
+      lastModifiedAt: string
+      allConsumed: boolean
+    }[]
+    missing: boolean
+  }> {
+    return parseResponse(await fetch('/api/v1/sessions/active/changes'))
+  }
+  async undoPreview(): Promise<{
+    undoable: boolean
+    reason?: string
+    paths: string[]
+    warnings: { path: string; kind: string }[]
+    stepCreatedAt?: string
+  }> {
+    return parseResponse(await fetch('/api/v1/sessions/active/undo/preview'))
+  }
+  async undo(): Promise<{
+    undone: boolean
+    paths: string[]
+    warnings: { path: string; kind: string }[]
+  }> {
+    return parseResponse(
+      await fetch('/api/v1/sessions/active/undo', { method: 'POST', headers: this.headers() }),
+    )
+  }
   async decidePermission(requestId: string, kind: string): Promise<void> {
     await parseResponse(
       await fetch('/api/v1/permissions/decide', {
