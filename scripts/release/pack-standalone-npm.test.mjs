@@ -313,11 +313,11 @@ void test('packs exactly nine validated packages from final archives and hardens
   }
   const consumer = join(fixture, 'consumer/node_modules')
   await mkdir(join(consumer, '@volund'), { recursive: true })
-  await cp(join(output, 'packages/volund-cli'), join(consumer, 'volund-cli'), { recursive: true })
+  await cp(join(output, 'packages/volund-cli'), join(consumer, '@volund/cli'), { recursive: true })
   await cp(join(output, `packages/volund-${target}`), join(consumer, '@volund', target), {
     recursive: true,
   })
-  const wrapper = join(consumer, 'volund-cli/bin/volund.cjs')
+  const wrapper = join(consumer, '@volund/cli/bin/volund.cjs')
   const args = ['space value', '雪', '--', '--literal']
   const run = spawnSync(process.execPath, [wrapper, ...args], {
     input: 'stdin payload 雪',
@@ -331,7 +331,7 @@ void test('packs exactly nine validated packages from final archives and hardens
   const signal = spawnSync(process.execPath, [wrapper, '--signal=SIGTERM'], { encoding: 'utf8' })
   assert.equal(signal.signal, 'SIGTERM')
 
-  const missing = join(fixture, 'missing/node_modules/volund-cli')
+  const missing = join(fixture, 'missing/node_modules/@volund/cli')
   await mkdir(join(fixture, 'missing/node_modules'), { recursive: true })
   await cp(join(output, 'packages/volund-cli'), missing, { recursive: true })
   const missingRun = spawnSync(process.execPath, [join(missing, 'bin/volund.cjs')], {

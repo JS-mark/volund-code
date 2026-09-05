@@ -442,7 +442,7 @@ void test('normalizes volatile Syft identity and semantic set ordering determini
   assert.equal(serializeReleaseSbom(first), serializeReleaseSbom(second))
   assert.equal(first.serialNumber, undefined)
   assert.equal(first.metadata.timestamp, undefined)
-  assert.equal(first.metadata.component.name, 'volund-cli')
+  assert.equal(first.metadata.component.name, '@volund/cli')
   assert.equal(first.metadata.component.version, SBOM_VERSION)
   assert.deepEqual(
     first.components.map((component) => component.name),
@@ -667,7 +667,7 @@ void test('CLI dispatches the normalize-sbom subcommand', async () => {
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.stdout, /normalized CycloneDX SBOM/)
     const written = JSON.parse(await readFile(output, 'utf8'))
-    assert.equal(written.metadata.component.name, 'volund-cli')
+    assert.equal(written.metadata.component.name, '@volund/cli')
     assert.equal(written.metadata.component.version, SBOM_VERSION)
   } finally {
     await rm(directory, { recursive: true, force: true })

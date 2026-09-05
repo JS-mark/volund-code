@@ -43,7 +43,7 @@ Every plugin `--json` failure emits exactly `error` then `final` on stdout with 
 
 ```text
 pnpm --filter @volund/plugin-runtime test
-pnpm --filter volund-cli test
+pnpm --filter \@volund/cli test
 pnpm typecheck
 pnpm verify:error-codes
 pnpm check:event-schemas

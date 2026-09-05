@@ -86,7 +86,7 @@ pnpm build
 node apps/cli/dist/volund.js --help
 ```
 
-The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. The canonical npm package is `volund-cli`, with platform packages under `@volund/*`; it exposes `volund` as the canonical command and retains `volund` as an alias. The legacy `volund-code` package is generated only as a compatibility meta package.
+The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. The canonical npm package is `@volund/cli`, with platform packages under `@volund/*`; it exposes `volund` as the canonical command and retains `volund` as an alias. The legacy `volund-code` package is generated only as a compatibility meta package.
 
 The workspace package version is currently `0.0.0`; it is not a published release. Follow the [installation guide](apps/docs/docs/getting-started/install.md) for release and native-binary details.
 
@@ -150,7 +150,7 @@ Use `volund help` or the [CLI reference](apps/docs/docs/reference/cli.md) for al
 ## Configuration and security
 
 > [!NOTE]
-> Phase A changes the user-facing brand and command first. The npm graph now uses `volund-cli` / `@volund/*`, with `volund-code` retained as a compatibility meta package. Existing local data, environment variables, and machine-readable schema identifiers remain compatibility surfaces in this release line.
+> Phase A changes the user-facing brand and command first. The npm graph now uses `@volund/cli` and the `@volund/*` platform scope, with `volund-code` retained as a compatibility meta package. Existing local data, environment variables, and machine-readable schema identifiers remain compatibility surfaces in this release line.
 
 User configuration lives in `~/.volund/config.toml`. Configuration layers are applied in this order: built-in defaults, global configuration, approved project configuration, environment values, then CLI flags. Project configuration is not loaded in non-interactive runs unless you pass `--trust-project-config`; sensitive routing, authentication, endpoint, and telemetry-sink keys are rejected from project configuration.
 
@@ -220,7 +220,7 @@ Build optimized native binaries with `cargo build --workspace --release`. For lo
 
 ```bash
 cargo build --workspace
-pnpm --filter volund-cli build
+pnpm --filter @volund/cli build
 VOLUND_NATIVE_SANDBOX_BINARY="$PWD/target/debug/volund-sandbox" \
 VOLUND_NATIVE_SEARCH_BINARY="$PWD/target/debug/volund-search" \
 VOLUND_NATIVE_FS_BINARY="$PWD/target/debug/volund-fs" \

@@ -46,12 +46,12 @@ void test('CI verifies foundation targets without weakening sandbox evidence', a
   )
   assert.match(
     nativeWorkflow,
-    /runner\.os == 'Windows'[\s\S]*pnpm turbo run build --filter=volund-cli\.\.\. --concurrency=1/,
+    /runner\.os == 'Windows'[\s\S]*pnpm turbo run build --filter=@volund\/cli\.\.\. --concurrency=1/,
     'Windows native jobs must avoid concurrent Node DLL initialization failures',
   )
   assert.match(
     nativeWorkflow,
-    /runner\.os != 'Windows'[\s\S]*pnpm turbo run build --filter=volund-cli\.\.\./,
+    /runner\.os != 'Windows'[\s\S]*pnpm turbo run build --filter=@volund\/cli\.\.\./,
     'native jobs must not start the independent TypeDoc/VitePress build in parallel',
   )
   assert.doesNotMatch(nativeWorkflow, /runner\.os == 'Windows'[\s\S]{0,120}docs/)

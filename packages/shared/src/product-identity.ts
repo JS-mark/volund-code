@@ -5,7 +5,7 @@ const compatibility = Object.freeze({
   commandNames: legacyCommandNames,
   envPrefix: 'VOLUND',
   homeDirectoryName: '.volund',
-  packageName: 'volund-cli',
+  packageName: '@volund/cli',
   packageScope: '@volund',
 })
 
@@ -19,7 +19,7 @@ export const productIdentity = Object.freeze({
   compatibility,
   description: 'Open, model-agnostic AI coding CLI',
   displayName: 'Volund CLI',
-  packageName: 'volund-cli',
+  packageName: '@volund/cli',
   packageScope: '@volund',
   shortName: 'Volund',
   tagline: 'FORGED FOR CODERS.',

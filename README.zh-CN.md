@@ -85,7 +85,7 @@ pnpm build
 node apps/cli/dist/volund.js --help
 ```
 
-兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。标准 npm 包为 `volund-cli`，平台包使用 `@volund/*` scope；安装后以 `volund` 为标准命令，并保留 `volund` 别名。旧 `volund-code` 仅作为兼容 meta 包生成。
+兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。标准 npm 包为 `@volund/cli`，平台包使用 `@volund/*` scope；安装后以 `volund` 为标准命令，并保留 `volund` 别名。旧 `volund-code` 仅作为兼容 meta 包生成。
 
 当前 workspace 中的 `0.0.0` 只是开发版本号，并不是已经发布的 npm 版本。发布状态和原生二进制说明请查看[中文安装指南](apps/docs/zh/docs/getting-started/install.md)。
 
@@ -149,7 +149,7 @@ Pinned memory 受固定预算限制，并以不可信建议数据注入；当前
 ## 配置与安全
 
 > [!NOTE]
-> A 阶段先迁移用户可见品牌与命令。npm package graph 现已使用 `volund-cli` / `@volund/*`，并保留 `volund-code` 兼容 meta 包；本地数据、环境变量和机器可读 schema 标识仍是这一版本线的兼容面。
+> A 阶段先迁移用户可见品牌与命令。npm package graph 现已使用 `@volund/cli` 与 `@volund/*` 平台 scope，并保留 `volund-code` 兼容 meta 包；本地数据、环境变量和机器可读 schema 标识仍是这一版本线的兼容面。
 
 用户级配置文件位于 `~/.volund/config.toml`。配置按以下优先级合并：内置默认值、全局配置、已批准的项目配置、环境变量、命令行参数。非交互运行默认不会加载项目配置，除非显式传入 `--trust-project-config`；项目配置也不能覆盖路由、身份验证、服务端点和遥测接收端等敏感项。
 
@@ -218,7 +218,7 @@ pnpm format:check
 
 ```bash
 cargo build --workspace
-pnpm --filter volund-cli build
+pnpm --filter @volund/cli build
 VOLUND_NATIVE_SANDBOX_BINARY="$PWD/target/debug/volund-sandbox" \
 VOLUND_NATIVE_SEARCH_BINARY="$PWD/target/debug/volund-search" \
 VOLUND_NATIVE_FS_BINARY="$PWD/target/debug/volund-fs" \

@@ -114,7 +114,7 @@ async function npmCandidateFixture() {
   const optionalDependencies = Object.fromEntries(
     NPM_PUBLISH_ORDER.slice(0, 7).map((name) => [name, VERSION]),
   )
-  for (const name of ['volund-cli', 'volund-code']) {
+  for (const name of ['@volund/cli', 'volund-code']) {
     const directory = join(packages, name)
     await mkdir(join(directory, 'bin'), { recursive: true })
     await cp(join(root, 'apps/cli/bin/volund.cjs'), join(directory, 'bin/volund.cjs'))
@@ -173,7 +173,7 @@ void test('temporary registry contract is pinned, offline, strict, and normally 
   assert.match(source, /VERDACCIO_LOG_LIMIT/)
   assert.match(source, /AbortSignal\.timeout/)
   assert.match(source, /--omit=optional/)
-  assert.match(source, /--yes[\s\S]*--registry[\s\S]*`volund-cli@\$\{version\}`/)
+  assert.match(source, /--yes[\s\S]*--registry[\s\S]*`@volund\/cli@\$\{version\}`/)
   const args = [
     '--candidate',
     'candidate',

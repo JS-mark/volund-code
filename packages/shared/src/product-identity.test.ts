@@ -8,7 +8,7 @@ describe('productIdentity', () => {
       category: 'CLI',
       commandName: 'volund',
       displayName: 'Volund CLI',
-      packageName: 'volund-cli',
+      packageName: '@volund/cli',
       packageScope: '@volund',
       shortName: 'Volund',
       tagline: 'FORGED FOR CODERS.',
@@ -24,7 +24,7 @@ describe('productIdentity', () => {
       commandNames: ['volund'],
       envPrefix: 'VOLUND',
       homeDirectoryName: '.volund',
-      packageName: 'volund-cli',
+      packageName: '@volund/cli',
       packageScope: '@volund',
     })
     expect(Object.isFrozen(productIdentity.compatibility)).toBe(true)

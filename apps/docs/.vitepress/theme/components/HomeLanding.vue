@@ -120,7 +120,7 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
         </div>
         <div class="install-command" aria-label="Installation command">
           <span class="prompt-mark">$</span>
-          <code>npm install --global volund-cli</code>
+          <code>npm install --global @volund/cli</code>
           <span class="command-note">{{ t.preRelease }}</span>
         </div>
       </div>

@@ -96,7 +96,7 @@ export async function buildStandalone({ root, target, assetDirectory, outDirecto
   try {
     await access(bundle)
   } catch {
-    throw new Error('apps/cli/dist/volund.js not found; run `pnpm --filter volund-cli build` first')
+    throw new Error('apps/cli/dist/volund.js not found; run `pnpm --filter @volund/cli build` first')
   }
   const bun = spawnSync('bun', ['--version'], { encoding: 'utf8' })
   if (bun.status !== 0)

@@ -56,7 +56,7 @@ const PLATFORM_FIELDS = Object.freeze({
 const PLATFORM_PACKAGE_NAMES = Object.freeze(
   STANDALONE_TARGETS.map((target) => `@volund/${target}`),
 )
-const META_PACKAGE_NAMES = Object.freeze(['volund-cli', 'volund-code'])
+const META_PACKAGE_NAMES = Object.freeze(['@volund/cli', 'volund-code'])
 export const NPM_PUBLISH_ORDER = Object.freeze([...PLATFORM_PACKAGE_NAMES, ...META_PACKAGE_NAMES])
 
 function compareText(left, right) {
@@ -392,7 +392,7 @@ function validatePlanShape(plan) {
     plan.publishOrder.join('\0') !== NPM_PUBLISH_ORDER.join('\0')
   )
     throw new Error(
-      'publish plan publishOrder must be seven platforms, volund-cli, then volund-code',
+      'publish plan publishOrder must be seven platforms, @volund/cli, then volund-code',
     )
   const directories = new Set()
   const tarballs = new Set()
@@ -458,9 +458,9 @@ function validatePackageTarball(entries, descriptor, version, source) {
   const manifest = readJson(manifestEntry.body, `${descriptor.name} package.json`)
   if (manifest.name !== descriptor.name || manifest.version !== version)
     throw new Error(`npm tarball identity mismatch for '${descriptor.name}'`)
-  const target = descriptor.name.startsWith('@volund/')
-    ? descriptor.name.slice('@volund/'.length)
-    : null
+  const target = META_PACKAGE_NAMES.includes(descriptor.name)
+    ? null
+    : descriptor.name.slice('@volund/'.length)
   if (target) {
     assertExactObjectKeys(
       manifest,
@@ -590,9 +590,9 @@ function validatePackageTarball(entries, descriptor, version, source) {
     )
     validateCommonManifestMetadata(manifest, descriptor.name)
     const expectedDescription =
-      descriptor.name === 'volund-cli'
+      descriptor.name === '@volund/cli'
         ? 'Open, model-agnostic AI coding CLI'
-        : 'Compatibility package for volund-cli; migrate installs to volund-cli'
+        : 'Compatibility package for @volund/cli; migrate installs to @volund/cli'
     if (manifest.description !== expectedDescription)
       throw new Error(`meta package '${descriptor.name}' has an invalid description`)
     const expected = [
@@ -883,7 +883,7 @@ export async function verifyNpmPublishPlan({
       throw new Error(`npm tarball bytes do not match publish plan for '${descriptor.name}'`)
     const tarEntries = inspectNpmTarballBuffer(tarball)
     validatePackageTarball(tarEntries, descriptor, identity.version, plan.source)
-    if (descriptor.name.startsWith('@volund/'))
+    if (!META_PACKAGE_NAMES.includes(descriptor.name))
       await comparePlatformTarballToTrustedArchive(
         tarEntries,
         descriptor.name.slice('@volund/'.length),

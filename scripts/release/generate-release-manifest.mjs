@@ -234,7 +234,7 @@ export async function writeReleaseManifestAtomically({ output, manifest, renameF
 
 // ---- CycloneDX SBOM 归一化（normalize-sbom 子命令）----
 
-export const RELEASE_SBOM_COMPONENT_NAME = 'volund-cli'
+export const RELEASE_SBOM_COMPONENT_NAME = '@volund/cli'
 export const RELEASE_SBOM_LIMITS = Object.freeze({
   inputBytes: 16 * 1024 * 1024,
   jsonDepth: 128,
