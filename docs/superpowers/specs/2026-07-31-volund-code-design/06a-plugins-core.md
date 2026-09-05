@@ -17,6 +17,8 @@
 | `prompt.contribute` / `prompt.revoke` | 静态 prompt fragment | 每会话 PromptComposer（`plugin:<名>:` id 命名空间，priority 缺省 600） |
 | `plugins.list` 扩展 | `domains` 组：第一方工具域（volund.core-tools / volund.exec / volund.orchestration） | /plugins 面板 Domains 页签 + `volund plugins builtin --enable/--disable`，落 `[plugins] builtin_disabled` |
 
+作者工效层（dsh `defineTool` 同工效）：`plugin-sdk` 提供 `definePlugin/defineTool` 类型助手——工具写裸名，宿主自动收敛 `plugin:<名>:` 命名空间；`inputSchema` 缺省空 object schema。零依赖作者直接写 `activate(volund)`（示例：`examples/plugins/volund-plugin-demo/`）。
+
 会话中途卸载/禁用：命令、页签立即摘除；插件工具对全部活会话内核广播摘除。manifest 需要声明对应权限（`tools.register` / `hooks.on` / `prompt.contribute`），deny-by-default 不变。
 
 ## 6.1 设计目标

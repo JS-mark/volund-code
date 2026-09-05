@@ -24,6 +24,37 @@ volund-plugin-demo/
 | `volund.session.on('sessionStart' \| 'sessionEnd', handler)` | 会话生命周期事件（payload `{schemaVersion, sessionId}`） | `session.read` |
 | `volund.commands.register({ name, description, handler })` | 斜杠命令；返回字符串进 transcript，返回 `{kind:'list'/…}` 纯数据视图渲染成面板 | `commands.register` |
 
+## 两种作者风格
+
+**零依赖（本示例）**——单文件 `.mjs`，直接在 handler 里写业务，工具名宿主会自动收敛到
+`plugin:<manifest.name>:` 命名空间（写裸名 `word-count` 也可以）：
+
+```js
+await volund.tools.register({
+  name: 'word-count',                      // 宿主 → plugin:volund-plugin-demo:word-count
+  description: 'Count words, characters and lines',
+  handler: async (input) => ({ words: 0 }),
+})
+```
+
+**TypeScript + SDK 助手**（与 dsh 的 `defineTool` 同工效）——TS 编译成单文件 ESM 后同链路装载：
+
+```ts
+import { definePlugin, defineTool } from '@volund/plugin-sdk'
+
+export default definePlugin({
+  activate(volund) {
+    volund.tools.register(
+      defineTool({
+        name: 'word-count',
+        description: 'Count words, characters and lines',
+        handler: async (input) => ({ words: 0 }),
+      }), // inputSchema 可省，缺省 { type: 'object' }
+    )
+  },
+})
+```
+
 ## 运行
 
 开发插件目录自动发现（自动批准 + 启用）：
