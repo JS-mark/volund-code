@@ -136,6 +136,20 @@ export class WebApi {
     )
   }
 
+  // ── P4 管理面 ─────────────────────────────────────────────────────
+  async managementList(domain: string): Promise<unknown> {
+    return parseResponse(await fetch(`/api/v1/${domain}/actions`))
+  }
+  async managementAction(domain: string, body: Record<string, unknown>): Promise<unknown> {
+    return parseResponse(
+      await fetch(`/api/v1/${domain}/actions`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      }),
+    )
+  }
+
   private headers(): Record<string, string> {
     return { 'Content-Type': 'application/json', 'X-Volund-Csrf': this.session.csrfToken }
   }

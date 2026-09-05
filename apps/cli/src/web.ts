@@ -5,6 +5,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { createMemoryPanelController, projectMemoryScope } from '@volund/app-runtime'
 import { standaloneArtifactDir } from '@volund/native-bridge'
 import { createWebServer } from '@volund/web-server'
 import type { WebServerHandle } from '@volund/web-server'
@@ -51,11 +52,44 @@ export function createWebPort(ports: VolundPorts): NonNullable<VolundPorts['web'
     async serve({ cwd, port, open, onReady }) {
       // P3：会话枢纽——CoreEvent 透传 + 权限审批队列的权威状态源。
       const sessionHub = new SessionHub({ session: ports.session })
+      // P4：管理面（复用 app-runtime 的 memory 面板 controller 与既有端口）。
+      const management = {
+        ...(ports.memory && ports.memoryRecall
+          ? {
+              memory: createMemoryPanelController(
+                ports.memory,
+                ports.memoryRecall,
+                projectMemoryScope(cwd),
+              ),
+            }
+          : {}),
+        ...(ports.skill ? { skill: ports.skill } : {}),
+        ...(ports.mcp ? { mcp: ports.mcp } : {}),
+        ...(ports.localPlugins && ports.plugin
+          ? {
+              plugins: {
+                builtinDomains: () => ports.localPlugins!.builtinDomains(),
+                setBuiltinDomain: (id: string, enabled: boolean) =>
+                  ports.localPlugins!.setBuiltinDomain(id, enabled),
+                availability: () => ports.plugin!.availability(),
+              },
+            }
+          : {}),
+        ...(ports.telemetry
+          ? {
+              telemetry: {
+                summary: () => ports.telemetry!.summary(),
+                health: () => ports.telemetry!.health(),
+              },
+            }
+          : {}),
+      }
       const handle = await createWebServer({
         host: '127.0.0.1',
         port,
         staticDir: webAssetDir(),
         sessionHub,
+        management,
         ports: {
           identity: ports.identity,
           cwd,

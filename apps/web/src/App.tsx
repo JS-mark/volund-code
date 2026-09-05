@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Bootstrap, BrowserSession, SessionSummary, StatusView } from './api'
 import { exchangeNonce, WebApi } from './api'
 import { Chat } from './Chat'
+import { Manage } from './Manage'
 
-type Route = 'chat' | 'sessions' | 'status'
+type Route = 'chat' | 'sessions' | 'status' | 'manage'
 
 interface Loaded {
   api: WebApi
@@ -108,12 +109,17 @@ export function App() {
           <button className={route === 'status' ? 'active' : ''} onClick={() => setRoute('status')}>
             状态
           </button>
+          <button className={route === 'manage' ? 'active' : ''} onClick={() => setRoute('manage')}>
+            管理
+          </button>
         </nav>
         <main>
           {route === 'chat' ? (
             <Chat key={activeId ?? 'new'} api={loaded.api} cwd={bootstrap.workspace.cwd} />
           ) : route === 'sessions' ? (
             <Sessions sessions={sessions} activeId={activeId} onResume={(id) => void resume(id)} />
+          ) : route === 'manage' ? (
+            <Manage api={loaded.api} capabilities={bootstrap.capabilities} />
           ) : (
             <StatusView_ status={status} />
           )}

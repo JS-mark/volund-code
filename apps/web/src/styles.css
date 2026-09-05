@@ -271,3 +271,51 @@ section button {
 section button:disabled {
   opacity: 0.5;
 }
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.tabs button {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+.tabs button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.search {
+  flex: 1;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  margin-bottom: 8px;
+}
+.actions {
+  display: flex;
+  gap: 6px;
+}
+.actions button {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+button.danger {
+  background: #f85149;
+  color: #fff;
+}
+pre.code {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  font-size: 12px;
+}

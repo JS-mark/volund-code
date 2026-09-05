@@ -17,6 +17,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 
+import { actionDispatcher, type ManagementPorts } from './management'
 import { SessionHub } from './session-hub'
 
 /** §22.8.2 之外的管理面宿主端口的最小结构面（由 apps/cli 用真实 VolundPorts 装配）。 */
@@ -51,6 +52,8 @@ export interface WebServerOptions {
   readonly nonceTtlMs?: number
   /** P3：会话枢纽（存在即开放会话写端点；§22.3.4 诚实能力面）。 */
   readonly sessionHub?: SessionHub
+  /** P4：管理面（memory/skills/mcp/plugins/telemetry）。 */
+  readonly management?: ManagementPorts
 }
 
 export interface WebServerHandle {
@@ -116,6 +119,24 @@ function ok(res: ServerResponse, data: unknown): void {
     'Content-Length': Buffer.byteLength(body),
   })
   res.end(body)
+}
+
+/** 域是否装配（写动作的诚实降级门）。 */
+function mgmtSupports(mgmt: ManagementPorts, domain: string): boolean {
+  switch (domain) {
+    case 'memory':
+      return mgmt.memory !== undefined
+    case 'skill':
+      return mgmt.skill !== undefined
+    case 'mcp':
+      return mgmt.mcp !== undefined
+    case 'plugins':
+      return mgmt.plugins !== undefined
+    case 'telemetry':
+      return mgmt.telemetry !== undefined
+    default:
+      return false
+  }
 }
 
 /** 域错误的统一映射：带 code 的错误按语义取状态码，其余 500。 */
@@ -315,6 +336,13 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             : 'unavailable',
           // §22.3.4 诚实状态：Web 首版的写能力边界。
           mutations: { turnSubmit: false, permissionDecision: false },
+          management: {
+            memory: options.management?.memory !== undefined,
+            skill: options.management?.skill !== undefined,
+            mcp: options.management?.mcp !== undefined,
+            plugins: options.management?.plugins !== undefined,
+            telemetry: options.management?.telemetry !== undefined,
+          },
         },
       })
       return
@@ -420,6 +448,111 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
         return
       }
       ok(res, { decided: hub.decide(requestId, kind) })
+      return
+    }
+
+    // ── P4 管理域（GET inventory + POST tagged-union action；§22.8.2）──────
+    const mgmt = options.management
+    if (mgmt && path.startsWith('/api/v1/') && path.endsWith('/actions')) {
+      const raw = path.slice('/api/v1/'.length, -'/actions'.length)
+      // 规范别名：§22.8.2 的复数路径 → 域单数键。
+      const domain = raw === 'skills' ? 'skill' : raw
+      const tables: Record<
+        string,
+        Record<string, (body: Record<string, unknown>) => Promise<unknown>>
+      > = {}
+      if (mgmt.memory) {
+        tables.memory = {
+          list: async (body) => ({
+            scopeLabel: mgmt.memory!.scopeLabel,
+            searchAvailable: mgmt.memory!.searchAvailable,
+            items: await mgmt.memory!.list({
+              limit: typeof body.limit === 'number' ? body.limit : 50,
+            }),
+          }),
+          search: async (body) =>
+            mgmt.memory!.search({
+              query: String(body.query ?? ''),
+              limit: typeof body.limit === 'number' ? body.limit : 20,
+            }),
+          get: async (body) => await mgmt.memory!.get(String(body.id)),
+          delete: async (body) =>
+            await mgmt.memory!.delete(String(body.id), String(body.expectedUpdatedAt ?? '')),
+          pin: async (body) =>
+            await mgmt.memory!.pin(String(body.id), String(body.expectedUpdatedAt ?? '')),
+          unpin: async (body) =>
+            await mgmt.memory!.unpin(String(body.id), String(body.expectedUpdatedAt ?? '')),
+        }
+      }
+      if (mgmt.skill) {
+        tables.skill = {
+          list: async () => ({ items: await mgmt.skill!.list() }),
+          show: async (body) => ({ body: await mgmt.skill!.show(String(body.name)) }),
+          setEnabled: async (body) => {
+            await mgmt.skill!.setEnabled(String(body.name), body.enabled === true)
+            return { ok: true }
+          },
+        }
+      }
+      if (mgmt.mcp) {
+        tables.mcp = {
+          list: async () => ({ items: await mgmt.mcp!.list() }),
+          inspect: async (body) => await mgmt.mcp!.inspect(String(body.name)),
+          setEnabled: async (body) => {
+            await mgmt.mcp!.setEnabled(String(body.name), body.enabled === true)
+            return { ok: true }
+          },
+        }
+      }
+      if (mgmt.plugins) {
+        tables.plugins = {
+          list: async () => ({ items: await mgmt.plugins!.builtinDomains() }),
+          domains: async () => ({ items: await mgmt.plugins!.builtinDomains() }),
+          setDomain: async (body) => {
+            await mgmt.plugins!.setBuiltinDomain(String(body.id), body.enabled === true)
+            return { ok: true }
+          },
+          availability: async () => await mgmt.plugins!.availability(),
+        }
+      }
+      if (mgmt.telemetry) {
+        tables.telemetry = {
+          list: async () => ({
+            summary: await mgmt.telemetry!.summary(),
+            health: await mgmt.telemetry!.health(),
+          }),
+          summary: async () => await mgmt.telemetry!.summary(),
+          health: async () => await mgmt.telemetry!.health(),
+        }
+      }
+      const table = tables[domain]
+      if (!table) {
+        fail(res, 404, { code: 'web_capability_unavailable', message: `unknown domain: ${domain}` })
+        return
+      }
+      if (req.method === 'GET') {
+        const listAll = table['list']
+        if (!listAll) {
+          fail(res, 503, { code: 'web_capability_unavailable', message: `${domain} is not wired` })
+          return
+        }
+        ok(res, await listAll({}))
+        return
+      }
+      if (!mgmtSupports(options.management!, domain)) {
+        fail(res, 503, { code: 'web_capability_unavailable', message: `${domain} is not wired` })
+        return
+      }
+      const body = await readJsonBody(req)
+      if (body === undefined || typeof body !== 'object') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'invalid JSON body' })
+        return
+      }
+      try {
+        ok(res, await actionDispatcher(table)(body as Record<string, unknown>))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
       return
     }
 
