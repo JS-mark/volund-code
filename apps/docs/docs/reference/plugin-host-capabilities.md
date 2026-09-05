@@ -33,6 +33,33 @@ The executable source of truth is `VOLUND_BRIDGE_CAPABILITIES` in
 | provider/router     | `provider.register`                                             | unsupported | Declared by the provider-plugin design, but not exposed by `VolundBridge` yet; policy tests cover the boundary |
 | provider auth       | `auth.getAuthHeaders`, `auth.getSigningEnvKeys`                 | unsupported | Declared by the provider-plugin design, but not exposed by `VolundBridge` yet; policy tests cover the boundary |
 
+## Local v2 pipeline (current production — 2026-09 kernel)
+
+The matrix above describes the quarantined legacy `BridgeRuntime`. The **current**
+production pipeline is the local sandbox loader (`activateLocalPlugin` →
+`volund-sandbox --run-plugin` + fd3 bridge → kernel contribution registry), where these
+bridge methods are live today:
+
+| Live method                                     | Effect                                                                                                                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `commands.register`                             | slash command into the session command registry                                                                                                                                                  |
+| `ui.status.registerTab` / `registerSection`     | /status data tabs and sections                                                                                                                                                                   |
+| `tools.register` / `tools.unregister`           | model-callable tools (auto-namespaced `plugin:<name>:`) into the kernel `tools` service; permissionSpec `{custom:{pluginTool}}` rides the unified permission chain; output is untrusted-wrapped  |
+| `hooks.on`                                      | lifecycle subscriptions; `preToolUse`/`postToolUse` run through the ToolExecutor dispatch hook (first HookResult wins, fail-open), `sessionStart`/`sessionEnd` are broadcast from session events |
+| `session.on`                                    | alias of `hooks.on` for session lifecycle events                                                                                                                                                 |
+| `prompt.contribute` / `prompt.revoke`           | static fragments into the per-session composer (`plugin:<name>:` id namespace, priority default 600)                                                                                             |
+| `plugins.list` extension                        | `domains` group: first-party tool domains (visible + toggleable in /plugins and `volund plugins builtin`)                                                                                        |
+| `env.getEffective`, `session.getUsage`, `log.*` | host data/diagnostics as before                                                                                                                                                                  |
+
+Still denied in the local pipeline: `fs.*`, `exec`, `http.fetch`, `storage.*`, `memory.*`,
+`session.getMessages`, `session.on`-style push for non-session events, `call`, and
+`provider.register` / `auth.*` (declared surfaces; awaiting the provider-plugin host).
+See §19.0 of the design spec for the shipped/pending map and the TCB boundary
+(sandbox and session store are never plugin-replaceable).
+
+A complete tested example lives at `examples/plugins/volund-plugin-demo/` (JS) and
+`examples/plugins/volund-plugin-ts-demo/` (TypeScript entry).
+
 The current CI gate verifies containment instead of claiming a host lifecycle E2E: production
 composition has zero legacy load/start references, deny-only manager/runtime tests remain green, and
 an actual `pnpm pack --dry-run --json` proves that no tests, internal authority, or test-only files are
