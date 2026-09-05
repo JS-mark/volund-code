@@ -14,7 +14,10 @@ import type { JsonValue, Logger } from '@volund/shared'
 
 import { serializeToml } from './mcp'
 
-export type PermissionRuleScope = 'project' | 'global'
+// PermissionRuleScope/PermissionRuleSource 契约已迁至 @volund/app-runtime（P1-05）；
+// 此处 re-export 保持既有引用兼容。
+export type { PermissionRuleScope, PermissionRuleSource } from '@volund/app-runtime'
+import type { PermissionRuleScope, PermissionRuleSource } from '@volund/app-runtime'
 
 /**
  * 落盘条目：tool + spec 对就是匹配单位。fs 路径在落盘前泛化为 `<cwd>/**`
@@ -35,12 +38,6 @@ export interface PermissionsDocument {
  * createProductionToolPermissionChain 注入的最小面；确定型测试可以给假实现。
  * 语义对齐 spec §4.4 决策链 1/2（deny）与 4/5（allow）。
  */
-export interface PermissionRuleSource {
-  isDenied(scope: PermissionRuleScope, request: PermissionRequest): boolean
-  isAllowed(scope: PermissionRuleScope, request: PermissionRequest): boolean
-  persist(scope: PermissionRuleScope, request: PermissionRequest, allow: boolean): Promise<void>
-}
-
 export interface PermissionRuleStoreOptions {
   /** allow-project 落盘文件（<cwd>/.volund/permissions.toml）。 */
   project: string

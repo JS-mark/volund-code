@@ -237,6 +237,9 @@ importers:
       '@volund/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@volund/permission':
+        specifier: workspace:*
+        version: link:../permission
       '@volund/shared':
         specifier: workspace:*
         version: link:../shared
@@ -246,6 +249,9 @@ importers:
       '@volund/subagent':
         specifier: workspace:*
         version: link:../subagent
+      '@volund/tool-kit':
+        specifier: workspace:*
+        version: link:../tool-kit
       '@volund/tools':
         specifier: workspace:*
         version: link:../tools

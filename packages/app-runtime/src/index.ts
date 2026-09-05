@@ -15,6 +15,25 @@ import { BusService, Context, ModelService, SessionService, UiService } from '@v
 
 export { Context }
 export * from './contracts'
+export {
+  createProductionToolPermissionChain,
+  PermissionSessionInvariantError,
+  ProductionPermissionSessionPolicy,
+  requestPermission,
+} from './permission'
+export type {
+  PermissionRuleScope,
+  PermissionRuleSource,
+  ProductionPermissionConfiguration,
+  ProductionPermissionSessionSnapshot,
+  ProductionToolPermissionChain,
+  ProductionToolPermissionChainOptions,
+} from './permission'
+export {
+  formatPermissionTextForDisplay,
+  formatPermissionValueForDisplay,
+} from './permission-display'
+export type { PermissionDisplayResult } from './permission-display'
 export { SESSION_ID_PATTERN, SessionController } from './session-controller'
 export type {
   RunnerFactory,

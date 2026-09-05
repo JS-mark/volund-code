@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { createProductionToolPermissionChain } from '@volund/app-runtime'
 import { createSession, EventBus, MachineEventFormatter } from '@volund/core'
 import type { JsonValue } from '@volund/shared'
 import type { ToolContext } from '@volund/tool-kit'
@@ -12,7 +13,6 @@ import { runCli } from './cli'
 import { command } from './command'
 import { assignConfigValue, deleteConfigValue } from './config-edit'
 import type { VolundPorts, PermissionInteractionMode } from './ports'
-import { createProductionToolPermissionChain } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>

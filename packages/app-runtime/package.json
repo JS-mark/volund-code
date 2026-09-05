@@ -21,9 +21,11 @@
     "@cordisjs/core": "catalog:",
     "@volund/core": "workspace:*",
     "@volund/kernel": "workspace:*",
+    "@volund/permission": "workspace:*",
     "@volund/shared": "workspace:*",
     "@volund/storage": "workspace:*",
     "@volund/subagent": "workspace:*",
+    "@volund/tool-kit": "workspace:*",
     "@volund/tools": "workspace:*",
     "uuid": "catalog:"
   },
