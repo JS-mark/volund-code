@@ -258,6 +258,9 @@ importers:
       '@volund/subagent':
         specifier: workspace:*
         version: link:../subagent
+      '@volund/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       '@volund/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit

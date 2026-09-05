@@ -36,6 +36,7 @@
     "@volund/shared": "workspace:*",
     "@volund/storage": "workspace:*",
     "@volund/subagent": "workspace:*",
+    "@volund/telemetry": "workspace:*",
     "@volund/tool-kit": "workspace:*",
     "@volund/tools": "workspace:*",
     "uuid": "catalog:"

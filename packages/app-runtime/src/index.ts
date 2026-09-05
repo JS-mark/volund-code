@@ -15,6 +15,7 @@ import { BusService, Context, ModelService, SessionService, UiService } from '@v
 
 export { Context }
 export * from './contracts'
+export * from './ports'
 export * from './memory-scope'
 export { createMemoryPanelController } from './memory-controller'
 export { createMemoryTools } from './memory-tools'
