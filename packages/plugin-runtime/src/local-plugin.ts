@@ -509,19 +509,21 @@ function readToolSpec(
     handler?: unknown
   }
   const prefix = `plugin:${pluginName}:`
-  if (typeof spec.name !== 'string' || !spec.name.startsWith(prefix))
-    throw new PluginBridgeError(
-      'plugin_tool_invalid',
-      `tools.register requires a name with '${prefix}' prefix`,
-    )
+  if (typeof spec.name !== 'string' || !spec.name)
+    throw new PluginBridgeError('plugin_tool_invalid', 'tools.register requires a name')
   if (!(spec.handler instanceof PluginCallbackRef))
     throw new PluginBridgeError('plugin_tool_invalid', 'tools.register requires a handler function')
-  if (!spec.inputSchema || typeof spec.inputSchema !== 'object' || Array.isArray(spec.inputSchema))
-    throw new PluginBridgeError('plugin_tool_invalid', 'tools.register requires an inputSchema')
+  // dsh 对齐的工效层：作者写裸名，宿主自动收敛到 plugin:<名>: 命名空间——
+  // 跨插件唯一性由前缀保证，作者不可能抢注内置/MCP 工具名。
+  const name = spec.name.startsWith(prefix) ? spec.name : `${prefix}${spec.name}`
+  const inputSchema =
+    spec.inputSchema && typeof spec.inputSchema === 'object' && !Array.isArray(spec.inputSchema)
+      ? (spec.inputSchema as Readonly<Record<string, unknown>>)
+      : { type: 'object', properties: {} }
   return {
-    name: spec.name,
+    name,
     description: typeof spec.description === 'string' ? spec.description : '',
-    inputSchema: spec.inputSchema as Readonly<Record<string, unknown>>,
+    inputSchema,
     handler: spec.handler,
   }
 }

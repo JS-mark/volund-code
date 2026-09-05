@@ -468,4 +468,18 @@ export interface VolundPlugin {
   deactivate?(): void | Promise<void>
 }
 export const definePlugin = <T extends VolundPlugin>(plugin: T): T => plugin
-export const defineTool = <T>(tool: T): T => tool
+
+/**
+ * dsh 对齐的工效层：作者写裸工具名即可——宿主侧自动收敛到
+ * `plugin:<manifest.name>:` 命名空间（跨插件唯一、不可能抢注内置/MCP 名）；
+ * inputSchema 可省（缺省空 object schema）。SDK 只提供类型与契约，
+ * 运行时一律经 `volund.tools.register(defineTool({...}))` 上桥。
+ */
+export interface VolundToolDefinition {
+  name: string
+  description: string
+  /** JSON Schema；缺省 `{ type: 'object' }`。 */
+  inputSchema?: Record<string, unknown>
+  handler(input: unknown): Promise<unknown>
+}
+export const defineTool = <T extends VolundToolDefinition>(tool: T): T => tool
