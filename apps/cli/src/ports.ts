@@ -163,6 +163,12 @@ export interface VolundPorts {
     export(target: string): Promise<number>
     clear(): Promise<void>
     health(): Promise<TelemetryHealth>
+    /** P5：最近遥测事件（本地 loopback 控制台浏览用）。 */
+    events?(limit: number): Promise<{
+      events: readonly { name: string; category?: string; at?: string }[]
+      corruptLines: number
+      total: number
+    }>
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   trust: TrustPort

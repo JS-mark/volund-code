@@ -85,6 +85,14 @@ export class TelemetryStore {
     }
     return { events, corruptLines }
   }
+  /** 最近 N 条事件（P5 遥测浏览；本地 loopback 控制台用，payload 已在设计上脱敏）。 */
+  async recent(
+    limit: number,
+  ): Promise<{ events: TelemetryEvent[]; corruptLines: number; total: number }> {
+    const { events, corruptLines } = await this.read()
+    const bounded = Math.max(1, Math.min(limit, 500))
+    return { events: events.slice(-bounded), corruptLines, total: events.length }
+  }
   async summary(): Promise<TelemetrySummary> {
     const { events, corruptLines } = await this.read()
     const tiers: Record<string, number> = {}

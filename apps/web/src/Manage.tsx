@@ -345,14 +345,70 @@ function PluginsPanel({ api }: { api: WebApi }) {
 }
 
 function TelemetryPanel({ api }: { api: WebApi }) {
-  const { data, error } = useInventory<{ summary: unknown; health: unknown }>(api, 'telemetry')
+  const [tab, setTab] = useState<'summary' | 'events'>('summary')
+  const { data, error, reload } = useInventory<{
+    summary: unknown
+    health: unknown
+  }>(api, 'telemetry')
+  const [events, setEvents] = useState<{
+    events: { name: string; category?: string; at?: string }[]
+    corruptLines: number
+    total: number
+  }>()
+  useEffect(() => {
+    if (tab !== 'events') return
+    void api
+      .managementAction('telemetry', { action: 'events', limit: 200 })
+      .then((value) =>
+        setEvents(
+          value as {
+            events: { name: string; category?: string; at?: string }[]
+            corruptLines: number
+            total: number
+          },
+        ),
+      )
+      .catch(() => setEvents(undefined))
+  }, [api, tab, reload])
   if (error) return <p className="warn">{error}</p>
   return (
     <div>
-      <h3>摘要</h3>
-      <pre className="code">{JSON.stringify(data?.summary ?? {}, null, 2)}</pre>
-      <h3>健康</h3>
-      <pre className="code">{JSON.stringify(data?.health ?? {}, null, 2)}</pre>
+      <div className="tabs">
+        <button className={tab === 'summary' ? 'active' : ''} onClick={() => setTab('summary')}>
+          摘要
+        </button>
+        <button className={tab === 'events' ? 'active' : ''} onClick={() => setTab('events')}>
+          最近事件
+        </button>
+      </div>
+      {tab === 'summary' ? (
+        <>
+          <h3>摘要</h3>
+          <pre className="code">{JSON.stringify(data?.summary ?? {}, null, 2)}</pre>
+          <h3>健康</h3>
+          <pre className="code">{JSON.stringify(data?.health ?? {}, null, 2)}</pre>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            最近 {events?.events.length ?? 0} 条（共 {events?.total ?? 0}，损坏行{' '}
+            {events?.corruptLines ?? 0}）
+          </p>
+          <table>
+            <tbody>
+              {(events?.events ?? []).toReversed().map((event, index) => (
+                <tr key={index}>
+                  <td className="muted">{event.at}</td>
+                  <td>
+                    {event.category ? `[${event.category}] ` : ''}
+                    {event.name}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   )
 }

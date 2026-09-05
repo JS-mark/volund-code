@@ -1625,6 +1625,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       export: (target) => telemetryStore.export(target),
       clear: () => telemetryStore.clear(),
       health: () => telemetryStore.health(),
+      events: (limit) => telemetryStore.recent(limit),
     },
     confirmation: {
       confirmDangerousNoSandbox: async (sentence) =>

@@ -588,6 +588,14 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           }),
           summary: async () => await mgmt.telemetry!.summary(),
           health: async () => await mgmt.telemetry!.health(),
+          events: async (body) =>
+            (await (
+              mgmt.telemetry as unknown as { events?: (limit: number) => Promise<unknown> }
+            ).events?.(typeof body.limit === 'number' ? body.limit : 200)) ?? {
+              events: [],
+              corruptLines: 0,
+              total: 0,
+            },
         }
       }
       const table = tables[domain]
