@@ -102,10 +102,19 @@
        /SubmitOptions/TranscriptEntry 契约迁入 contracts.ts，ui/ports 以 re-export 兼容。
        偏差记录：start → startSession 改名（Cordis Service 保留 start/stop 生命周期钩子）；
        idempotency/revision 与多会话注册表留待 P2（Web server 起按需加）。
-      └─ P1-04 域 controllers：Config/Memory/Skill/Mcp/Plugin/Status/Telemetry（端口原样搬，
-         DTO 不动）→ PermissionController（decision source 抽象）
-        └─ P1-06 ui-model 归属（status formatter/SafeDisplay 无 ANSI 化）
+      ✅ P1-04 域 controllers（c6122fe/12e1a57/50314e4/7f2cf81/f9ba386）：
+         status-view/welcome/session-stats + memory 全家桶 + skill/mcp/plugin/auth/
+         config/native 域工厂（createSkillDomain/createMcpDomain/createPluginDomain/
+         createAuthDomain/createConfigDomain/createNativeDomain）；ports.ts 子契约迁入；
+         ui 侧 status/skills-panel/mcp-panel/list-picker/tabbed-list/memory-panel 契约
+         迁入并留 re-export shim。runtime.ts 4606→1640 行。
+         偏差记录：serializeToml 与 preferences 写盘序列化器是两个不同实现（未合并）；
+         builtinPluginRoot 锚点留 CLI 包（import.meta.url）+ 位置无关内核在 app-runtime；
+         readAuthSection 迁移中曾短暂反转 ENOENT 分支（被 CLI 测试当场抓住，已修）。
+        └─ P1-06 ui-model 归属（大头已随 P1-04 落地；余 formatter/ANSI 边界清点）
           └─ P1-07 CLI 改经 app-runtime 组装（本文件退化为 host adapter 接线）
+             剩余：createRunner 会话装配（provider/router/tools 接线）、NodeHttpPort/proxy
+             网络宿主适配、FileInputHistoryStore、subagents 面板、hook-signal 映射
 ```
 
 每一步的完成判定：基线（25 文件 / 293 用例）+ 相关包测试全绿，且 `runtime.ts` 只减不增。
