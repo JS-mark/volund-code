@@ -3,7 +3,6 @@
  * 拒绝语料——伪造/重放/越权/超限/路径逃逸/秘密渗出六个面向。
  * 每条用例对应 §22.10 的一条威胁模型断言。
  */
-import { createServer as createNetServer } from 'node:http'
 import http from 'node:http'
 
 import { afterEach, describe, expect, it } from 'vitest'
