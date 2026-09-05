@@ -50,6 +50,9 @@ export async function activate(volund: VolundBridge) {
 若坚持值导入，dev 插件目录需能解析 `@volund/plugin-sdk`（node_modules 软链）——
 与 dsh 生态的 node_modules 软链痛点同源，`import type` 是推荐解。
 
+TS 直接作入口（`main: "index.ts"`）的完整示例见
+[`../volund-plugin-ts-demo/`](../volund-plugin-ts-demo/)。
+
 ## 两种作者风格
 
 **零依赖（本示例）**——单文件 `.mjs`，直接在 handler 里写业务，工具名宿主会自动收敛到
