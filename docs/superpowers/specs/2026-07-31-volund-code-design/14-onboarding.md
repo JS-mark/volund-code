@@ -4,7 +4,7 @@
 
 ## §14 首次运行 UX / Onboarding
 
-用户 `npm i -g volund-cli` 后第一次跑 `volund` 时的完整体验；兼容窗口内 `npm i -g volund-code` 与 `volund` 仍可用。
+用户 `npm i -g \@volund/cli` 后第一次跑 `volund` 时的完整体验；兼容窗口内 `npm i -g volund-code` 与 `volund` 仍可用。
 
 ### 14.1 目标
 

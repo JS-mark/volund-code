@@ -11,7 +11,7 @@ node apps/cli/dist/volund.js --help
 
 兼容窗口期内，源码构建仍保留 `dist/volund.js` 这个内部文件名。发布包会将 `volund` 暴露为标准可执行命令，并保留 `volund` 别名。
 
-标准 npm 包名为 `volund-cli`，平台产物使用 `@volund/*` scope；旧 `volund-code` 仅作为兼容 meta 包生成。registry 所有权和首个公开版本仍需通过发布审批。
+标准 npm 包名为 `@volund/cli`，平台产物使用 `@volund/*` scope；旧 `volund-code` 仅作为兼容 meta 包生成。registry 所有权和首个公开版本仍需通过发布审批。
 
 工作区中的 `0.0.0` 是开发版本，不代表已发布。首次正式发布通过人工审批后，本文档会更新对应的 npm 版本与 Git tag。
 

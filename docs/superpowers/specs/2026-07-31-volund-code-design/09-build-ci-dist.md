@@ -193,7 +193,7 @@ jobs:
 ### 9.6 apps/cli 打包与分发（r13.2 修订）
 
 - rolldown 打成 `dist/volund.js`（单文件 ESM + minify + treeshake）——它是二进制的**编译原料**与本地开发入口，不再是 npm 面向用户的形态
-- **npm 渠道 = 二进制薄壳**（r13.2 起，2026-08-27 品牌迁移修订）：发布 7 个平台包 `@volund/<triple>`（各含 bun 单文件二进制 + native sidecar + 内置插件，os/cpu/libc 字段让包管理器跳过不匹配平台）+ canonical meta 包 `volund-cli`（`bin: bin/volund.cjs` 壳，按宿主 triple 解析平台包并 spawn 转发）。`npm i -g volund-cli` 提供 canonical `volund` 命令并保留 `volund` alias；同一 pack step 还生成 legacy `volund-code` 兼容 meta 包，发布顺序为平台包 → `volund-cli` → `volund-code`
+- **npm 渠道 = 二进制薄壳**（r13.2 起，2026-08-27 品牌迁移修订）：发布 7 个平台包 `@volund/<triple>`（各含 bun 单文件二进制 + native sidecar + 内置插件，os/cpu/libc 字段让包管理器跳过不匹配平台）+ canonical meta 包 `\@volund/cli`（`bin: bin/volund.cjs` 壳，按宿主 triple 解析平台包并 spawn 转发）。`npm i -g \@volund/cli` 提供 canonical `volund` 命令并保留 `volund` alias；同一 pack step 还生成 legacy `volund-code` 兼容 meta 包，发布顺序为平台包 → `\@volund/cli` → `volund-code`
 - 平台包由 `scripts/build-all-standalone.mjs`（native.yml `standalone` job，bun `--compile --target` 跨编译）+ `scripts/pack-standalone-npm.mjs` 生成；**不进 pnpm workspace、不经 changesets 版本化**（发布 workflow 在 tag 检出上按 apps/cli 版本打戳），与 ADR-native-github-release 的副作用面零冲突——sidecar 单体的 GitHub Release 分发不变
 - **win32-arm64-msvc 例外**：bun 无 `bun-windows-arm64` 编译目标；Windows arm64 由 `@volund/win32-x64-msvc` 包覆盖（`cpu` 同列 arm64，Prism 仿真，仿真进程内 `process.arch=x64` 与包内 x64 sidecar 自洽）
 - Homebrew / apt 通道（v2）：`brew install volund-code`
@@ -261,7 +261,7 @@ jobs:
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
-| 2026-08-27 | §9 r13.3 | npm canonical identity 迁移为 `volund-cli` + `@volund/*`；同一 pack step 生成 `volund-code` compatibility meta 包并共享平台依赖图，发布顺序冻结为平台包 → canonical meta → legacy shim；live registry owner clearance 与真实 publish 仍需人工门禁。 |
+| 2026-08-27 | §9 r13.3 | npm canonical identity 迁移为 `\@volund/cli` + `@volund/*`；同一 pack step 生成 `volund-code` compatibility meta 包并共享平台依赖图，发布顺序冻结为平台包 → canonical meta → legacy shim；live registry owner clearance 与真实 publish 仍需人工门禁。 |
 | 2026-08-25 | §9 r13.2 | npm 渠道切换为二进制薄壳（§9.6）：7 个 `@volund/<triple>` 平台包 + `volund-code` 壳包；native.yml 新增 `standalone` job（bun `--compile --target` 跨编译，win32-arm64 无 bun 目标由 x64 包 Prism 仿真覆盖）并把 `volund-standalone-<triple>.tar.gz` 挂上 Release；新增手动 dispatch 的 `publish-npm.yml`（tag 一致性门禁 → Release 资产 sha256 校验 → 重组装 → `--provenance` 发布，平台包先于 meta 包）。自动 publish 门禁不变。 |
 | 2026-08-16 | §9 r13.1 | r13 修正落地：§9.4 新增 `e2e` smoke job（T2，MockProvider 脚本化交互 + JSONL replay 断言）；§9.5 新增供应链三条——npm org 抢注防护（L1 前）/ provenance（L2 起）/ NOTICE tiktoken-rs 归属（S1/S2）；新增 §9.10 性能预算表 + CI 基线采集（P2/P5/T4）。 |
 | 2026-08-01 | §9 r10.1（一致性修复） | §9.9 L1 时间口径对齐 §10：删除"3-4 周（r9 单人口径）"，改"8-12 轮 AI 迭代（r10）"+ 加口径说明段，消除 §9 ↔ §10 的时间估算矛盾（复审 P1）。 |

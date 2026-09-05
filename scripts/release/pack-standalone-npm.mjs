@@ -285,9 +285,9 @@ async function buildMetaPackage({
     name,
     version,
     description:
-      name === 'volund-cli'
+      name === '@volund/cli'
         ? 'Open, model-agnostic AI coding CLI'
-        : 'Compatibility package for volund-cli; migrate installs to volund-cli',
+        : 'Compatibility package for @volund/cli; migrate installs to @volund/cli',
     ...packageMetadata(),
     bin: { volund: 'bin/volund.cjs' },
     files: ['bin'],
@@ -608,7 +608,7 @@ export async function packStandaloneNpm({
         candidate.identity.version,
       ]),
     )
-    for (const name of ['volund-cli', 'volund-code'])
+    for (const name of ['@volund/cli', 'volund-code'])
       packageInfos.push(
         await buildMetaPackage({
           packagesDirectory,

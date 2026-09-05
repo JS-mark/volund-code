@@ -347,9 +347,9 @@ L1 必须内置以下 slash command：
 ```bash
 pnpm --filter @volund/core test
 pnpm --filter @volund/ui test
-pnpm --filter volund-cli test
-pnpm --filter volund-cli typecheck
-pnpm --filter volund-cli build
+pnpm --filter \@volund/cli test
+pnpm --filter \@volund/cli typecheck
+pnpm --filter \@volund/cli build
 ```
 
 手工：

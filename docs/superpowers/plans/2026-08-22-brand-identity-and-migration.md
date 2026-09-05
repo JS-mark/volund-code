@@ -6,11 +6,11 @@
 >
 > **用途**：记录品牌决策、视觉方向、声明边界、仓库迁移面与验收门。未来再次更名必须经过新的版本化决策，不得把品牌替换和产品能力声明混为一谈。
 
-> **Canonical identity: `Volund CLI` / `Volund`; command: `volund`; npm: `volund-cli` / `@volund/*`; repository/docs slug: `volund-code`.** Full legal and live-registry clearance remain open gates.
+> **Canonical identity: `Volund CLI` / `Volund`; command: `volund`; npm: `\@volund/cli` / `@volund/*`; repository/docs slug: `volund-code`.** Full legal and live-registry clearance remain open gates.
 
 ## 1. 当前品牌状态
 
-当前仓库的用户可见名称、TUI/README/docs 视觉、CLI、npm package graph、home/env、插件契约、wire/schema、native/release 标识与 repository/docs deployment slug 均使用 Volund 命名。代码中出现的 `volund`、`VOLUND_*`、`~/.volund`、`volund-cli`、`@volund/*` 与 `volund-code` 都是当前 canonical identity，不是旧品牌残留。
+当前仓库的用户可见名称、TUI/README/docs 视觉、CLI、npm package graph、home/env、插件契约、wire/schema、native/release 标识与 repository/docs deployment slug 均使用 Volund 命名。代码中出现的 `volund`、`VOLUND_*`、`~/.volund`、`\@volund/cli`、`@volund/*` 与 `volund-code` 都是当前 canonical identity，不是旧品牌残留。
 
 `packages/shared/src/product-identity.ts` 是当前代码级品牌身份真值。生产视觉资产统一使用 **pixel hammer + terminal cutout** 系统，TUI、官网、README、favicon 与 `/volund-mark.svg` 使用同一视觉语言。
 
@@ -63,7 +63,7 @@
 
 - display name / short name：`Volund CLI` / `Volund`；
 - canonical CLI：`volund`；`volund` 在兼容窗口保留；
-- canonical npm meta package：`volund-cli`；canonical workspace/platform scope：`@volund/*`；
+- canonical npm meta package：`\@volund/cli`；canonical workspace/platform scope：`@volund/*`；
 - legacy npm compatibility：`volund-code` 作为生成的 meta shim，解析到相同 `@volund/<triple>` 平台包；
 - repository/docs deployment slug：`volund-code`；GitHub repository 为 `JS-mark/volund-code`，VitePress base 为 `/volund-code/`；
 - production visual mark：pixel hammer + terminal cutout + `>_`；
@@ -478,9 +478,9 @@ Self-Development / Evolution Loop 可使用独立的功能 glyph 或 motion：ca
 | # | Identity field | 当前值 | 目标值 | 状态 |
 |---|---|---|---|---|
 | 1 | display name / short name | volund Code / volund | `Volund CLI` / `Volund` | USER-APPROVED / PHASE A |
-| 2 | machine slug | `volund-code` | `volund-code`（repository/docs deployment slug；npm product name 单独为 `volund-cli`） | IMPLEMENTED / EXTERNAL CLEARANCE PENDING |
+| 2 | machine slug | `volund-code` | `volund-code`（repository/docs deployment slug；npm product name 单独为 `\@volund/cli`） | IMPLEMENTED / EXTERNAL CLEARANCE PENDING |
 | 3 | canonical CLI | `volund` | `volund`；`volund` 保留兼容 alias，移除版本待冻结 | IMPLEMENTED / PHASE A |
-| 4 | npm root / scope | `volund-code`, `@volund-code/*` | `volund-cli`, `@volund/*`；`volund-code` 作为 legacy meta shim | IMPLEMENTED / PHASE B:NPM；REGISTRY CLEARANCE PENDING |
+| 4 | npm root / scope | `volund-code`, `@volund-code/*` | `\@volund/cli`, `@volund/*`；`volund-code` 作为 legacy meta shim | IMPLEMENTED / PHASE B:NPM；REGISTRY CLEARANCE PENDING |
 | 5 | home / env | `~/.volund`, `volund_*` | 待确认；同时冻结读取优先级和迁移规则 | BLOCKED |
 | 6 | repo / docs origin | volund 相关路径与 URL | GitHub `JS-mark/volund-code` + docs base `/volund-code/`；自定义域名仍待确认 | IMPLEMENTED / DOMAIN CLEARANCE PENDING |
 | 7 | native / release IDs | volund 相关标识 | 待确认 | BLOCKED |
@@ -530,8 +530,8 @@ Self-Development / Evolution Loop 可使用独立的功能 glyph 或 motion：ca
 
 ### BRAND-MIGRATE-B · 本地状态与包身份
 
-- **npm 子阶段状态：IMPLEMENTED（live registry/publish 未执行）**。canonical root/meta package 为 `volund-cli`，workspace/platform scope 为 `@volund/*`；manifests、imports、TypeScript paths、lockfile、changesets、standalone packer 与 publish order 已原子迁移；旧 `volund-code` 由同一 pack step 生成 compatibility meta shim；
-- 正式发布前必须验证 `volund-cli` 与 `@volund` 的 registry owner/权限，并在 release approval 下执行 clean-install smoke；本地实现不等于名称已获占用或已发布；
+- **npm 子阶段状态：IMPLEMENTED（live registry/publish 未执行）**。canonical root/meta package 为 `\@volund/cli`，workspace/platform scope 为 `@volund/*`；manifests、imports、TypeScript paths、lockfile、changesets、standalone packer 与 publish order 已原子迁移；旧 `volund-code` 由同一 pack step 生成 compatibility meta shim；
+- 正式发布前必须验证 `\@volund/cli` 与 `@volund` 的 registry owner/权限，并在 release approval 下执行 clean-install smoke；本地实现不等于名称已获占用或已发布；
 - home dir/env/config 为每个 surface 冻结 explicit/default/legacy/conflict precedence matrix：新显式值最高；兼容期内显式 legacy 值不能被任何默认值静默盖掉；新旧显式值冲突必须诊断；credential/trust/signing store 禁止静默合并；每项记录 read/write 行为、移除版本、rollback 与测试；
 - 迁移必须可重复、可恢复、保留备份与诊断，禁止 startup 静默破坏性 rewrite；
 - plugin manifest v1 仅允许 parse、inspect、diagnose 和 migrate，P0 deny-only activation 永远不能因品牌兼容而重开；v2 采用 brand-neutral contract，不因改名改变 digest 语义。
@@ -561,7 +561,7 @@ Self-Development / Evolution Loop 可使用独立的功能 glyph 或 motion：ca
 | Docs 视觉规范 | `docs/superpowers/specs/2026-07-31-volund-code-design/13-docs-site.md` | 废止 volund 太阳语义，改为新 identity system；同步实际 docs origin |
 | Docs theme | `apps/docs/.vitepress/theme/custom.css` | token 化，不靠全局字符串替换 |
 | CLI identity | `apps/cli/src/command.ts`, `apps/cli/package.json`, `apps/cli/rolldown.config.mjs` | 新 binary + compatibility alias + help/version/build contract |
-| npm packages | root/package manifests、lockfile、changesets、`scripts/pack-standalone-npm.mjs`、`publish-npm.yml` | canonical `volund-cli` / `@volund/*` 已落地；生成 `volund-code` legacy meta shim；live registry clearance 与真实 publish 仍待人工门禁 |
+| npm packages | root/package manifests、lockfile、changesets、`scripts/pack-standalone-npm.mjs`、`publish-npm.yml` | canonical `\@volund/cli` / `@volund/*` 已落地；生成 `volund-code` legacy meta shim；live registry clearance 与真实 publish 仍待人工门禁 |
 | Home/config/env | `apps/cli/src/runtime.ts`, `apps/cli/src/trust.ts`, `packages/native-bridge/src/resolver.ts` | 覆盖 `VOLUND_HOME`, `~/.volund`, `.volund/config.toml`, `VOLUND_BUILD_*`, `VOLUND_NATIVE_*` 等；明确 precedence、diagnostic、backup 和 rollback |
 | Operational locks | `.volundlock`, `.volund-tmp`, `.volundignore` | 新旧客户端共存时锁必须共享，不能因改名造成并发写穿；ignore/temp 需显式迁移 |
 | Plugin contracts | `packages/plugin-sdk`, `packages/plugin-runtime`, `crates/volund-sandbox/src/plugin_host.mjs` | v1 `volund-plugin-*`、`engines.volund`、`permissions.volund`、`volund.` RPC 冻结；v2 brand-neutral + re-sign/re-auth |
@@ -599,7 +599,7 @@ Self-Development / Evolution Loop 可使用独立的功能 glyph 或 motion：ca
 
 pixel hammer 已得到用户确认，Phase A 不再等待 Logo 评审。当前品牌的下一个高价值决策是：
 
-> 为 full identity clearance 指定 owner，完成 `volund-cli` / `@volund` registry ownership 复核，并确认 home/env、自定义域名迁移策略及 `volund`/`volund-code` alias 的移除版本。
+> 为 full identity clearance 指定 owner，完成 `\@volund/cli` / `@volund` registry ownership 复核，并确认 home/env、自定义域名迁移策略及 `volund`/`volund-code` alias 的移除版本。
 
 `ReasonBound Code` 的“保留”状态与下一轮 archetype wordmark prototype 都不自动授权正式 clearance、生产 Logo、package、CLI、home、env、wire 或 signing identity 迁移；完整 identity tuple 仍需在 `BRAND-FREEZE` 人工签收。
 

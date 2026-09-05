@@ -318,10 +318,10 @@ export async function runTemporaryRegistryNpxE2E({
         runNodeCli(
           nodeExecutable,
           npxCli,
-          ['--yes', '--registry', registry, `volund-cli@${version}`, ...args],
+          ['--yes', '--registry', registry, `@volund/cli@${version}`, ...args],
           { env: npxEnvironment },
         ),
-        `npx volund-cli ${args.join(' ')}`,
+        `npx @volund/cli ${args.join(' ')}`,
       )
     const versionRun = npx(['--version'])
     if (!versionRun.stdout.includes(version))
@@ -347,7 +347,7 @@ export async function runTemporaryRegistryNpxE2E({
           '--omit=optional',
           '--registry',
           registry,
-          `volund-cli@${version}`,
+          `@volund/cli@${version}`,
         ],
         {
           cwd: omitted,
@@ -363,7 +363,7 @@ export async function runTemporaryRegistryNpxE2E({
     )
     const missingOptional = runNodeCli(
       nodeExecutable,
-      join(omitted, 'node_modules/volund-cli/bin/volund.cjs'),
+      join(omitted, 'node_modules/@volund/cli/bin/volund.cjs'),
       ['--version'],
       { cwd: omitted },
     )

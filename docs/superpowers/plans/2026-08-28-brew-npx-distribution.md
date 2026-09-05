@@ -2,11 +2,11 @@
 
 > **状态**：DESIGN READY / IMPLEMENTATION PARTIAL / NOT PUBLISHED
 >
-> **目标**：让用户可以通过 `npx --yes volund-cli@latest` 零安装运行，或通过 `brew install JS-mark/tap/volund` 持久安装；两个渠道必须消费同一 tag、同一版本、同一组已校验 standalone 产物。
+> **目标**：让用户可以通过 `npx --yes \@volund/clilatest` 零安装运行，或通过 `brew install JS-mark/tap/volund` 持久安装；两个渠道必须消费同一 tag、同一版本、同一组已校验 standalone 产物。
 >
 > **边界**：本文只授权完善设计和后续仓库内实现，不授权注册 npm scope、创建 Homebrew tap、发布 npm 包、创建 tag/GitHub Release、签名、公证或上传外部渠道。
 >
-> **品牌真值**：display=`Volund CLI`，command=`volund`，npm meta=`volund-cli`，platform scope=`@volund/*`，repository=`volund-code`，Homebrew formula token=`volund`。
+> **品牌真值**：display=`Volund CLI`，command=`volund`，npm meta=`\@volund/cli`，platform scope=`@volund/*`，repository=`volund-code`，Homebrew formula token=`volund`。
 
 ## 1. 结论
 
@@ -16,13 +16,13 @@
 
 ```sh
 # 零安装；需要 Node.js/npm
-npx --yes volund-cli@latest --help
+npx --yes \@volund/clilatest --help
 
 # 可复现运行；文档、CI、issue 复现优先使用固定版本
-npx --yes volund-cli@<version> --version
+npx --yes \@volund/cli<version> --version
 
 # npm 持久安装
-npm install --global volund-cli@latest
+npm install --global \@volund/clilatest
 volund --version
 
 # Homebrew 一条命令直接安装 tap 中的 formula；不需要 Node.js
@@ -37,13 +37,13 @@ volund --version
 | 能力 | 当前证据 | 判定 |
 |---|---|---|
 | CLI standalone | `scripts/release/build-standalone.mjs`、`scripts/release/build-all-standalone.mjs` 可组装 7 个 Bun executable target | local code exists |
-| npm 包图 | `scripts/release/pack-standalone-npm.mjs` 生成 `volund-cli`、legacy `volund-code` 和 `@volund/<triple>` | local code exists |
+| npm 包图 | `scripts/release/pack-standalone-npm.mjs` 生成 `\@volund/cli`、legacy `volund-code` 和 `@volund/<triple>` | local code exists |
 | npx 入口 | meta package 有唯一 `bin: { volund: bin/volund.cjs }`；npm/npx 会选择唯一 bin | structurally ready |
 | 壳转发 | 当前测试覆盖 platform package 解析、argv 与 exit code 转发 | unit/integration partial |
 | npm 发布 | `.github/workflows/publish-npm.yml` 可手动 dispatch，带 provenance | configured, not closed-loop |
 | GitHub Release | `.github/workflows/native.yml` 构建 standalone archives 并上传 | configured, external gates blocked |
 | Homebrew | 旧 HEAD 曾有 blocked dry-run Formula 生成器；当前工作树正在删除该 placeholder 体系 | no production path |
-| npm registry | 2026-08-28 只读查询：`volund-cli`、`volund-code`、`@volund/darwin-arm64` 均返回 404 | not published / ownership unverified |
+| npm registry | 2026-08-28 只读查询：`\@volund/cli`、`volund-code`、`@volund/darwin-arm64` 均返回 404 | not published / ownership unverified |
 | Homebrew tap | 2026-08-28 只读查询：`JS-mark/homebrew-tap` 返回 404 | tap does not exist |
 | 发布资格 | `docs/releases/L2-RELEASE-CHECKLIST.md` 仍有 real hardware、production signing、Apple notarization 和 publication human gates | BLOCKED |
 
@@ -149,7 +149,7 @@ immutable tag vX.Y.Z + exact commit
               ├──────────────► GitHub Release/manual download
               │
               ├─ verify + extract ─► @volund/<triple>
-              │                     └─► volund-cli meta ─► npx/npm
+              │                     └─► \@volund/cli meta ─► npx/npm
               │
               └─ URL + sha256 ─────► Formula/volund.rb ─► Homebrew tap
 ```
@@ -198,13 +198,13 @@ immutable tag vX.Y.Z + exact commit
 - 先验证全部 digest，再解包到 platform staging；禁止在 pack/publish 阶段运行 Bun 或 Cargo。
 - production 精确验证 7-target set。
 - meta package 的 `engines.node` 与文档统一为 `>=20.19.0`；Homebrew binary 不声明 Node 依赖。
-- meta package 保留一个 `bin`：`volund`。单一 bin 保证 `npx volund-cli` 可由 npm exec 规则确定执行项。
+- meta package 保留一个 `bin`：`volund`。单一 bin 保证 `npx \@volund/cli` 可由 npm exec 规则确定执行项。
 - 输出 `publish-plan.json` 和每个 package 的 tarball digest。
 
 #### NPM-02 · 修复发布顺序与幂等性
 
 - 修改 `.github/workflows/publish-npm.yml`，从 `publish-plan.json` 逐项发布。
-- 顺序：全部 `@volund/<triple>` → `volund-cli` → `volund-code` compatibility package。
+- 顺序：全部 `@volund/<triple>` → `\@volund/cli` → `volund-code` compatibility package。
 - 每次 publish 前执行 registry read：
   - 不存在：允许进入下一步；
   - 已存在且 tarball/integrity 相同：视为幂等重试；
@@ -221,7 +221,7 @@ immutable tag vX.Y.Z + exact commit
 3. temporary registry E2E：在 CI 临时 registry 中按真实顺序发布，然后执行：
 
    ```sh
-   npx --yes --registry <temporary-registry> volund-cli@<version> --version
+   npx --yes --registry <temporary-registry> \@volund/cli<version> --version
    ```
 
 4. wrapper contract：argv（空格/Unicode/`--`）、stdin/stdout/stderr、exit code、SIGINT/SIGTERM、缺失 optional dependency、unsupported platform、`--omit=optional` 错误提示。

@@ -18,7 +18,7 @@
 1. **L1: 4-target 全覆盖**（mac/linux）：`aarch64-apple-darwin` / `x86_64-apple-darwin` / `aarch64-unknown-linux-gnu` / `x86_64-unknown-linux-gnu` **每一个都必须在 L1 交付可用的沙箱**。
 2. **L2: 扩至 6-target 全覆盖**（补 Windows）：`aarch64-pc-windows-msvc` / `x86_64-pc-windows-msvc` 在 L2 交付（Windows Tier 1 Job+Restricted Token 起步）。
 3. **musl 双 target L2 同发**（r9 调整，从 L1 推 L2）：`aarch64-unknown-linux-musl` / `x86_64-unknown-linux-musl` L2 起同期发布（Alpine / static container 用户）。
-4. **零系统工具依赖**（r3 修订）：用户 `npm i -g volund-cli` 后**不需要额外装任何系统工具**。沙箱所需的一切（包括 Linux 上的 bwrap）**都随 Volund CLI standalone 布局自带**：bundled bwrap 二进制在编译时嵌入、运行时 SHA256 校验后执行（fork 自 codex 的机制）。这不是"shell out 到系统 bwrap"——用户无需 `apt install bubblewrap`。兼容窗口内旧 `volund-code` meta 包解析到相同 `@volund/<triple>` 平台布局。
+4. **零系统工具依赖**（r3 修订）：用户 `npm i -g \@volund/cli` 后**不需要额外装任何系统工具**。沙箱所需的一切（包括 Linux 上的 bwrap）**都随 Volund CLI standalone 布局自带**：bundled bwrap 二进制在编译时嵌入、运行时 SHA256 校验后执行（fork 自 codex 的机制）。这不是"shell out 到系统 bwrap"——用户无需 `apt install bubblewrap`。兼容窗口内旧 `volund-code` meta 包解析到相同 `@volund/<triple>` 平台布局。
 5. **一等公民**：沙箱是 Volund CLI 的核心卖点，与 §4 权限体系正交但同等重要；**L1 聚焦 mac/linux 4 target 先把核心 loop 跑通，Windows/musl L2 补齐**（r9 调整：非"某平台永久 no-sandbox"，而是分里程碑交付）。
 6. **每 target 真机沙箱逃逸测试**：CI 必须能验证"沙箱确实拒绝了 fs.read/write/net"，仅编译通过不算合格（L1 跑 4 target，L2 跑全 8）。
 

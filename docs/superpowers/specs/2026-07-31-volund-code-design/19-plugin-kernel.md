@@ -10,7 +10,7 @@
 >
 > **目标产品原则：Everything extensible is a plugin; the security kernel is not.**
 >
-> 本节是 §4、§5、§6 与 §18 之间的新架构总约束。它取代“把所有东西，包括安全边界本身，都做成可替换插件”的字面理解。Canonical display identity 已冻结为 **Volund CLI**，canonical CLI/npm identity 为 `volund`、`volund-cli` 与 `@volund/*`；本节不重新决定品牌，也不授权迁移 home/env、wire/schema、native/release 或 signing identity。
+> 本节是 §4、§5、§6 与 §18 之间的新架构总约束。它取代“把所有东西，包括安全边界本身，都做成可替换插件”的字面理解。Canonical display identity 已冻结为 **Volund CLI**，canonical CLI/npm identity 为 `volund`、`\@volund/cli` 与 `@volund/*`；本节不重新决定品牌，也不授权迁移 home/env、wire/schema、native/release 或 signing identity。
 
 ### 19.0 落地状态（2026-09-05，kernel 化改造 S0/S1/G）
 
@@ -408,7 +408,7 @@ Fault matrix覆盖PREPARED/OPEN/checkpoint/ANCHORED/FINALIZED每个crash/respons
 
 在 legal/domain/registry clearance 全部关闭前：
 
-- 当前文档统一使用 **Volund CLI**、`volund`、`volund-cli` 与 `@volund/*`；legacy `volund`/`volund-code` 只在兼容说明中出现。
+- 当前文档统一使用 **Volund CLI**、`volund`、`\@volund/cli` 与 `@volund/*`；legacy `volund`/`volund-code` 只在兼容说明中出现。
 - 新 manifest schema 使用品牌无关字段和 namespace，避免下一次品牌迁移改变 evidence digest 语义。
 - 不把 “secure” 当绝对保证；对外声明必须附 supported platform/tier 和 known limitations。
 

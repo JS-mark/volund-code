@@ -81,7 +81,7 @@ volund-code.dev/
 │         Own your terminal. Choose your model.                         │  ← Sub-h
 │                                                                       │
 │         ┌─────────────────────────────────────────────┐              │
-│         │ $ npm install -g volund-cli                 │  ← One-liner  │
+│         │ $ npm install -g @volund/cli               │  ← One-liner  │
 │         │ $ volund                                     │     copyable │
 │         └─────────────────────────────────────────────┘              │
 │                                                                       │
@@ -108,7 +108,7 @@ volund-code.dev/
 │                    From 0 to productive in 3 steps                    │
 │                                                                       │
 │   1. Install         2. Login                 3. Ask                  │
-│   npm i -g volund-cli   volund login anthropic   volund "fix this bug" │
+│   npm i -g @volund/cli volund login anthropic   volund "fix this bug" │
 │                                                                       │
 ├───────────────────────────────────────────────────────────────────────┤
 │                        See it in action                                │

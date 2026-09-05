@@ -11,7 +11,7 @@ node apps/cli/dist/volund.js --help
 
 The source bundle keeps the legacy `dist/volund.js` filename during the compatibility window. Published packages expose `volund` as the canonical executable and retain `volund` as an alias.
 
-The canonical npm package is `volund-cli`; platform artifacts use the `@volund/*` scope. The legacy `volund-code` package is generated only as a compatibility meta package. Registry ownership and the first public version still require release approval.
+The canonical npm package is `@volund/cli`; platform artifacts use the `@volund/*` scope. The legacy `volund-code` package is generated only as a compatibility meta package. Registry ownership and the first public version still require release approval.
 
 Do not treat the draft `0.0.0` workspace version as a released package. Official install instructions will name the first published version and tag after human approval.
 

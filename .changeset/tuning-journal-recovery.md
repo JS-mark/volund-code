@@ -1,6 +1,6 @@
 ---
 '@volund/core': minor
-'volund-cli': minor
+'@volund/cli': minor
 '@volund/shared': minor
 '@volund/storage': minor
 ---

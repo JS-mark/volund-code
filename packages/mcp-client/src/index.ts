@@ -175,7 +175,7 @@ export class HttpSseTransport implements McpTransport {
         params: {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: 'volund-cli', version: '0.0.0' },
+          clientInfo: { name: '@volund/cli', version: '0.0.0' },
         },
       }),
       signal: this.#abort!.signal,
@@ -364,7 +364,7 @@ export class McpClient {
     this.#adapter.onUnderlyingClose = (error) => this.options.onClose?.(error)
     this.#adapter.onerror = (error) =>
       this.options.onDiagnostics?.({ level: 'error', code: 'transport', message: error.message })
-    this.#client = new Client({ name: 'volund-cli', version: '0.0.0' })
+    this.#client = new Client({ name: '@volund/cli', version: '0.0.0' })
   }
   async initialize(): Promise<{ protocolVersion?: string; serverInfo?: unknown }> {
     await this.#client.connect(this.#adapter)
