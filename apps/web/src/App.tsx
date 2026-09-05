@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { Bootstrap, BrowserSession, SessionSummary, StatusView } from './api'
 import { exchangeNonce, WebApi } from './api'
+import { Chat } from './Chat'
 
-type Route = 'sessions' | 'status'
+type Route = 'chat' | 'sessions' | 'status'
 
 interface Loaded {
   api: WebApi
   bootstrap: Bootstrap
   sessions: readonly SessionSummary[]
   status: StatusView | undefined
+  activeId: string | undefined
 }
 
 export function App() {
@@ -27,10 +29,15 @@ export function App() {
         const bootstrap = await api.bootstrap()
         const sessions = await api.sessions().catch(() => [] as const)
         const status = await api.status().catch(() => undefined)
+        const active = await api.activeSession().catch(() => undefined)
+        const activeId = active?.active?.id
         api.events((kind) => {
           if (kind === 'control') setConnected(true)
         })
-        if (!cancelled) setLoaded({ api, bootstrap, sessions, status })
+        if (!cancelled) {
+          setLoaded({ api, bootstrap, sessions, status, activeId })
+          setRoute(activeId ? 'chat' : 'sessions')
+        }
       } catch (cause) {
         if (!cancelled)
           setError({
@@ -43,6 +50,23 @@ export function App() {
       cancelled = true
     }
   }, [])
+
+  const resume = useCallback(
+    async (id: string) => {
+      if (!loaded) return
+      try {
+        await loaded.api.resumeSession(id)
+        setLoaded({ ...loaded, activeId: id })
+        setRoute('chat')
+      } catch (cause) {
+        setError({
+          code: (cause as { code?: string }).code ?? 'unknown',
+          message: cause instanceof Error ? cause.message : String(cause),
+        })
+      }
+    },
+    [loaded],
+  )
 
   if (error)
     return (
@@ -61,7 +85,7 @@ export function App() {
       </main>
     )
 
-  const { bootstrap, sessions, status } = loaded
+  const { bootstrap, sessions, status, activeId } = loaded
   return (
     <div className="shell">
       <header>
@@ -72,19 +96,24 @@ export function App() {
       </header>
       <div className="body">
         <nav>
+          <button className={route === 'chat' ? 'active' : ''} onClick={() => setRoute('chat')}>
+            对话{activeId ? ' ●' : ''}
+          </button>
           <button
             className={route === 'sessions' ? 'active' : ''}
             onClick={() => setRoute('sessions')}
           >
-            会话
+            会话列表
           </button>
           <button className={route === 'status' ? 'active' : ''} onClick={() => setRoute('status')}>
             状态
           </button>
         </nav>
         <main>
-          {route === 'sessions' ? (
-            <Sessions sessions={sessions} />
+          {route === 'chat' ? (
+            <Chat key={activeId ?? 'new'} api={loaded.api} cwd={bootstrap.workspace.cwd} />
+          ) : route === 'sessions' ? (
+            <Sessions sessions={sessions} activeId={activeId} onResume={(id) => void resume(id)} />
           ) : (
             <StatusView_ status={status} />
           )}
@@ -94,18 +123,35 @@ export function App() {
   )
 }
 
-function Sessions({ sessions }: { sessions: readonly SessionSummary[] }) {
+function Sessions({
+  sessions,
+  activeId,
+  onResume,
+}: {
+  sessions: readonly SessionSummary[]
+  activeId: string | undefined
+  onResume: (id: string) => void
+}) {
   if (sessions.length === 0)
-    return <p className="muted">暂无会话。TUI 中开始的会话会出现在这里（Web 对话在 P3 落地）。</p>
+    return <p className="muted">暂无会话。到「对话」页创建新会话开始使用。</p>
   return (
     <section>
       <h2>会话（{sessions.length}）</h2>
       <ul className="sessions">
         {sessions.map((session) => (
           <li key={session.id}>
-            <div className="title">{session.title}</div>
-            <div className="muted">
-              {session.id.slice(0, 8)} · {session.cwd}
+            <div className="row">
+              <div>
+                <div className="title">{session.title}</div>
+                <div className="muted">
+                  {session.id.slice(0, 8)} · {session.cwd}
+                </div>
+              </div>
+              {session.id === activeId ? (
+                <span className="ok">当前</span>
+              ) : (
+                <button onClick={() => onResume(session.id)}>恢复</button>
+              )}
             </div>
           </li>
         ))}

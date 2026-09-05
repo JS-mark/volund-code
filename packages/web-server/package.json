@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./session-hub": {
+      "types": "./dist/session-hub.d.ts",
+      "default": "./dist/session-hub.js"
     }
   },
   "scripts": {

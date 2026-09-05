@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { standaloneArtifactDir } from '@volund/native-bridge'
 import { createWebServer } from '@volund/web-server'
 import type { WebServerHandle } from '@volund/web-server'
+import { SessionHub } from '@volund/web-server/session-hub'
 
 import type { VolundPorts } from './ports'
 
@@ -48,10 +49,13 @@ export interface WebServeInput {
 export function createWebPort(ports: VolundPorts): NonNullable<VolundPorts['web']> {
   return {
     async serve({ cwd, port, open, onReady }) {
+      // P3：会话枢纽——CoreEvent 透传 + 权限审批队列的权威状态源。
+      const sessionHub = new SessionHub({ session: ports.session })
       const handle = await createWebServer({
         host: '127.0.0.1',
         port,
         staticDir: webAssetDir(),
+        sessionHub,
         ports: {
           identity: ports.identity,
           cwd,

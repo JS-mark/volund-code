@@ -116,3 +116,158 @@ td {
 h2 {
   font-size: 15px;
 }
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.chat-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.chat-head .ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+.message {
+  max-width: 80%;
+}
+.message .role {
+  font-size: 11px;
+  color: var(--muted);
+  display: block;
+}
+.message.user {
+  align-self: flex-end;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px 10px 2px 10px;
+  padding: 8px 12px;
+}
+.message.assistant {
+  align-self: flex-start;
+}
+.message.system {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cursor {
+  animation: blink 1s steps(1) infinite;
+  color: var(--accent);
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.tool {
+  font-size: 12px;
+  color: var(--muted);
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+.tool.running {
+  border-left-color: var(--warn);
+}
+.tool.error {
+  border-left-color: #f85149;
+}
+.tool.done {
+  border-left-color: var(--ok);
+}
+.permission {
+  background: var(--panel);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.permission pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.permission .actions {
+  display: flex;
+  gap: 8px;
+}
+.composer {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.composer textarea {
+  flex: 1;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  resize: none;
+  height: 72px;
+}
+.composer button {
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #0d1117;
+  font-weight: 600;
+  cursor: pointer;
+}
+.composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.composer button.danger {
+  background: #f85149;
+  color: #fff;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.row button {
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+button {
+  font: inherit;
+}
+section button {
+  background: var(--accent);
+  color: #0d1117;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+section button:disabled {
+  opacity: 0.5;
+}

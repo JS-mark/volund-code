@@ -17,6 +17,8 @@ import { createServer } from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 
+import { SessionHub } from './session-hub'
+
 /** §22.8.2 之外的管理面宿主端口的最小结构面（由 apps/cli 用真实 VolundPorts 装配）。 */
 export interface WebRuntimePorts {
   readonly identity: { readonly version: string }
@@ -47,6 +49,8 @@ export interface WebServerOptions {
   /** 测试注入：会话有效期（默认 12h）与 nonce 有效期（默认 5min）。 */
   readonly sessionTtlMs?: number
   readonly nonceTtlMs?: number
+  /** P3：会话枢纽（存在即开放会话写端点；§22.3.4 诚实能力面）。 */
+  readonly sessionHub?: SessionHub
 }
 
 export interface WebServerHandle {
@@ -112,6 +116,23 @@ function ok(res: ServerResponse, data: unknown): void {
     'Content-Length': Buffer.byteLength(body),
   })
   res.end(body)
+}
+
+/** 域错误的统一映射：带 code 的错误按语义取状态码，其余 500。 */
+function failFrom(res: ServerResponse, cause: unknown): void {
+  const code = (cause as { code?: string } | undefined)?.code
+  const message = cause instanceof Error ? cause.message : String(cause)
+  const status =
+    code === 'web_session_invalid'
+      ? 409
+      : code === 'session_turn_in_progress'
+        ? 409
+        : code === 'session_id_invalid'
+          ? 400
+          : code === 'session_not_found'
+            ? 404
+            : 500
+  fail(res, status, { code: code ?? 'internal_error', message })
 }
 
 /** 常量时间比较（nonce/CSRF/session id 全走这里）。 */
@@ -317,6 +338,91 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       return
     }
 
+    // ── P3 会话生命周期（sessionHub 存在才开放；能力诚实降级）──────────────
+    const hub = options.sessionHub
+    if (hub && path === '/api/v1/sessions/active' && req.method === 'GET') {
+      ok(res, { active: hub.active ?? null, pendingPermissions: hub.pendingPermissionIds() })
+      return
+    }
+    if (hub && path === '/api/v1/sessions' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const cwd = (body as { cwd?: unknown })?.cwd
+      if (typeof cwd !== 'string' || !cwd) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'cwd is required' })
+        return
+      }
+      try {
+        ok(res, await hub.start({ cwd }))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (hub && path === '/api/v1/sessions/resume' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const id = (body as { id?: unknown })?.id
+      if (typeof id !== 'string' || !id) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'id is required' })
+        return
+      }
+      try {
+        ok(res, await hub.resume(id))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (hub && path === '/api/v1/sessions/active/transcript' && req.method === 'GET') {
+      ok(res, hub.transcript())
+      return
+    }
+    if (hub && path === '/api/v1/sessions/active/turns' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const prompt = (body as { prompt?: unknown })?.prompt
+      const model = (body as { model?: unknown })?.model
+      if (typeof prompt !== 'string' || !prompt.trim()) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'prompt is required' })
+        return
+      }
+      try {
+        const accepted = await hub.submit({
+          prompt,
+          ...(typeof model === 'string' && model ? { model } : {}),
+        })
+        res.writeHead(202, {
+          ...SECURITY_HEADERS,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Length': Buffer.byteLength(JSON.stringify({ data: { accepted } })),
+        })
+        res.end(JSON.stringify({ data: { accepted } }))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (hub && path === '/api/v1/sessions/active/interrupt' && req.method === 'POST') {
+      await hub.interrupt()
+      ok(res, { interrupted: true })
+      return
+    }
+    if (hub && path === '/api/v1/sessions/active/end' && req.method === 'POST') {
+      await hub.closeActive()
+      ok(res, { ended: true })
+      return
+    }
+    if (hub && path === '/api/v1/permissions/decide' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const requestId = (body as { requestId?: unknown })?.requestId
+      const kind = (body as { kind?: unknown })?.kind
+      if (typeof requestId !== 'string' || typeof kind !== 'string') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'requestId and kind are required' })
+        return
+      }
+      ok(res, { decided: hub.decide(requestId, kind) })
+      return
+    }
+
     if (path === '/api/v1/events' && req.method === 'GET') {
       res.writeHead(200, {
         ...SECURITY_HEADERS,
@@ -329,7 +435,21 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       res.write(
         `event: control\ndata: ${JSON.stringify({ kind: 'hello', serverId, cursor: '0' })}\n\n`,
       )
-      req.on('close', () => sseClients.delete(client))
+      // P3：订阅会话枢纽（core/view 信封透传）；hub 未装配时只有心跳。
+      const unsubscribe =
+        options.sessionHub?.subscribe((envelope) => {
+          if (client.queue.length >= SSE_MAX_QUEUE) {
+            client.res.end()
+            sseClients.delete(client)
+            return
+          }
+          const channel = envelope.kind === 'control' ? 'control' : envelope.kind
+          client.res.write(`event: ${channel}\ndata: ${JSON.stringify(envelope)}\n\n`)
+        }) ?? (() => {})
+      req.on('close', () => {
+        unsubscribe()
+        sseClients.delete(client)
+      })
       return
     }
 

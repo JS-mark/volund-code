@@ -59,8 +59,86 @@ export interface StatusView {
   [key: string]: unknown
 }
 
+export interface ActiveSession {
+  active: { id: string; cwd?: string } | null
+  pendingPermissions: string[]
+}
+
+export interface TranscriptEntry {
+  id: string
+  role: 'assistant' | 'system' | 'user'
+  text: string
+}
+
 export class WebApi {
   constructor(private readonly session: BrowserSession) {}
+
+  // ── P3 会话生命周期 ────────────────────────────────────────────────
+  async activeSession(): Promise<ActiveSession> {
+    return parseResponse(await fetch('/api/v1/sessions/active'))
+  }
+  async startSession(cwd: string): Promise<{ id: string }> {
+    return parseResponse(
+      await fetch('/api/v1/sessions', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ cwd }),
+      }),
+    )
+  }
+  async resumeSession(id: string): Promise<{ id: string }> {
+    return parseResponse(
+      await fetch('/api/v1/sessions/resume', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ id }),
+      }),
+    )
+  }
+  async transcript(): Promise<{
+    id?: string
+    cwd?: string
+    transcript: readonly TranscriptEntry[]
+  }> {
+    return parseResponse(await fetch('/api/v1/sessions/active/transcript'))
+  }
+  async submitTurn(prompt: string, model?: string): Promise<void> {
+    const res = await fetch('/api/v1/sessions/active/turns', {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ prompt, ...(model ? { model } : {}) }),
+    })
+    if (res.status === 409) {
+      const body = (await res.json()) as { error?: ApiError }
+      throw Object.assign(new Error(body.error?.message ?? 'turn in progress'), {
+        code: body.error?.code ?? 'turn_in_progress',
+      })
+    }
+    await parseResponse(res)
+  }
+  async interrupt(): Promise<void> {
+    await parseResponse(
+      await fetch('/api/v1/sessions/active/interrupt', { method: 'POST', headers: this.headers() }),
+    )
+  }
+  async endSession(): Promise<void> {
+    await parseResponse(
+      await fetch('/api/v1/sessions/active/end', { method: 'POST', headers: this.headers() }),
+    )
+  }
+  async decidePermission(requestId: string, kind: string): Promise<void> {
+    await parseResponse(
+      await fetch('/api/v1/permissions/decide', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ requestId, kind }),
+      }),
+    )
+  }
+
+  private headers(): Record<string, string> {
+    return { 'Content-Type': 'application/json', 'X-Volund-Csrf': this.session.csrfToken }
+  }
 
   async bootstrap(): Promise<Bootstrap> {
     return parseResponse(await fetch('/api/v1/bootstrap'))
