@@ -16,7 +16,7 @@ import {
   scanSessionFile,
   scanSessionsDir,
   type SessionScan,
-} from './stats'
+} from './session-stats'
 
 const dirs: string[] = []
 afterEach(async () => {

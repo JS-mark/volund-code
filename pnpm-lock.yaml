@@ -231,12 +231,18 @@ importers:
       '@cordisjs/core':
         specifier: 'catalog:'
         version: 3.18.1
+      '@volund/config':
+        specifier: workspace:*
+        version: link:../config
       '@volund/core':
         specifier: workspace:*
         version: link:../core
       '@volund/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@volund/native-bridge':
+        specifier: workspace:*
+        version: link:../native-bridge
       '@volund/permission':
         specifier: workspace:*
         version: link:../permission

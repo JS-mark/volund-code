@@ -1,3 +1,5 @@
+// renderSandboxDisclosure 的参数类型；权威定义在 @volund/app-runtime/status-view（P1-04a）。
+import type { SandboxDisclosure } from '@volund/app-runtime/status-view'
 import { productIdentity } from '@volund/shared'
 
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
@@ -141,12 +143,8 @@ export class PluginUiRegistry {
     this.#items.delete(plugin)
   }
 }
-export interface SandboxDisclosure {
-  tier: SandboxTier
-  mechanism: string
-  features: { filesystem: boolean; network: boolean }
-  degradationReasons: readonly string[]
-}
+// SandboxDisclosure 已迁至 @volund/app-runtime/status-view（P1-04a）；re-export 保持兼容。
+export type { SandboxDisclosure } from '@volund/app-runtime/status-view'
 
 export interface TelemetryPanelState {
   samples: number

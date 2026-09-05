@@ -15,6 +15,17 @@ import { BusService, Context, ModelService, SessionService, UiService } from '@v
 
 export { Context }
 export * from './contracts'
+export * from './status-view'
+export * from './welcome'
+export { buildStatusViewModel, createStatusSnapshotAdapter, runtimeStatusData } from './status'
+export type {
+  StatusPluginTabLike,
+  StatusRuntimeOptions,
+  StatusSnapshotAdapterOptions,
+  StatusViewModelInput,
+} from './status'
+export { buildStatsData, buildUsageData, scanSessionFile, scanSessionsDir } from './session-stats'
+export type { SessionScan } from './session-stats'
 export {
   createProductionToolPermissionChain,
   PermissionSessionInvariantError,

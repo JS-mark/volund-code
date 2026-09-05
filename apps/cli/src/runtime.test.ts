@@ -15,8 +15,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import {
+  buildStatusViewModel,
   Context,
   createProductionToolPermissionChain,
+  createStatusSnapshotAdapter,
   ProductionPermissionSessionPolicy,
   requestPermission,
   SessionController,
@@ -37,13 +39,11 @@ import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import {
-  buildStatusViewModel,
   collectPluginSkillDirs,
   createPluginMemoryHost,
   createProductionPorts,
   NodeHttpPort,
   resetProxyTlsCache,
-  createStatusSnapshotAdapter,
   FileInputHistoryStore,
   expandEnvValue,
   languagePromptFragment,
