@@ -239,7 +239,7 @@ Current planning and evidence are maintained in:
 - [release readiness evidence](docs/releases/);
 - the [capability traceability document](docs/superpowers/specs/2026-07-31-volund-code-design/16-capability-traceability.md).
 
-Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
+Plugins are first-class runtime extensions: sandboxed plugins contribute tools, hooks, prompt fragments, and session-event subscriptions into the kernel service tree, and the built-in tool set ships as three first-party domains (`volund.core-tools`, `volund.exec`, `volund.orchestration`) that are visible and toggleable via `/plugins` or `volund plugins builtin --enable/--disable <id>`. A complete, tested example plugin covering every contribution surface (tools, hooks, prompts, session events, commands) lives at [examples/plugins/volund-plugin-demo](examples/plugins/volund-plugin-demo/). Notably, registry/GitHub plugin installation, plugin upgrades, and the L4 development hot-reload command are not implemented yet.
 
 ## Contributing and support
 
