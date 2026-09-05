@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { serializeToml } from '@volund/app-runtime'
 import { parseTomlFile } from '@volund/config'
 import {
   generalizePermissionSpec,
@@ -11,8 +12,6 @@ import {
   type PermissionSpec,
 } from '@volund/permission'
 import type { JsonValue, Logger } from '@volund/shared'
-
-import { serializeToml } from '@volund/app-runtime'
 
 // PermissionRuleScope/PermissionRuleSource 契约已迁至 @volund/app-runtime（P1-05）；
 // 此处 re-export 保持既有引用兼容。

@@ -231,6 +231,9 @@ importers:
       '@cordisjs/core':
         specifier: 'catalog:'
         version: 3.18.1
+      '@volund/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@volund/config':
         specifier: workspace:*
         version: link:../config
@@ -240,6 +243,9 @@ importers:
       '@volund/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@volund/mcp-client':
+        specifier: workspace:*
+        version: link:../mcp-client
       '@volund/native-bridge':
         specifier: workspace:*
         version: link:../native-bridge

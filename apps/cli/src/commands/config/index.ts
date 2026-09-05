@@ -2,10 +2,10 @@ import { spawnSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { serializeToml } from '@volund/app-runtime'
 import type { JsonValue } from '@volund/shared'
 
 import { getConfigValue } from '../../config-edit'
-import { serializeToml } from '@volund/app-runtime'
 import type { CliIo, CommandDefinition } from '../../shared/cli-types'
 
 /**
