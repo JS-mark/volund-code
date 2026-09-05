@@ -252,6 +252,9 @@ importers:
       '@volund/shared':
         specifier: workspace:*
         version: link:../shared
+      '@volund/skills-runtime':
+        specifier: workspace:*
+        version: link:../skills-runtime
       '@volund/storage':
         specifier: workspace:*
         version: link:../storage

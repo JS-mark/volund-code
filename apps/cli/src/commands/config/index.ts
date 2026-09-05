@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 import type { JsonValue } from '@volund/shared'
 
 import { getConfigValue } from '../../config-edit'
-import { serializeToml } from '../../mcp'
+import { serializeToml } from '@volund/app-runtime'
 import type { CliIo, CommandDefinition } from '../../shared/cli-types'
 
 /**

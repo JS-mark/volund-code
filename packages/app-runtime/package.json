@@ -34,6 +34,7 @@
     "@volund/permission": "workspace:*",
     "@volund/plugin-sdk": "workspace:*",
     "@volund/shared": "workspace:*",
+    "@volund/skills-runtime": "workspace:*",
     "@volund/storage": "workspace:*",
     "@volund/subagent": "workspace:*",
     "@volund/telemetry": "workspace:*",

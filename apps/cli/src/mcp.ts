@@ -1,18 +1,7 @@
-import { execFile } from 'node:child_process'
-import {
-  appendFile,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { promisify } from 'node:util'
 
+import { serializeToml } from '@volund/app-runtime'
 import { parseTomlFile } from '@volund/config'
 import {
   HttpSseTransport,
@@ -676,96 +665,11 @@ export function transportSummary(config: McpServerConfig): string {
 
 // ── mcp.toml 写入面（§S3.7 `volund mcp add/remove`）───────────────────────────
 
-const execFileAsync = promisify(execFile)
-
 /**
  * 通用 TOML 序列化（与 parseTomlFile 的 JSON 值方言配对）：标量/数组以
  * `key = <JSON>` 输出，嵌套对象递归为 `[section.sub]` 表；顶层标量先行。
  * 只覆盖 volund 产出的配置形状（字符串/数字/布尔/数组/嵌套 record）。
  */
-export function serializeToml(config: Record<string, JsonValue>): string {
-  const lines: string[] = []
-  const tables: Array<{ path: string; value: Record<string, JsonValue> }> = []
-  for (const [key, value] of Object.entries(config)) {
-    if (value && typeof value === 'object' && !Array.isArray(value))
-      tables.push({ path: key, value: value as Record<string, JsonValue> })
-    else lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
-  }
-  const emitTable = (path: string, table: Record<string, JsonValue>) => {
-    const scalars = Object.entries(table).filter(
-      ([, value]) => !(value && typeof value === 'object' && !Array.isArray(value)),
-    )
-    const nested = Object.entries(table).filter(
-      ([, value]) => value && typeof value === 'object' && !Array.isArray(value),
-    ) as Array<[string, Record<string, JsonValue>]>
-    if (scalars.length > 0 || nested.length === 0) lines.push('', `[${tomlSectionPath(path)}]`)
-    for (const [key, value] of scalars) lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
-    for (const [key, value] of nested) emitTable(`${path}.${key}`, value)
-  }
-  for (const table of tables) emitTable(table.path, table.value)
-  return `${lines.join('\n').replace(/^\n+/, '')}\n`
-}
-/**
- * TOML 值序列化：标量走 JSON（basic string 转义与 TOML 兼容），嵌套结构产出
- * TOML 内联表/数组（`{ tool = "Bash" }`，`=` 语法）——permissions.toml 的对象
- * 数组必须能被外部 TOML 工具读取，不能落成 JSON 的冒号语法。键序原样保留
- * （grant key 依赖 spec 键序，往返不得规范化）。
- */
-function tomlValue(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map((item) => tomlValue(item)).join(', ')}]`
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value).map(
-      ([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`,
-    )
-    return entries.length > 0 ? `{ ${entries.join(', ')} }` : '{}'
-  }
-  return JSON.stringify(value)
-}
-function tomlKey(key: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)
-}
-/** 表路径按段校验：`mcp_servers.demo.env` 合法（点号是段分隔符，不是 key 字符）。 */
-function tomlSectionPath(path: string): string {
-  return path.split('.').every((segment) => /^[A-Za-z0-9_-]+$/.test(segment))
-    ? path
-    : path
-        .split('.')
-        .map((segment) => (/^[A-Za-z0-9_-]+$/.test(segment) ? segment : JSON.stringify(segment)))
-        .join('.')
-}
-
-async function atomicWrite(path: string, contents: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${process.pid}.tmp`
-  await writeFile(temporary, contents, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporary, path)
-}
-
-async function readTomlOrEmpty(path: string): Promise<Record<string, JsonValue>> {
-  try {
-    return await parseTomlFile(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    throw error
-  }
-}
-
-function serverTomlEntry(transport: McpTransportConfig): Record<string, JsonValue> {
-  if (transport.kind === 'stdio') {
-    const entry: Record<string, JsonValue> = { command: transport.command, args: transport.args }
-    if (Object.keys(transport.env).length > 0) entry.env = transport.env
-    if (transport.cwd) entry.cwd = transport.cwd
-    return entry
-  }
-  const entry: Record<string, JsonValue> = {
-    type: transport.legacySse ? 'sse' : 'http',
-    url: transport.url,
-  }
-  if (Object.keys(transport.headers).length > 0) entry.headers = transport.headers
-  return entry
-}
-
-/** `volund mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */
 export async function upsertMcpServerToml(input: {
   file: string
   name: string
@@ -809,69 +713,35 @@ export async function removeMcpServerToml(input: { file: string; name: string })
  * 覆盖 anthropic/skills、claude-plugins-official 的 `plugins/<name>/skills/…`
  * 等嵌套结构。
  */
-async function collectSkillDirectories(root: string): Promise<string[]> {
-  const SKIP = new Set([
-    'node_modules',
-    'vendor',
-    'dist',
-    'build',
-    'out',
-    'target',
-    'coverage',
-    '__pycache__',
-  ])
-  const found: string[] = []
-  const walk = async (dir: string): Promise<void> => {
-    const entries = await readdir(dir, { withFileTypes: true })
-    // 目录里先有 SKILL.md 就收（不再深入——skill 目录是叶子，内部 resources/ 不再扫描）
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name === 'SKILL.md') {
-        found.push(dir)
-        return
-      }
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.') || SKIP.has(entry.name)) continue
-      await walk(join(dir, entry.name))
-    }
-  }
-  await walk(root)
-  return found.sort((a, b) => a.localeCompare(b))
+async function atomicWrite(path: string, contents: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, contents, { encoding: 'utf8', mode: 0o600 })
+  await rename(temporary, path)
 }
 
-export async function resolveSkillSpecToDirectories(
-  spec: string,
-  options: { onInfo?: (message: string) => void } = {},
-): Promise<{ directories: string[]; cleanup: () => Promise<void> }> {
-  const isGitSpec =
-    spec.startsWith('https://') ||
-    spec.startsWith('git@') ||
-    spec.startsWith('github:') ||
-    spec.startsWith('file://') ||
-    /^\w[\w.-]*\/\w[\w.-]*$/.test(spec)
-  if (!isGitSpec) return { directories: [spec], cleanup: async () => {} }
-  let url = spec
-  if (spec.startsWith('github:')) url = `https://github.com/${spec.slice('github:'.length)}.git`
-  else if (!spec.startsWith('https://') && !spec.startsWith('git@') && !spec.startsWith('file://'))
-    url = `https://github.com/${spec}.git`
-  options.onInfo?.(`cloning ${url}`)
-  const temporary = await mkdtemp(join(tmpdir(), 'volund-skill-'))
-  const cleanup = () => rm(temporary, { recursive: true, force: true })
+async function readTomlOrEmpty(path: string): Promise<Record<string, JsonValue>> {
   try {
-    await execFileAsync('git', ['clone', '--quiet', '--depth', '1', url, temporary], {
-      timeout: 120_000,
-    })
-    // 根有 SKILL.md → 装 root;否则递归扫描（任意深度,装全部命中目录）
-    try {
-      await readFile(join(temporary, 'SKILL.md'), 'utf8')
-      return { directories: [temporary], cleanup }
-    } catch {
-      const withSkill = await collectSkillDirectories(temporary)
-      if (withSkill.length === 0) throw new Error(`No SKILL.md found in ${spec}`)
-      return { directories: withSkill, cleanup }
-    }
+    return await parseTomlFile(path)
   } catch (error) {
-    await cleanup()
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
   }
 }
+
+function serverTomlEntry(transport: McpTransportConfig): Record<string, JsonValue> {
+  if (transport.kind === 'stdio') {
+    const entry: Record<string, JsonValue> = { command: transport.command, args: transport.args }
+    if (Object.keys(transport.env).length > 0) entry.env = transport.env
+    if (transport.cwd) entry.cwd = transport.cwd
+    return entry
+  }
+  const entry: Record<string, JsonValue> = {
+    type: transport.legacySse ? 'sse' : 'http',
+    url: transport.url,
+  }
+  if (Object.keys(transport.headers).length > 0) entry.headers = transport.headers
+  return entry
+}
+
+/** `volund mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */

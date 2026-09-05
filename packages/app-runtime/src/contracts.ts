@@ -122,3 +122,34 @@ export interface InteractiveSession<TStatusView = unknown> {
   end(): Promise<void>
   exitCode(): number
 }
+
+export interface SlashSubmitView {
+  kind: 'submit'
+  text: string
+}
+
+export function isSlashSubmitView(value: unknown): value is SlashSubmitView {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    (value as { kind?: unknown }).kind === 'submit' &&
+    typeof (value as { text?: unknown }).text === 'string' &&
+    (value as { text: string }).text !== '',
+  )
+}
+
+/**
+ * 斜杠命令注册表的最小结构面：MutableSlashCommandRegistry（@volund/ui）结构上
+ * 满足它——app-runtime 不反向依赖渲染层，组装侧在边界做一次结构校验即可。
+ */
+export interface SlashCommandLike {
+  name: string
+  description: string
+  aliases?: readonly string[]
+  order?: number
+  run(input: { args: readonly string[] }): unknown
+}
+
+export interface SlashCommandRegistryLike {
+  register(command: SlashCommandLike, source: { kind: string; plugin?: string }): () => void
+}

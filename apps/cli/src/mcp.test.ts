@@ -6,6 +6,7 @@ const execFileAsync = promisify(execFile)
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
+import { resolveSkillSpecToDirectories } from '@volund/app-runtime'
 import type { McpTransport } from '@volund/mcp-client'
 import { ToolRegistry } from '@volund/tool-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +17,6 @@ import {
   McpManager,
   parseMcpServerEntries,
   removeMcpServerToml,
-  resolveSkillSpecToDirectories,
   upsertMcpServerToml,
   type McpServerConfig,
 } from './mcp'

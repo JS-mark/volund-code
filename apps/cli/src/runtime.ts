@@ -9,7 +9,6 @@ import {
   readdir,
   realpath,
   rename,
-  rm,
   writeFile,
 } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
@@ -27,6 +26,7 @@ import {
   createProductionToolPermissionChain,
   createSessionKernel,
   createMemoryStack,
+  createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
   ProductionPermissionSessionPolicy,
@@ -97,7 +97,6 @@ import {
   type Logger,
 } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
-import type { SkillEntry } from '@volund/skills-runtime'
 import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
@@ -121,7 +120,6 @@ import type {
   McpPanelController,
   SubagentsPanelController,
   SkillsPanelController,
-  SkillsPanelEntry,
 } from '@volund/ui'
 
 import {
@@ -136,13 +134,7 @@ import {
   writeConfigFile,
 } from './config-edit'
 import { createHistoryPort } from './history'
-import {
-  loadMcpServerConfigs,
-  McpManager,
-  removeMcpServerToml,
-  resolveSkillSpecToDirectories,
-  upsertMcpServerToml,
-} from './mcp'
+import { loadMcpServerConfigs, McpManager, removeMcpServerToml, upsertMcpServerToml } from './mcp'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import {
@@ -158,16 +150,10 @@ import {
 } from './plugin-market'
 import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
 import type { LocalPluginStateEntry } from './plugin-state'
-import type { McpPort, SkillPort } from './ports'
+import type { McpPort } from './ports'
 import type { VolundPorts, PluginCompatibilityDiagnostic } from './ports'
 import type { AppIdentity } from './shared/app-identity'
-import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
-import {
-  buildStackedSkillInvocationText,
-  createSkillTool,
-  mapAllowedTools,
-  splitSkillStack,
-} from './skill-tool'
+import { createSkillTool } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
 
 const historySecretPattern =
@@ -1704,21 +1690,29 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
   }
-  const skillsRuntimes = new Set<SkillsRuntime>()
-  const skillsDisabled = new Set<string>()
-  let skillsConfigLoaded = false
-  async function ensureSkillsConfig(): Promise<void> {
-    if (skillsConfigLoaded) return
-    skillsConfigLoaded = true
-    try {
-      const config = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      for (const name of disabledNamesFrom(config.skills)) skillsDisabled.add(name)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
+  // P1-04c：skills 域装配迁入 app-runtime（createSkillDomain）；skillsRuntimes /
+  // skillsDisabled 等多会话共享状态由工厂持有，createRunner 与面板经解构句柄取用。
+  const skillDomain = createSkillDomain({
+    home,
+    volundVersion: options.identity.version,
+    logger,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+    slashCommands,
+    getDefaultCwd: () => process.cwd(),
+    getUserHome: homedir,
+    getSkillGrants: () => activeSkillGrants,
+    pluginSkillDirs: async () =>
+      collectPluginSkillDirs({
+        builtinRoot: builtinPluginRoot(),
+        stateEntries: await localPluginState.list().catch(() => []),
+      }),
+  })
+  const skillsRuntimes = skillDomain.skillsRuntimes
+  const skillsDisabled = skillDomain.skillsDisabled
+  const skillsPanelController = skillDomain.skillsPanelController
+  const skillPort = skillDomain.skillPort
+  const ensureSkillsConfig = skillDomain.ensureSkillsConfig
+  const syncSkillSlashCommands = skillDomain.syncSkillSlashCommands
   // mcp：runtime 级单例 manager（首会话 cwd 已知时初始化；项目级 mcp.toml /
   // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
   const mcpDisabled = new Set<string>()
@@ -1770,222 +1764,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     })
     void mcpManager.connect()
     return mcpManager
-  }
-  function skillsPanelEntries(): SkillsPanelEntry[] {
-    const runtime = [...skillsRuntimes][0]
-    if (!runtime) return []
-    return runtime.entries().map(toPanelEntry)
-  }
-  // SKILLS-MCPS-r1 §S3.3a：每个 user-invocable skill 注册为同名 slash 命令。
-  // `/skill-name [args]` = 一次性调用：skill body + 任务文本作为用户消息进当轮
-  // 对话（不持久改 system prompt；区别于 /skill activate 的会话级激活与面板 a 键）。
-  // 主会话 runtime 的 entries 是唯一快照源；首次装载、面板 r 重扫、启停切换后
-  // 都会重新 sync（幂等 diff）。
-  const skillCommands = new SkillSlashCommands({
-    registry: slashCommands,
-    invoke: async (name, args) => {
-      const runtime = [...skillsRuntimes][0]
-      if (!runtime) throw new Error('No active session; open a session first')
-      // 业界堆叠：`/a /b task` —— 后续 token 命中已注册 skill 名即续堆（上限 6）。
-      const { stack, taskArgs } = splitSkillStack(
-        name,
-        args,
-        slashInvocableSkillNames(runtime.entries()),
-      )
-      const invocations = []
-      for (const skillName of stack) invocations.push(await runtime.readInvocation(skillName))
-      // 堆叠里每个 skill 的 allowed-tools 都授予回合级放行（我们的特点：授权语义
-      // 与单调用一致，且会话级激活/自动激活不受影响）。
-      for (const invocation of invocations)
-        if (invocation.allowedTools?.length)
-          activeSkillGrants?.grant(
-            mapAllowedTools(invocation.allowedTools, (message) => logger.warn(message)),
-          )
-      return {
-        kind: 'submit',
-        text: buildStackedSkillInvocationText(invocations, taskArgs),
-      }
-    },
-    onWarn: (message) => logger.warn(message),
-  })
-  function syncSkillSlashCommands(): void {
-    const runtime = [...skillsRuntimes][0]
-    if (runtime) skillCommands.sync(runtime.entries())
-  }
-  function toPanelEntry(entry: SkillEntry): SkillsPanelEntry {
-    return {
-      name: entry.name,
-      description: entry.description,
-      scope: entry.scope,
-      source: entry.path,
-      status: entry.status,
-      ...(entry.version ? { version: entry.version } : {}),
-      ...(entry.reason ? { reason: entry.reason } : {}),
-      flags: [
-        ...(entry.disableModelInvocation ? ['disable-model-invocation'] : []),
-        ...(entry.userInvocable ? [] : ['user-invocable-false']),
-      ],
-    }
-  }
-  const skillsPanelController: SkillsPanelController = {
-    async list() {
-      // §S3.8：面板数据加载采样（打开/刷新）。
-      const entries = skillsPanelEntries()
-      void telemetry.emit(
-        'skills.panel_opened',
-        'skills',
-        sanitize({
-          count: entries.length,
-          broken_count: entries.filter(
-            (entry) => entry.status === 'broken' || entry.status === 'incompatible',
-          ).length,
-        }),
-      )
-      return entries
-    },
-    async reload() {
-      for (const runtime of skillsRuntimes) {
-        await runtime.discover()
-        await runtime.registerIndex()
-      }
-      syncSkillSlashCommands()
-      return skillsPanelEntries()
-    },
-    async setActive(name, active) {
-      if (skillsRuntimes.size === 0) throw new Error('No active session; open a session first')
-      for (const runtime of skillsRuntimes) {
-        if (active) await runtime.activate(name)
-        else runtime.deactivate(name)
-      }
-      return `skill ${name} ${active ? 'activated' : 'deactivated'}`
-    },
-    async setEnabled(name, enabled) {
-      if (enabled) skillsDisabled.delete(name)
-      else {
-        skillsDisabled.add(name)
-        for (const runtime of skillsRuntimes) runtime.deactivate(name)
-      }
-      for (const runtime of skillsRuntimes) await runtime.registerIndex()
-      syncSkillSlashCommands()
-      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
-      return `skill ${name} ${enabled ? 'enabled' : 'disabled'}`
-    },
-    async show(name) {
-      const runtime = [...skillsRuntimes][0]
-      const entry = runtime?.entries().find((item) => item.name === name)
-      if (!entry || !entry.path) return `[failed to read: No SKILL.md available for ${name}]`
-      try {
-        const body = await readFile(entry.path, 'utf8')
-        return body || `[${name}: SKILL.md is empty]`
-      } catch (error) {
-        return `[failed to read ${entry.path}: ${error instanceof Error ? error.message : String(error)}]`
-      }
-    },
-  }
-  // ── SKILLS-MCPS-r1 §S3.7：CLI 管理命令族端口（volund skill / volund mcp）────────
-  /** CLI 一次性进程用：按当前 cwd 的多作用域源构造发现 runtime（无会话 composer）。 */
-  async function listingSkillsRuntime(): Promise<SkillsRuntime> {
-    await ensureSkillsConfig()
-    return new SkillsRuntime({
-      sources: async () =>
-        defaultSkillSources({
-          volundHome: home,
-          userHome: homedir(),
-          cwd: process.cwd(),
-          pluginDirs: await collectPluginSkillDirs({
-            builtinRoot: builtinPluginRoot(),
-            stateEntries: await localPluginState.list().catch(() => []),
-          }),
-        }),
-      volundVersion: options.identity.version,
-      composer: new DefaultPromptComposer(),
-      disabled: skillsDisabled,
-      onWarning: (message) => logger.warn(message),
-      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
-    })
-  }
-  const skillPort: SkillPort = {
-    async list() {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      return runtime.entries().map((entry) => ({
-        name: entry.name,
-        description: entry.description,
-        scope: entry.scope,
-        status: entry.status,
-        ...(entry.version ? { version: entry.version } : {}),
-        path: entry.path,
-      }))
-    },
-    async install(spec, installOptions) {
-      const { directories, cleanup } = await resolveSkillSpecToDirectories(spec, {
-        onInfo: (message) => logger.warn(message),
-      })
-      try {
-        const runtime = await listingSkillsRuntime()
-        // 逐个安装,失败（重名/目录已存在/格式错）记警告继续，其余照常装。
-        const installedNames: string[] = []
-        const failures: string[] = []
-        for (const directory of directories) {
-          try {
-            const installed = await runtime.installFromDirectory(directory, {
-              scope: installOptions?.scope ?? 'user',
-            })
-            installedNames.push(installed.name)
-          } catch (error) {
-            const name = directory.split('/').pop() ?? directory
-            failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
-          }
-        }
-        if (failures.length > 0)
-          logger.warn(`skill install partial: ${failures.length} skipped (${failures.join('; ')})`)
-        await runtime.discover()
-        // 只返回本次新装的（发现源里还有互操作路径等既有 skill，不该混进安装回执）。
-        return runtime
-          .entries()
-          .filter((entry) => installedNames.includes(entry.name))
-          .map((entry) => ({
-            name: entry.name,
-            description: entry.description,
-            scope: entry.scope,
-            status: entry.status,
-            ...(entry.version ? { version: entry.version } : {}),
-            path: entry.path,
-          }))
-      } finally {
-        await cleanup()
-      }
-    },
-    async uninstall(name, uninstallOptions) {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      const entry = runtime
-        .entries()
-        .find(
-          (item) =>
-            item.name === name &&
-            (!uninstallOptions?.scope || item.scope === uninstallOptions.scope) &&
-            !item.interop,
-        )
-      if (!entry || !entry.path)
-        throw new Error(
-          `Skill not found in a managed (non-interop) ${uninstallOptions?.scope ?? 'user|project'} scope: ${name}`,
-        )
-      await rm(resolve(entry.path, '..'), { recursive: true, force: true })
-    },
-    async show(name) {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      const entry = runtime.entries().find((item) => item.name === name)
-      if (!entry || !entry.path) throw new Error(`No SKILL.md available for ${name}`)
-      return readFile(entry.path, 'utf8')
-    },
-    async setEnabled(name, enabled) {
-      await ensureSkillsConfig()
-      if (enabled) skillsDisabled.delete(name)
-      else skillsDisabled.add(name)
-      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
-    },
   }
   const mcpPort: McpPort = {
     async login(serverName) {

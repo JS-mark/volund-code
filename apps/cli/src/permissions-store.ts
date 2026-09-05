@@ -12,7 +12,7 @@ import {
 } from '@volund/permission'
 import type { JsonValue, Logger } from '@volund/shared'
 
-import { serializeToml } from './mcp'
+import { serializeToml } from '@volund/app-runtime'
 
 // PermissionRuleScope/PermissionRuleSource 契约已迁至 @volund/app-runtime（P1-05）；
 // 此处 re-export 保持既有引用兼容。

@@ -1,6 +1,6 @@
 // TranscriptEntry 契约已迁至 @volund/app-runtime（§22.7.1：TUI/Web 共用）；
 // 此处 re-export 保持既有引用兼容。
-import type { TranscriptEntry } from '@volund/app-runtime'
+import { isSlashSubmitView, type SlashSubmitView, type TranscriptEntry } from '@volund/app-runtime'
 import type { CoreEvent, EventBus } from '@volund/core'
 import { productIdentity } from '@volund/shared'
 import { Box, Text, useApp, useStdout } from 'ink'
@@ -44,6 +44,8 @@ import { isCommandTabsView, type CommandTabsView } from './tabbed-list'
 import type { WelcomeNativeStatus, WelcomePanelData, WelcomeSandboxStatus } from './welcome'
 
 export type { TranscriptEntry }
+export { isSlashSubmitView }
+export type { SlashSubmitView } from '@volund/app-runtime'
 
 export interface SlashCommandInput {
   name: string
@@ -58,21 +60,6 @@ export interface SlashCommandInput {
  * 来源的命令允许产出（runSlashCommand 对其它来源降级为系统消息，防插件伪造
  * 用户发言）。
  */
-export interface SlashSubmitView {
-  kind: 'submit'
-  text: string
-}
-
-export function isSlashSubmitView(value: unknown): value is SlashSubmitView {
-  return Boolean(
-    value &&
-    typeof value === 'object' &&
-    (value as { kind?: unknown }).kind === 'submit' &&
-    typeof (value as { text?: unknown }).text === 'string' &&
-    (value as { text: string }).text !== '',
-  )
-}
-
 export interface SlashCommand {
   name: string
   description: string
