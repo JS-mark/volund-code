@@ -22,6 +22,21 @@ export * from './skills-panel'
 export { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
 export { resolveSkillSpecToDirectories } from './skill-install'
 export { serializeToml } from './toml'
+export * from './toml'
+export { loadProductionContextTuning } from './context-tuning'
+export { languagePromptFragment, resolveModelAlias } from './model-alias'
+export {
+  assertLegacyPluginName,
+  resolveBuiltinPluginRoot,
+  collectPluginSkillDirs,
+  createPluginHookDispatcher,
+  escapeUntrustedText,
+  readContainedPluginDiagnostic,
+  registerPluginCommands,
+} from './plugins-domain'
+export * from './plugins-domain-env'
+export * from './plugin-state'
+export * from './plugin-market'
 export * from './mcp-domain'
 export * from './mcp-panel'
 export { createSkillDomain } from './skills'

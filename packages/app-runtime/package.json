@@ -11,13 +11,21 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./welcome": {
-      "types": "./dist/welcome.d.ts",
-      "default": "./dist/welcome.js"
+    "./list-picker": {
+      "types": "./dist/list-picker.d.ts",
+      "default": "./dist/list-picker.js"
     },
     "./status-view": {
       "types": "./dist/status-view.d.ts",
       "default": "./dist/status-view.js"
+    },
+    "./tabbed-list": {
+      "types": "./dist/tabbed-list.d.ts",
+      "default": "./dist/tabbed-list.js"
+    },
+    "./welcome": {
+      "types": "./dist/welcome.d.ts",
+      "default": "./dist/welcome.js"
     }
   },
   "scripts": {
@@ -34,6 +42,7 @@
     "@volund/mcp-client": "workspace:*",
     "@volund/native-bridge": "workspace:*",
     "@volund/permission": "workspace:*",
+    "@volund/plugin-runtime": "workspace:*",
     "@volund/plugin-sdk": "workspace:*",
     "@volund/shared": "workspace:*",
     "@volund/skills-runtime": "workspace:*",

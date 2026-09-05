@@ -1,15 +1,5 @@
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
-import {
-  access,
-  appendFile,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  writeFile,
-} from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { access, appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
@@ -24,7 +14,19 @@ import {
   createAppKernel,
   createProductionToolPermissionChain,
   createSessionKernel,
+  assertLegacyPluginName,
+  collectPluginSkillDirs,
   createMcpDomain,
+  createPluginHookDispatcher,
+  escapeUntrustedText,
+  expandEnvValue,
+  languagePromptFragment,
+  loadProductionContextTuning,
+  readContainedPluginDiagnostic,
+  readEffectiveEnv,
+  registerPluginCommands,
+  resolveBuiltinPluginRoot,
+  resolveModelAlias,
   createMemoryStack,
   createSkillDomain,
   registerRuntimeMemoryPrompts,
@@ -34,25 +36,26 @@ import {
   SessionController,
 } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
+import {
+  fetchMarketIndex,
+  installFromMarket,
+  isLocalMarketSource,
+  isPluginApproved,
+  LocalPluginStateStore,
+  marketInstallRoot,
+  normalizePluginName,
+  readMarketIntegrity,
+  readMarketSource,
+  uninstallMarketDir,
+} from '@volund/app-runtime'
+import type { LocalPluginStateEntry, MarketIndex } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
-import {
-  builtinPromptFragment,
-  DefaultPromptComposer,
-  type PromptFragment,
-  EvolutionEngine,
-  Runner,
-} from '@volund/core'
-import type { ContextTunableParam, EvolutionPersistence, RunnerToolPort } from '@volund/core'
+import { builtinPromptFragment, DefaultPromptComposer, Runner } from '@volund/core'
+import type { RunnerToolPort } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
-import {
-  execSandbox,
-  nativeProbes,
-  probeSandbox,
-  resolveBinary,
-  standaloneArtifactDir,
-} from '@volund/native-bridge'
+import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import type { PermissionSessionMode, PermissionSpec } from '@volund/permission'
 import {
@@ -61,20 +64,10 @@ import {
   PluginManager,
   activateLocalPlugin,
   validateManifest,
-  satisfies,
 } from '@volund/plugin-runtime'
-import type {
-  ActivatedLocalPlugin,
-  CommandContribution,
-  StatusTabContribution,
-} from '@volund/plugin-runtime'
+import type { ActivatedLocalPlugin, StatusTabContribution } from '@volund/plugin-runtime'
 import type { HookPipelineSignal } from '@volund/plugin-runtime'
-import type {
-  EffectiveEnvEntry,
-  PluginInstallResult,
-  PluginInventory,
-  PluginInventoryEntry,
-} from '@volund/plugin-sdk'
+import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
 import { GeminiClient } from '@volund/provider-gemini'
@@ -93,21 +86,17 @@ import {
   productIdentity,
   sanitize,
   type JsonValue,
-  type Logger,
 } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge } from '@volund/tool-kit'
-import { BackgroundShells, builtinToolDomains, MINIMAL_ENV_KEYS } from '@volund/tools'
-import type { ToolHookDispatcher, ToolHookOutcome } from '@volund/tools'
+import { BackgroundShells, builtinToolDomains } from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
   renderSessionPicker,
-  isCommandListView,
-  isCommandTabsView,
   MutableSlashCommandRegistry,
   validateStatusConfigValue,
 } from '@volund/ui'
@@ -133,23 +122,35 @@ import {
 import { createHistoryPort } from './history'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
-import {
-  fetchMarketIndex,
-  installFromMarket,
-  isLocalMarketSource,
-  marketInstallRoot,
-  normalizePluginName,
-  readMarketIntegrity,
-  readMarketSource,
-  uninstallMarketDir,
-  type MarketIndex,
-} from './plugin-market'
-import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
-import type { LocalPluginStateEntry } from './plugin-state'
-import type { VolundPorts, PluginCompatibilityDiagnostic } from './ports'
+import type { VolundPorts } from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { createSkillTool } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
+
+// P1-04 兼容适配：以下符号已迁至 @volund/app-runtime；既有测试与消费方经此再导出，
+// 新代码一律直接从 app-runtime 导入。
+export {
+  collectPluginSkillDirs,
+  createPluginHookDispatcher,
+  expandEnvValue,
+  languagePromptFragment,
+  loadProductionContextTuning,
+  readEffectiveEnv,
+  registerPluginCommands,
+  resolveModelAlias,
+} from '@volund/app-runtime'
+
+/**
+ * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）：位置锚点必须留在
+ * CLI 包（import.meta.url），位置无关的解析内核在 app-runtime（P1-04d）。
+ */
+export function builtinPluginRoot(): string | undefined {
+  return resolveBuiltinPluginRoot({
+    importMetaUrl: import.meta.url,
+    execPath: process.execPath,
+    envAssetDir: process.env.VOLUND_STANDALONE_ASSET_DIR,
+  })
+}
 
 const historySecretPattern =
   /\b(?:authorization|api[_-]?key|token|secret|passphrase|password|oauth[_-]?code|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key)\b/i
@@ -663,356 +664,6 @@ async function promptSecret(question: string): Promise<string> {
  * 目标 model（去掉 provider 前缀）；别名指向的 provider 与当前会话不一致时返回
  * mismatch 由调用方告警——绝不静默换 provider。
  */
-export function resolveModelAlias(
-  raw: string,
-  aliases: Record<string, { provider: string; model: string }>,
-  activeProvider = 'anthropic',
-): { model: string } | { mismatch: string } | undefined {
-  const entry = aliases[raw.replace(new RegExp(`^${activeProvider}/`), '')]
-  if (!entry) return undefined
-  if (entry.provider !== activeProvider) return { mismatch: entry.provider }
-  return { model: entry.model.replace(new RegExp(`^${activeProvider}/`), '') }
-}
-
-/**
- * [preferences] language 的回复语言强制片段（§6b）：显式配置才注册——不配则模型
- * 跟随输入语言，中英混杂；配置后即使输入是英文也按配置语言回复。
- */
-export function languagePromptFragment(language: string): PromptFragment {
-  return {
-    id: 'preferences:language',
-    source: 'preferences:language',
-    priority: 900,
-    text: `## Language\nAlways respond in ${language}, regardless of the language of the user's message, tool output, or any other content. Keep code, identifiers, and file paths as-is.`,
-  }
-}
-
-export interface ProductionOptions {
-  volundHome?: string
-  identity: Readonly<AppIdentity>
-  model?: string
-}
-
-function diagnosticRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-const LEGACY_PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
-function assertLegacyPluginName(name: string): void {
-  if (!LEGACY_PLUGIN_NAME.test(name))
-    throw new PluginError('plugin_path_escape', 'invalid plugin target')
-}
-
-async function readContainedPluginDiagnostic(
-  pluginRoot: string,
-  name: string,
-  storedVersion: string,
-  volundVersion: string,
-): Promise<{
-  version: string
-  permissions: readonly string[]
-  compatibility: PluginCompatibilityDiagnostic
-}> {
-  const manifestLimit = 1024 * 1024
-  const permissionLimit = 64
-  const permissionLengthLimit = 128
-  const safeStoredVersion =
-    storedVersion.length <= 128 && /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(storedVersion)
-      ? storedVersion
-      : 'unknown'
-  const invalid = (detail: string) => ({
-    version: safeStoredVersion,
-    permissions: [] as readonly string[],
-    compatibility: { status: 'invalid' as const, detail },
-  })
-  assertLegacyPluginName(name)
-  let manifest: unknown
-  try {
-    const canonicalRoot = await realpath(pluginRoot)
-    const expectedDirectory = join(canonicalRoot, name)
-    const canonicalDirectory = await realpath(expectedDirectory)
-    if (canonicalDirectory !== expectedDirectory)
-      return invalid('Plugin directory is not canonical; legacy activation remains unavailable.')
-    const expectedManifest = join(canonicalDirectory, 'manifest.json')
-    const canonicalManifest = await realpath(expectedManifest)
-    if (canonicalManifest !== expectedManifest)
-      return invalid('Manifest path is not canonical; legacy activation remains unavailable.')
-    const handle = await open(canonicalManifest, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
-    try {
-      const stat = await handle.stat()
-      if (!stat.isFile() || stat.size > manifestLimit)
-        return invalid(
-          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
-        )
-      const buffer = Buffer.alloc(manifestLimit + 1)
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-      if (bytesRead > manifestLimit)
-        return invalid(
-          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
-        )
-      manifest = JSON.parse(buffer.toString('utf8', 0, bytesRead))
-    } finally {
-      await handle.close()
-    }
-  } catch {
-    return invalid('Manifest metadata is unreadable; legacy activation remains unavailable.')
-  }
-  if (!diagnosticRecord(manifest))
-    return invalid('Manifest metadata is invalid; legacy activation remains unavailable.')
-  const permissionsRecord = diagnosticRecord(manifest.permissions)
-    ? manifest.permissions
-    : undefined
-  const rawPermissions = permissionsRecord?.volund
-  if (Array.isArray(rawPermissions) && rawPermissions.length > permissionLimit)
-    return invalid(
-      'Manifest permissions exceed diagnostic limits; legacy activation remains unavailable.',
-    )
-  const permissions: string[] = []
-  if (Array.isArray(rawPermissions)) {
-    for (const permission of rawPermissions) {
-      if (
-        typeof permission !== 'string' ||
-        permission.length > permissionLengthLimit ||
-        !/^[a-z][a-z0-9.:-]*$/.test(permission)
-      )
-        return invalid('Manifest permissions are invalid; legacy activation remains unavailable.')
-      permissions.push(permission)
-    }
-  }
-  const engines = diagnosticRecord(manifest.engines) ? manifest.engines : undefined
-  const range =
-    typeof engines?.volund === 'string' && engines.volund.length <= 256 ? engines.volund : undefined
-  const compatibility: PluginCompatibilityDiagnostic = range
-    ? satisfies(volundVersion, range)
-      ? {
-          status: 'compatible',
-          detail: `Declared legacy volund engine range is compatible with ${volundVersion}.`,
-        }
-      : {
-          status: 'incompatible',
-          detail: `Declared legacy volund engine range is incompatible with ${volundVersion}; legacy activation remains unavailable.`,
-        }
-    : {
-        status: 'invalid',
-        detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
-      }
-  return {
-    version:
-      typeof manifest.version === 'string' &&
-      manifest.version.length <= 128 &&
-      /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
-        ? manifest.version
-        : safeStoredVersion,
-    permissions,
-    compatibility,
-  }
-}
-
-/**
- * Resolve the legacy context-tuning compatibility switch for a production Runner.
- * A missing file is the documented default-off case. Unreadable, invalid, or non-boolean
- * configuration fails closed by propagating the configuration error before tuning is read.
- * Only an own-property boolean `true` is authority; an inherited/prototype value never counts.
- */
-export async function loadProductionContextTuning(options: {
-  readonly home: string
-  readonly persistence: EvolutionPersistence
-  readonly logger: Pick<Logger, 'warn'>
-}): Promise<{
-  readonly config: Record<string, JsonValue>
-  readonly values: Record<ContextTunableParam, number>
-}> {
-  let enabled = false
-  let config: Record<string, JsonValue> = {}
-  try {
-    config = await loadTomlFile(join(options.home, 'config.toml'), {
-      onWarning: (message) => options.logger.warn(message),
-    })
-    const section = config.evolution
-    enabled = Boolean(
-      section &&
-      typeof section === 'object' &&
-      !Array.isArray(section) &&
-      Object.hasOwn(section, 'enabled') &&
-      section.enabled === true,
-    )
-  } catch (error) {
-    // A missing file means the documented default-off posture. Syntax, type, and I/O
-    // failures are configuration failures and must stop Runner construction (§8.3/C.1).
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  return {
-    config,
-    values: await new EvolutionEngine(options.persistence, { enabled }).values(),
-  }
-}
-
-/**
- * 插件命令贡献 → 斜杠命令注册表（UI 经 subscribe 热更新）。handler 在插件沙箱里
- * 经桥执行，返回字符串即作为系统消息进 transcript。撞内置名 / 撞已注册命令时
- * warn + 跳过该命令（不拖累插件其余贡献）；返回注销函数集（deactivate 时摘除）。
- */
-export function registerPluginCommands(
-  registry: MutableSlashCommandRegistry,
-  plugin: string,
-  commands: readonly CommandContribution[],
-  onWarn: (message: string) => void,
-): Array<() => void> {
-  const unsubscribes: Array<() => void> = []
-  for (const command of commands) {
-    try {
-      unsubscribes.push(
-        registry.register(
-          {
-            name: command.name,
-            description: command.description || `/${command.name} (plugin command)`,
-            ...(command.order !== undefined ? { order: command.order } : {}),
-            run: async ({ args }) => {
-              const result = await command.run(args)
-              if (typeof result === 'string' && result) return result
-              // 列表 / 页签视图（纯数据描述符）原样透传：UI 渲染成可搜索面板
-              if (isCommandListView(result)) return result
-              if (isCommandTabsView(result)) return result
-              return undefined
-            },
-          },
-          { kind: 'plugin', plugin },
-        ),
-      )
-    } catch (error) {
-      onWarn(
-        `Plugin command /${command.name} from ${plugin} not registered: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      )
-    }
-  }
-  return unsubscribes
-}
-
-/**
- * [env] 值的前置解析（applyEnv 写入 process.env 之前）：
- * - 开头 `~` / `~/...` → 用户主目录；
- * - `${VAR}` 与裸 `$VAR` → source 里已有的环境变量。**只有名字已设置才展开**：
- *   未设置的引用一律保持字面（值里的 `$` 常见于凭据/正则，撞不到真实环境变量名
- *   就不会被误伤）；`${VAR}` 形式未设置时额外回调 onUnresolved（显式意图，值得
- *   fail-visible），裸 `$VAR` 未设置则静默保持字面。
- * 单趟展开不递归；同段 key 互引用不支持——source 取应用前的环境快照。
- */
-export function expandEnvValue(
-  value: string,
-  source: Record<string, string | undefined>,
-  onUnresolved?: (name: string) => void,
-): string {
-  const tildeExpanded =
-    value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}${value.slice(1)}` : value
-  return tildeExpanded.replaceAll(
-    /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
-    (raw, braced: string | undefined, bare: string | undefined) => {
-      const name = (braced ?? bare)!
-      const resolved = source[name]
-      if (resolved === undefined) {
-        if (braced) onUnresolved?.(name)
-        return raw
-      }
-      return resolved
-    },
-  )
-}
-
-/**
- * [env] 段的生效快照（/env 内置插件的数据源）：每次调用重读用户级 config.toml，
- * 与当前 process.env 对比出 effective / pending / overridden；sandboxPassthrough
- * 标出该名字是否经最小继承集（PATH/HOME/LANG/TZ）或 [tools] pass_through_env
- * 白名单进入沙箱。缺配置文件 → 空列表；类型错按 C.1 传播 config_invalid。
- *
- * 配置值先经前置解析（`~` / `${VAR}`，见 expandEnvValue）再与 process.env 比较：
- * `applied`（applyEnv 记录的应用值）在本进程跑过 applyEnv 时是精确基准；否则
- * （一次性子命令）按「扣除本段 key 的当前环境」就地展开，展示"应用后会是这个值"。
- */
-export async function readEffectiveEnv(
-  home: string,
-  applied?: Record<string, string>,
-): Promise<EffectiveEnvEntry[]> {
-  let config: Record<string, JsonValue> = {}
-  try {
-    config = await loadTomlFile(join(home, 'config.toml'))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  const envSection =
-    config.env && typeof config.env === 'object' && !Array.isArray(config.env)
-      ? (config.env as Record<string, JsonValue>)
-      : {}
-  const toolsSection =
-    config.tools && typeof config.tools === 'object' && !Array.isArray(config.tools)
-      ? (config.tools as Record<string, JsonValue>)
-      : {}
-  const passThrough = new Set(MINIMAL_ENV_KEYS)
-  if (Array.isArray(toolsSection.pass_through_env))
-    for (const name of toolsSection.pass_through_env)
-      if (typeof name === 'string' && name) passThrough.add(name)
-  // 就地展开的基准要扣除本段 key：applyEnv 跑过的进程里这些名字的值来自配置
-  // 本身，拿它们当引用基准会把自引用误判成已解析。
-  const basis = { ...process.env }
-  for (const key of Object.keys(envSection)) delete basis[key]
-  const entries: EffectiveEnvEntry[] = []
-  for (const [key, value] of Object.entries(envSection)) {
-    if (typeof value !== 'string') continue
-    const expected = applied?.[key] ?? expandEnvValue(value, basis)
-    const actual = process.env[key] ?? null
-    entries.push({
-      key,
-      configured: expected,
-      actual,
-      status: actual === null ? 'pending' : actual === expected ? 'effective' : 'overridden',
-      sandboxPassthrough: passThrough.has(key),
-    })
-  }
-  return entries
-}
-
-/**
- * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）。与 native 资产同一
- * 解析惯例（resolver.ts standaloneArtifactDir）：standalone 先看
- * VOLUND_STANDALONE_ASSET_DIR，否则取产物旁——bun --compile 后是 execPath 旁，
- * dist 单文件布局是 dist/plugins/，源码布局（vitest）是 apps/cli/plugins/。
- * 取第一个存在的候选，不存在 → undefined（无内置插件）。
- */
-export function builtinPluginRoot(): string | undefined {
-  const here = standaloneArtifactDir(import.meta.url, process.execPath)
-  const candidates = [
-    process.env.VOLUND_STANDALONE_ASSET_DIR
-      ? join(process.env.VOLUND_STANDALONE_ASSET_DIR, 'plugins')
-      : undefined,
-    join(here, 'plugins'),
-    join(here, '..', 'plugins'),
-  ]
-  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate
-  return undefined
-}
-
-/**
- * SM-08b：收集插件捆绑 skills 目录（`<pluginDir>/skills/`，随插件信任）。
- * builtin 无条件收录（产物自带，与二进制同信任级）；dev/market 以
- * plugin-state.v2 的 enabled 为门——禁用的插件不进 skills 发现面。
- */
-export async function collectPluginSkillDirs(input: {
-  builtinRoot: string | undefined
-  stateEntries: readonly { dir: string; enabled: boolean }[]
-}): Promise<string[]> {
-  const dirs: string[] = []
-  if (input.builtinRoot) {
-    try {
-      for (const entry of await readdir(input.builtinRoot, { withFileTypes: true }))
-        if (entry.isDirectory()) dirs.push(join(input.builtinRoot, entry.name, 'skills'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  for (const entry of input.stateEntries) if (entry.enabled) dirs.push(join(entry.dir, 'skills'))
-  return dirs
-}
-
 /**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
@@ -1045,6 +696,12 @@ export function createSandboxNativeBridge(options: {
       return result.stdout
     },
   }
+}
+
+export interface ProductionOptions {
+  volundHome?: string
+  identity: Readonly<AppIdentity>
+  model?: string
 }
 
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
@@ -2797,60 +2454,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     async shutdown() {
       await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
     },
-  }
-}
-
-/** 插件工具输出的不可信包裹转义（与 MCP 工具同策略）。 */
-function escapeUntrustedText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-/**
- * H1：插件 hook 派发器——已激活插件的 hook 订阅按装载顺序执行，首个 HookResult
- * （veto/rewrite）生效；handler 错误 fail-open（warn 后继续），回合中止即停止
- * 派发。独立导出以便沙箱 e2e 正测（veto 必须真的拦下工具调用）。
- */
-export function createPluginHookDispatcher(
-  entries: readonly {
-    name: string
-    handle?: Pick<ActivatedLocalPlugin, 'hooks'> | undefined
-  }[],
-  logger: { warn(message: string): void },
-): ToolHookDispatcher {
-  return (event, payload, options) => {
-    const run = async (): Promise<ToolHookOutcome | undefined> => {
-      for (const loaded of entries) {
-        if (!loaded.handle) continue
-        if (options?.signal?.aborted) return undefined
-        for (const hook of loaded.handle.hooks) {
-          if (hook.event !== event) continue
-          try {
-            const result = (await hook.invoke(payload)) as
-              | { veto?: unknown; reason?: unknown; value?: unknown }
-              | undefined
-            if (result && typeof result === 'object') {
-              return {
-                ...(result.veto === true
-                  ? {
-                      veto: true,
-                      ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
-                    }
-                  : {}),
-                ...('value' in result ? { value: result.value } : {}),
-              }
-            }
-          } catch (error) {
-            logger.warn(
-              `plugin hook ${event} from ${loaded.name} failed (fail-open): ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            )
-          }
-        }
-      }
-      return undefined
-    }
-    return run()
   }
 }
 

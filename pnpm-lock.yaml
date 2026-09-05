@@ -252,6 +252,9 @@ importers:
       '@volund/permission':
         specifier: workspace:*
         version: link:../permission
+      '@volund/plugin-runtime':
+        specifier: workspace:*
+        version: link:../plugin-runtime
       '@volund/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk
