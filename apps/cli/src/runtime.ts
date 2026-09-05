@@ -86,6 +86,7 @@ import type { VolundPorts } from './ports'
 import type { AppIdentity } from './shared/app-identity'
 import { createSkillTool } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
+import { createWebPort } from './web'
 
 // P1-04 兼容适配：以下符号已迁至 @volund/app-runtime；既有测试与消费方经此再导出，
 // 新代码一律直接从 app-runtime 导入。
@@ -1553,7 +1554,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     version: options.identity.version,
     emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
   })
-  return {
+  const assembled: VolundPorts = {
     identity: options.identity,
     version: options.identity.version,
     session,
@@ -1634,4 +1635,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
     },
   }
+  // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）。
+  assembled.web = createWebPort(assembled)
+  return assembled
 }

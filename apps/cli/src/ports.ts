@@ -190,6 +190,15 @@ export interface VolundPorts {
   localPlugins?: LocalPluginPort
   history?: HistoryPort
   ui?: UiPort
+  /** §22 W-01：`volund web` 本地控制台；serve 阻塞到 server 关闭。 */
+  web?: {
+    serve(input: {
+      cwd: string
+      port: number
+      open: boolean
+      onReady(handle: { url: string; port: number }): void
+    }): Promise<{ url: string; port: number }>
+  }
   /**
    * 进程收尾：关闭插件宿主 / MCP 连接等长驻资源（它们的子进程管道 ref 住事件
    * 循环，不关则 UI 退出后进程仍悬挂）。交互会话退出与信号处理都会调用；

@@ -83,6 +83,8 @@ const argsDefinition = {
   expectedUpdatedAt: { type: 'string' as const },
   strategy: { type: 'string' as const },
   yes: { type: 'boolean' as const },
+  port: { type: 'string' as const },
+  open: { type: 'boolean' as const },
 }
 export type { CliIo, CliResult } from './shared/cli-types'
 const defaultIo: CliIo = {
@@ -478,6 +480,36 @@ export async function runCli(
         : { exitCode: 1, stdout, stderr: message }
     }
     return { exitCode: 2, stdout, stderr: `Unknown skill action: ${action}` }
+  }
+  if (subcommand === 'web') {
+    // §22 W-01 / Web P2-07：本地 Web 控制台。server 生命周期随进程（SIGINT 由
+    // bin.ts 的 shutdown 链路收尾）；首版只绑 loopback。
+    if (!ports.web) {
+      const message = 'web console is not available in this build'
+      return jsonMode
+        ? jsonFailure(message, 1, 'web_capability_unavailable', 'capability')
+        : { exitCode: 1, stdout, stderr: message }
+    }
+    const rawPort = args.port as string | undefined
+    const port = rawPort === undefined ? 0 : Number.parseInt(rawPort, 10)
+    if (rawPort !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
+      const message = `--port must be 1024..65535 (got ${rawPort}); omit for a random free port`
+      return jsonMode
+        ? jsonFailure(message, 2, 'unsupported_flag', 'usage')
+        : { exitCode: 2, stdout, stderr: message }
+    }
+    const result = await ports.web.serve({
+      cwd,
+      port,
+      open: args.open !== false,
+      onReady: (handle) => {
+        // 启动信息立即落终端（§22.3.3：URL/PID/cwd/停止方式持续可见）。
+        process.stderr.write(
+          `Volund Web listening at ${handle.url}\n  cwd: ${cwd}\n  pid: ${process.pid}\n  stop: Ctrl+C\n`,
+        )
+      },
+    })
+    return { exitCode: 0, stdout: `${stdout}Volund Web closed (${result.url})\n`, stderr }
   }
   if (subcommand === 'context') {
     if (!ports.context)

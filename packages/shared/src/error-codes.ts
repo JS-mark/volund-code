@@ -218,6 +218,13 @@ export const ErrorCodes = {
   sessionNotFound: 'session_not_found',
   sessionResumeFailed: 'session_resume_failed',
   sessionTurnInProgress: 'session_turn_in_progress', // §22 W-03 / Web P1-03（app-runtime SessionController turn mutex；Web 层映射 409 web_turn_in_progress）
+
+  /* ── web 域（§22.8/§22.10，packages/web-server） ─────────────────────── */
+  webOriginRejected: 'web_origin_rejected', // W-01/§22.10：Host/Origin 不属于 loopback server
+  webSessionInvalid: 'web_session_invalid', // §22.10.1：browser session 缺失/过期/nonce 已用
+  webCsrfInvalid: 'web_csrf_invalid', // §22.10.1：mutation 缺 CSRF 头或不匹配
+  webSchemaInvalid: 'web_schema_invalid', // §22.8：未知端点/非法 JSON 体
+  webCapabilityUnavailable: 'web_capability_unavailable', // §22.3.4：能力未接线（诚实降级）
   trustStoreUnavailable: 'trust_store_unavailable',
   unsupportedFlag: 'unsupported_flag',
 
