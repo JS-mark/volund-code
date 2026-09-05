@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@volund/app-runtime": "workspace:*",
     "@volund/auth": "workspace:*",
     "@volund/config": "workspace:*",
     "@volund/context": "workspace:*",

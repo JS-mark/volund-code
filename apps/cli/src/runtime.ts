@@ -23,6 +23,7 @@ import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
 
+import { createAppKernel, createSessionKernel } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
@@ -46,15 +47,7 @@ import type {
   RunnerToolPort,
   SessionState,
 } from '@volund/core'
-import {
-  BusService,
-  Context,
-  ModelService,
-  SandboxService,
-  SessionService,
-  ToolsService,
-  UiService,
-} from '@volund/kernel'
+import { SandboxService, ToolsService } from '@volund/kernel'
 import {
   execSandbox,
   nativeProbes,
@@ -2192,8 +2185,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
   // 它的会话级兄弟层，S2 起插件贡献也经应用级内核汇聚。
-  const appKernel = new Context()
-  appKernel.plugin(UiService)
+  const appKernel = createAppKernel()
   // H2：活会话内核的 tools 服务集合——插件卸载/禁用时对每个活内核广播摘除。
   const liveToolServices = new Set<ToolsService>()
   const backups = new BackupStore(join(home, 'backups'))
@@ -3356,10 +3348,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     }
     // 内核脊柱：每会话一棵 Context 树，先挂 bus/session；model/tools/sandbox
     // 在各自装配点以同形态服务挂载。第三方插件的贡献最终也注册进同一棵树。
-    const kernel = new Context()
-    kernel.plugin(ModelService)
-    kernel.plugin(BusService, events)
-    kernel.plugin(SessionService, state)
+    const kernel = createSessionKernel({ events, state })
     // skill allowed-tools 的回合边界：turn 终态即清空（业界语义=授权只活一轮）。
     kernel.bus.events.subscribe((event) => {
       if (event.type === 'turn.completed' || event.type === 'turn.aborted')
