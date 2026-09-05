@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { access, appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, delimiter as pathDelimiter, dirname, join, resolve } from 'node:path'
+import { delimiter as pathDelimiter, dirname, join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
@@ -14,17 +14,14 @@ import {
   createAppKernel,
   createProductionToolPermissionChain,
   createSessionKernel,
-  assertLegacyPluginName,
   collectPluginSkillDirs,
   createMcpDomain,
+  createPluginDomain,
   createPluginHookDispatcher,
   escapeUntrustedText,
   expandEnvValue,
   languagePromptFragment,
   loadProductionContextTuning,
-  readContainedPluginDiagnostic,
-  readEffectiveEnv,
-  registerPluginCommands,
   resolveBuiltinPluginRoot,
   resolveModelAlias,
   createMemoryStack,
@@ -36,19 +33,6 @@ import {
   SessionController,
 } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
-import {
-  fetchMarketIndex,
-  installFromMarket,
-  isLocalMarketSource,
-  isPluginApproved,
-  LocalPluginStateStore,
-  marketInstallRoot,
-  normalizePluginName,
-  readMarketIntegrity,
-  readMarketSource,
-  uninstallMarketDir,
-} from '@volund/app-runtime'
-import type { LocalPluginStateEntry, MarketIndex } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
@@ -58,16 +42,7 @@ import { SandboxService, ToolsService } from '@volund/kernel'
 import { execSandbox, nativeProbes, probeSandbox, resolveBinary } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
 import type { PermissionSessionMode, PermissionSpec } from '@volund/permission'
-import {
-  LEGACY_PLUGIN_UNAVAILABLE,
-  PluginError,
-  PluginManager,
-  activateLocalPlugin,
-  validateManifest,
-} from '@volund/plugin-runtime'
-import type { ActivatedLocalPlugin, StatusTabContribution } from '@volund/plugin-runtime'
 import type { HookPipelineSignal } from '@volund/plugin-runtime'
-import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
 import { GeminiClient } from '@volund/provider-gemini'
@@ -80,13 +55,7 @@ import {
   SingleProviderRouter,
 } from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
-import {
-  VolundError,
-  isProjectOverrideForbidden,
-  productIdentity,
-  sanitize,
-  type JsonValue,
-} from '@volund/shared'
+import { VolundError, isProjectOverrideForbidden, sanitize, type JsonValue } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
@@ -104,7 +73,6 @@ import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
   StatusViewModel,
-  StatusPanelData,
   McpPanelController,
   SubagentsPanelController,
   SkillsPanelController,
@@ -114,8 +82,6 @@ import {
   assignConfigValue,
   assertConfigKeyValue,
   deleteConfigValue,
-  builtinDisabledFrom,
-  updateConfigBuiltinDisabled,
   readConfigFileOrEmpty,
   writeConfigFile,
 } from './config-edit'
@@ -727,467 +693,33 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     global: join(home, 'permissions.toml'),
     logger,
   })
-  const pluginRoot = join(home, 'plugins')
-  const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
-  const pluginsReady = plugins.init()
-  void pluginsReady.catch(() => undefined)
-  // 唯一的本地插件 v2 生命周期状态源。legacy plugins/plugins.json 继续 deny-only，
-  // 不参与安装/批准/启用/装载决策。
-  const localPluginState = new LocalPluginStateStore(home)
-  const localPluginStateReady = localPluginState.init()
-  void localPluginStateReady.catch(() => undefined)
-  // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件路径：内置（apps/cli/plugins/，
-  // 随产物分发）、dev（~/.volund/plugins-dev + VOLUND_DEV_PLUGINS）、市场
-  // （[plugins] market 下载到 ~/.volund/plugins/<name>/）三个发现源、同一条链路——
-  // 经 volund-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
-  // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
-  // legacy plugins/plugins.json 继续 deny-only；本地三源只由同级
-  // plugin-state.v2.json 决定 approved/enabled，绝不从安装目录推断为可执行。
-  interface LoadedPluginEntry {
-    readonly source: 'builtin' | 'dev' | 'market'
-    readonly name: string
-    readonly version: string
-    readonly dir: string
-    readonly handle: ActivatedLocalPlugin
-    readonly unsubscribes: readonly (() => void)[]
-  }
-  const loadedPluginEntries: LoadedPluginEntry[] = []
+  const slashCommands = new MutableSlashCommandRegistry()
+  // P1-04d：插件域装配迁入 app-runtime（createPluginDomain）；loadedPluginEntries /
+  // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
+  const pluginDomain = createPluginDomain({
+    home,
+    volundVersion: options.identity.version,
+    logger,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+    slashCommands,
+    getAppliedEnv: () => appliedEnvEntries,
+    liveToolServices,
+    resolveBuiltinPluginRoot: builtinPluginRoot,
+  })
+  const localPlugins = pluginDomain.localPlugins
+  const localPluginState = pluginDomain.localPluginState
+  const loadedPluginEntries = pluginDomain.loadedPluginEntries
+  const localPluginHub = pluginDomain.localPluginHub
+  const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
+  const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
   // applyEnv 应用过的 [env] 键值（前置解析后）：readEffectiveEnv 的精确比较基准，
   // 保证 /env 的 effective 判定与启动时实际写入 process.env 的值一致。
   let appliedEnvEntries: Record<string, string> | undefined
-  // 插件 render 回调里 volund.session.getUsage() 读到的值：最近一次 /status 组装的
-  // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
-  let lastSessionUsage: StatusPanelData['usage']
-  const localPluginHub = {
-    get tabs(): readonly StatusTabContribution[] {
-      return loadedPluginEntries.flatMap((entry) => [...entry.handle.statusTabs])
-    },
-    onUsage(usage: StatusPanelData['usage']): void {
-      lastSessionUsage = usage
-    },
-  }
-  // 市场索引缓存（/plugins 反复打开不重复拉取；install/uninstall 后失效）。
-  let marketIndexCache: { source: string; fetchedAt: number; index: MarketIndex } | undefined
-  const MARKET_INDEX_TTL_MS = 60_000
-  // 桥 RPC 10s 超时（plugin_host.mjs）：安装整体 deadline 控制在 9s 内，
-  // 保证宿主先给出明确结果，而不是插件侧先报 bridge call timed out。
-  const MARKET_INSTALL_DEADLINE_MS = 9_000
-  async function cachedMarketIndex(
-    source: string,
-    fresh = false,
-    signal?: AbortSignal,
-  ): Promise<MarketIndex> {
-    if (
-      !fresh &&
-      marketIndexCache &&
-      marketIndexCache.source === source &&
-      Date.now() - marketIndexCache.fetchedAt < MARKET_INDEX_TTL_MS
-    )
-      return marketIndexCache.index
-    const index = await fetchMarketIndex(source, signal)
-    marketIndexCache = { source, fetchedAt: Date.now(), index }
-    return index
-  }
-  async function activateLocal(
-    dir: string,
-    source: LoadedPluginEntry['source'],
-    integrity?: Record<string, string>,
-  ) {
-    const resolved = resolve(dir)
-    const manifest = validateManifest(
-      JSON.parse(await readFile(join(resolved, 'manifest.json'), 'utf8')),
-      options.identity.version,
-    )
-    const lifecycle = await localPluginState.discover(manifest, source, resolved)
-    if (!isPluginApproved(lifecycle))
-      throw new PluginError(
-        'plugin_approval_required',
-        `${manifest.name} requires approval for ${manifest.version} / ${lifecycle.permissionHash}`,
-      )
-    if (!lifecycle.enabled)
-      throw new PluginError('plugin_disabled', `${manifest.name} is installed but disabled`)
-    const activated = await activateLocalPlugin({
-      dir: resolved,
-      volundVersion: options.identity.version,
-      dataDirRoot: join(home, source === 'market' ? 'plugins-data' : 'plugins-dev-data'),
-      ...(integrity ? { integrity } : {}),
-      services: {
-        log: (level, message) => void telemetry.emit('plugin.log', 'plugin', { level, message }),
-        getSessionUsage: () =>
-          lastSessionUsage
-            ? {
-                inputTokens: lastSessionUsage.tokens.input,
-                outputTokens: lastSessionUsage.tokens.output,
-                cost: lastSessionUsage.costUSD,
-              }
-            : null,
-        // /env 等内置插件的数据源：宿主侧重读 config.toml [env] 段并与
-        // process.env 对比（沙箱内读不到主进程环境）。
-        getEffectiveEnv: () => readEffectiveEnv(home, appliedEnvEntries),
-        // /plugins 内置插件的数据源与动作（宿主侧；沙箱内无网络）。
-        listPlugins: () => pluginInventory(),
-        inspectPlugin: (name: string) => inspectPlugin(name),
-        installMarketPlugin: (name: string) => installMarketPlugin(name),
-        approvePlugin: (name: string, hash: string) => approvePlugin(name, hash),
-        enablePlugin: (name: string) => enablePlugin(name),
-        disablePlugin: (name: string) => disablePlugin(name),
-        uninstallMarketPlugin: (name: string) => uninstallMarketPlugin(name),
-      },
-    })
-    loadedPluginEntries.push({
-      source,
-      name: activated.manifest.name,
-      version: activated.manifest.version,
-      dir: resolved,
-      handle: activated,
-      // 插件贡献的斜杠命令进 MutableSlashCommandRegistry（UI 经 subscribe 热更新）。
-      unsubscribes: registerPluginCommands(
-        slashCommands,
-        activated.manifest.name,
-        activated.commands,
-        (message) => logger.warn(message),
-      ),
-    })
-    return { name: activated.manifest.name, statusTabs: activated.statusTabs.length }
-  }
-  /** 停用并摘除单个已装载插件（uninstall / 同名重装换新版时用）。 */
-  async function unloadPlugin(name: string): Promise<LoadedPluginEntry | undefined> {
-    const index = loadedPluginEntries.findIndex((entry) => entry.name === name)
-    if (index < 0) return undefined
-    const [entry] = loadedPluginEntries.splice(index, 1)
-    for (const unsubscribe of entry?.unsubscribes || []) unsubscribe()
-    await entry?.handle?.deactivate()
-    // H2：对每个活会话内核摘除该插件的贡献工具（下会话自然不再注册）。
-    if (entry) for (const tools of liveToolServices) tools.unregisterPlugin(entry.name)
-    return entry
-  }
-  async function inventoryEntry(entry: LocalPluginStateEntry): Promise<PluginInventoryEntry> {
-    const loaded = loadedPluginEntries.find((candidate) => candidate.name === entry.name)
-    let permissions: PluginInventoryEntry['permissions']
-    try {
-      permissions = validateManifest(
-        JSON.parse(await readFile(join(entry.dir, 'manifest.json'), 'utf8')),
-        options.identity.version,
-      ).permissions
-    } catch {
-      permissions = undefined
-    }
-    return {
-      name: entry.name,
-      version: entry.version,
-      dir: entry.dir,
-      source: entry.source,
-      commands: loaded?.handle.commands.length ?? 0,
-      statusTabs: loaded?.handle.statusTabs.length ?? 0,
-      lifecycle: {
-        permissionHash: entry.permissionHash,
-        approved: isPluginApproved(entry),
-        enabled: entry.enabled,
-        loaded: Boolean(loaded),
-      },
-      ...(permissions ? { permissions } : {}),
-    }
-  }
-  async function inventorySnapshot(
-    source: LoadedPluginEntry['source'],
-  ): Promise<PluginInventoryEntry[]> {
-    const state = await localPluginState.list()
-    return Promise.all(
-      state.filter((entry) => entry.source === source).map((entry) => inventoryEntry(entry)),
-    )
-  }
-  async function inspectPlugin(input: string): Promise<PluginInventoryEntry> {
-    const name = normalizePluginName(input)
-    const current = await localPluginState.get(name)
-    if (!current) throw new PluginError('plugin_not_installed', name)
-    const manifest = validateManifest(
-      JSON.parse(await readFile(join(current.dir, 'manifest.json'), 'utf8')),
-      options.identity.version,
-    )
-    return inventoryEntry(await localPluginState.discover(manifest, current.source, current.dir))
-  }
-  /** volund.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
-  async function pluginInventory(): Promise<PluginInventory> {
-    let registry: PluginInventory['market']['registry']
-    try {
-      const source = await readMarketSource(home)
-      if (!source)
-        registry = {
-          error:
-            'no market configured — add `[plugins] market = "https://…/index.json"` to ~/.volund/config.toml',
-        }
-      else {
-        const index = await cachedMarketIndex(source)
-        registry = {
-          source,
-          plugins: index.plugins.map(({ name, version, description, publisher }) => ({
-            name,
-            version,
-            ...(description ? { description } : {}),
-            ...(publisher ? { publisher } : {}),
-          })),
-        }
-      }
-    } catch (error) {
-      registry = { error: error instanceof Error ? error.message : String(error) }
-    }
-    return {
-      domains: localPlugins ? await localPlugins.builtinDomains() : [],
-      builtin: await inventorySnapshot('builtin'),
-      dev: await inventorySnapshot('dev'),
-      market: { installed: await inventorySnapshot('market'), registry },
-    }
-  }
-  /** volund.plugins.install：只下载、校验、登记。批准与启用必须由后续显式命令完成。 */
-  async function installMarketPlugin(input: string): Promise<PluginInstallResult> {
-    const name = normalizePluginName(input)
-    const source = await readMarketSource(home)
-    if (!source)
-      throw new Error('no market configured — set [plugins] market in ~/.volund/config.toml')
-    if (!isLocalMarketSource(source))
-      throw new PluginError(
-        'plugin_registry_signature_required',
-        'remote market installs require a verified publisher signature and trusted key',
-      )
-    // 整个安装（索引 + 全部文件）共享一个 9s deadline（见 MARKET_INSTALL_DEADLINE_MS）。
-    const deadline = AbortSignal.timeout(MARKET_INSTALL_DEADLINE_MS)
-    const index = await cachedMarketIndex(source, true, deadline)
-    const entry = index.plugins.find((candidate) => candidate.name === name)
-    if (!entry) throw new Error(`${name} not found in market index (${source})`)
-    // 同名已装载（旧版本）先停用；换新版后必须重新批准，绝不自动重启。
-    await unloadPlugin(name)
-    const installed = await installFromMarket({
-      home,
-      source,
-      entry,
-      volundVersion: options.identity.version,
-      signal: deadline,
-    })
-    const lifecycle = await localPluginState.discover(installed.manifest, 'market', installed.dir)
-    marketIndexCache = undefined
-    void telemetry.emit('plugin.market_installed', 'plugin', {
-      name,
-      version: installed.version,
-    })
-    return {
-      name: installed.name,
-      version: installed.version,
-      dir: installed.dir,
-      permissionHash: lifecycle.permissionHash,
-      approvalRequired: true,
-      permissions: installed.manifest.permissions,
-    }
-  }
-  async function approvePlugin(input: string, expectedHash: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    const approved = await localPluginState.approve(inspected.name, expectedHash)
-    return inventoryEntry(approved)
-  }
-  async function enablePlugin(input: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    const enabled = await localPluginState.setEnabled(inspected.name, true)
-    if (!loadedPluginEntries.some((entry) => entry.name === enabled.name))
-      await activateLocal(
-        enabled.dir,
-        enabled.source,
-        enabled.source === 'market' ? await readMarketIntegrity(enabled.dir) : undefined,
-      )
-    return inventoryEntry((await localPluginState.get(enabled.name)) ?? enabled)
-  }
-  async function disablePlugin(input: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    await unloadPlugin(inspected.name)
-    return inventoryEntry(await localPluginState.setEnabled(inspected.name, false))
-  }
-  /**
-   * volund.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
-   * 摘除）+ 删除 ~/.volund/plugins/<name>/。仅市场插件可卸载：内置随产物分发、
-   * dev 目录归开发者管理，命中这两类时给出明确拒绝而不是裸 plugin_not_installed。
-   */
-  async function uninstallMarketPlugin(input: string): Promise<{ name: string }> {
-    const name = normalizePluginName(input)
-    const state = await localPluginState.get(name)
-    const loaded = loadedPluginEntries.find((entry) => entry.name === name)
-    const source = loaded?.source ?? state?.source
-    if (source === 'builtin')
-      throw new Error(
-        `${name} is a builtin plugin shipped with the ${productIdentity.shortName} artifact; it cannot be uninstalled`,
-      )
-    if (source === 'dev')
-      throw new Error(
-        `${name} is a dev plugin (from ~/.volund/plugins-dev/ or VOLUND_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
-      )
-    await unloadPlugin(name)
-    await uninstallMarketDir(home, name)
-    await localPluginState.remove(name)
-    marketIndexCache = undefined
-    return { name }
-  }
-  // 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：内置插件发现源是
-  // 产物自带的 apps/cli/plugins/<name>/；dev 插件发现源是正式约定目录
-  // ~/.volund/plugins-dev/<name>/ 自动发现（含 manifest.json 的子目录才激活，单个
-  // 失败不阻塞启动），VOLUND_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的
-  // 额外路径；市场插件装在 ~/.volund/plugins/<name>/（带 volund-market.json 完整性
-  // 映射，激活期重验）。数据目录在 ~/.volund/plugins-dev-data/<name>/（市场插件为
-  // ~/.volund/plugins-data/<name>/），与插件代码目录分离（沙箱内代码只读）。
-  const localPlugins = {
-    async activateLocal(dir: string) {
-      return activateLocal(dir, 'dev')
-    },
-    async loadDevPlugins(extraDirs: readonly string[] = []) {
-      const candidates: string[] = []
-      // 约定目录：plugins-dev 下每个含 manifest.json 的子目录
-      try {
-        for (const entry of await readdir(join(home, 'plugins-dev'), { withFileTypes: true }))
-          if (entry.isDirectory() || entry.isSymbolicLink())
-            candidates.push(join(home, 'plugins-dev', entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      candidates.push(...extraDirs)
-      return this.loadLocalPluginsFrom(candidates, 'dev')
-    },
-    /**
-     * 内置插件（apps/cli/plugins/<name>/，随产物分发）：与 dev 插件同一条
-     * 沙箱/桥链路，差异仅在目录来源。内置插件只信产物本身，manifest 校验、
-     * bundle 完整性检查、权限 guard 一样不少。
-     */
-    /** F1：第一方工具域清单（enabled = 未列入 [plugins] builtin_disabled）。 */
-    async builtinDomains() {
-      await ensureBuiltinToolsConfig()
-      return builtinToolDomains().map((domain) => ({
-        id: domain.id,
-        label: domain.label,
-        description: domain.description,
-        enabled: !builtinToolsDisabled.has(domain.id),
-      }))
-    },
-    async setBuiltinDomain(id: string, enabled: boolean) {
-      if (!/^volund\.(core-tools|exec|orchestration)$/.test(id))
-        throw new Error(`Unknown builtin tool domain: ${id}`)
-      await updateConfigBuiltinDisabled({ home, domain: id, disable: !enabled })
-      if (enabled) builtinToolsDisabled.delete(id)
-      else builtinToolsDisabled.add(id)
-    },
-    async loadBuiltinPlugins() {
-      const root = builtinPluginRoot()
-      if (!root) return { loaded: [], failed: [] }
-      const candidates: string[] = []
-      try {
-        for (const entry of await readdir(root, { withFileTypes: true }))
-          if (entry.isDirectory()) candidates.push(join(root, entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      return this.loadLocalPluginsFrom(candidates, 'builtin')
-    },
-    /**
-     * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录
-     * 跳过——staging 与 legacy 状态文件不在此列，但防御性排除；无 manifest.json
-     * 的目录跳过）。发现只登记；approved + enabled 后才逐文件重验并激活。
-     */
-    async loadMarketPlugins() {
-      const root = marketInstallRoot(home)
-      const candidates: string[] = []
-      try {
-        for (const entry of await readdir(root, { withFileTypes: true }))
-          if (
-            (entry.isDirectory() || entry.isSymbolicLink()) &&
-            !entry.name.startsWith('.') &&
-            entry.name !== 'plugins.json'
-          )
-            candidates.push(join(root, entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      const loaded: { name: string; statusTabs: number }[] = []
-      const failed: { dir: string; error: string }[] = []
-      for (const candidate of candidates) {
-        try {
-          await access(join(candidate, 'manifest.json'))
-        } catch {
-          continue // 无 manifest 的目录不视为插件（legacy 状态文件等）
-        }
-        try {
-          const manifest = validateManifest(
-            JSON.parse(await readFile(join(candidate, 'manifest.json'), 'utf8')),
-            options.identity.version,
-          )
-          const lifecycle = await localPluginState.discover(manifest, 'market', resolve(candidate))
-          if (!isPluginApproved(lifecycle) || !lifecycle.enabled) continue
-          loaded.push(
-            await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)),
-          )
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          failed.push({ dir: candidate, error: message })
-          void telemetry.emit('plugin.local_load_failed', 'plugin', {
-            dir: basename(candidate),
-            error: message,
-          })
-        }
-      }
-      return { loaded, failed }
-    },
-    async inspectPlugin(input: string) {
-      return inspectPlugin(input)
-    },
-    async approvePlugin(input: string, hash: string) {
-      return approvePlugin(input, hash)
-    },
-    async enablePlugin(input: string) {
-      return enablePlugin(input)
-    },
-    async disablePlugin(input: string) {
-      return disablePlugin(input)
-    },
-    async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {
-      const loaded: { name: string; statusTabs: number }[] = []
-      const failed: { dir: string; error: string }[] = []
-      for (const candidate of candidates) {
-        try {
-          await access(join(candidate, 'manifest.json'))
-        } catch {
-          continue // 无 manifest 的目录不视为插件
-        }
-        try {
-          loaded.push(await activateLocal(candidate, source))
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          failed.push({ dir: candidate, error: message })
-          void telemetry.emit('plugin.local_load_failed', 'plugin', {
-            dir: basename(candidate),
-            error: message,
-          })
-        }
-      }
-      return { loaded, failed }
-    },
-    /**
-     * 卸载市场插件（端口面，管理命令/未来 CLI 子命令用；桥上经
-     * volund.plugins.uninstall 走同一实现）：热生效——停用、摘命令与页签、
-     * 删目录，当前会话立即可见。内置/dev 插件明确拒绝（见实现内说明）。
-     */
-    async uninstallMarketPlugin(input: string) {
-      return uninstallMarketPlugin(input)
-    },
-    async deactivateAll() {
-      const entries = loadedPluginEntries.splice(0)
-      await Promise.allSettled(
-        entries.map(async (entry) => {
-          for (const unsubscribe of entry.unsubscribes) unsubscribe()
-          await entry.handle.deactivate()
-        }),
-      )
-    },
-  }
-  // P1-04b：Memory 四件套的单一组合点在 app-runtime（createMemoryStack）。
   const memoryStack = createMemoryStack(home)
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
   const memoryTransfer = memoryStack.memoryTransfer
-  const slashCommands = new MutableSlashCommandRegistry()
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -1328,20 +860,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 名单——面板 / config 任一侧改名单对所有会话即时生效）。
   // F1：第一方工具域禁用名单（[plugins] builtin_disabled）——createRunner 装配
   // 与 volund plugins builtin 面板/CLI 共用同一份可变状态。
-  const builtinToolsDisabled = new Set<string>()
-  let builtinToolsConfigLoaded = false
-  async function ensureBuiltinToolsConfig(): Promise<void> {
-    if (builtinToolsConfigLoaded) return
-    builtinToolsConfigLoaded = true
-    try {
-      const config = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      for (const domain of builtinDisabledFrom(config.plugins)) builtinToolsDisabled.add(domain)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
   // P1-04c：skills 域装配迁入 app-runtime（createSkillDomain）；skillsRuntimes /
   // skillsDisabled 等多会话共享状态由工厂持有，createRunner 与面板经解构句柄取用。
   const skillDomain = createSkillDomain({
@@ -2113,61 +1631,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     memoryRecall,
     memoryMaintenance,
     memoryTransfer,
-    plugin: {
-      async install(_source) {
-        throw new PluginError(
-          LEGACY_PLUGIN_UNAVAILABLE.code,
-          `${LEGACY_PLUGIN_UNAVAILABLE.detail} Reopen requires ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition}.`,
-        )
-      },
-      async uninstall(name) {
-        assertLegacyPluginName(name)
-        if (await localPluginState.get(name))
-          throw new PluginError(
-            'plugin_lifecycle_authority_mismatch',
-            `${name} is managed by plugin-state.v2.json; use /plugins uninstall ${name.replace(/^volund-plugin-/, '')}`,
-          )
-        await pluginsReady
-        await plugins.uninstall(name)
-      },
-      async list() {
-        await pluginsReady
-        return plugins.list()
-      },
-      async setEnabled(name, enabled) {
-        assertLegacyPluginName(name)
-        if (enabled)
-          throw new PluginError(
-            LEGACY_PLUGIN_UNAVAILABLE.code,
-            `${LEGACY_PLUGIN_UNAVAILABLE.detail} Reopen requires ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition}.`,
-          )
-        await pluginsReady
-        await plugins.setEnabled(name, enabled)
-      },
-      async availability() {
-        return LEGACY_PLUGIN_UNAVAILABLE
-      },
-      async doctor(name) {
-        assertLegacyPluginName(name)
-        await pluginsReady
-        const approvals = plugins.list()
-        const state = Object.hasOwn(approvals, name) ? approvals[name] : undefined
-        if (!state) throw new PluginError('plugin_not_installed', name)
-        const diagnostic = await readContainedPluginDiagnostic(
-          pluginRoot,
-          name,
-          state.version,
-          options.identity.version,
-        )
-        return {
-          name,
-          version: diagnostic.version,
-          permissions: diagnostic.permissions,
-          compatibility: diagnostic.compatibility,
-          availability: LEGACY_PLUGIN_UNAVAILABLE,
-        }
-      },
-    },
+    plugin: pluginDomain.legacyPluginPort,
     localPlugins,
     skill: skillPort,
     mcp: mcpPort,

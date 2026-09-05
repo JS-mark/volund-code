@@ -25,6 +25,13 @@ export { serializeToml } from './toml'
 export * from './toml'
 export { loadProductionContextTuning } from './context-tuning'
 export { languagePromptFragment, resolveModelAlias } from './model-alias'
+export { createPluginDomain } from './plugins-domain'
+export type {
+  LoadedPluginEntry,
+  LocalPluginHub,
+  PluginDomain,
+  PluginDomainOptions,
+} from './plugins-domain'
 export {
   assertLegacyPluginName,
   resolveBuiltinPluginRoot,
