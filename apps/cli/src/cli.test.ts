@@ -5,7 +5,7 @@ import { createSession, EventBus, MachineEventFormatter } from '@volund/core'
 import type { JsonValue } from '@volund/shared'
 import type { ToolContext } from '@volund/tool-kit'
 import { BashTool } from '@volund/tools'
-import type { SandboxDisclosure } from '@volund/ui'
+import type { InteractiveAppOptions, SandboxDisclosure } from '@volund/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from './cli'
@@ -870,6 +870,128 @@ describe('runCli', () => {
     })
     expect(interactive.setPermissionPromptHandler).toHaveBeenCalledWith(expect.any(Function))
     expect(waitUntilExit).toHaveBeenCalledOnce()
+  })
+
+  it('§8.3: [models.aliases] entries appear in the model picker as explicit-model options', async () => {
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const render = vi.fn((_options: InteractiveAppOptions) => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit: vi.fn(async () => {}),
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
+    const testPorts = ports({
+      config: {
+        health: async () => ({ valid: true, detail: 'ok' }),
+        listMerged: async () => ({
+          config: { models: { aliases: { vision: { provider: 'anthropic', model: 'mimo-v2.5' } } } },
+          warnings: [],
+        }),
+      },
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: { renderInteractiveApp: render },
+    })
+
+    await runCli(['chat'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+    const arg = render.mock.calls[0]?.[0] as InteractiveAppOptions
+    // 别名以解析后的 provider/model 为 id——选中走显式模型覆盖通道。
+    expect(arg.modelPicker?.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'vision', id: 'anthropic/mimo-v2.5' }),
+      ]),
+    )
+  })
+
+  it('§7.5.2: wires onPasteAttachment only when the session implements clipboard paste', async () => {
+    // 支持粘贴的会话：UI 拿到 onPasteAttachment 并委托回会话端口。
+    const withPaste = {
+      id: 'session-1',
+      events: new EventBus(),
+      pasteClipboardAttachment: vi.fn(async () => ({ kind: 'empty' as const })),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const firstRender = vi.fn((_options: InteractiveAppOptions) => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit: vi.fn(async () => {}),
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
+    const firstPorts = ports({
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => withPaste),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: { renderInteractiveApp: firstRender },
+    })
+    await runCli(['chat'], firstPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+    const firstArg = firstRender.mock.calls[0]?.[0] as {
+      onPasteAttachment?: () => Promise<{ kind: string }>
+    }
+    await expect(firstArg.onPasteAttachment!()).resolves.toEqual({ kind: 'empty' })
+    expect(withPaste.pasteClipboardAttachment).toHaveBeenCalledOnce()
+
+    // 不支持粘贴的会话：选项里不出现该键（exactOptionalPropertyTypes，不能显式 undefined）。
+    const withoutPaste = {
+      id: 'session-2',
+      events: new EventBus(),
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const secondRender = vi.fn((_options: InteractiveAppOptions) => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit: vi.fn(async () => {}),
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
+    const secondPorts = ports({
+      session: {
+        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => withoutPaste),
+        resume: vi.fn(async (id) => ({ id })),
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: { renderInteractiveApp: secondRender },
+    })
+    await runCli(['chat'], secondPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+    const secondArg: Record<string, unknown> = { ...(secondRender.mock.calls[0]?.[0] ?? {}) }
+    expect('onPasteAttachment' in secondArg).toBe(false)
   })
 
   it('shows the configured provider model in the picker and welcome instead of the hardcoded default', async () => {

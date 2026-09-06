@@ -1,8 +1,14 @@
 import type { CoreEvent, EventBus } from '@volund/core'
-import { productIdentity } from '@volund/shared'
+import {
+  contentPartChipLabel,
+  productIdentity,
+  type PasteAttachmentResult,
+  type StagedAttachmentInfo,
+  type SubmitAttachment,
+} from '@volund/shared'
 import { Box, Text, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InputBox } from './components/InputBox'
 import { ListPicker } from './components/ListPicker'
@@ -20,6 +26,8 @@ import { SubagentsPanel } from './components/SubagentsPanel'
 import { TabbedListView } from './components/TabbedListView'
 import { TopBar } from './components/TopBar'
 import { WelcomeScreen } from './components/welcome/WelcomeScreen'
+import { WelcomeStatusBar } from './components/welcome/WelcomeStatusBar'
+import { getWelcomeLayout } from './components/welcome/welcomeLayout'
 import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
@@ -144,6 +152,12 @@ export interface ResumedInteractiveSession {
   onExit(): Promise<void> | void
   /** esc-to-interrupt for the resumed session; omit to leave esc inert. */
   onInterrupt?(): Promise<void> | void
+  /** §7.5.2 Ctrl+V 剪贴板附件；缺省时该按键在输入行静默无效。 */
+  onPasteAttachment?(): Promise<PasteAttachmentResult>
+  /** §7.5.2 粘贴/拖拽文件路径转附件（bracketed paste 文本解析）。 */
+  onAttachFilePath?(path: string): Promise<PasteAttachmentResult>
+  /** §7.5.3 @ picker 的文件候选源（cwd 相对路径快照）。 */
+  listFiles?(): Promise<readonly string[]>
   onSubmit(input: string, options?: SubmitOptions): Promise<void> | void
   transcript?: readonly TranscriptEntry[]
 }
@@ -176,6 +190,18 @@ export interface InteractiveAppOptions {
   /** esc-to-interrupt while a turn streams/runs; omit to leave esc inert. */
   onInterrupt?: () => Promise<void> | void
   onModelSelect?: (model: string) => Promise<void> | void
+  /**
+   * §7.5.2 Ctrl+V 剪贴板附件粘贴：读系统剪贴板 → 权限门 → 图片落盘/文件引用，
+   * 返回输入行 chip（或纯文本/空/拒绝）。缺省时 Ctrl+V 在输入行静默无效。
+   */
+  onPasteAttachment?: () => Promise<PasteAttachmentResult>
+  /**
+   * §7.5.2 粘贴/拖拽的文件路径（bracketed paste 文本解析）：返回 'attached'
+   * 转 chip，其余结果把原文本插入输入行（纯文本粘贴不受影响）。
+   */
+  onAttachFilePath?: (path: string) => Promise<PasteAttachmentResult>
+  /** §7.5.3 @ picker 的文件候选源（cwd 相对路径）；缺省时 @ 只提供模型别名。 */
+  listFiles?: () => Promise<readonly string[]>
   onSubmit?: (input: string, options?: SubmitOptions) => Promise<void> | void
   permissions?: PermissionPromptController
   /** §4.4 三档会话权限模式（/mode 命令的后端）；缺省时 /mode 显示为不可用。 */
@@ -257,7 +283,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [commandRunning, setCommandRunning] = useState(false)
   // SUBAGENTS-UI-r1 §S4：turn 运行期输入框保持可用——斜杠命令即时执行
   // （undo/compact/model/resume 除外），纯文本排队、turn 结束自动发出。
-  const [queuedInputs, setQueuedInputs] = useState<string[]>([])
+  // §7.5.2：排队条目随带各自的附件 chip——合并发送时附件一并归并。
+  const [queuedInputs, setQueuedInputs] = useState<QueuedInput[]>([])
   const anyPanelOpen =
     statusPanelOpen ||
     memoryOpen ||
@@ -278,6 +305,45 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const activeOnSubmit = activeSession
     ? (input: string, submitOptions?: SubmitOptions) => activeSession.onSubmit(input, submitOptions)
     : options.onSubmit
+  const activeOnPasteAttachment = activeSession
+    ? activeSession.onPasteAttachment
+    : options.onPasteAttachment
+  const activeOnAttachFilePath = activeSession
+    ? activeSession.onAttachFilePath
+    : options.onAttachFilePath
+  const activeListFiles = activeSession ? activeSession.listFiles : options.listFiles
+  // §7.5.3 @ picker 文件候选：会话切换时重取（cwd 变了）；失败静默降级为仅模型别名。
+  const [mentionFiles, setMentionFiles] = useState<readonly string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    if (!activeListFiles) {
+      setMentionFiles([])
+      return undefined
+    }
+    void activeListFiles()
+      .then((list) => {
+        if (!cancelled) setMentionFiles(list)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activeListFiles])
+  const mentionModels = useMemo(
+    () =>
+      (options.modelPicker?.models ?? [])
+        .filter((model) => !model.disabled)
+        .map((model) => ({ alias: model.label, model: model.id })),
+    [options.modelPicker],
+  )
+  // §7.5.2：handle digest 前 8 位 → 输入行 chip（[image_N]）的映射，提交时登记，
+  // message.appended 落 transcript 时回译，保证两处展示一致。
+  const attachmentChipLabels = useRef(new Map<string, string>())
+  const rememberAttachmentChips = useCallback((attachments: readonly SubmitAttachment[]) => {
+    for (const attachment of attachments)
+      if (attachment.handle)
+        attachmentChipLabels.current.set(attachment.handle.slice(0, 8), attachment.chip)
+  }, [])
 
   const flushPendingToTranscript = useCallback(
     (state: InteractiveAppState, id: string): InteractiveAppState => {
@@ -362,6 +428,23 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           return
         }
         if (event.type === 'tool.started') setShowWelcome(false)
+        if (event.type === 'message.appended') {
+          // §7.5.2：把 hash 形态的附件 chip（[image: 49779094.png]）回译成输入行的
+          // 顺序编号 chip（[image_1]），transcript 与输入行展示一致。
+          setState((current) => {
+            const next = applyInteractiveEvent(current, event)
+            const added = next.transcript.length - current.transcript.length
+            if (added <= 0 || attachmentChipLabels.current.size === 0) return next
+            const transcript = next.transcript.slice()
+            for (let index = transcript.length - added; index < transcript.length; index++) {
+              const entry = transcript[index]!
+              const text = remapImageChips(entry.text, attachmentChipLabels.current)
+              if (text !== entry.text) transcript[index] = { ...entry, text }
+            }
+            return { ...next, transcript }
+          })
+          return
+        }
         setState((current) => applyInteractiveEvent(current, event))
       },
       [flushPendingToTranscript, streamBuffer],
@@ -418,6 +501,38 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       disposed = true
     }
   }, [options.sandboxProbe, options.status, welcome])
+
+  // §7.5.2：Ctrl+V 与 /paste 共用的剪贴板粘贴通道——结果反馈（系统消息）统一
+  // 在这里处理，InputBox/命令各自只决定怎么消费 attached/text。
+  const [chipInjection, setChipInjection] = useState<{
+    info: StagedAttachmentInfo
+    nonce: number
+  } | null>(null)
+  const pasteClipboardAndReport = useMemo(() => {
+    if (!activeOnPasteAttachment) return undefined
+    return async (): Promise<PasteAttachmentResult> => {
+      try {
+        const result = await activeOnPasteAttachment()
+        if (result.kind === 'attached' || result.kind === 'text') return result
+        // welcome 屏下 transcript 不可见——反馈消息出现时先退 welcome，
+        // 否则 denied/empty/unavailable 对用户无声（像粘贴被吞）。
+        setShowWelcome(false)
+        if (result.kind === 'denied') appendSystemMessage(setState, 'clipboard attachment denied')
+        else if (result.kind === 'empty')
+          appendSystemMessage(setState, 'clipboard has no image or file to attach')
+        else
+          appendSystemMessage(setState, `clipboard attachment unavailable: ${result.reason}`)
+        return result
+      } catch (error) {
+        setShowWelcome(false)
+        appendSystemMessage(
+          setState,
+          `clipboard paste failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return { kind: 'unavailable', reason: 'clipboard read failed' }
+      }
+    }
+  }, [activeOnPasteAttachment])
 
   const slashCommands = useMemo(() => {
     const hasModelPicker = Boolean(options.modelPicker?.models.length)
@@ -675,6 +790,27 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('skill', 'Activate, deactivate, or show a skill', 130),
+      // §7.5.2：/paste 是不依赖键位的附件通道——有些终端把 Ctrl+V 绑成自己的
+      // 粘贴（Warp/VS Code 等），按键根本到不了应用，命令通道始终可用。
+      pasteClipboardAndReport
+        ? {
+            name: 'paste',
+            order: 140,
+            description: 'Attach the clipboard image or file to the input box',
+            run: async () => {
+              setShowWelcome(false)
+              const result = await pasteClipboardAndReport()
+              if (result.kind === 'attached') {
+                setChipInjection({ info: result.attachment, nonce: Date.now() })
+              } else if (result.kind === 'text') {
+                appendSystemMessage(
+                  setState,
+                  'clipboard contains plain text — paste it with your terminal (Cmd+V)',
+                )
+              }
+            },
+          }
+        : unavailableSlashCommand('paste', 'Attach the clipboard image or file to the input box', 140),
     ]
     return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
   }, [
@@ -689,6 +825,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     options.resume,
     options.slashCommands,
     options.undo,
+    pasteClipboardAndReport,
     registryCommands,
     state.sessionId,
     welcome,
@@ -721,7 +858,18 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       placeholder={`Ask ${productIdentity.shortName} to inspect, change, test, or explain this repo`}
       slashCommands={slashCommands}
       terminalColumns={terminalSize.columns}
-      onSubmit={async (input) => {
+      // §7.5.2：粘贴/拖拽的文件路径转附件；不可附加时 InputBox 回退为插入原文本。
+      {...(activeOnAttachFilePath ? { onAttachFilePath: activeOnAttachFilePath } : {})}
+      // §7.5.3：@ 统一 picker——文件候选（宿主预取快照）+ 模型别名（⭐ 置顶）。
+      // 选中模型 = 当轮显式覆盖（与 /model picker 同一 modelOverride 通道）。
+      mentionFiles={mentionFiles}
+      mentionModels={mentionModels}
+      onMentionModel={(model) => setModelOverride(model)}
+      // §7.5.2：Ctrl+V 剪贴板附件（与 /paste 共用同一通道）；/paste 的 chip 经
+      // injectedAttachment 注入输入行。
+      injectedAttachment={chipInjection}
+      {...(pasteClipboardAndReport ? { onPasteAttachment: pasteClipboardAndReport } : {})}
+      onSubmit={async (input, attachments = []) => {
         const trimmed = input.trim()
         if (!trimmed) return
         const turnInFlight = state.statusLevel === 'active'
@@ -780,7 +928,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             setShowWelcome(false)
             settleStatus('info')
             if (turnInFlight) {
-              setQueuedInputs((current) => [...current, outcome.text])
+              setQueuedInputs((current) => [...current, { attachments: [], text: outcome.text }])
               appendSystemMessage(
                 setState,
                 'queued — the skill will run when the current turn finishes',
@@ -802,7 +950,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         }
         setShowWelcome(false)
         if (turnInFlight) {
-          setQueuedInputs((current) => [...current, input])
+          setQueuedInputs((current) => [...current, { attachments, text: input }])
           appendSystemMessage(
             setState,
             'queued — the message will be sent when the current turn finishes',
@@ -819,7 +967,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             statusLevel: 'warning',
           }))
         }
-        await activeOnSubmit?.(input, submitOptions(modelOverride ?? ''))
+        rememberAttachmentChips(attachments)
+        await activeOnSubmit?.(input, submitOptions(modelOverride ?? '', attachments))
       }}
     />
   )
@@ -838,10 +987,21 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // 排队消息在 turn 收尾后自动发出（permission 弹窗期不算收尾，statusLevel 仍 active）
   useEffect(() => {
     if (state.statusLevel === 'active' || queuedInputs.length === 0) return
-    const next = queuedInputs.join('\n\n')
+    const next = queuedInputs.map((queued) => queued.text).join('\n\n')
+    // 各排队条目的 chip 一并归并；重复粘贴的同一附件（内容寻址 chip 相同）去重。
+    const seen = new Set<string>()
+    const attachments = queuedInputs
+      .flatMap((queued) => queued.attachments)
+      .filter((attachment) => {
+        const key = attachment.handle ?? attachment.path ?? attachment.chip
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
     setQueuedInputs([])
-    void activeOnSubmit?.(next, submitOptions(modelOverride ?? ''))
-  }, [state.statusLevel, queuedInputs])
+    rememberAttachmentChips(attachments)
+    void activeOnSubmit?.(next, submitOptions(modelOverride ?? '', attachments))
+  }, [state.statusLevel, queuedInputs, rememberAttachmentChips])
   const toolName = state.status.startsWith('running ')
     ? state.status.slice('running '.length)
     : undefined
@@ -865,18 +1025,33 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     bottomStatus
   )
 
+  const welcomeState = useMemo(
+    () => (welcome ? buildWelcomeScreenState({ data: welcome }) : undefined),
+    [welcome],
+  )
+
   return (
     <Box flexDirection="column">
-      {showWelcome && welcome ? (
-        <WelcomeScreen
-          bottomStatus={bottomStatus}
-          commandInput={commandInput}
-          state={buildWelcomeScreenState({ data: welcome })}
-          terminalSize={terminalSize}
-        />
+      {/*
+        InputBox 绝不进任何条件分支——welcome/正常视图切换时它若随分支移动会被
+        React 重挂载，未提交的文本与附件 chip 全丢。commandInput 固定在分支之外；
+        welcome 模式的 bottomStatus 与 WelcomeStatusBar 也拆到外层固定槽位。
+      */}
+      {showWelcome && welcomeState ? (
+        <>
+          {/* §7.5.2：Ctrl+V 剪贴板授权弹窗可能发生在首次提交之前（welcome 仍
+              可见）——welcome 分支同样挂载弹窗，否则请求挂着却无处决策。 */}
+          {options.permissions ? (
+            <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
+          ) : null}
+          <WelcomeScreen state={welcomeState} terminalSize={terminalSize} />
+          <Box marginTop={1} paddingX={1}>
+            {bottomStatus}
+          </Box>
+        </>
       ) : (
         <>
-          <TopBar cwd={activeCwd} sessionId={state.sessionId} status={state.status} />
+          <TopBar cwd={activeCwd} sessionId={state.sessionId} />
           <ScrollableTranscript entries={transcript} />
           {options.permissions ? (
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
@@ -889,9 +1064,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               </Text>
             </Box>
           ) : null}
-          {commandInput}
         </>
       )}
+      {commandInput}
+      {showWelcome && welcomeState ? (
+        <WelcomeStatusBar layout={getWelcomeLayout(terminalSize)} state={welcomeState} />
+      ) : null}
       {statusPanelOpen && (options.statusPanel || welcome) ? (
         <StatusPanel
           data={options.statusPanel ?? statusPanelFromWelcome(welcome!)}
@@ -1079,9 +1257,34 @@ function firstAvailableModelId(models: readonly ModelPickerState['models'][numbe
   return models.find((model) => !model.disabled)?.id ?? models[0]?.id ?? ''
 }
 
-function submitOptions(currentModelId: string): SubmitOptions | undefined {
-  if (!currentModelId) return undefined
-  return { model: currentModelId }
+/** turn 运行期排队的输入：文本 + 各自的附件 chip（§7.5.2）。 */
+interface QueuedInput {
+  attachments: readonly SubmitAttachment[]
+  text: string
+}
+
+function submitOptions(
+  currentModelId: string,
+  attachments: readonly SubmitAttachment[] = [],
+): SubmitOptions | undefined {
+  if (!currentModelId && attachments.length === 0) return undefined
+  return {
+    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(currentModelId ? { model: currentModelId } : {}),
+  }
+}
+
+/**
+ * §7.5.2：transcript 里 hash 形态的图片 chip（[image: 49779094.png]，由
+ * contentPartChipLabel 从引用式 ContentPart 派生）回译成输入行的顺序编号
+ * chip（[image_1]）。只处理 image；file chip 两侧同为 basename 无需映射。
+ */
+function remapImageChips(text: string, chipsByHandle: ReadonlyMap<string, string>): string {
+  if (chipsByHandle.size === 0 || !text.includes('[image:')) return text
+  return text.replace(
+    /\[image: ([0-9a-f]{8})\.(\w+)\]/g,
+    (full, prefix: string) => chipsByHandle.get(prefix) ?? full,
+  )
 }
 
 function appendSystemMessage(
@@ -1345,7 +1548,8 @@ function payloadText(payload: CoreEvent['payload']): string {
     const value = objectPayload[key]
     if (typeof value === 'string') return value
   }
-  // 附录 D.2 message.appended：★content（引用式 ContentPart[]）取 text part 拼接。
+  // 附录 D.2 message.appended：★content（引用式 ContentPart[]）取 text part 拼接；
+  // §7.5.2：image/file part 渲染回 chip 文本（[image: a1b2c3d4.png]），与输入行一致。
   const content = objectPayload.content
   if (Array.isArray(content)) {
     return content
@@ -1353,7 +1557,11 @@ function payloadText(payload: CoreEvent['payload']): string {
         (part): part is { type: string; text: string } =>
           !!part && typeof part === 'object' && !Array.isArray(part),
       )
-      .map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+      .map((part) => {
+        if (part.type === 'text' && typeof part.text === 'string') return part.text
+        const chip = contentPartChipLabel(part)
+        return chip ? `${chip} ` : ''
+      })
       .join('')
   }
   return ''

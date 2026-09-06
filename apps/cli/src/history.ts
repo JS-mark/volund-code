@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline'
 
 import { replaySessionState } from '@volund/core'
 import type { SessionState } from '@volund/core'
+import { contentPartChipLabel } from '@volund/shared'
 import { SessionStore } from '@volund/storage'
 import type { StoredEvent } from '@volund/storage'
 import type { SessionCandidate } from '@volund/ui'
@@ -17,10 +18,15 @@ import type { HistoryMessage, HistoryPort, HistorySessionDetail, HistorySearchHi
  */
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+// §7.5.2：image/file part 渲染回 chip 文本（[image: a1b2c3d4.png]），history show
+// 与 TUI transcript 的附件表示一致；二进制内容永不进历史输出。
 function messageFullText(content: SessionState['messages'][number]['content']): string {
   return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
+    .map((part) => {
+      if (part.type === 'text') return part.text
+      const chip = contentPartChipLabel(part)
+      return chip ? `${chip} ` : ''
+    })
     .join('')
     .trim()
 }

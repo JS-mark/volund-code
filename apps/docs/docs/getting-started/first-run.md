@@ -40,3 +40,29 @@ shown as `unknown` or `not configured`; Volund never infers a successful securit
 
 The command band accepts Enter to send and Shift+Enter for a newline. Empty input is ignored.
 `--json` and `--no-tui` remain machine/line-output modes and never render the welcome screen.
+
+Ctrl+V attaches the clipboard: an image is staged to the session's attachment store and inserted
+as a sequentially numbered `[image_1]` chip, a copied file becomes a `[file: <name>]` chip, and plain text is
+inserted as text. Dragging a file into the terminal (or pasting a path that resolves to a file)
+attaches it the same way — in-workspace files are referenced by path, images from elsewhere are
+copied into the store. Pasting never asks for permission: the chip is a local reference, and the
+content only leaves the machine when you explicitly send the message. Chips are atomic tokens —
+backspace removes the whole chip; sending expands them into image/file content for the model.
+Attachment history keeps only the chip text, never the binary.
+
+Cmd+V works for images too: when the clipboard holds no text, the terminal delivers an empty
+bracketed paste and volund reads the image from the system clipboard (the same `onEmptyPaste`
+semantics as Claude Code). If your terminal does not emit that empty paste, use `/paste`, or
+remap Cmd+V to send `0x16` (iTerm2: Settings → Keys → Key Bindings → Cmd+V → Send Hex Codes
+`0x16`; VS Code: `workbench.action.terminal.sendSequence` with `\u0016`) — volund's Ctrl+V also
+inserts plain text, so the remapped Cmd+V behaves like a full paste.
+
+The command band supports left/right arrows, Home/End, and Ctrl+A/Ctrl+E for cursor movement;
+edits apply at the cursor position.
+
+If your terminal captures Ctrl+V for its own paste, use the `/paste` command instead — it reads
+the clipboard through the same consent-gated path and drops the chip into the input line.
+
+Typing `@` opens a picker of model aliases (⭐) and workspace files (📄) filtered as you type;
+Enter/Tab selects (a file becomes an attachment chip, a model overrides the model for that turn),
+and Esc dismisses.

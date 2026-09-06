@@ -101,6 +101,22 @@ describe('Anthropic adapter', () => {
     expect(mapAnthropicError(429).retryable).toBe(true)
     expect(mapAnthropicError(500).category).toBe('server')
   })
+  it('translates gateway image-capability rejections into actionable guidance', () => {
+    // 兼容型网关按模型路由图片能力（如小米 MiMo 的 "No endpoints found that
+    // support image input"）——报错要告诉用户怎么换模型，而不是甩网关原话。
+    const error = mapAnthropicError(
+      404,
+      { error: { type: '', message: 'No endpoints found that support image input' } },
+      undefined,
+      'mimo-v2.5-pro',
+    )
+    expect(error.message).toContain('mimo-v2.5-pro')
+    expect(error.message).toContain('vision-capable model')
+    // 普通错误不加提示。
+    expect(mapAnthropicError(404, { error: { message: 'model not found' } }).message).toBe(
+      'model not found',
+    )
+  })
   it('surfaces the upstream error body message on non-2xx instead of a generic status', async () => {
     const request = vi.fn(async (_input) => ({
       status: 400,

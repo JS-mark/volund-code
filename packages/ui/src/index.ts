@@ -193,6 +193,8 @@ export * from './memory-panel'
 export * from './skills-panel'
 export * from './mcp-panel'
 export * from './subagents-panel'
+// §7.5.2 附件粘贴的类型面（定义在 shared，UI/CLI/宿主三方共用）
+export type { PasteAttachmentResult, SubmitAttachment, SubmitAttachmentKind } from '@volund/shared'
 export type {
   InteractiveAppOptions,
   ResumedInteractiveSession,

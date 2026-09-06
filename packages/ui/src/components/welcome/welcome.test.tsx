@@ -1,13 +1,14 @@
 import { PassThrough, Writable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
 
-import { render, Text } from 'ink'
+import { Box, render, Text } from 'ink'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import type { WelcomePanelData } from '../../welcome'
 import { formatDisplayCwd, getWelcomeLayout, truncateMiddle } from './welcomeLayout'
 import { WelcomeScreen } from './WelcomeScreen'
+import { WelcomeStatusBar } from './WelcomeStatusBar'
 import { buildWelcomeScreenState } from './welcomeStateAdapter'
 
 class Output extends Writable {
@@ -57,12 +58,20 @@ describe('welcome screen', () => {
     const stdout = new Output()
     const stdin = new Input()
     const view = render(
-      createElement(WelcomeScreen, {
-        state,
-        terminalSize,
-        commandInput: createElement(Text, {}, 'COMMAND INPUT'),
-        bottomStatus: createElement(Text, {}, 'BOTTOM STATUS'),
-      }),
+      // WelcomeScreen 只渲染主盒；status bar 由 app 外层放在输入行之后
+      // （bottomStatus/commandInput 插槽被移出，见 types.ts 注释）。
+      createElement(
+        Box,
+        { flexDirection: 'column' },
+        createElement(WelcomeScreen, {
+          state,
+          terminalSize,
+        }),
+        createElement(WelcomeStatusBar, {
+          layout: getWelcomeLayout(terminalSize),
+          state,
+        }),
+      ),
       {
         debug: true,
         interactive: false,
@@ -87,10 +96,7 @@ describe('welcome screen', () => {
     }
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
-    expect(stdout.output).toContain('COMMAND INPUT')
-    expect(stdout.output).toContain('BOTTOM STATUS')
-    expect(stdout.output).not.toContain('COMMAND\n')
-    expect(stdout.output).not.toContain('BOTTOM STATUS\nBOTTOM STATUS')
+
   })
 
   it('renders settled native probe states as loaded or not loaded', async () => {
@@ -149,14 +155,6 @@ describe('welcome screen', () => {
     },
   )
 
-  it('keeps transient runtime status separate from the stable bottom bar', async () => {
-    const output = stripVTControlCharacters(
-      await renderWelcome({ columns: 120, rows: 30 }, fixture({ status: 'unknown' })),
-    )
-    expect(output.indexOf('BOTTOM STATUS')).toBeLessThan(output.indexOf('COMMAND INPUT'))
-    expect(output.indexOf('COMMAND INPUT')).toBeLessThan(output.indexOf('mode auto'))
-  })
-
   it.each([
     [{ columns: 120, rows: 30 }, 'full'],
     [{ columns: 90, rows: 24 }, 'compact'],
@@ -203,13 +201,14 @@ async function renderWelcome(
 ) {
   const stdout = new Output()
   stdout.columns = terminalSize.columns
+  const state = buildWelcomeScreenState({ data: { ...data, cwd: cwd ?? data.cwd } })
   const view = render(
-    createElement(WelcomeScreen, {
-      state: buildWelcomeScreenState({ data: { ...data, cwd: cwd ?? data.cwd } }),
-      terminalSize,
-      commandInput: createElement(Text, {}, 'COMMAND INPUT'),
-      bottomStatus: createElement(Text, {}, 'BOTTOM STATUS'),
-    }),
+    createElement(
+      Box,
+      { flexDirection: 'column' },
+      createElement(WelcomeScreen, { state, terminalSize }),
+      createElement(WelcomeStatusBar, { layout: getWelcomeLayout(terminalSize), state }),
+    ),
     {
       debug: true,
       interactive: false,
