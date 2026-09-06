@@ -1,7 +1,7 @@
 import { PassThrough, Writable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
 
-import { Box, render, Text } from 'ink'
+import { Box, render } from 'ink'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 

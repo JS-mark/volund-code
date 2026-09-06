@@ -992,7 +992,7 @@ describe('runCli', () => {
       isInteractiveTerminal: () => true,
       readStdin: async () => '',
     })
-    const secondArg: Record<string, unknown> = { ...(secondRender.mock.calls[0]?.[0] ?? {}) }
+    const secondArg: Record<string, unknown> = { ...secondRender.mock.calls[0]?.[0] }
     expect('onPasteAttachment' in secondArg).toBe(false)
   })
 

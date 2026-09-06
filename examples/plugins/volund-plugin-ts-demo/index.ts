@@ -37,6 +37,7 @@ interface DemoVolund extends Record<string, unknown> {
   }
 }
 
+// oxlint-disable-next-line typescript/no-redundant-type-constituents -- tsgolint 解析不了跨包 import type 的 bridge，误判为 error/any
 export async function activate(volund: DemoVolund & Partial<VolundBridge>) {
   // 裸名即可：宿主自动收敛为 plugin:volund-plugin-ts-demo:ts-count
   await volund.tools.register({
