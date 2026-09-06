@@ -11,31 +11,16 @@
       "outputs": []
     },
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "dist/**",
-        ".vitepress/dist/**"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".vitepress/dist/**"]
     },
     "test": {
-      "dependsOn": [
-        "^build",
-        "//#verify:config-docs",
-        "//#verify:error-codes"
-      ],
+      "dependsOn": ["^build", "//#verify:config-docs", "//#verify:error-codes"],
       "outputs": []
     },
     "@volund/docs#typecheck": {
-      "dependsOn": [
-        "build",
-        "^build",
-        "//#check:typescript-config"
-      ],
-      "outputs": [
-        "api/**"
-      ]
+      "dependsOn": ["build", "^build", "//#check:typescript-config"],
+      "outputs": ["api/**"]
     },
     "@volund/docs#test": {
       "dependsOn": [
@@ -47,11 +32,7 @@
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": [
-        "build",
-        "^build",
-        "//#check:typescript-config"
-      ],
+      "dependsOn": ["build", "^build", "//#check:typescript-config"],
       "outputs": []
     },
     "@volund/docs#build": {
@@ -63,10 +44,7 @@
         "@volund/web#build",
         "@volund/kernel#build"
       ],
-      "outputs": [
-        "dist/**",
-        ".vitepress/dist/**"
-      ]
+      "outputs": ["dist/**", ".vitepress/dist/**"]
     }
   }
 }
