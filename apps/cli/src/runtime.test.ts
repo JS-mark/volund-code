@@ -12,7 +12,7 @@ import {
 import { createServer, type Server } from 'node:http'
 import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import {
   buildStatusViewModel,
@@ -463,7 +463,9 @@ describe('§7.5.2 clipboard attachment paste', () => {
     const runtime = pastePort(root, {}, imageClipboard())
     const session = await runtime.startInteractive({ cwd })
 
-    await expect(session.listFiles!()).resolves.toEqual(['src/deep/util.ts', 'src/index.ts'])
+    // relative() 在 Windows 产反斜杠——断言按平台形态来。
+    const expected = ['src/deep/util.ts', 'src/index.ts'].map((p) => p.split('/').join(sep))
+    await expect(session.listFiles!()).resolves.toEqual(expected)
 
     // @ picker 的相对路径按会话 cwd 解析（不是进程 cwd）。
     const attached = await session.attachFilePath!('src/index.ts')
