@@ -47,6 +47,7 @@ import {
   readEffectiveEnv,
   registerPluginCommands,
   registerRuntimeMemoryPrompts,
+  composeAttachmentInput,
   requestHttp2,
   requestPermission,
   RuntimeSessionPort,
@@ -216,6 +217,246 @@ describe('RuntimeSessionPort', () => {
 
     expect(await readFile(join(root, `${current.id}.jsonl`), 'utf8')).toContain('still current')
     expect(await readFile(join(root, `${target.id}.jsonl`), 'utf8')).not.toContain('still current')
+  })
+})
+
+describe('§7.5.2 clipboard attachment paste', () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
+  function captureFactory(captured: { input?: unknown }) {
+    return (initial: SessionState, events: EventBus) => {
+      const state = initial
+      return {
+        events,
+        interrupt: vi.fn(),
+        run: vi.fn(async (input: unknown) => {
+          captured.input = input
+          return state
+        }),
+        get state() {
+          return state
+        },
+      } as unknown as Runner
+    }
+  }
+
+  function imageClipboard(bytes: Uint8Array = PNG) {
+    return { read: async () => ({ bytes, kind: 'image' as const, mime: 'image/png' }) }
+  }
+
+  function pastePort(
+    root: string,
+    captured: { input?: unknown },
+    clipboard: { read: () => Promise<unknown> },
+  ) {
+    return new RuntimeSessionPort(
+      root,
+      captureFactory(captured),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      clipboard as never,
+    )
+  }
+
+  it('stages a clipboard image and submits it as an image ContentPart (no consent gate)', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const captured: { input?: unknown } = {}
+    const runtime = pastePort(root, captured, imageClipboard())
+    const session = await runtime.startInteractive({ cwd: process.cwd() })
+
+    // r19 决策：粘贴不设授权门——headless/无弹窗处理器也直接放行。
+    const first = await session.pasteClipboardAttachment!()
+    expect(first.kind).toBe('attached')
+    if (first.kind !== 'attached') return
+    // chip 文本归 UI 分配（[image_N]）；宿主只回 handle/kind/mime/size。
+    expect(first.attachment.handle).toMatch(/^[0-9a-f]{64}\.png$/)
+    expect(first.attachment).not.toHaveProperty('chip')
+    // 内容寻址落盘：~/.volund/sessions/<sid>/attachments/<sha256>.png
+    const staged = await readFile(
+      join(root, session.id, 'attachments', first.attachment.handle!),
+    )
+    expect(new Uint8Array(staged)).toEqual(PNG)
+
+    // 同内容重复粘贴：同 handle（内容寻址），不重复占盘。
+    const second = await session.pasteClipboardAttachment!()
+    expect(second.kind).toBe('attached')
+    if (second.kind !== 'attached') return
+    expect(second.attachment.handle).toBe(first.attachment.handle)
+
+    const submitted = [{ ...first.attachment, chip: '[image_1]' }]
+    await session.submit(`看看 [image_1] 这个`, { attachments: submitted })
+    const input = captured.input as Array<Record<string, unknown>>
+    expect(Array.isArray(input)).toBe(true)
+    expect(input[0]).toEqual({
+      mime: 'image/png',
+      source: { handle: first.attachment.handle, kind: 'handle' },
+      type: 'image',
+    })
+    // chip 从文本中剔除，模型只看到自然语言。
+    expect(input[1]).toEqual({ text: '看看 这个', type: 'text' })
+    await session.end()
+  })
+
+  it('returns plain text clipboards as text payloads', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const runtime = pastePort(
+      root,
+      {},
+      { read: async () => ({ kind: 'text' as const, text: 'plain clipboard' }) },
+    )
+    const session = await runtime.startInteractive({ cwd: process.cwd() })
+
+    await expect(session.pasteClipboardAttachment!()).resolves.toEqual({
+      kind: 'text',
+      text: 'plain clipboard',
+    })
+    await session.end()
+  })
+
+  it('attaches a clipboard file reference as a path-backed part', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const dir = await mkdtemp(join(process.cwd(), '.clip-'))
+    fixtures.push(dir)
+    await writeFile(join(dir, 'shot.png'), PNG)
+    const captured: { input?: unknown } = {}
+    const runtime = pastePort(
+      root,
+      captured,
+      { read: async () => ({ kind: 'file' as const, paths: [join(dir, 'shot.png')] }) },
+    )
+    const session = await runtime.startInteractive({ cwd: process.cwd() })
+
+    const result = await session.pasteClipboardAttachment!()
+    expect(result.kind).toBe('attached')
+    if (result.kind !== 'attached') return
+    // chip 归 UI 分配；宿主只回 path/kind/mime/size。
+    expect(result.attachment).not.toHaveProperty('chip')
+    expect(result.attachment.path).toBe(join(dir, 'shot.png'))
+
+    await session.submit('描述这张图', {
+      attachments: [{ ...result.attachment, chip: '[image: shot.png]' }],
+    })
+    const input = captured.input as Array<Record<string, unknown>>
+    expect(input[0]).toEqual({
+      mime: 'image/png',
+      source: { absPath: join(dir, 'shot.png'), kind: 'path' },
+      type: 'image',
+    })
+    expect(input[1]).toEqual({ text: '描述这张图', type: 'text' })
+    await session.end()
+  })
+
+  it('composeAttachmentInput keeps plain prompts untouched and supports chip-only submits', async () => {
+    expect(composeAttachmentInput('hello', [])).toBe('hello')
+    const chipOnly = composeAttachmentInput('[image: aaaaaaaa.png] ', [
+      {
+        chip: '[image: aaaaaaaa.png]',
+        handle: `${'a'.repeat(64)}.png`,
+        kind: 'image',
+        mime: 'image/png',
+        size: 9,
+      },
+    ])
+    // 纯 chip 提交：文本被剥光后不再产生空 text part（provider 拒空文本）。
+    expect(chipOnly).toEqual([
+      {
+        mime: 'image/png',
+        source: { handle: `${'a'.repeat(64)}.png`, kind: 'handle' },
+        type: 'image',
+      },
+    ])
+  })
+
+  it('attachFilePath: in-workspace files attach as path references', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const cwd = await mkdtemp(join(process.cwd(), '.clip-'))
+    fixtures.push(cwd)
+    await writeFile(join(cwd, 'shot.png'), PNG)
+    const runtime = pastePort(root, {}, imageClipboard())
+    const session = await runtime.startInteractive({ cwd })
+
+    const result = await session.attachFilePath!(join(cwd, 'shot.png'))
+    expect(result).toEqual({
+      attachment: {
+        kind: 'image',
+        mime: 'image/png',
+        path: join(cwd, 'shot.png'),
+        size: PNG.byteLength,
+      },
+      kind: 'attached',
+    })
+    // path 引用不落盘复制。
+    await expect(stat(join(root, session.id, 'attachments'))).rejects.toThrow()
+    await session.end()
+  })
+
+  it('attachFilePath: out-of-workspace images are staged as blobs; non-images decline', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const cwd = await mkdtemp(join(process.cwd(), '.clip-'))
+    fixtures.push(cwd)
+    const outside = await mkdtemp(join(process.cwd(), '.clip-out-'))
+    fixtures.push(outside)
+    await writeFile(join(outside, 'desk.png'), PNG)
+    await writeFile(join(outside, 'notes.txt'), 'hello')
+    const runtime = pastePort(root, {}, imageClipboard())
+    const session = await runtime.startInteractive({ cwd })
+
+    const image = await session.attachFilePath!(join(outside, 'desk.png'))
+    expect(image.kind).toBe('attached')
+    if (image.kind !== 'attached') return
+    // cwd 外图片：读字节内容寻址落盘成 blob（无 path 引用）。
+    expect(image.attachment.handle).toMatch(/^[0-9a-f]{64}\.png$/)
+    expect(image.attachment.path).toBeUndefined()
+    const staged = await readFile(join(root, session.id, 'attachments', image.attachment.handle!))
+    expect(new Uint8Array(staged)).toEqual(PNG)
+
+    // cwd 外的非图片：不读内容，明确不可用（UI 回退插入原文本）。
+    await expect(session.attachFilePath!(join(outside, 'notes.txt'))).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'outside workspace',
+    })
+    // 不存在的路径：stat 失败。
+    await expect(session.attachFilePath!(join(outside, 'gone.png'))).resolves.toEqual({
+      kind: 'unavailable',
+      reason: expect.stringContaining('not a file'),
+    })
+    await session.end()
+  })
+
+  it('listFiles returns sorted relative paths, skipping hidden and heavy directories', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.runtime-'))
+    fixtures.push(root)
+    const cwd = await mkdtemp(join(process.cwd(), '.clip-'))
+    fixtures.push(cwd)
+    await mkdir(join(cwd, 'src', 'deep'), { recursive: true })
+    await mkdir(join(cwd, 'node_modules', 'pkg'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'index.ts'), '')
+    await writeFile(join(cwd, 'src', 'deep', 'util.ts'), '')
+    await writeFile(join(cwd, 'node_modules', 'pkg', 'index.js'), '')
+    await writeFile(join(cwd, '.hidden.ts'), '')
+    const runtime = pastePort(root, {}, imageClipboard())
+    const session = await runtime.startInteractive({ cwd })
+
+    await expect(session.listFiles!()).resolves.toEqual(['src/deep/util.ts', 'src/index.ts'])
+
+    // @ picker 的相对路径按会话 cwd 解析（不是进程 cwd）。
+    const attached = await session.attachFilePath!('src/index.ts')
+    expect(attached.kind).toBe('attached')
+    if (attached.kind === 'attached') {
+      expect(attached.attachment.kind).toBe('file')
+      expect(attached.attachment.path).toBe(join(cwd, 'src', 'index.ts'))
+    }
+    await session.end()
   })
 })
 

@@ -614,6 +614,191 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('§7.5.2: /paste attaches the clipboard image into the input line without keybindings', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const handle = `${'b'.repeat(64)}.png`
+    let pastes = 0
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onPasteAttachment: async () => {
+          pastes += 1
+          return {
+            attachment: { handle, kind: 'image', mime: 'image/png', size: 9 },
+            kind: 'attached',
+          }
+        },
+        onSubmit: () => {},
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('/paste')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await app.waitUntilRenderFlush()
+    expect(pastes).toBe(1)
+    // 命令通道把 chip 注入输入行（命令不直接提交）。
+    expect(stdout.output).toContain('> [image_1]')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('lays out the welcome shell with the input at a stable slot', async () => {
+    // 布局回归：welcome 盒 → 状态行 → 输入行 → 底栏（mode auto）。
+    const stdout = new MemoryWriteStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        onSubmit: () => {},
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        welcome: welcomeFixture(),
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await app.waitUntilRenderFlush()
+    const out = stdout.output
+    expect(out.indexOf('Tips for getting started')).toBeLessThan(out.indexOf('ready'))
+    expect(out.indexOf('ready')).toBeLessThan(out.indexOf('> '))
+    expect(out.indexOf('> ')).toBeLessThan(out.indexOf('mode auto'))
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('keeps the input draft and attachment chips when the welcome screen hides', async () => {
+    // 回归：welcome 退出曾导致 InputBox 重挂载，未提交的文本与 chip 全丢。
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const handle = `${'c'.repeat(64)}.png`
+    let calls = 0
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onPasteAttachment: async () => {
+          calls += 1
+          return calls === 1
+            ? {
+                attachment: { handle, kind: 'image', mime: 'image/png', size: 9 },
+                kind: 'attached',
+              }
+            : { kind: 'empty' }
+        },
+        onSubmit: () => {},
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        welcome: welcomeFixture(),
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('draft ')
+    await app.waitUntilRenderFlush()
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('draft [image_1]')
+
+    // 第二次粘贴（空剪贴板）触发反馈消息 → welcome 退出 → 输入行必须存活。
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('clipboard has no image or file to attach')
+    const tail = stdout.output.slice(stdout.output.lastIndexOf('> draft'))
+    expect(tail).toContain('[image_1]')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('§7.5.2: transcript echoes the sequential chip ([image_1]) assigned in the input line', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const handle = `${'a'.repeat(64)}.png`
+    const submitted: Array<unknown> = []
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        onPasteAttachment: async () => ({
+          attachment: { handle, kind: 'image', mime: 'image/png', size: 9 },
+          kind: 'attached',
+        }),
+        onSubmit: (text, options) => {
+          submitted.push({ options, text })
+        },
+        sessionId: 'session-1234567890',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('[image_1]')
+    stdin.write(' describe')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await app.waitUntilRenderFlush()
+
+    // runner 侧的 message.appended 带引用式 ContentPart（handle 形态）——
+    // transcript 必须回译成输入行的 [image_1]，而不是 hash 派生文本。
+    await events.emit({
+      payload: {
+        content: [
+          { mime: 'image/png', source: { handle, kind: 'handle' }, type: 'image' },
+          { text: 'describe', type: 'text' },
+        ],
+        messageId: 'm-img-1',
+        role: 'user',
+      },
+      sessionId: 'session-1234567890',
+      type: 'message.appended',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('[image_1] describe')
+    expect(stdout.output).not.toContain('[image: aaaaaaaa.png]')
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('accepts input during a turn: slash commands run live, text queues until the turn ends', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
@@ -1094,6 +1279,484 @@ describe('renderInteractiveApp', () => {
 
     expect(stdout.output).toContain('> hello▌')
   })
+
+  it('§7.5.2: Ctrl+V stages a clipboard attachment as an atomic chip and submits it', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: Array<{ attachments: unknown; text: string }> = []
+    const staged = {
+      handle: `${'a'.repeat(64)}.png`,
+      kind: 'image' as const,
+      mime: 'image/png',
+      size: 9,
+    }
+    const input = render(
+      createElement(InputBox, {
+        onPasteAttachment: async () => ({ attachment: staged, kind: 'attached' as const }),
+        onSubmit: (text, attachments) => {
+          submitted.push({ attachments, text })
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('look at this')
+    await input.waitUntilRenderFlush()
+    // Ctrl+V → 权限门后插入 chip（异步解析后再 flush 一轮）；chip 由输入框
+    // 按粘贴顺序编号（[image_1]）。
+    stdin.write('\x16')
+    await input.waitUntilRenderFlush()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('look at this [image_1]')
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    // chip 插入时带尾随空格（便于继续输入）；runtime 提交时剔除 chip 并 trim。
+    expect(submitted).toEqual([
+      { attachments: [{ ...staged, chip: '[image_1]' }], text: 'look at this [image_1] ' },
+    ])
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: backspace deletes a trailing chip atomically instead of one character', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: Array<{ attachments: unknown; text: string }> = []
+    const staged = {
+      handle: `${'a'.repeat(64)}.png`,
+      kind: 'image' as const,
+      mime: 'image/png',
+      size: 9,
+    }
+    const input = render(
+      createElement(InputBox, {
+        onPasteAttachment: async () => ({ attachment: staged, kind: 'attached' as const }),
+        onSubmit: (text, attachments) => {
+          submitted.push({ attachments, text })
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('hi')
+    await input.waitUntilRenderFlush()
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('[image_1]')
+
+    // 一次退格：chip 连同它后面的空格整枚消失，不是逐个字符删。
+    // （debug 渲染保留全部历史帧——chip 的旧帧仍在 scrollback 里，只验最新帧。）
+    stdin.write('\x7F')
+    await input.waitUntilRenderFlush()
+    const lastFrame = stdout.output.slice(stdout.output.lastIndexOf('> hi'))
+    expect(lastFrame).not.toContain('[image_1]')
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    // chip 已从文本删除 → 提交不携带附件（chip 前的人工空格保留）。
+    expect(submitted).toEqual([{ attachments: [], text: 'hi ' }])
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: Ctrl+V with a plain text clipboard inserts the text without submitting', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        onPasteAttachment: async () => ({ kind: 'text' as const, text: 'multi\nline' }),
+        onSubmit: (text) => {
+          submitted.push(text)
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('pre ')
+    await input.waitUntilRenderFlush()
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    // 多行文本原样插入输入行，不触发提交。
+    expect(submitted).toEqual([])
+    expect(stdout.output).toContain('pre multi')
+    expect(stdout.output).toContain('line')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('moves the cursor with arrows/home/end and edits at the cursor position', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        onSubmit: (text) => {
+          submitted.push(text)
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('hello')
+    await input.waitUntilRenderFlush()
+    stdin.write('\u001B[D') // ←
+    await input.waitUntilRenderFlush()
+    stdin.write('\u001B[D') // ←
+    await input.waitUntilRenderFlush()
+    stdin.write('X')
+    await input.waitUntilRenderFlush()
+    // 光标处插入：helXlo（控制键与文本必须分帧写——同帧到达会被输入解析器并进一个事件）
+    stdin.write('\x01') // ctrl+a → 行首
+    await input.waitUntilRenderFlush()
+    stdin.write('Y')
+    await input.waitUntilRenderFlush()
+    stdin.write('\x05') // ctrl+e → 行尾
+    await input.waitUntilRenderFlush()
+    stdin.write('Z')
+    await input.waitUntilRenderFlush()
+    // 退格删光标前字符（Z）；左移后前向删除删光标后字符（o）
+    stdin.write('\x7f')
+    await input.waitUntilRenderFlush()
+    stdin.write('\u001B[D') // ←（光标在 o 左缘）
+    await input.waitUntilRenderFlush()
+    stdin.write('\u001B[3~') // delete → 删 o
+    await input.waitUntilRenderFlush()
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual(['YhelXl'])
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('skips and deletes attachment chips atomically when moving the cursor through them', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const staged = {
+      handle: `${'a'.repeat(64)}.png`,
+      kind: 'image' as const,
+      mime: 'image/png',
+      size: 9,
+    }
+    const input = render(
+      createElement(InputBox, {
+        initialValue: 'before ',
+        onPasteAttachment: async () => ({ attachment: staged, kind: 'attached' as const }),
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\x16')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    // 值：'before [image_1] '，光标在末尾（chip+空格之后）。
+    // ←：先越过尾随空格；再 ←：整枚跳过 chip 落到其左缘。
+    stdin.write('\u001B[D')
+    stdin.write('\u001B[D')
+    await input.waitUntilRenderFlush()
+    // 此时光标在 chip 左缘（'before ' 与 chip 之间）。前向删除 → 整枚 chip+空格消失。
+    stdin.write('\u001B[3~')
+    await input.waitUntilRenderFlush()
+    const tail = stdout.output.slice(stdout.output.lastIndexOf('> before'))
+    expect(tail).toContain('> before ')
+    expect(tail).not.toContain('[image_1]')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: bracketed paste inserts multi-line text without submitting', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        onSubmit: (text) => {
+          submitted.push(text)
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    // 回归：bracketed paste 的多行文本必须整体插入输入行，不得逐行触发提交。
+    stdin.write('\u001B[200~first line\nsecond line\u001B[201~')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual([])
+    expect(stdout.output).toContain('first line')
+    expect(stdout.output).toContain('second line')
+
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual(['first line\nsecond line'])
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: pasting a file path converts it to an attachment chip', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const asked: string[] = []
+    const staged = {
+      kind: 'image' as const,
+      mime: 'image/png',
+      path: '/tmp/shot.png',
+      size: 9,
+    }
+    const input = render(
+      createElement(InputBox, {
+        onAttachFilePath: async (path) => {
+          asked.push(path)
+          return { attachment: staged, kind: 'attached' as const }
+        },
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    // iTerm2 拖文件进来会带 shell 转义；应被还原后再问宿主。
+    stdin.write('\u001B[200~/tmp/shot.png\u001B[201~')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    expect(asked).toEqual(['/tmp/shot.png'])
+    // 文件路径附件的 chip 带 basename：[image: shot.png]
+    expect(stdout.output).toContain('[image: shot.png]')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.3: @ opens the unified picker and Enter attaches the selected file', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const asked: string[] = []
+    const staged = {
+      kind: 'file' as const,
+      mime: 'text/markdown',
+      path: 'docs/guide.md',
+      size: 42,
+    }
+    const input = render(
+      createElement(InputBox, {
+        mentionFiles: ['docs/guide.md', 'docs/api.md', 'src/index.ts'],
+        mentionModels: [{ alias: 'sonnet', model: 'anthropic/claude-sonnet-4-20250514' }],
+        onAttachFilePath: async (path) => {
+          asked.push(path)
+          return { attachment: staged, kind: 'attached' as const }
+        },
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('@d')
+    await input.waitUntilRenderFlush()
+    // ⭐ 模型别名置顶（'sonnet' 不匹配 'd' 前缀，不出现）；📄 文件前缀过滤。
+    expect(stdout.output).not.toContain('sonnet')
+    expect(stdout.output).toContain('📄 docs/guide.md')
+    expect(stdout.output).toContain('📄 docs/api.md')
+    expect(stdout.output).not.toContain('📄 src/index.ts')
+
+    // ↓ 选第二项（docs/api.md），Enter 选中 → @d 移除、chip 插入。
+    stdin.write('\u001B[B')
+    await input.waitUntilRenderFlush()
+    stdin.write('\r')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    expect(asked).toEqual(['docs/api.md'])
+    // debug 渲染保留全部历史帧——picker 的旧帧仍在 scrollback 里，只验最新帧。
+    const tail = stdout.output.slice(stdout.output.lastIndexOf('> '))
+    expect(tail).toContain('[file: guide.md]')
+    expect(tail).not.toContain('@d')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.3: @ picker selects a model alias as the turn-level override', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const models: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        mentionModels: [{ alias: 'sonnet', model: 'anthropic/claude-sonnet-4-20250514' }],
+        onMentionModel: (model) => {
+          models.push(model)
+        },
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('@s')
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('⭐ sonnet')
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    expect(models).toEqual(['anthropic/claude-sonnet-4-20250514'])
+    // 选中后 @query 被移除（同样只验最新帧）。
+    const tail = stdout.output.slice(stdout.output.lastIndexOf('> '))
+    expect(tail).not.toContain('@s')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.3: esc dismisses the picker and @ stays plain text without candidates', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        mentionFiles: ['docs/guide.md'],
+        onSubmit: (text) => {
+          submitted.push(text)
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('@d')
+    await input.waitUntilRenderFlush()
+    expect(stdout.output).toContain('📄 docs/guide.md')
+    // esc 关闭 picker；回车按普通文本提交（@d 原样）。
+    // 裸 ESC 在 ink 输入解析里走 pending-escape 定时器，先等它落锤再发回车。
+    stdin.write('\u001B')
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    await input.waitUntilRenderFlush()
+    stdin.write('\r')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual(['@d'])
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: an empty bracketed paste (Cmd+V of an image) attaches the clipboard', async () => {
+    // onEmptyPaste 语义（与 Claude Code 一致）：剪贴板里只有图片时终端发来零长度
+    // 粘贴包裹——此时应读剪贴板补附件，而不是当普通文本处理。
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const staged = {
+      handle: `${'d'.repeat(64)}.png`,
+      kind: 'image' as const,
+      mime: 'image/png',
+      size: 9,
+    }
+    let reads = 0
+    const input = render(
+      createElement(InputBox, {
+        onPasteAttachment: async () => {
+          reads += 1
+          return { attachment: staged, kind: 'attached' as const }
+        },
+        onAttachFilePath: async () => ({ kind: 'empty' as const }),
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\u001B[200~\u001B[201~')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await input.waitUntilRenderFlush()
+    expect(reads).toBe(1)
+    expect(stdout.output).toContain('[image_1]')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('§7.5.2: pasted text that is not an attachable file falls back to plain text', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const input = render(
+      createElement(InputBox, {
+        onAttachFilePath: async () => ({ kind: 'unavailable' as const, reason: 'not a file' }),
+        onSubmit: () => {},
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    stdin.write('\u001B[200~/tmp/gone.png\u001B[201~')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await input.waitUntilRenderFlush()
+    // 宿主说不可附加 → 原始文本原样进输入行。
+    expect(stdout.output).toContain('/tmp/gone.png')
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
 
   it('renders the session search as an input band with a placeholder', async () => {
     const stdout = new MemoryWriteStream()

@@ -13,6 +13,7 @@ import type {
   InteractiveAppHandle,
   InteractiveAppOptions,
   DirectoryTrustDecision,
+  PasteAttachmentResult,
   SandboxDisclosure,
   StatusPanelData,
   StatusValue,
@@ -67,6 +68,20 @@ export interface InteractiveSession {
       | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
       | undefined,
   ): void
+  /**
+   * §7.5.2 Ctrl+V：读系统剪贴板 → 首次弹会话级授权 → 图片经 AttachmentStore
+   * 落盘返回 handle chip，文件返回 path 引用 chip；纯文本剪贴板原样返回文本。
+   * 可选：headless / 非交互会话不实现，UI 隐藏该手势。
+   */
+  pasteClipboardAttachment?(): Promise<PasteAttachmentResult>
+  /**
+   * §7.5.2 粘贴/拖拽的文件路径（bracketed paste 进来的文本解析为文件）：
+   * cwd 内返回 path 引用 chip；cwd 外的图片读字节落盘成 blob chip。
+   * 不可附加（不存在/目录/超限制）时返回非 'attached'，UI 回退为插入原文本。
+   */
+  attachFilePath?(path: string): Promise<PasteAttachmentResult>
+  /** §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限量排序）。 */
+  listFiles?(): Promise<readonly string[]>
   submit(input: string, options?: SubmitOptions): Promise<void>
   end(): Promise<void>
   exitCode(): number

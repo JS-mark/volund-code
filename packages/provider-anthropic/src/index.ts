@@ -179,6 +179,7 @@ export function mapAnthropicError(
   status: number,
   body?: { error?: { type?: string; message?: string } },
   retryAfterMs?: number,
+  model?: string,
 ): ProviderError {
   const type = body?.error?.type ?? ''
   let category: ProviderErrorCategory = 'unknown'
@@ -189,7 +190,12 @@ export function mapAnthropicError(
   else if (type.includes('overloaded')) category = 'server'
   else if (type.includes('invalid_request'))
     category = body?.error?.message?.includes('context') ? 'context_length' : 'invalid_request'
-  return Object.assign(new Error(body?.error?.message ?? `Anthropic request failed (${status})`), {
+  let message = body?.error?.message ?? `Anthropic request failed (${status})`
+  // 兼容型网关常按模型路由图片能力（如 "No endpoints found that support image
+  // input"）——把冷门的网关话术翻译成可操作的指引。
+  if (/image input|support image|not support.*image|image.*not (?:supported|support)/i.test(message))
+    message += ` — model '${model ?? 'current'}' does not accept image input on this endpoint: switch to a vision-capable model (/model), or resend without the image`
+  return Object.assign(new Error(message), {
     provider: 'anthropic',
     status,
     category,
@@ -353,6 +359,7 @@ export class AnthropicClient implements ProviderClient {
         response.status,
         await readErrorBody(response.body),
         Number(response.headers?.['retry-after-ms']) || undefined,
+        request.model,
       )
     yield* parseAnthropicSse(response.body, signal)
   }

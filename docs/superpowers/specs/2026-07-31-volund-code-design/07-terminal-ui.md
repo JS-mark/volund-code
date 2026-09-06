@@ -113,7 +113,7 @@ InputBox 有三条附件入口，最终都归一为 `AttachmentRef`（§2.1.1）
 3. UI 在输入行内插入占位 chip：`[image: <hash-8>.png]`（不可编辑的原子 token）
 4. 提交时 InputBox 把 chip 展开成 `ContentPart { type: 'image', source: { handle, kind: 'blob' }, mime }`
 5. 会话结束 / attachment 被 context 压缩替换时，`native.release(handle)` 释放
-6. 权限：`stage()` 首次调用弹一次 `allow-session`（防止误粘敏感截图，弹窗内显示尺寸 / mime，不显示内容）
+6. ~~权限：`stage()` 首次调用弹一次 `allow-session`~~（r19 决策移除：chip 只是本地引用，内容外发发生在用户显式提交消息时；敏感路径读取由 store 的 allowedPathRoots / sensitive 拦截）
 
 **不支持的场景**（明确不做）：
 - 终端**不支持** image paste escape 时不做 fallback 屏幕截图 —— 用户需先保存文件再拖拽

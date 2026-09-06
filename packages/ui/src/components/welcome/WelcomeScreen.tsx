@@ -3,7 +3,6 @@ import { Box, Text } from 'ink'
 import type { WelcomeScreenProps } from './types'
 import { VolundLogo } from './VolundLogo'
 import { getWelcomeLayout, validDimension } from './welcomeLayout'
-import { WelcomeStatusBar } from './WelcomeStatusBar'
 import { colorForTone, welcomeTheme } from './welcomeTheme'
 
 // 只写 InputBox/REPL 真实支持的按键（InputBox.tsx：/ 建议、Tab 补全、
@@ -11,15 +10,11 @@ import { colorForTone, welcomeTheme } from './welcomeTheme'
 const TIPS = [
   'Press / to use commands, Tab to autocomplete.',
   'Shift + Enter to add a new line, Ctrl + C to exit.',
+  'Cmd + V / Ctrl + V / /paste to attach a clipboard image; drop a file to attach.',
   '/resume to continue a previous session, /help for all commands.',
 ] as const
 
-export function WelcomeScreen({
-  bottomStatus,
-  commandInput,
-  state,
-  terminalSize,
-}: WelcomeScreenProps) {
+export function WelcomeScreen({ state, terminalSize }: WelcomeScreenProps) {
   const layout = getWelcomeLayout(terminalSize)
   // ink 没有边框标题：手绘顶边 ╭─ Title ───╮（宽度 = 终端列数），盒体只画左右下三边。
   const columns = validDimension(terminalSize.columns, 90)
@@ -76,11 +71,6 @@ export function WelcomeScreen({
           </Box>
         </Box>
       </Box>
-      <Box marginTop={1} paddingX={1}>
-        {bottomStatus}
-      </Box>
-      <Box>{commandInput}</Box>
-      <WelcomeStatusBar layout={layout} state={state} />
     </Box>
   )
 }

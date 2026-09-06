@@ -407,7 +407,9 @@ function quickDecision(
   input: string,
   request: InteractivePermissionRequest,
 ): InteractivePermissionDecisionKind | undefined {
-  const option = DECISION_OPTIONS.find((candidate) => candidate.quickKey === input)
+  // 'y'（yes 的肌肉记忆）按 allow-once 处理。
+  const normalized = input === 'y' ? 'a' : input
+  const option = DECISION_OPTIONS.find((candidate) => candidate.quickKey === normalized)
   if (!option) return undefined
   if (!request.display.approvable && option.id !== 'deny') return undefined
   return option.id

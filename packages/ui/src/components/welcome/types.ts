@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react'
-
 export type WelcomeLayoutMode = 'full' | 'compact' | 'minimal'
 export type StatusTone = 'default' | 'info' | 'success' | 'warning' | 'danger' | 'muted'
 export type TerminalSize = { columns: number; rows: number }
@@ -15,9 +13,10 @@ export interface WelcomeScreenState {
   native: ReadonlyArray<{ label: string; state: string; tone: StatusTone }>
 }
 
+// bottomStatus / commandInput 不再是本组件的插槽：welcome 退出时它们若随
+// WelcomeScreen 一起卸载，InputBox 会被重建、未提交的输入与附件 chip 全部丢失
+// （React 跨父节点移动即重挂载）。它们由 app 渲染层放在两分支之外的固定位置。
 export interface WelcomeScreenProps {
-  bottomStatus: ReactNode
-  commandInput: ReactNode
   state: WelcomeScreenState
   terminalSize: TerminalSize
 }

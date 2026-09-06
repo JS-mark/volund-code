@@ -940,6 +940,30 @@ export async function runCli(
             }
           : {}),
       })
+      const modelAliases: Record<string, { provider: string; model: string }> = {}
+      try {
+        const merged = await ports.config.listMerged?.({ cwd })
+        // [models.aliases] 在合并配置里位于 models.aliases（§8.3）。
+        const table = merged?.config.models
+        const aliases =
+          table &&
+          typeof table === 'object' &&
+          !Array.isArray(table) &&
+          typeof (table as Record<string, unknown>).aliases === 'object'
+            ? ((table as Record<string, unknown>).aliases as Record<string, unknown>)
+            : undefined
+        if (aliases)
+          for (const [name, value] of Object.entries(aliases))
+            if (value && typeof value === 'object' && typeof (value as { model?: unknown }).model === 'string') {
+              const entry = value as { provider?: unknown; model: string }
+              modelAliases[name] = {
+                provider: typeof entry.provider === 'string' ? entry.provider : 'anthropic',
+                model: entry.model,
+              }
+            }
+      } catch {
+        // 别名装取失败不阻塞 REPL——picker 只少几个候选。
+      }
       const app = ports.ui!.renderInteractiveApp({
         cwd,
         events: interactive.events,
@@ -957,8 +981,20 @@ export async function runCli(
         notices: startupNotices,
         onExit: interactive.end,
         ...(interactive.interrupt ? { onInterrupt: () => interactive.interrupt!() } : {}),
+        // §7.5.2：Ctrl+V 剪贴板附件（图片落盘/文件引用）；headless 会话不实现该口。
+        ...(interactive.pasteClipboardAttachment
+          ? { onPasteAttachment: () => interactive.pasteClipboardAttachment!() }
+          : {}),
+        // §7.5.2：粘贴/拖拽文件路径转附件（bracketed paste 文本解析）。
+        ...(interactive.attachFilePath
+          ? { onAttachFilePath: (path: string) => interactive.attachFilePath!(path) }
+          : {}),
+        // §7.5.3：@ picker 的文件候选源。
+        ...(interactive.listFiles ? { listFiles: () => interactive.listFiles!() } : {}),
         onSubmit: interactive.submit,
-        modelPicker: buildModelPicker(effectiveModelId, configuredModel),
+        // [models.aliases] 进 picker：别名（如 vision → anthropic/mimo-v2.5）可当
+        // 轮显式切换——贴图碰到不支持视觉的模型时用它切到视觉模型。
+        modelPicker: buildModelPicker(effectiveModelId, configuredModel, modelAliases),
         permissions,
         // 沙箱探针 + search/fs worker 探针并行跑；等全部 settle（预算封顶 5s）
         // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
@@ -985,6 +1021,15 @@ export async function runCli(
                     id: resumed.id,
                     onExit: resumed.end,
                     ...(resumed.interrupt ? { onInterrupt: () => resumed.interrupt!() } : {}),
+                    ...(resumed.pasteClipboardAttachment
+                      ? { onPasteAttachment: () => resumed.pasteClipboardAttachment!() }
+                      : {}),
+                    ...(resumed.attachFilePath
+                      ? { onAttachFilePath: (path: string) => resumed.attachFilePath!(path) }
+                      : {}),
+                    ...(resumed.listFiles
+                      ? { listFiles: () => resumed.listFiles!() }
+                      : {}),
                     onSubmit: resumed.submit,
                     ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
                   }
@@ -1115,7 +1160,11 @@ function welcomeNativeFrom(ports: VolundPorts): WelcomeNativeStatus | undefined 
   }
 }
 
-function buildModelPicker(currentModelId: string, configuredModel?: string) {
+function buildModelPicker(
+  currentModelId: string,
+  configuredModel?: string,
+  aliases: Record<string, { provider: string; model: string }> = {},
+) {
   const builtins = [
     {
       id: 'anthropic/claude-sonnet-4-20250514',
@@ -1148,7 +1197,19 @@ function buildModelPicker(currentModelId: string, configuredModel?: string) {
           },
         ]
       : []
-  return { currentModelId, models: [...extra, ...builtins] }
+  // [models.aliases]（§8.3）：别名进 picker（⭐ 无关，label 即别名），id 用解析后
+  // 的 provider/model——选中走 /model 同一条显式模型覆盖通道。
+  const aliasEntries = Object.entries(aliases)
+    .filter(([, value]) => value.provider === 'anthropic')
+    .map(([alias, value]) => ({
+      id: `${value.provider}/${value.model}`,
+      provider: value.provider,
+      model: value.model,
+      label: alias,
+      description: `Alias → ${value.model}`,
+    }))
+    .filter((entry) => !builtins.some((item) => item.id === entry.id))
+  return { currentModelId, models: [...extra, ...builtins, ...aliasEntries] }
 }
 
 async function welcomeConfig(ports: VolundPorts, cwd: string): Promise<WelcomePanelData['config']> {

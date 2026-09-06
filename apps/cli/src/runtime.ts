@@ -11,6 +11,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
@@ -18,7 +19,7 @@ import { connect as http2Connect, constants as http2Constants } from 'node:http2
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, delimiter as pathDelimiter, dirname, join, resolve } from 'node:path'
+import { basename, delimiter as pathDelimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
@@ -56,13 +57,14 @@ import {
   UiService,
 } from '@volund/kernel'
 import {
+  createClipboardReader,
   execSandbox,
   nativeProbes,
   probeSandbox,
   resolveBinary,
   standaloneArtifactDir,
 } from '@volund/native-bridge'
-import type { SandboxTier } from '@volund/native-bridge'
+import type { ClipboardPayload, ClipboardReader, SandboxTier } from '@volund/native-bridge'
 import { PermissionManager } from '@volund/permission'
 import type {
   PermissionDecision,
@@ -94,6 +96,7 @@ import type {
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
 import { GeminiClient } from '@volund/provider-gemini'
+import type { ContentPart } from '@volund/provider-kit'
 import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
 import { OpenAIClient } from '@volund/provider-openai'
 import {
@@ -105,14 +108,18 @@ import {
 import type { RouterPolicy } from '@volund/router'
 import {
   VolundError,
+  contentPartChipLabel,
   detectSecret,
   isCredentialKeyForSecretDetection,
   isProjectOverrideForbidden,
   normalizeForSecretDetection,
   productIdentity,
   sanitize,
+  stripAttachmentChips,
   type JsonValue,
   type Logger,
+  type PasteAttachmentResult,
+  type SubmitAttachment,
 } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
@@ -578,6 +585,8 @@ export class RuntimeSessionPort implements SessionPort {
     ) => void,
     readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
     readonly background?: BackgroundShells,
+    /** §7.5.2 剪贴板读取器的测试注入缝；生产缺省 = 系统剪贴板（native-bridge）。 */
+    readonly clipboard?: ClipboardReader,
   ) {
     this.#background = background
   }
@@ -649,9 +658,22 @@ export class RuntimeSessionPort implements SessionPort {
       interrupt: async () => {
         this.#runner?.interrupt()
       },
+      // §7.5.2 Ctrl+V：读系统剪贴板 → 图片经 AttachmentStore 内容寻址落盘，
+      // 文件走 path 引用（读取权限由 store 的 allowedPathRoots=cwd 把守）。
+      // 不设粘贴授权（r19 决策）：chip 只是本地引用，内容外发发生在用户显式
+      // 提交消息时。
+      pasteClipboardAttachment: () => this.pasteClipboardAttachment(),
+      // §7.5.2 粘贴/拖拽的文件路径（bracketed paste 文本解析而来）。
+      attachFilePath: (path: string) => this.attachFilePath(path),
+      // §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限深限量，跳过
+      // 隐藏目录与重依赖目录）。
+      listFiles: () => listWorkspaceFiles(this.#runner!.state.cwd),
       submit: async (prompt: string, submitOptions?: SubmitOptions) => {
+        const attachments = submitOptions?.attachments ?? []
+        const input =
+          attachments.length === 0 ? prompt : composeAttachmentInput(prompt, attachments)
         await this.#runner!.run(
-          prompt,
+          input,
           submitOptions?.model ? { explicitModel: submitOptions.model } : undefined,
         )
       },
@@ -748,6 +770,114 @@ export class RuntimeSessionPort implements SessionPort {
     this.#runner = undefined
     this.#events = undefined
   }
+  /**
+   * §7.5.2 剪贴板附件粘贴：image → AttachmentStore.stage 落盘返回 handle chip；
+   * file → path 引用 chip；text → 交回 UI 原样插入；empty/denied/unavailable
+   * 由 UI 映射为系统消息。
+   */
+  private async pasteClipboardAttachment(): Promise<PasteAttachmentResult> {
+    const runner = this.#runner
+    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
+    let payload: ClipboardPayload
+    try {
+      payload = await (this.clipboard ?? createClipboardReader()).read()
+    } catch (error) {
+      return {
+        kind: 'unavailable',
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }
+    if (payload.kind === 'empty') return { kind: 'empty' }
+    if (payload.kind === 'text') return { kind: 'text', text: payload.text }
+    if (payload.kind === 'image') {
+      try {
+        const store = new AttachmentStore(
+          join(this.sessionsDir, runner.state.id, 'attachments'),
+          20 * 1024 * 1024,
+          [runner.state.cwd],
+        )
+        const staged = await store.stage(payload.bytes, payload.mime)
+        return {
+          kind: 'attached',
+          attachment: {
+            handle: staged.handle,
+            kind: 'image',
+            mime: staged.mime,
+            size: staged.size,
+          },
+        }
+      } catch (error) {
+        return {
+          kind: 'unavailable',
+          reason: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
+    const target = payload.paths[0]
+    if (!target) return { kind: 'empty' }
+    return this.attachFilePath(target)
+  }
+  /**
+   * §7.5.2 路径附件（粘贴/拖拽文件、Finder 拷贝）：cwd 内 → path 引用（读取由
+   * AttachmentStore 的 allowedPathRoots 把守）；cwd 外的图片 → 读字节内容寻址
+   * 落盘成 blob 引用（桌面截图等场景）；cwd 外的非图片不支持（UI 回退为纯文本）。
+   * 不设授权门（r19 决策，与剪贴板图片一致）：chip 只是本地引用，内容外发
+   * 发生在用户显式提交消息时；敏感路径由 store 读取侧拦截。
+   */
+  private async attachFilePath(target: string): Promise<PasteAttachmentResult> {
+    const runner = this.#runner
+    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
+    // @ picker 传来的是 cwd 相对路径——相对路径一律按会话工作目录解析。
+    const absolute = isAbsolute(target) ? target : resolve(runner.state.cwd, target)
+    let stats
+    try {
+      stats = await stat(absolute)
+    } catch {
+      return { kind: 'unavailable', reason: `not a file: ${target}` }
+    }
+    if (!stats.isFile()) return { kind: 'unavailable', reason: `not a file: ${target}` }
+    const mime = mimeForAttachmentPath(absolute)
+    const kind = mime.startsWith('image/') ? ('image' as const) : ('file' as const)
+    const [realTarget, realCwd] = await Promise.all([
+      realpath(absolute),
+      realpath(runner.state.cwd),
+    ])
+    const rel = relative(realCwd, realTarget)
+    const insideWorkspace = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    if (insideWorkspace)
+      return {
+        kind: 'attached',
+        attachment: {
+          kind,
+          mime,
+          path: realTarget,
+          size: stats.size,
+        },
+      }
+    if (kind !== 'image') return { kind: 'unavailable', reason: 'outside workspace' }
+    try {
+      const store = new AttachmentStore(
+        join(this.sessionsDir, runner.state.id, 'attachments'),
+        20 * 1024 * 1024,
+        [runner.state.cwd],
+      )
+      const staged = await store.stage(new Uint8Array(await readFile(realTarget)), mime)
+      return {
+        kind: 'attached',
+        attachment: {
+          handle: staged.handle,
+          kind,
+          mime: staged.mime,
+          size: staged.size,
+        },
+      }
+    } catch (error) {
+      return {
+        kind: 'unavailable',
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
   private path(id: string): string {
     return join(this.sessionsDir, `${id}.jsonl`)
   }
@@ -820,13 +950,104 @@ function messageText(content: SessionState['messages'][number]['content']): stri
 }
 
 /**
+ * §7.5.2 提交展开：输入行 chip → image/file ContentPart（引用式，handle 或
+ * path），文本剔除 chip 后作为末尾 text part。附件在前、文本在后——模型读到
+ * 图片时紧跟着用户的提问。无附件时原样返回字符串（走 runner 的纯文本快路径）。
+ */
+export function composeAttachmentInput(
+  prompt: string,
+  attachments: readonly SubmitAttachment[],
+): string | readonly ContentPart[] {
+  if (attachments.length === 0) return prompt
+  const parts: ContentPart[] = attachments.map((attachment) => {
+    const source = attachment.handle
+      ? ({ kind: 'handle', handle: attachment.handle } as const)
+      : ({ kind: 'path', absPath: attachment.path ?? '' } as const)
+    if (attachment.kind === 'image') return { type: 'image', source, mime: attachment.mime }
+    const filename = attachment.path
+      ? basename(attachment.path)
+      : (attachment.handle ?? 'attachment')
+    return { type: 'file', filename, mime: attachment.mime, source }
+  })
+  const text = stripAttachmentChips(prompt, attachments)
+  if (text) parts.push({ type: 'text', text })
+  return parts
+}
+
+/** @ picker 文件候选遍历时的跳过目录（隐藏目录 + 重依赖/构建产物）。 */
+const WORKSPACE_LIST_SKIP = new Set([
+  '.git',
+  '.next',
+  '.turbo',
+  '_tmp_test',
+  'coverage',
+  'dist',
+  'node_modules',
+  'target',
+])
+const WORKSPACE_LIST_MAX_ENTRIES = 5_000
+const WORKSPACE_LIST_MAX_DEPTH = 8
+
+/**
+ * §7.5.3 @ picker 的文件候选：会话 cwd 下的相对路径（排序、限量 5000、限深 8）。
+ * 隐藏文件不进候选（.env 这类本就不该被 @ 引用；store 读取侧另有 sensitive 拦截）。
+ */
+export async function listWorkspaceFiles(cwd: string): Promise<readonly string[]> {
+  const out: string[] = []
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > WORKSPACE_LIST_MAX_DEPTH || out.length >= WORKSPACE_LIST_MAX_ENTRIES) return
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (out.length >= WORKSPACE_LIST_MAX_ENTRIES) return
+      if (entry.name.startsWith('.')) continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!WORKSPACE_LIST_SKIP.has(entry.name)) await walk(full, depth + 1)
+      } else if (entry.isFile()) {
+        out.push(relative(cwd, full))
+      }
+    }
+  }
+  await walk(cwd, 0)
+  return out.sort()
+}
+
+/** 粘贴文件路径的 MIME 猜测；未识别按 octet-stream（provider 不支持时降级为文本）。 */
+function mimeForAttachmentPath(path: string): string {
+  const ext = basename(path).split('.').pop()?.toLowerCase() ?? ''
+  const known: Record<string, string> = {
+    csv: 'text/csv',
+    gif: 'image/gif',
+    jpeg: 'image/jpeg',
+    jpg: 'image/jpeg',
+    json: 'application/json',
+    log: 'text/plain',
+    md: 'text/markdown',
+    pdf: 'application/pdf',
+    png: 'image/png',
+    txt: 'text/plain',
+    webp: 'image/webp',
+  }
+  return known[ext] ?? 'application/octet-stream'
+}
+
+/**
  * resume transcript 的全保真提取：markdown 的块级结构（标题/列表/表格/代码块）
  * 全靠换行界定，折叠空白会把整段塌成一行流水文本。
+ * §7.5.2：image/file part 渲染回 chip 文本，resume 后用户消息仍可见附件占位。
  */
 function messageFullText(content: SessionState['messages'][number]['content']): string {
   return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
+    .map((part) => {
+      if (part.type === 'text') return part.text
+      const chip = contentPartChipLabel(part)
+      return chip ? `${chip} ` : ''
+    })
     .join('')
     .trim()
 }

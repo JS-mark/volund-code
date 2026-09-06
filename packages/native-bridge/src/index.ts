@@ -18,6 +18,14 @@ nativeProbes.registerSources({
 
 export { resolveBinary, resolveBinaryDetailed, standaloneArtifactDir } from './resolver'
 export type { BinaryKind, NativeResolution } from './resolver'
+export { createClipboardReader } from './clipboard'
+export type {
+  ClipboardExec,
+  ClipboardExecResult,
+  ClipboardPayload,
+  ClipboardReader,
+  ClipboardReaderOptions,
+} from './clipboard'
 export { execSandbox, probeSandbox, startPluginHost } from './sandbox'
 export { computeDiff, countTokens, readLarge } from './fs'
 export { NativeProbeCoordinator, nativeProbes } from './probe'
