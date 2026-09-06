@@ -648,11 +648,17 @@ describe('renderInteractiveApp', () => {
     stdin.write('/paste')
     await app.waitUntilRenderFlush()
     stdin.write('\r')
-    await new Promise((resolve) => setTimeout(resolve, 30))
-    await app.waitUntilRenderFlush()
+    // 命令 → 异步粘贴 → chip 注入是一条 promise 链；CI 机器上固定短等待会 flake，
+    // 轮询到 chip 上屏为止。
+    let chipSeen = false
+    for (let i = 0; i < 40 && !chipSeen; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      await app.waitUntilRenderFlush()
+      chipSeen = stdout.output.includes('> [image_1]')
+    }
     expect(pastes).toBe(1)
     // 命令通道把 chip 注入输入行（命令不直接提交）。
-    expect(stdout.output).toContain('> [image_1]')
+    expect(chipSeen).toBe(true)
     app.unmount()
     await app.waitUntilExit()
   })
