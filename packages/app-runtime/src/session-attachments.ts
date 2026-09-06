@@ -65,7 +65,8 @@ export async function listWorkspaceFiles(cwd: string): Promise<readonly string[]
       if (entry.isDirectory()) {
         if (!WORKSPACE_LIST_SKIP.has(entry.name)) await walk(full, depth + 1)
       } else if (entry.isFile()) {
-        out.push(relative(cwd, full))
+        // windows 的 relative 返回反斜杠：@ picker 契约统一 posix 分隔符。
+        out.push(relative(cwd, full).replaceAll('\\', '/'))
       }
     }
   }
