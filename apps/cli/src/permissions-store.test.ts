@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 import type { PermissionRequest } from '@volund/permission'
 import { PermissionManager } from '@volund/permission'
@@ -173,7 +173,9 @@ describe('PermissionRuleStore', () => {
     )
 
     const saved = await readFile(paths.project, 'utf8')
-    expect(saved).toContain(`write = ["${projectRoot}/**"]`)
+    // generalizePermissionSpec 统一 POSIX 分隔符；join 在 Windows 给反斜杠。
+    const posixRoot = projectRoot.split(sep).join('/')
+    expect(saved).toContain(`write = ["${posixRoot}/**"]`)
 
     const reloaded = new PermissionRuleStore(paths)
     await reloaded.ready()
