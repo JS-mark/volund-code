@@ -1,5 +1,19 @@
 # Install
 
+## Standalone installer (macOS / Linux)
+
+Once the first standalone release is published, install the prebuilt `volund` binary with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JS-mark/volund-code/main/scripts/install/install.sh | bash
+```
+
+The script maps the host to a release target (darwin/linux × arm64/x64 × gnu/musl), downloads `volund-standalone-<target>.tar.gz` from the matching GitHub Release, verifies its SHA-256 against `release-manifest.json`, and installs into `~/.volund` (native sidecars and bundled plugins stay next to the executable, which is what standalone artifact resolution expects). `~/.volund/bin` is added to your PATH automatically.
+
+Install a pinned version with `VOLUND_INSTALL_VERSION=v0.1.0` or the first argument (`bash -s -- v0.1.0`). Re-running the installer upgrades in place; `rm -rf ~/.volund` uninstalls. Windows is served through the npm packages below or WSL.
+
+## Build from source
+
 Volund CLI requires Node.js 20.19 or newer. The stable npm release is not published yet; until release approval, build from the repository:
 
 ```sh
