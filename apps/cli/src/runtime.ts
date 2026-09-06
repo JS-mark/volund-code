@@ -19,7 +19,15 @@ import { connect as http2Connect, constants as http2Constants } from 'node:http2
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, delimiter as pathDelimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import {
+  basename,
+  delimiter as pathDelimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'

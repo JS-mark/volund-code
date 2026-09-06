@@ -278,9 +278,7 @@ describe('§7.5.2 clipboard attachment paste', () => {
     expect(first.attachment.handle).toMatch(/^[0-9a-f]{64}\.png$/)
     expect(first.attachment).not.toHaveProperty('chip')
     // 内容寻址落盘：~/.volund/sessions/<sid>/attachments/<sha256>.png
-    const staged = await readFile(
-      join(root, session.id, 'attachments', first.attachment.handle!),
-    )
+    const staged = await readFile(join(root, session.id, 'attachments', first.attachment.handle!))
     expect(new Uint8Array(staged)).toEqual(PNG)
 
     // 同内容重复粘贴：同 handle（内容寻址），不重复占盘。
@@ -327,11 +325,9 @@ describe('§7.5.2 clipboard attachment paste', () => {
     fixtures.push(dir)
     await writeFile(join(dir, 'shot.png'), PNG)
     const captured: { input?: unknown } = {}
-    const runtime = pastePort(
-      root,
-      captured,
-      { read: async () => ({ kind: 'file' as const, paths: [join(dir, 'shot.png')] }) },
-    )
+    const runtime = pastePort(root, captured, {
+      read: async () => ({ kind: 'file' as const, paths: [join(dir, 'shot.png')] }),
+    })
     const session = await runtime.startInteractive({ cwd: process.cwd() })
 
     const result = await session.pasteClipboardAttachment!()

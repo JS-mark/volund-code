@@ -38,9 +38,9 @@ describe('attachmentChipLabel (§7.5.2)', () => {
 describe('contentPartChipLabel', () => {
   it('renders handle and path image/file parts as chips', () => {
     const handle = `${'b'.repeat(64)}.jpg`
-    expect(
-      contentPartChipLabel({ source: { handle, kind: 'handle' }, type: 'image' }),
-    ).toBe('[image: bbbbbbbb.jpg]')
+    expect(contentPartChipLabel({ source: { handle, kind: 'handle' }, type: 'image' })).toBe(
+      '[image: bbbbbbbb.jpg]',
+    )
     expect(
       contentPartChipLabel({ source: { absPath: '/tmp/x.png', kind: 'path' }, type: 'file' }),
     ).toBe('[file: x.png]')
@@ -61,7 +61,10 @@ describe('stripAttachmentChips', () => {
 
   it('removes chip tokens and squeezes the whitespace they leave behind', () => {
     expect(
-      stripAttachmentChips('看看这个 [image: aaaaaaaa.png] 和 [file: report.pdf] 对吗', attachments),
+      stripAttachmentChips(
+        '看看这个 [image: aaaaaaaa.png] 和 [file: report.pdf] 对吗',
+        attachments,
+      ),
     ).toBe('看看这个 和 对吗')
   })
 

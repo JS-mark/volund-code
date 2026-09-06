@@ -1757,7 +1757,6 @@ describe('renderInteractiveApp', () => {
     await input.waitUntilExit()
   })
 
-
   it('renders the session search as an input band with a placeholder', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
