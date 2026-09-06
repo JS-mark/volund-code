@@ -349,7 +349,11 @@ export class SkillsRuntime {
       ...(skill.resources.length
         ? [
             `Skill resources (Read on demand from ${root}):`,
-            ...skill.resources.map((resource) => `- ${join(root, resource)}`),
+            ...skill.resources.map((resource) =>
+              // 资源路径是给模型按需 Read 的提示——统一 POSIX 分隔符，
+              // Windows 上 join 产生的反斜杠会让路径提示与声明形态不一致。
+              `- ${join(root, resource).replaceAll('\\', '/')}`,
+            ),
           ]
         : []),
     ]
