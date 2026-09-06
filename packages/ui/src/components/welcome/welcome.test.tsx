@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest'
 import type { WelcomePanelData } from '../../welcome'
 import { formatDisplayCwd, getWelcomeLayout, truncateMiddle } from './welcomeLayout'
 import { WelcomeScreen } from './WelcomeScreen'
-import { WelcomeStatusBar } from './WelcomeStatusBar'
 import { buildWelcomeScreenState } from './welcomeStateAdapter'
+import { WelcomeStatusBar } from './WelcomeStatusBar'
 
 class Output extends Writable {
   columns = 120
@@ -96,7 +96,6 @@ describe('welcome screen', () => {
     }
     expect(stdout.output).toContain('Trusted: folder')
     expect(stdout.output).toContain('not configured')
-
   })
 
   it('renders settled native probe states as loaded or not loaded', async () => {
