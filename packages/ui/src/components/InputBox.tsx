@@ -1,8 +1,7 @@
-import { Box, Text, useInput, usePaste } from 'ink'
-import { useEffect, useRef, useState } from 'react'
-
 import type { PasteAttachmentResult, StagedAttachmentInfo, SubmitAttachment } from '@volund/shared'
 import { attachmentChipLabel, imageChipLabel } from '@volund/shared'
+import { Box, Text, useInput, usePaste } from 'ink'
+import { useEffect, useRef, useState } from 'react'
 
 import type { SlashCommand } from '../app'
 
@@ -159,7 +158,10 @@ export function deleteForward(
 /** 粘贴文本解引用：去首尾空白、去成对引号、还原 shell 转义（iTerm2 拖文件产生 `\ ` 序列）。 */
 export function unquotePastedPath(text: string): string {
   let out = text.trim()
-  if (out.length >= 2 && ((out.startsWith("'") && out.endsWith("'")) || (out.startsWith('"') && out.endsWith('"'))))
+  if (
+    out.length >= 2 &&
+    ((out.startsWith("'") && out.endsWith("'")) || (out.startsWith('"') && out.endsWith('"')))
+  )
     out = out.slice(1, -1)
   return out.replace(/\\(.)/g, '$1')
 }
@@ -167,7 +169,9 @@ export function unquotePastedPath(text: string): string {
 /** 单行且像路径（绝对/~/./含分隔符）才值得问宿主是不是文件，避免普通文本白跑一趟。 */
 export function looksLikePath(text: string): boolean {
   if (text.length === 0 || text.length > 4096 || text.includes('\n')) return false
-  return text.startsWith('/') || text.startsWith('~/') || text.startsWith('./') || text.includes('/')
+  return (
+    text.startsWith('/') || text.startsWith('~/') || text.startsWith('./') || text.includes('/')
+  )
 }
 
 export function InputBox({
@@ -203,9 +207,7 @@ export function InputBox({
   const mention = mentionQueryAt(value, cursor)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [mentionIndex, setMentionIndex] = useState(0)
-  const mentionList = mention
-    ? mentionCandidates(mention.query, mentionModels, mentionFiles)
-    : []
+  const mentionList = mention ? mentionCandidates(mention.query, mentionModels, mentionFiles) : []
   const mentionOpen = mention !== undefined && !mentionDismissed && mentionList.length > 0
   const showShortcutHint = terminalColumns >= 100
 
@@ -354,9 +356,7 @@ export function InputBox({
       // §7.5.3 @ picker 打开期间：方向键/Tab/Enter 归 picker，esc 关闭（文本再变动即复活）。
       if (mentionOpen) {
         if (key.upArrow) {
-          setMentionIndex((current) =>
-            current <= 0 ? mentionList.length - 1 : current - 1,
-          )
+          setMentionIndex((current) => (current <= 0 ? mentionList.length - 1 : current - 1))
           return
         }
         if (key.downArrow) {
@@ -413,7 +413,11 @@ export function InputBox({
       if (key.rightArrow) {
         setInput((current) => ({
           ...current,
-          cursor: cursorRight(current.cursor, current.value.length, chipRanges(current.value, chips)),
+          cursor: cursorRight(
+            current.cursor,
+            current.value.length,
+            chipRanges(current.value, chips),
+          ),
         }))
         return
       }
@@ -565,7 +569,10 @@ export function InputBox({
               .map(({ candidate, index }) => {
                 const active = index === mentionIndex
                 return (
-                  <Text color={active ? 'cyan' : 'gray'} key={`${candidate.kind}:${candidate.value}`}>
+                  <Text
+                    color={active ? 'cyan' : 'gray'}
+                    key={`${candidate.kind}:${candidate.value}`}
+                  >
                     {active ? '> ' : '  '}
                     {candidate.label}
                   </Text>
