@@ -53,13 +53,13 @@ export class ToolsService extends Service {
     const set = this.pluginUnregisters.get(plugin)
     if (!set) return 0
     const count = set.size
-    for (const unregister of [...set]) unregister()
+    for (const unregister of set) unregister()
     this.pluginUnregisters.delete(plugin)
     return count
   }
   /** 会话结束：清空本内核挂的全部插件贡献工具。 */
   unregisterAllPluginTools(): void {
-    for (const plugin of [...this.pluginUnregisters.keys()]) this.unregisterPlugin(plugin)
+    for (const plugin of this.pluginUnregisters.keys()) this.unregisterPlugin(plugin)
   }
 }
 
