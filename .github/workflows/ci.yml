@@ -31,7 +31,19 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run typecheck test build --concurrency=${{ matrix.turbo-concurrency }}
+      # windows-2022 托管 runner 会间歇性初始化失败子进程（0xC0000142，DLL init
+      # failure——与代码无关的 runner 抖动，命中哪个包纯随机）。失败即重跑：
+      # turbo 缓存跳过已完成任务，重试只补跑失败点，开销小。三次仍败才算真红。
+      - name: Typecheck, test, and build
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm turbo run typecheck test build --concurrency=${{ matrix.turbo-concurrency }}; then
+              exit 0
+            fi
+            echo "::warning::turbo run failed (attempt $attempt/3); retrying — turbo cache skips completed tasks"
+          done
+          exit 1
       - name: Assert Rolldown single-bin output
         shell: bash
         run: |
