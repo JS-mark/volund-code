@@ -1,0 +1,62 @@
+{
+  "name": "@volund/app-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./list-picker": {
+      "types": "./dist/list-picker.d.ts",
+      "default": "./dist/list-picker.js"
+    },
+    "./status-view": {
+      "types": "./dist/status-view.d.ts",
+      "default": "./dist/status-view.js"
+    },
+    "./tabbed-list": {
+      "types": "./dist/tabbed-list.d.ts",
+      "default": "./dist/tabbed-list.js"
+    },
+    "./welcome": {
+      "types": "./dist/welcome.d.ts",
+      "default": "./dist/welcome.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node ../../scripts/build/rewrite-esm-specifiers.mjs dist",
+    "test": "vitest run --exclude='dist/**'",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cordisjs/core": "catalog:",
+    "@volund/auth": "workspace:*",
+    "@volund/config": "workspace:*",
+    "@volund/core": "workspace:*",
+    "@volund/kernel": "workspace:*",
+    "@volund/mcp-client": "workspace:*",
+    "@volund/native-bridge": "workspace:*",
+    "@volund/permission": "workspace:*",
+    "@volund/plugin-runtime": "workspace:*",
+    "@volund/plugin-sdk": "workspace:*",
+    "@volund/provider-kit": "workspace:*",
+    "@volund/shared": "workspace:*",
+    "@volund/skills-runtime": "workspace:*",
+    "@volund/storage": "workspace:*",
+    "@volund/subagent": "workspace:*",
+    "@volund/telemetry": "workspace:*",
+    "@volund/tool-kit": "workspace:*",
+    "@volund/tools": "workspace:*",
+    "uuid": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

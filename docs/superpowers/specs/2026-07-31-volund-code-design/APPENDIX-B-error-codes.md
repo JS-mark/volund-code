@@ -44,6 +44,7 @@
 | `prompt_required`                      | CLI `--json` error                | §7.6：JSON chat 缺少 prompt                                                                                                                        |
 | `sandbox_unavailable`                  | CLI `--json` error                | §7.6：所需 sandbox 不可用                                                                                                                          |
 | `session_resume_failed`                | CLI `--json` error                | §7.6：session resume 失败                                                                                                                          |
+| `session_turn_in_progress`            | typed VolundError                 | §22 W-03 / Web P1-03：同一 session 已有 in-flight turn，SessionController 拒绝并发 submit；Web 层映射为 409 `web_turn_in_progress`                      |
 | `trust_store_unavailable`              | CLI `--json` error                | §7.6：trust store 不可用                                                                                                                           |
 | `unsupported_flag`                     | CLI `--json` error                | §7.6：不支持的全局参数                                                                                                                             |
 | `web_origin_rejected`                  | Web API error（proposed）         | §22.10：Host/Origin 不属于当前 loopback server，mutation/read 均拒绝                                                                               |

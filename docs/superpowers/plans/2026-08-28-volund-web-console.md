@@ -118,11 +118,13 @@ P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7
 - 用 graph/call trace 确认每个对象的入/出依赖和生命周期。
 - 识别 CLI-only：TTY、readline、stdout、browser open、command formatting。
 - 识别 shared：session、trust、config、provider/router、tools、permission、storage、extensions、status。
+- **交付**：[2026-09-05 P1-01 inventory](./2026-09-05-web-console-p1-inventory.md)（基线 `7f6f026`，25 文件 / 293 用例全绿）。
 - **Exit**：inventory 无未分类 import/side effect。
 
 ### P1-02 · 建立 `packages/app-runtime`
 
 - 新建 private package，定义 `AppRuntime`, `RuntimeHostPorts`, `RuntimeCapabilities`, `RuntimeShutdown`。
+- **形态决策（2026-09-05）**：app-runtime 的组装形态直接采用已落地的 Cordis 内核（`@volund/kernel`，S0/S1）——`AppRuntime` = 应用级 `Context`（`UiService` 等跨会话服务）+ 每会话 `Context`（`ModelService`/`ToolsService`/`BusService`/`SessionService`/`SandboxService` 已就位）；本文各 domain controller 落成同形态 Cordis service（`immediate=true`），不另造 controller registry。P1 与内核路线 S1 合并为一次重构，TUI/Web 都是内核外的 adapter；UI 渲染权留在 TCB 的原则不变，`UiService` 面板收集器是 TUI/Web 共用的唯一面板入口。
 - 把界面无关的 `SessionPort/InteractiveSession` 重命名/迁移为 controller contracts；保留兼容 adapter。
 - 构造函数只接显式 host ports，不直接读取 stdin/stdout 或打开浏览器。
 - **Tests**：依赖图、no CLI/UI imports、生命周期 unit/integration。

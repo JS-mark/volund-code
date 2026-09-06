@@ -1,110 +1,54 @@
-import { createHash } from 'node:crypto'
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
-import {
-  access,
-  appendFile,
-  glob,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { access, appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { connect as http2Connect, constants as http2Constants } from 'node:http2'
 import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket as NetSocket } from 'node:net'
 import { homedir } from 'node:os'
-import {
-  basename,
-  delimiter as pathDelimiter,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from 'node:path'
+import { delimiter as pathDelimiter, dirname, join } from 'node:path'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { connect as tlsConnect } from 'node:tls'
 
+import {
+  createAppKernel,
+  createProductionToolPermissionChain,
+  createSessionKernel,
+  collectPluginSkillDirs,
+  createAuthDomain,
+  readAuthSection,
+  createConfigDomain,
+  createMcpDomain,
+  createNativeDomain,
+  createPluginDomain,
+  createPluginHookDispatcher,
+  escapeUntrustedText,
+  languagePromptFragment,
+  loadProductionContextTuning,
+  resolveBuiltinPluginRoot,
+  resolveModelAlias,
+  createMemoryStack,
+  createSkillDomain,
+  registerRuntimeMemoryPrompts,
+  createStatusSnapshotAdapter,
+  ProductionPermissionSessionPolicy,
+  SessionController,
+} from '@volund/app-runtime'
+import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
-import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
-import { loadConfig, loadTomlFile, parseTomlFile } from '@volund/config'
 import { SlidingWindowPolicy } from '@volund/context'
-import {
-  builtinPromptFragment,
-  createSession,
-  DefaultPromptComposer,
-  type PromptFragment,
-  EventBus,
-  MachineEventFormatter,
-  EvolutionEngine,
-  replaySessionState,
-  Runner,
-  updateSession,
-} from '@volund/core'
-import type {
-  ContextTunableParam,
-  EvolutionPersistence,
-  PromptComposer,
-  RunnerToolPort,
-  SessionState,
-} from '@volund/core'
-import {
-  BusService,
-  Context,
-  ModelService,
-  SandboxService,
-  SessionService,
-  ToolsService,
-  UiService,
-} from '@volund/kernel'
-import {
-  createClipboardReader,
-  execSandbox,
-  nativeProbes,
-  probeSandbox,
-  resolveBinary,
-  standaloneArtifactDir,
-} from '@volund/native-bridge'
-import type { ClipboardPayload, ClipboardReader, SandboxTier } from '@volund/native-bridge'
-import { PermissionManager } from '@volund/permission'
-import type {
-  PermissionDecision,
-  PermissionRequest,
-  PermissionSessionMode,
-  PermissionSpec,
-} from '@volund/permission'
-import {
-  LEGACY_PLUGIN_UNAVAILABLE,
-  PluginError,
-  PluginManager,
-  activateLocalPlugin,
-  validateManifest,
-  satisfies,
-} from '@volund/plugin-runtime'
-import type {
-  ActivatedLocalPlugin,
-  CommandContribution,
-  StatusTabContribution,
-} from '@volund/plugin-runtime'
+import { builtinPromptFragment, DefaultPromptComposer, Runner } from '@volund/core'
+import type { RunnerToolPort } from '@volund/core'
+import { SandboxService, ToolsService } from '@volund/kernel'
+import { execSandbox, probeSandbox } from '@volund/native-bridge'
+import type { SandboxTier } from '@volund/native-bridge'
+import type { PermissionSessionMode, PermissionSpec } from '@volund/permission'
+import {} from '@volund/plugin-runtime'
+import type {} from '@volund/plugin-runtime'
 import type { HookPipelineSignal } from '@volund/plugin-runtime'
-import type {
-  EffectiveEnvEntry,
-  PluginInstallResult,
-  PluginInventory,
-  PluginInventoryEntry,
-  PluginMemoryScope,
-} from '@volund/plugin-sdk'
 import { AnthropicClient, verifyAnthropicCredential } from '@volund/provider-anthropic'
 import type { HttpPort, HttpRequest, HttpResponse } from '@volund/provider-anthropic'
 import { GeminiClient } from '@volund/provider-gemini'
-import type { ContentPart } from '@volund/provider-kit'
 import { OllamaClient, isLoopbackOllamaEndpoint } from '@volund/provider-ollama'
 import { OpenAIClient } from '@volund/provider-openai'
 import {
@@ -114,158 +58,67 @@ import {
   SingleProviderRouter,
 } from '@volund/router'
 import type { RouterPolicy } from '@volund/router'
-import {
-  VolundError,
-  contentPartChipLabel,
-  detectSecret,
-  isCredentialKeyForSecretDetection,
-  isProjectOverrideForbidden,
-  normalizeForSecretDetection,
-  productIdentity,
-  sanitize,
-  stripAttachmentChips,
-  type JsonValue,
-  type Logger,
-  type PasteAttachmentResult,
-  type SubmitAttachment,
-} from '@volund/shared'
+import { sanitize, type JsonValue } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
-import type { SkillEntry } from '@volund/skills-runtime'
-import {
-  AttachmentStore,
-  BackupStore,
-  DefaultMemoryMaintenanceService,
-  DefaultMemoryRecallService,
-  DefaultMemoryService,
-  EvolutionStore,
-  IndexingMemoryService,
-  LocalKeywordMemoryIndex,
-  LocalMemoryRepository,
-  MemoryError,
-  MemoryPromptProvider,
-  MemoryTransferService,
-  PromptLoader,
-  SessionStore,
-} from '@volund/storage'
-import type { MemoryRecallService, MemoryService } from '@volund/storage'
-import {
-  AgentDefinitionRegistry,
-  SubagentDispatcher,
-  untrustedAgentBody,
-  type ResolvedAgentDefinition,
-} from '@volund/subagent'
+import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
+import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
-import type { NativeBridge, ToolContext } from '@volund/tool-kit'
-import { BackgroundShells, builtinToolDomains, MINIMAL_ENV_KEYS, ToolExecutor } from '@volund/tools'
-import type { ToolHookDispatcher, ToolHookOutcome } from '@volund/tools'
+import type { NativeBridge } from '@volund/tool-kit'
+import { BackgroundShells, builtinToolDomains } from '@volund/tools'
 import {
   renderDirectoryTrustPrompt,
   renderInteractiveApp,
   renderSessionPicker,
-  isCommandListView,
-  isCommandTabsView,
   MutableSlashCommandRegistry,
-  formatPermissionTextForDisplay,
-  formatPermissionValueForDisplay,
-  validateStatusConfigValue,
 } from '@volund/ui'
 import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
-  SandboxDisclosure,
-  PluginStatusTab,
-  StatusSetting,
-  StatusSource,
   StatusViewModel,
-  SubmitOptions,
-  StatusConfigItem,
-  StatusPanelData,
-  StatusValue,
-  SessionCandidate,
   McpPanelController,
   SubagentsPanelController,
   SkillsPanelController,
-  SkillsPanelEntry,
 } from '@volund/ui'
-import { v7 as uuidv7 } from 'uuid'
 
-import {
-  buildStatsData,
-  buildUsageData,
-  scanSessionFile,
-  scanSessionsDir,
-} from './commands/status/stats'
-import {
-  assignConfigValue,
-  assertConfigKeyValue,
-  deleteConfigValue,
-  builtinDisabledFrom,
-  disabledNamesFrom,
-  updateConfigBuiltinDisabled,
-  readConfigFileOrEmpty,
-  updateConfigDisabledList,
-  writeConfigFile,
-} from './config-edit'
+import { readConfigFileOrEmpty } from './config-edit'
 import { createHistoryPort } from './history'
-import {
-  loadMcpServerConfigs,
-  McpManager,
-  removeMcpServerToml,
-  resolveSkillSpecToDirectories,
-  upsertMcpServerToml,
-} from './mcp'
-import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
-import type { PermissionRuleSource } from './permissions-store'
-import {
-  fetchMarketIndex,
-  installFromMarket,
-  isLocalMarketSource,
-  marketInstallRoot,
-  normalizePluginName,
-  readMarketIntegrity,
-  readMarketSource,
-  uninstallMarketDir,
-  type MarketIndex,
-} from './plugin-market'
-import { isPluginApproved, LocalPluginStateStore } from './plugin-state'
-import type { LocalPluginStateEntry } from './plugin-state'
-import type { McpPort, SkillPort } from './ports'
-import type {
-  VolundPorts,
-  InteractiveSession,
-  PermissionInteractionMode,
-  PluginCompatibilityDiagnostic,
-  SessionPort,
-} from './ports'
+import type { VolundPorts } from './ports'
 import type { AppIdentity } from './shared/app-identity'
-import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
-import {
-  buildStackedSkillInvocationText,
-  createSkillTool,
-  mapAllowedTools,
-  splitSkillStack,
-} from './skill-tool'
+import { createSkillTool } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
+import { createWebPort } from './web'
 
-/** 与 @volund/subagent 的 RunnerFactory 同形；agent 为 §2.7.1 解析出的自定义定义。 */
-export type RunnerFactory = (
-  state: SessionState,
-  events: EventBus,
-  agent?: ResolvedAgentDefinition,
-) => Runner | Promise<Runner>
-const terminalStatuses = new Set(['done', 'aborted', 'error'])
-const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+// P1-04 兼容适配：以下符号已迁至 @volund/app-runtime；既有测试与消费方经此再导出，
+// 新代码一律直接从 app-runtime 导入。
+export {
+  collectPluginSkillDirs,
+  composeAttachmentInput,
+  createPluginHookDispatcher,
+  expandEnvValue,
+  languagePromptFragment,
+  loadProductionContextTuning,
+  readEffectiveEnv,
+  listWorkspaceFiles,
+  registerPluginCommands,
+  resolveModelAlias,
+} from '@volund/app-runtime'
+
+/**
+ * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）：位置锚点必须留在
+ * CLI 包（import.meta.url），位置无关的解析内核在 app-runtime（P1-04d）。
+ */
+export function builtinPluginRoot(): string | undefined {
+  return resolveBuiltinPluginRoot({
+    importMetaUrl: import.meta.url,
+    execPath: process.execPath,
+    envAssetDir: process.env.VOLUND_STANDALONE_ASSET_DIR,
+  })
+}
+
 const historySecretPattern =
   /\b(?:authorization|api[_-]?key|token|secret|passphrase|password|oauth[_-]?code|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key)\b/i
-const statusSecretKeyPattern =
-  /(?:authorization|api[_-]?key|token|secret|credential|passphrase|password|oauth)/i
-const statusUnavailable = (code: string) => ({
-  status: 'not_available' as const,
-  reason: { code },
-})
-
 export interface HookSignalRuntimeMapping {
   error?: { code: string; context: Record<string, JsonValue> }
   warning?: string
@@ -322,744 +175,13 @@ export function mapHookPipelineSignal(signal: HookPipelineSignal): HookSignalRun
   }
 }
 
-export interface StatusViewModelInput {
-  state: SessionState
-  version: string
-  workspace?: string
-  project?: string
-  model?: {
-    provider: string
-    model: string
-    liteModel?: string | null
-    reasoningModel?: string | null
-    source: Exclude<StatusViewModel['model']['source'], 'derived_unreliable'>
-  }
-  sandbox?: SandboxDisclosure
-  dangerousPermissions?: boolean
-  /** §4.4 三档会话模式（--yolo 旁路时显示 full）。 */
-  permissionMode?: PermissionSessionMode
-  authConfigured?: boolean
-  authMethod?: 'keychain' | 'encrypted_file' | 'env'
-  memoryMode?: string
-  settings?: readonly StatusSetting[]
-  configSources?: readonly StatusSource[]
-  mcpServers?: readonly string[]
-  skills?: readonly string[]
-  plugins?: readonly string[]
-}
-
-export function buildStatusViewModel(input: StatusViewModelInput): StatusViewModel {
-  const settings = (input.settings ?? [])
-    .filter((setting) => !statusSecretKeyPattern.test(setting.key))
-    .map((setting) => sanitize(setting))
-  const sandbox = input.sandbox
-  return {
-    identity: {
-      version: sanitize(input.version),
-      sessionId: sanitize(input.state.id),
-      createdAt: new Date(input.state.createdAt).toISOString(),
-      cwd: sanitize(input.state.cwd),
-      workspace: input.workspace
-        ? { status: 'available', value: sanitize(input.workspace) }
-        : statusUnavailable('workspace_adapter_unavailable'),
-      project: input.project
-        ? { status: 'available', value: sanitize(input.project) }
-        : statusUnavailable('project_adapter_unavailable'),
-    },
-    model: input.model
-      ? {
-          status: 'available',
-          provider: sanitize(input.model.provider),
-          model: sanitize(input.model.model),
-          liteModel:
-            input.model.liteModel === null
-              ? { status: 'disabled' }
-              : input.model.liteModel === undefined
-                ? statusUnavailable('lite_model_unavailable')
-                : { status: 'available', value: sanitize(input.model.liteModel) },
-          reasoningModel:
-            input.model.reasoningModel === null
-              ? { status: 'disabled' }
-              : input.model.reasoningModel === undefined
-                ? statusUnavailable('reasoning_model_unavailable')
-                : { status: 'available', value: sanitize(input.model.reasoningModel) },
-          source: input.model.source,
-        }
-      : {
-          status: 'not_available',
-          source: 'derived_unreliable',
-          reason: { code: 'current_model_source_unavailable' },
-        },
-    runtime: {
-      sandbox: sandbox
-        ? {
-            status: 'available',
-            value: { tier: sandbox.tier, mechanism: sanitize(sandbox.mechanism) },
-          }
-        : statusUnavailable('sandbox_probe_unavailable'),
-      filesystem: sandbox
-        ? sandbox.features.filesystem
-          ? { status: 'available', value: 'isolated' }
-          : { status: 'not_available', reason: { code: 'filesystem_isolation_unavailable' } }
-        : statusUnavailable('filesystem_probe_unavailable'),
-      network: sandbox
-        ? sandbox.features.network
-          ? { status: 'available', value: 'restricted' }
-          : { status: 'blocked', reason: { code: 'sandbox_network_blocked' } }
-        : statusUnavailable('network_probe_unavailable'),
-      permission:
-        input.dangerousPermissions === undefined
-          ? statusUnavailable('permission_mode_unavailable')
-          : {
-              status: 'available',
-              value: {
-                mode: input.dangerousPermissions ? 'full' : (input.permissionMode ?? 'ask'),
-                source: input.dangerousPermissions ? 'flag' : 'default',
-              },
-            },
-      memory: input.memoryMode
-        ? { status: 'available', value: { mode: sanitize(input.memoryMode) } }
-        : statusUnavailable('memory_adapter_unavailable'),
-    },
-    auth: {
-      configured:
-        input.authConfigured === undefined
-          ? statusUnavailable('auth_configured_adapter_unavailable')
-          : { status: 'available', value: input.authConfigured },
-      method: input.authMethod
-        ? { status: 'available', value: input.authMethod }
-        : statusUnavailable('auth_method_adapter_unavailable'),
-    },
-    settings,
-    config: {
-      sources: input.configSources
-        ? { status: 'available', value: [...input.configSources] }
-        : statusUnavailable('config_sources_adapter_unavailable'),
-    },
-    capabilities: {
-      mcpServers: input.mcpServers
-        ? {
-            status: 'available',
-            value: { count: input.mcpServers.length, names: sanitize([...input.mcpServers]) },
-          }
-        : statusUnavailable('mcp_discovery_adapter_unavailable'),
-      skills: input.skills
-        ? {
-            status: 'available',
-            value: { count: input.skills.length, names: sanitize([...input.skills]) },
-          }
-        : statusUnavailable('skills_discovery_adapter_unavailable'),
-      plugins: input.plugins
-        ? {
-            status: 'available',
-            value: { count: input.plugins.length, names: sanitize([...input.plugins]) },
-          }
-        : statusUnavailable('plugins_discovery_adapter_unavailable'),
-    },
-    usage: {
-      tokens: {
-        input: input.state.cumulativeUsage.input,
-        output: input.state.cumulativeUsage.output,
-        ...(input.state.cumulativeUsage.cacheRead === undefined
-          ? {}
-          : { cacheRead: input.state.cumulativeUsage.cacheRead }),
-        ...(input.state.cumulativeUsage.cacheWrite === undefined
-          ? {}
-          : { cacheWrite: input.state.cumulativeUsage.cacheWrite }),
-      },
-      context: { ...input.state.contextBudget },
-      costUSD: input.state.cumulativeUsage.costUSD,
-    },
-  }
-}
-
-export interface StatusSnapshotAdapterOptions {
-  version: string
-  sandbox(): Promise<SandboxDisclosure | undefined>
-  configAvailable(): Promise<boolean>
-  dangerousPermissions(state: SessionState): boolean
-  /** §4.4 当前生效的三档模式（活动会话优先，否则该会话冻结快照/默认 ask）。 */
-  permissionMode(state: SessionState): PermissionSessionMode
-}
-
-export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
-  return async (state: SessionState): Promise<StatusViewModel> => {
-    const [sandbox, userConfigAvailable] = await Promise.all([
-      options.sandbox(),
-      options.configAvailable(),
-    ])
-    return buildStatusViewModel({
-      state,
-      version: options.version,
-      ...(sandbox ? { sandbox } : {}),
-      dangerousPermissions: options.dangerousPermissions(state),
-      permissionMode: options.permissionMode(state),
-      configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
-    })
-  }
-}
-
-export interface ProductionPermissionSessionSnapshot {
-  readonly dangerouslySkip: boolean
-  readonly interactionMode: PermissionInteractionMode
-  /** §4.4 三档会话模式；缺省按 ask 处理（确定型测试可省略）。 */
-  readonly mode?: PermissionSessionMode
-}
-
-export class PermissionSessionInvariantError extends Error {
-  readonly code = 'permission_parent_snapshot_missing'
-
-  constructor(parentSessionId: string) {
-    super(
-      `Permission policy invariant failed: parent session snapshot not found (${parentSessionId})`,
-    )
-    this.name = 'PermissionSessionInvariantError'
-  }
-}
-
-/** Freezes security and interaction policy once, at the Runner/session creation boundary. */
-export class ProductionPermissionSessionPolicy {
-  #nextDangerouslySkip = false
-  #nextInteractionMode: PermissionInteractionMode = 'none'
-  #nextMode: PermissionSessionMode = 'ask'
-  readonly #snapshots = new Map<string, ProductionPermissionSessionSnapshot>()
-
-  configureSecurity(input: { skipPermissions: boolean }): void {
-    this.#nextDangerouslySkip = input.skipPermissions
-  }
-
-  configureInteraction(input: { mode: PermissionInteractionMode }): void {
-    this.#nextInteractionMode = input.mode
-  }
-
-  /** §4.4 三档模式：新会话的冻结快照取这里；/mode 热切换另走活动会话控制。 */
-  configureMode(input: { mode: PermissionSessionMode }): void {
-    this.#nextMode = input.mode
-  }
-
-  currentMode(): PermissionSessionMode {
-    return this.#nextMode
-  }
-
-  snapshotFor(state: Pick<SessionState, 'id' | 'lineage'>): ProductionPermissionSessionSnapshot {
-    const existing = this.#snapshots.get(state.id)
-    if (existing) return existing
-    if (state.lineage.depth === 0) {
-      const snapshot = Object.freeze({
-        dangerouslySkip: this.#nextDangerouslySkip,
-        interactionMode: this.#nextInteractionMode,
-        mode: this.#nextMode,
-      })
-      this.#snapshots.set(state.id, snapshot)
-      return snapshot
-    }
-    const parentSessionId = state.lineage.parentSessionId
-    const snapshot = parentSessionId ? this.#snapshots.get(parentSessionId) : undefined
-    if (!snapshot) throw new PermissionSessionInvariantError(parentSessionId ?? '<missing>')
-    this.#snapshots.set(state.id, snapshot)
-    return snapshot
-  }
-
-  snapshotForSession(sessionId: string): ProductionPermissionSessionSnapshot | undefined {
-    return this.#snapshots.get(sessionId)
-  }
-
-  releaseLineage(sessionId: string): void {
-    const snapshot = this.#snapshots.get(sessionId)
-    if (!snapshot) return
-    for (const [candidate, value] of this.#snapshots)
-      if (value === snapshot) this.#snapshots.delete(candidate)
-  }
-}
-
-export class RuntimeSessionPort implements SessionPort {
-  #runner: Runner | undefined
-  #events: EventBus | undefined
-  // r13-G2：后台 shell 注册表；end() 时统一 killAll
-  readonly #background: BackgroundShells | undefined
-  #output?: { json: boolean; write: (value: string) => void }
-  #lastExitCode = 0
-  constructor(
-    readonly sessionsDir: string,
-    readonly createRunner: RunnerFactory,
-    readonly onSecurity?: (input: { skipPermissions: boolean }) => void,
-    readonly onPermissionInteraction?: (input: { mode: PermissionInteractionMode }) => void,
-    readonly onEnd?: (sessionId: string) => void | Promise<void>,
-    readonly onTerminalOutput?: (input: { streamToStdout: boolean }) => void,
-    readonly onPermissionPromptHandler?: (
-      handler:
-        | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-        | undefined,
-    ) => void,
-    readonly statusSnapshot?: (state: SessionState) => Promise<StatusViewModel>,
-    readonly background?: BackgroundShells,
-    /** §7.5.2 剪贴板读取器的测试注入缝；生产缺省 = 系统剪贴板（native-bridge）。 */
-    readonly clipboard?: ClipboardReader,
-  ) {
-    this.#background = background
-  }
-  configureSecurity(input: { skipPermissions: boolean }): void {
-    this.onSecurity?.(input)
-  }
-  configurePermissionInteraction(input: { mode: PermissionInteractionMode }): void {
-    this.onPermissionInteraction?.(input)
-  }
-  configureOutput(input: { json: boolean; write: (value: string) => void }): void {
-    this.#output = input
-  }
-  configureTerminalOutput(input: { streamToStdout: boolean }): void {
-    this.onTerminalOutput?.(input)
-  }
-  async start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }> {
-    const session = await this.startInteractive({ cwd: input.cwd })
-    if (input.prompt !== undefined) {
-      await this.#runner!.run(input.prompt)
-    } else {
-      if (!isInteractiveTerminal()) throw new Error('Interactive chat requires a TTY or a prompt')
-      for (;;) {
-        const prompt = await promptLineMaybe('> ')
-        if (prompt === undefined) break
-        const trimmed = prompt.trim()
-        if (!trimmed) continue
-        if (trimmed === 'exit' || trimmed === 'quit') break
-        await this.#runner!.run(prompt)
-      }
-      await session.end()
-    }
-    return { id: session.id, exitCode: session.exitCode() }
-  }
-  async startInteractive(input: { cwd: string }) {
-    const id = uuidv7()
-    await this.activate(
-      createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
-    )
-    return this.interactiveSession()
-  }
-  async resumeInteractive(id: string) {
-    await this.resume(id)
-    return this.interactiveSession()
-  }
-  private interactiveSession(): InteractiveSession {
-    return {
-      id: this.#runner!.state.id,
-      cwd: this.#runner!.state.cwd,
-      events: this.#events!,
-      transcript: this.#runner!.state.messages.flatMap((message) => {
-        const text = messageFullText(message.content)
-        if (
-          !text ||
-          (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
-        )
-          return []
-        return [{ id: message.id, role: message.role, text }]
-      }),
-      ...(this.statusSnapshot
-        ? { getStatus: () => this.statusSnapshot!(this.#runner!.state) }
-        : {}),
-      setPermissionPromptHandler: (
-        handler:
-          | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-          | undefined,
-      ) => {
-        this.onPermissionPromptHandler?.(handler)
-      },
-      interrupt: async () => {
-        this.#runner?.interrupt()
-      },
-      // §7.5.2 Ctrl+V：读系统剪贴板 → 图片经 AttachmentStore 内容寻址落盘，
-      // 文件走 path 引用（读取权限由 store 的 allowedPathRoots=cwd 把守）。
-      // 不设粘贴授权（r19 决策）：chip 只是本地引用，内容外发发生在用户显式
-      // 提交消息时。
-      pasteClipboardAttachment: () => this.pasteClipboardAttachment(),
-      // §7.5.2 粘贴/拖拽的文件路径（bracketed paste 文本解析而来）。
-      attachFilePath: (path: string) => this.attachFilePath(path),
-      // §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限深限量，跳过
-      // 隐藏目录与重依赖目录）。
-      listFiles: () => listWorkspaceFiles(this.#runner!.state.cwd),
-      submit: async (prompt: string, submitOptions?: SubmitOptions) => {
-        const attachments = submitOptions?.attachments ?? []
-        const input =
-          attachments.length === 0 ? prompt : composeAttachmentInput(prompt, attachments)
-        await this.#runner!.run(
-          input,
-          submitOptions?.model ? { explicitModel: submitOptions.model } : undefined,
-        )
-      },
-      end: async () => {
-        await this.end()
-      },
-      exitCode: () => {
-        const last = this.#runner?.state.turns.at(-1)
-        if (!this.#runner) return this.#lastExitCode
-        return last?.status === 'aborted' ? this.#lastExitCode : 0
-      },
-    }
-  }
-  async resume(id: string): Promise<{ id: string }> {
-    if (!sessionIdPattern.test(id)) throw new Error('Invalid session id')
-    const store = new SessionStore(this.path(id))
-    // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
-    // 行作为旧数据的基线兜底），禁止再写全量快照。
-    const all = await store.load()
-    const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
-    const tailTurns = 20
-    const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
-    const entries = all.slice(from)
-    const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
-    const skippedTurns = Math.max(
-      0,
-      turnStarts.filter((index) => index >= 0).length - replayedTurns,
-    )
-    const replay = replaySessionState(id, entries, {
-      maxTokens: 200_000,
-      toolRegistrySnapshot: 'builtin:l1',
-    })
-    if (!replay.found) throw new Error(`Session not found or has no resumable events: ${id}`)
-    const state = updateSession(replay.state, (draft) => {
-      draft.activeTurn = null
-      draft.pendingInterrupt = false
-      draft.turns = draft.turns.map((turn) =>
-        terminalStatuses.has(turn.status) ? turn : { ...turn, status: 'aborted' },
-      )
-    })
-    await this.activate(state, { tailTurns: replayedTurns, skippedTurns })
-    return { id }
-  }
-  async list(): Promise<readonly SessionCandidate[]> {
-    const candidates: SessionCandidate[] = []
-    for await (const path of glob(join(this.sessionsDir, '*.jsonl'))) {
-      try {
-        const entries = await new SessionStore(path).load()
-        if (entries.length === 0) continue
-        // REM-74：候选不再依赖 session.snapshot，事件 replay（附录 D）直接派生；
-        // 旧 session 的 snapshot 行由 replaySessionState 作为基线兜底。文件名是
-        // session id 的唯一真相（bubbled 子事件带子 sessionId，不参与）。
-        const id = basename(path, '.jsonl')
-        const replay = replaySessionState(id, entries, {
-          maxTokens: 200_000,
-          toolRegistrySnapshot: 'builtin:l1',
-        })
-        const state = replay.state
-        if (!sessionIdPattern.test(state.id) || typeof state.cwd !== 'string') continue
-        const firstUser = state.messages.find((message) => message.role === 'user')
-        const summary = firstUser ? messageText(firstUser.content) : undefined
-        candidates.push({
-          id: state.id,
-          cwd: state.cwd,
-          updatedAt: entries.at(-1)?.at ?? new Date().toISOString(),
-          title: summary?.slice(0, 72) || `Session in ${state.cwd}`,
-          ...(summary ? { summary } : {}),
-        })
-      } catch {
-        // Ignore corrupt records while keeping healthy sessions available.
-      }
-    }
-    return candidates.sort(
-      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id),
-    )
-  }
-  async interrupt(): Promise<void> {
-    this.#runner?.interrupt()
-  }
-  async end(): Promise<void> {
-    if (!this.#runner || !this.#events) return
-    const sessionId = this.#runner.state.id
-    // r13-G2（spec §4.3.1）：session 结束统一 kill 全部后台 shell
-    this.#background?.killAll('session_ended')
-    // 附录 D.2 session.ended：★reason（exit|signal|error） ?exitCode。
-    await this.#events.emit({
-      type: 'session.ended',
-      version: this.#runner.state.version,
-      sessionId: this.#runner.state.id,
-      payload: { reason: 'exit', exitCode: this.#lastExitCode },
-    })
-    await this.onEnd?.(sessionId)
-    this.onPermissionPromptHandler?.(undefined)
-    this.#runner = undefined
-    this.#events = undefined
-  }
-  /**
-   * §7.5.2 剪贴板附件粘贴：image → AttachmentStore.stage 落盘返回 handle chip；
-   * file → path 引用 chip；text → 交回 UI 原样插入；empty/denied/unavailable
-   * 由 UI 映射为系统消息。
-   */
-  private async pasteClipboardAttachment(): Promise<PasteAttachmentResult> {
-    const runner = this.#runner
-    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
-    let payload: ClipboardPayload
-    try {
-      payload = await (this.clipboard ?? createClipboardReader()).read()
-    } catch (error) {
-      return {
-        kind: 'unavailable',
-        reason: error instanceof Error ? error.message : String(error),
-      }
-    }
-    if (payload.kind === 'empty') return { kind: 'empty' }
-    if (payload.kind === 'text') return { kind: 'text', text: payload.text }
-    if (payload.kind === 'image') {
-      try {
-        const store = new AttachmentStore(
-          join(this.sessionsDir, runner.state.id, 'attachments'),
-          20 * 1024 * 1024,
-          [runner.state.cwd],
-        )
-        const staged = await store.stage(payload.bytes, payload.mime)
-        return {
-          kind: 'attached',
-          attachment: {
-            handle: staged.handle,
-            kind: 'image',
-            mime: staged.mime,
-            size: staged.size,
-          },
-        }
-      } catch (error) {
-        return {
-          kind: 'unavailable',
-          reason: error instanceof Error ? error.message : String(error),
-        }
-      }
-    }
-    const target = payload.paths[0]
-    if (!target) return { kind: 'empty' }
-    return this.attachFilePath(target)
-  }
-  /**
-   * §7.5.2 路径附件（粘贴/拖拽文件、Finder 拷贝）：cwd 内 → path 引用（读取由
-   * AttachmentStore 的 allowedPathRoots 把守）；cwd 外的图片 → 读字节内容寻址
-   * 落盘成 blob 引用（桌面截图等场景）；cwd 外的非图片不支持（UI 回退为纯文本）。
-   * 不设授权门（r19 决策，与剪贴板图片一致）：chip 只是本地引用，内容外发
-   * 发生在用户显式提交消息时；敏感路径由 store 读取侧拦截。
-   */
-  private async attachFilePath(target: string): Promise<PasteAttachmentResult> {
-    const runner = this.#runner
-    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
-    // @ picker 传来的是 cwd 相对路径——相对路径一律按会话工作目录解析。
-    const absolute = isAbsolute(target) ? target : resolve(runner.state.cwd, target)
-    let stats
-    try {
-      stats = await stat(absolute)
-    } catch {
-      return { kind: 'unavailable', reason: `not a file: ${target}` }
-    }
-    if (!stats.isFile()) return { kind: 'unavailable', reason: `not a file: ${target}` }
-    const mime = mimeForAttachmentPath(absolute)
-    const kind = mime.startsWith('image/') ? ('image' as const) : ('file' as const)
-    const [realTarget, realCwd] = await Promise.all([
-      realpath(absolute),
-      realpath(runner.state.cwd),
-    ])
-    const rel = relative(realCwd, realTarget)
-    const insideWorkspace = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-    if (insideWorkspace)
-      return {
-        kind: 'attached',
-        attachment: {
-          kind,
-          mime,
-          path: realTarget,
-          size: stats.size,
-        },
-      }
-    if (kind !== 'image') return { kind: 'unavailable', reason: 'outside workspace' }
-    try {
-      const store = new AttachmentStore(
-        join(this.sessionsDir, runner.state.id, 'attachments'),
-        20 * 1024 * 1024,
-        [runner.state.cwd],
-      )
-      const staged = await store.stage(new Uint8Array(await readFile(realTarget)), mime)
-      return {
-        kind: 'attached',
-        attachment: {
-          handle: staged.handle,
-          kind,
-          mime: staged.mime,
-          size: staged.size,
-        },
-      }
-    } catch (error) {
-      return {
-        kind: 'unavailable',
-        reason: error instanceof Error ? error.message : String(error),
-      }
-    }
-  }
-  private path(id: string): string {
-    return join(this.sessionsDir, `${id}.jsonl`)
-  }
-  private async activate(
-    state: SessionState,
-    resumed?: { tailTurns: number; skippedTurns: number },
-  ): Promise<void> {
-    const events = new EventBus()
-    // r13-G2：后台 shell 事件按附录 D 形状上本 session 总线（每 session 重挂）
-    if (this.#background) {
-      this.#background.events.started = (payload) => {
-        void events.emit({
-          type: 'shell.background_started',
-          version: state.version,
-          sessionId: state.id,
-          payload: { ...payload },
-        })
-      }
-      this.#background.events.exited = (payload) => {
-        void events.emit({
-          type: 'shell.background_exited',
-          version: state.version,
-          sessionId: state.id,
-          payload: { ...payload },
-        })
-      }
-    }
-    const store = new SessionStore(this.path(state.id))
-    store.attach(events)
-    const runner = await this.createRunner(state, events)
-    let lastExitCode = 0
-    events.subscribe((event) => {
-      if (event.type !== 'turn.aborted') return
-      // 附录 D.2 turn.aborted：{turnId, reason}——exitCode 由 reason 派生（130=用户中断）。
-      const reason = (event.payload as { reason?: unknown }).reason
-      lastExitCode = reason === 'user_interrupt' ? 130 : 1
-      if (this.#events === events) this.#lastExitCode = lastExitCode
-    })
-    if (this.#output?.json) {
-      const formatter = new MachineEventFormatter()
-      events.subscribe((event) => {
-        const line = formatter.encode(event)
-        if (line) this.#output?.write(line)
-      })
-    }
-    this.#events = events
-    this.#runner = runner
-    this.#lastExitCode = lastExitCode
-    // 附录 D.2：冷启动 session.started {cwd}；恢复 session.resumed {tailTurns, skippedTurns}
-    // 替代 session.started（W10）。
-    await events.emit({
-      type: resumed ? 'session.resumed' : 'session.started',
-      version: state.version,
-      sessionId: state.id,
-      payload: resumed
-        ? { tailTurns: resumed.tailTurns, skippedTurns: resumed.skippedTurns }
-        : { cwd: state.cwd },
-    })
-  }
-}
-
-/** 会话选择器的单行摘要：折叠所有空白，保证标题不折行。 */
-function messageText(content: SessionState['messages'][number]['content']): string {
-  return content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-/**
- * §7.5.2 提交展开：输入行 chip → image/file ContentPart（引用式，handle 或
- * path），文本剔除 chip 后作为末尾 text part。附件在前、文本在后——模型读到
- * 图片时紧跟着用户的提问。无附件时原样返回字符串（走 runner 的纯文本快路径）。
- */
-export function composeAttachmentInput(
-  prompt: string,
-  attachments: readonly SubmitAttachment[],
-): string | readonly ContentPart[] {
-  if (attachments.length === 0) return prompt
-  const parts: ContentPart[] = attachments.map((attachment) => {
-    const source = attachment.handle
-      ? ({ kind: 'handle', handle: attachment.handle } as const)
-      : ({ kind: 'path', absPath: attachment.path ?? '' } as const)
-    if (attachment.kind === 'image') return { type: 'image', source, mime: attachment.mime }
-    const filename = attachment.path
-      ? basename(attachment.path)
-      : (attachment.handle ?? 'attachment')
-    return { type: 'file', filename, mime: attachment.mime, source }
-  })
-  const text = stripAttachmentChips(prompt, attachments)
-  if (text) parts.push({ type: 'text', text })
-  return parts
-}
-
-/** @ picker 文件候选遍历时的跳过目录（隐藏目录 + 重依赖/构建产物）。 */
-const WORKSPACE_LIST_SKIP = new Set([
-  '.git',
-  '.next',
-  '.turbo',
-  '_tmp_test',
-  'coverage',
-  'dist',
-  'node_modules',
-  'target',
-])
-const WORKSPACE_LIST_MAX_ENTRIES = 5_000
-const WORKSPACE_LIST_MAX_DEPTH = 8
-
-/**
- * §7.5.3 @ picker 的文件候选：会话 cwd 下的相对路径（排序、限量 5000、限深 8）。
- * 隐藏文件不进候选（.env 这类本就不该被 @ 引用；store 读取侧另有 sensitive 拦截）。
- */
-export async function listWorkspaceFiles(cwd: string): Promise<readonly string[]> {
-  const out: string[] = []
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    if (depth > WORKSPACE_LIST_MAX_DEPTH || out.length >= WORKSPACE_LIST_MAX_ENTRIES) return
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      if (out.length >= WORKSPACE_LIST_MAX_ENTRIES) return
-      if (entry.name.startsWith('.')) continue
-      const full = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (!WORKSPACE_LIST_SKIP.has(entry.name)) await walk(full, depth + 1)
-      } else if (entry.isFile()) {
-        out.push(relative(cwd, full))
-      }
-    }
-  }
-  await walk(cwd, 0)
-  return out.sort()
-}
-
 /** 粘贴文件路径的 MIME 猜测；未识别按 octet-stream（provider 不支持时降级为文本）。 */
-function mimeForAttachmentPath(path: string): string {
-  const ext = basename(path).split('.').pop()?.toLowerCase() ?? ''
-  const known: Record<string, string> = {
-    csv: 'text/csv',
-    gif: 'image/gif',
-    jpeg: 'image/jpeg',
-    jpg: 'image/jpeg',
-    json: 'application/json',
-    log: 'text/plain',
-    md: 'text/markdown',
-    pdf: 'application/pdf',
-    png: 'image/png',
-    txt: 'text/plain',
-    webp: 'image/webp',
-  }
-  return known[ext] ?? 'application/octet-stream'
-}
 
 /**
  * resume transcript 的全保真提取：markdown 的块级结构（标题/列表/表格/代码块）
  * 全靠换行界定，折叠空白会把整段塌成一行流水文本。
  * §7.5.2：image/file part 渲染回 chip 文本，resume 后用户消息仍可见附件占位。
  */
-function messageFullText(content: SessionState['messages'][number]['content']): string {
-  return content
-    .map((part) => {
-      if (part.type === 'text') return part.text
-      const chip = contentPartChipLabel(part)
-      return chip ? `${chip} ` : ''
-    })
-    .join('')
-    .trim()
-}
-
 export class FileInputHistoryStore {
   constructor(
     readonly path: string,
@@ -1509,880 +631,11 @@ async function promptSecret(question: string): Promise<string> {
     stdin.on('data', onData)
   })
 }
-async function permissionPrompt(
-  request: InteractivePermissionRequest,
-  terminalIsInteractive: () => boolean = isInteractiveTerminal,
-  linePrompt: (question: string) => Promise<string | undefined> = promptLineMaybe,
-): Promise<PermissionDecision> {
-  if (!terminalIsInteractive()) return { kind: 'deny' }
-  const answer = (
-    (await linePrompt(
-      request.display.approvable
-        ? `Permission required: ${request.display.toolName} ${request.display.spec}\nin-repo file paths are remembered as <repo>/**; bash/net stay exact\n[a]llow once, allow [s]ession, [g]rant full access, [d]eny · more: allow [p]roject, for [e]ver, deny forever [x]: `
-        : `Permission required: ${request.display.toolName} ${request.display.spec}\n[d]eny: `,
-    )) ?? ''
-  )
-    .trim()
-    .toLowerCase()
-  if (!request.display.approvable) return { kind: 'deny' }
-  const byAnswer: Record<string, PermissionDecision['kind']> = {
-    a: 'allow-once',
-    s: 'allow-session',
-    g: 'allow-all-session',
-    p: 'allow-project',
-    e: 'allow-forever',
-    d: 'deny',
-    x: 'deny-forever',
-  }
-  return { kind: byAnswer[answer] ?? 'deny' }
-}
-
-const MAX_PERMISSION_APPROVAL_DEPTH = 32
-const MAX_PERMISSION_APPROVAL_NODES = 4_096
-const MAX_PERMISSION_APPROVAL_BYTES = 64 * 1024
-const permissionDetailsUnavailable = '[permission details unavailable - deny only]'
-const sensitivePermissionDetailsHidden = '[sensitive permission details hidden - deny only]'
-
-interface PermissionApprovalBudget {
-  bytes: number
-  nodes: number
-  redacted: boolean
-  readonly seen: Set<object>
-}
-
-interface PermissionApprovalValue {
-  readonly complete: boolean
-  readonly redacted: boolean
-  readonly value: JsonValue
-}
-
-interface PermissionApprovalText extends Omit<PermissionApprovalValue, 'value'> {
-  readonly value: string
-}
-
-function consumePermissionApprovalText(budget: PermissionApprovalBudget, value: string): void {
-  budget.bytes -= Buffer.byteLength(value, 'utf8')
-  if (budget.bytes < 0) throw new RangeError('permission approval exceeds its byte budget')
-}
-
-function hasOnlyStringKeys(keys: PropertyKey[]): keys is string[] {
-  return keys.every((key) => typeof key === 'string')
-}
-
-function containsPermissionApprovalSecret(value: string): boolean {
-  const normalized = normalizeForSecretDetection(value)
-  return Boolean(detectSecret(value)) || sanitize(normalized) !== normalized
-}
-
-function isPermissionApprovalCredentialKey(value: string): boolean {
-  const normalized = normalizeForSecretDetection(value)
-  const probeValue = 'permission-approval-key-probe'
-  const sanitizedProbe = sanitize({ [normalized]: probeValue })
-  return isCredentialKeyForSecretDetection(value) || sanitizedProbe[normalized] !== probeValue
-}
-
-function clonePermissionApprovalValue(
-  input: unknown,
-  budget: PermissionApprovalBudget,
-  depth = 0,
-): JsonValue {
-  budget.nodes -= 1
-  if (budget.nodes < 0) throw new RangeError('permission approval exceeds its node budget')
-  if (depth > MAX_PERMISSION_APPROVAL_DEPTH)
-    throw new RangeError('permission approval exceeds its depth limit')
-  if (input === null) return null
-  if (typeof input === 'string') {
-    consumePermissionApprovalText(budget, input)
-    if (containsPermissionApprovalSecret(input)) {
-      budget.redacted = true
-      return '[REDACTED]'
-    }
-    return input
-  }
-  if (typeof input === 'boolean') return input
-  if (typeof input === 'number') {
-    if (!Number.isFinite(input) || Object.is(input, -0))
-      throw new TypeError('permission approval number cannot be represented exactly')
-    return input
-  }
-  if (typeof input !== 'object') throw new TypeError('permission approval value is not JSON-safe')
-  if (budget.seen.has(input)) throw new TypeError('permission approval value is cyclic')
-  budget.seen.add(input)
-  try {
-    if (Array.isArray(input)) {
-      if (input.length > budget.nodes)
-        throw new RangeError('permission approval array exceeds its node budget')
-      const keys = Reflect.ownKeys(input)
-      if (!hasOnlyStringKeys(keys)) throw new TypeError('permission approval array has symbol keys')
-      if (keys.length !== input.length + 1)
-        throw new TypeError('permission approval array is sparse or has extra properties')
-      const output: JsonValue[] = []
-      for (let index = 0; index < input.length; index++) {
-        const descriptor = Object.getOwnPropertyDescriptor(input, String(index))
-        if (!descriptor?.enumerable || !('value' in descriptor))
-          throw new TypeError('permission approval array has hidden or accessor elements')
-        output.push(clonePermissionApprovalValue(descriptor.value, budget, depth + 1))
-      }
-      return output
-    }
-
-    const prototype = Object.getPrototypeOf(input)
-    if (prototype !== Object.prototype && prototype !== null)
-      throw new TypeError('permission approval value is not a plain object')
-    const keys = Reflect.ownKeys(input)
-    if (keys.length > budget.nodes)
-      throw new RangeError('permission approval object exceeds its node budget')
-    if (!hasOnlyStringKeys(keys)) throw new TypeError('permission approval value has symbol keys')
-    const output: Record<string, JsonValue> = {}
-    for (const [index, key] of keys.entries()) {
-      consumePermissionApprovalText(budget, key)
-      const descriptor = Object.getOwnPropertyDescriptor(input, key)
-      if (!descriptor?.enumerable || !('value' in descriptor))
-        throw new TypeError('permission approval value has hidden or accessor properties')
-      const safeKey = containsPermissionApprovalSecret(key) ? `[REDACTED_KEY_${index}]` : key
-      if (safeKey !== key) budget.redacted = true
-      if (Object.hasOwn(output, safeKey))
-        throw new TypeError('permission approval redaction produced a duplicate key')
-      const redactValue = isPermissionApprovalCredentialKey(key)
-      if (redactValue) budget.redacted = true
-      Object.defineProperty(output, safeKey, {
-        configurable: true,
-        enumerable: true,
-        value: redactValue
-          ? '[REDACTED]'
-          : clonePermissionApprovalValue(descriptor.value, budget, depth + 1),
-        writable: true,
-      })
-    }
-    return output
-  } finally {
-    budget.seen.delete(input)
-  }
-}
-
-function freezePermissionApprovalValue<T>(value: T): T {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (descriptor && 'value' in descriptor) freezePermissionApprovalValue(descriptor.value)
-  }
-  return Object.freeze(value)
-}
-
-function preparePermissionApprovalValue(
-  input: unknown,
-  fallback: JsonValue,
-): PermissionApprovalValue {
-  try {
-    const budget: PermissionApprovalBudget = {
-      bytes: MAX_PERMISSION_APPROVAL_BYTES,
-      nodes: MAX_PERMISSION_APPROVAL_NODES,
-      redacted: false,
-      seen: new Set(),
-    }
-    const detectedSafeValue = clonePermissionApprovalValue(input, budget)
-    const sanitizedValue = sanitize(detectedSafeValue)
-    const sanitizerRedacted = JSON.stringify(sanitizedValue) !== JSON.stringify(detectedSafeValue)
-    return freezePermissionApprovalValue({
-      complete: true,
-      redacted: budget.redacted || sanitizerRedacted,
-      value: sanitizedValue,
-    })
-  } catch {
-    return freezePermissionApprovalValue({ complete: false, redacted: false, value: fallback })
-  }
-}
-
-function preparePermissionApprovalSpec(input: PermissionSpec): PermissionApprovalValue {
-  const prepared = preparePermissionApprovalValue(input, {
-    custom: { permissionApproval: permissionDetailsUnavailable },
-  })
-  if (prepared.value && typeof prepared.value === 'object' && !Array.isArray(prepared.value))
-    return prepared
-  return freezePermissionApprovalValue({
-    complete: false,
-    redacted: false,
-    value: { custom: { permissionApproval: permissionDetailsUnavailable } },
-  })
-}
-
-function preparePermissionApprovalText(input: string): PermissionApprovalText {
-  const prepared = preparePermissionApprovalValue(input, '[permission label unavailable]')
-  if (typeof prepared.value === 'string')
-    return freezePermissionApprovalValue({
-      complete: prepared.complete,
-      redacted: prepared.redacted,
-      value: prepared.value,
-    })
-  return freezePermissionApprovalValue({
-    complete: false,
-    redacted: false,
-    value: '[permission label unavailable]',
-  })
-}
-
-function buildPermissionDisplay(
-  spec: PermissionApprovalValue,
-  toolName: PermissionApprovalText,
-  input: PermissionApprovalValue,
-  toolUseId: PermissionApprovalText,
-): InteractivePermissionRequest['display'] {
-  const sanitizedSpec = formatPermissionValueForDisplay(spec.value)
-  const sanitizedToolName = formatPermissionTextForDisplay(toolName.value)
-  if (
-    !spec.complete ||
-    !toolName.complete ||
-    !input.complete ||
-    !toolUseId.complete ||
-    !sanitizedSpec.approvable ||
-    !sanitizedToolName.approvable
-  )
-    return {
-      approvable: false,
-      spec: permissionDetailsUnavailable,
-      toolName: sanitizedToolName.text,
-    }
-  if (spec.redacted || toolName.redacted || input.redacted || toolUseId.redacted)
-    return {
-      approvable: false,
-      spec: sensitivePermissionDetailsHidden,
-      toolName: toolName.redacted ? '[sensitive tool name hidden]' : sanitizedToolName.text,
-    }
-  return { approvable: true, spec: sanitizedSpec.text, toolName: sanitizedToolName.text }
-}
-
 /**
  * [models.aliases] 解析（§8.3）：preferences.model / 面板里可以写别名，命中返回
  * 目标 model（去掉 provider 前缀）；别名指向的 provider 与当前会话不一致时返回
  * mismatch 由调用方告警——绝不静默换 provider。
  */
-export function resolveModelAlias(
-  raw: string,
-  aliases: Record<string, { provider: string; model: string }>,
-  activeProvider = 'anthropic',
-): { model: string } | { mismatch: string } | undefined {
-  const entry = aliases[raw.replace(new RegExp(`^${activeProvider}/`), '')]
-  if (!entry) return undefined
-  if (entry.provider !== activeProvider) return { mismatch: entry.provider }
-  return { model: entry.model.replace(new RegExp(`^${activeProvider}/`), '') }
-}
-
-/**
- * [preferences] language 的回复语言强制片段（§6b）：显式配置才注册——不配则模型
- * 跟随输入语言，中英混杂；配置后即使输入是英文也按配置语言回复。
- */
-export function languagePromptFragment(language: string): PromptFragment {
-  return {
-    id: 'preferences:language',
-    source: 'preferences:language',
-    priority: 900,
-    text: `## Language\nAlways respond in ${language}, regardless of the language of the user's message, tool output, or any other content. Keep code, identifiers, and file paths as-is.`,
-  }
-}
-
-export async function requestPermission(input: {
-  events: EventBus
-  interactionMode: PermissionInteractionMode
-  interactivePermissionPrompt:
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-    | undefined
-  request: PermissionRequest
-  /** Deterministic test seam; production always uses the real terminal predicate. */
-  terminalIsInteractive?: () => boolean
-  /** Deterministic line-input seam; production uses promptLineMaybe. */
-  linePermissionPrompt?: (question: string) => Promise<string | undefined>
-  version: number
-}): Promise<PermissionDecision> {
-  const id = uuidv7()
-  const approvalSpec = preparePermissionApprovalSpec(input.request.spec)
-  const approvalToolName = preparePermissionApprovalText(input.request.toolName)
-  const approvalToolUseId = preparePermissionApprovalText(input.request.toolUseId ?? id)
-  const approvalInput = preparePermissionApprovalValue(
-    input.request.input,
-    '[permission input unavailable]',
-  )
-  const display = freezePermissionApprovalValue(
-    buildPermissionDisplay(approvalSpec, approvalToolName, approvalInput, approvalToolUseId),
-  )
-  const approvalAllowed = display.approvable
-  const uiRequest = freezePermissionApprovalValue<InteractivePermissionRequest>({
-    display,
-    id,
-    attempt: input.request.attempt,
-    input: approvalInput.value,
-    spec: approvalSpec.value,
-    toolName: approvalToolName.value,
-  })
-  // 附录 D.2 tool.permission_asked：{toolUseId, tool, spec}——toolUseId 优先用真实
-  // tool_use id（ToolExecutor 透传），非模型路径回退本次弹窗请求 id。
-  await input.events.emit({
-    type: 'tool.permission_asked',
-    version: input.version,
-    sessionId: input.request.session.id,
-    payload: {
-      toolUseId: approvalToolUseId.value,
-      tool: approvalToolName.value,
-      spec: approvalSpec.value,
-    },
-  })
-  if (input.interactionMode === 'none') return { kind: 'deny' }
-  if (input.interactionMode === 'line')
-    return permissionPrompt(
-      uiRequest,
-      input.terminalIsInteractive ?? isInteractiveTerminal,
-      input.linePermissionPrompt ?? promptLineMaybe,
-    )
-  if (!input.interactivePermissionPrompt) return { kind: 'deny' }
-  const decision = await input.interactivePermissionPrompt(uiRequest)
-  if (!approvalAllowed) return { kind: 'deny' }
-  return { kind: decision.kind }
-}
-
-export interface ProductionPermissionConfiguration {
-  readonly dangerouslySkip: boolean
-  logger?: Logger
-}
-
-export interface ProductionToolPermissionChainOptions {
-  state: Pick<SessionState, 'id' | 'cwd' | 'version' | 'lineage'>
-  events: EventBus
-  permissionSnapshot: ProductionPermissionSessionSnapshot
-  logger?: Logger
-  interactivePermissionPrompt: () =>
-    | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-    | undefined
-  /** Deterministic test seam; omitted by createProductionPorts. */
-  terminalIsInteractive?: () => boolean
-  /** Deterministic line-input seam; production uses promptLineMaybe. */
-  linePermissionPrompt?: (question: string) => Promise<string | undefined>
-  /** 持久化 project/global 权限规则（spec §4.4 决策链 1/2/4/5）；必须已完成装载
-   * （生产路径 createRunner 先 await ready()），确定型测试可省略。 */
-  rules?: PermissionRuleSource
-}
-
-export interface ProductionToolPermissionChain {
-  permissionRequests: Pick<PermissionManager, 'request'>
-  /** 当前生效的三档模式（活动会话的 /mode 读数走这里）。 */
-  mode(): PermissionSessionMode
-  /** /mode 热切换：只影响持有此 chain 的会话。 */
-  setMode(mode: PermissionSessionMode): void
-  /** skill allowed-tools 的回合级放行（Skill 工具与 /skill 路径共用）。 */
-  grantEphemeral(rules: ReadonlyArray<{ tool: string; spec: PermissionSpec }>): void
-  /** 回合终态清空 ephemeral 授权（createRunner 订阅 turn.completed/aborted）。 */
-  clearEphemeral(): void
-  bindExecutor(
-    context: (signal: AbortSignal) => ToolContext,
-    dispatchHook?: ToolHookDispatcher,
-  ): Pick<ToolExecutor, 'execute'>
-}
-
-/**
- * Single production composition point for tool permission enforcement.
- *
- * PromptLoader receives only the request view, while ToolExecutor can be bound exactly once so
- * requestPermission and native execution cannot drift or expose cache/prompt mutation controls.
- */
-export function createProductionToolPermissionChain(
-  options: ProductionToolPermissionChainOptions,
-): ProductionToolPermissionChain {
-  const configuration: ProductionPermissionConfiguration = Object.freeze({
-    dangerouslySkip: options.permissionSnapshot.dangerouslySkip,
-    ...(options.logger ? { logger: options.logger } : {}),
-  })
-  const interactionMode = options.permissionSnapshot.interactionMode
-  // r13 §4.4 决策链落地：持久化规则的 deny（1/2）先于 session cache（3），
-  // allow（4/5）在 cache 之后、auto-allow 之前——PermissionManager 内置顺序与此一致。
-  const rules = options.rules
-  const permissions = new PermissionManager(
-    rules
-      ? {
-          projectDeny: (request) => rules.isDenied('project', request),
-          globalDeny: (request) => rules.isDenied('global', request),
-          projectAllow: (request) => rules.isAllowed('project', request),
-          globalAllow: (request) => rules.isAllowed('global', request),
-        }
-      : {},
-    {
-      ...configuration,
-      ...(options.permissionSnapshot.mode ? { mode: options.permissionSnapshot.mode } : {}),
-      ...(rules
-        ? {
-            persist: (scope: 'project' | 'global', request: PermissionRequest, allow: boolean) =>
-              rules.persist(scope, request, allow),
-          }
-        : {}),
-    },
-  )
-  permissions.setPromptHandler(async (request) => {
-    const decision = await requestPermission({
-      events: options.events,
-      interactionMode,
-      interactivePermissionPrompt: options.interactivePermissionPrompt(),
-      request,
-      ...(options.terminalIsInteractive
-        ? { terminalIsInteractive: options.terminalIsInteractive }
-        : {}),
-      ...(options.linePermissionPrompt
-        ? { linePermissionPrompt: options.linePermissionPrompt }
-        : {}),
-      version: options.state.version,
-    })
-    if (options.state.lineage.depth === 0) return decision
-    return ['allow-once', 'allow-session', 'deny'].includes(decision.kind)
-      ? decision
-      : { kind: 'deny' }
-  })
-  let bound = false
-  return {
-    permissionRequests: Object.freeze({ request: permissions.request.bind(permissions) }),
-    mode: () => permissions.mode,
-    setMode: (mode) => permissions.setMode(mode),
-    grantEphemeral: (rules) => permissions.grantEphemeral(rules),
-    clearEphemeral: () => permissions.clearEphemeral(),
-    bindExecutor(context, dispatchHook) {
-      if (bound) throw new Error('Production permission executor is already bound')
-      bound = true
-      const executor = new ToolExecutor(permissions, context, dispatchHook)
-      return Object.freeze({ execute: executor.execute.bind(executor) })
-    },
-  }
-}
-
-export interface ProductionOptions {
-  volundHome?: string
-  identity: Readonly<AppIdentity>
-  model?: string
-}
-
-function diagnosticRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-const LEGACY_PLUGIN_NAME = /^volund-plugin-[a-z0-9][a-z0-9._-]{0,127}$/
-function assertLegacyPluginName(name: string): void {
-  if (!LEGACY_PLUGIN_NAME.test(name))
-    throw new PluginError('plugin_path_escape', 'invalid plugin target')
-}
-
-async function readContainedPluginDiagnostic(
-  pluginRoot: string,
-  name: string,
-  storedVersion: string,
-  volundVersion: string,
-): Promise<{
-  version: string
-  permissions: readonly string[]
-  compatibility: PluginCompatibilityDiagnostic
-}> {
-  const manifestLimit = 1024 * 1024
-  const permissionLimit = 64
-  const permissionLengthLimit = 128
-  const safeStoredVersion =
-    storedVersion.length <= 128 && /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(storedVersion)
-      ? storedVersion
-      : 'unknown'
-  const invalid = (detail: string) => ({
-    version: safeStoredVersion,
-    permissions: [] as readonly string[],
-    compatibility: { status: 'invalid' as const, detail },
-  })
-  assertLegacyPluginName(name)
-  let manifest: unknown
-  try {
-    const canonicalRoot = await realpath(pluginRoot)
-    const expectedDirectory = join(canonicalRoot, name)
-    const canonicalDirectory = await realpath(expectedDirectory)
-    if (canonicalDirectory !== expectedDirectory)
-      return invalid('Plugin directory is not canonical; legacy activation remains unavailable.')
-    const expectedManifest = join(canonicalDirectory, 'manifest.json')
-    const canonicalManifest = await realpath(expectedManifest)
-    if (canonicalManifest !== expectedManifest)
-      return invalid('Manifest path is not canonical; legacy activation remains unavailable.')
-    const handle = await open(canonicalManifest, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
-    try {
-      const stat = await handle.stat()
-      if (!stat.isFile() || stat.size > manifestLimit)
-        return invalid(
-          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
-        )
-      const buffer = Buffer.alloc(manifestLimit + 1)
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-      if (bytesRead > manifestLimit)
-        return invalid(
-          'Manifest metadata exceeds diagnostic limits; legacy activation remains unavailable.',
-        )
-      manifest = JSON.parse(buffer.toString('utf8', 0, bytesRead))
-    } finally {
-      await handle.close()
-    }
-  } catch {
-    return invalid('Manifest metadata is unreadable; legacy activation remains unavailable.')
-  }
-  if (!diagnosticRecord(manifest))
-    return invalid('Manifest metadata is invalid; legacy activation remains unavailable.')
-  const permissionsRecord = diagnosticRecord(manifest.permissions)
-    ? manifest.permissions
-    : undefined
-  const rawPermissions = permissionsRecord?.volund
-  if (Array.isArray(rawPermissions) && rawPermissions.length > permissionLimit)
-    return invalid(
-      'Manifest permissions exceed diagnostic limits; legacy activation remains unavailable.',
-    )
-  const permissions: string[] = []
-  if (Array.isArray(rawPermissions)) {
-    for (const permission of rawPermissions) {
-      if (
-        typeof permission !== 'string' ||
-        permission.length > permissionLengthLimit ||
-        !/^[a-z][a-z0-9.:-]*$/.test(permission)
-      )
-        return invalid('Manifest permissions are invalid; legacy activation remains unavailable.')
-      permissions.push(permission)
-    }
-  }
-  const engines = diagnosticRecord(manifest.engines) ? manifest.engines : undefined
-  const range =
-    typeof engines?.volund === 'string' && engines.volund.length <= 256 ? engines.volund : undefined
-  const compatibility: PluginCompatibilityDiagnostic = range
-    ? satisfies(volundVersion, range)
-      ? {
-          status: 'compatible',
-          detail: `Declared legacy volund engine range is compatible with ${volundVersion}.`,
-        }
-      : {
-          status: 'incompatible',
-          detail: `Declared legacy volund engine range is incompatible with ${volundVersion}; legacy activation remains unavailable.`,
-        }
-    : {
-        status: 'invalid',
-        detail: 'Manifest engine metadata is invalid; legacy activation remains unavailable.',
-      }
-  return {
-    version:
-      typeof manifest.version === 'string' &&
-      manifest.version.length <= 128 &&
-      /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(manifest.version)
-        ? manifest.version
-        : safeStoredVersion,
-    permissions,
-    compatibility,
-  }
-}
-
-export function registerRuntimeMemoryPrompts(
-  composer: PromptComposer,
-  memory: MemoryService,
-  state: Pick<SessionState, 'cwd' | 'id'>,
-) {
-  return new MemoryPromptProvider(memory, {
-    scopes: [
-      sessionMemoryScope(state.cwd, state.id),
-      projectMemoryScope(state.cwd),
-      workspaceMemoryScope(),
-    ],
-  }).register(composer)
-}
-
-export interface PluginMemoryHostOptions {
-  readonly home: string
-  readonly cwd: string
-  readonly sessionId?: string
-  readonly memory: MemoryService
-  readonly memoryRecall: MemoryRecallService
-  readonly memoryTransfer: MemoryTransferService
-}
-
-export type PluginMemoryHost = (
-  plugin: string,
-  operation: string,
-  rawParams: unknown,
-) => Promise<unknown>
-
-/** Production plugin adapter. Memory content stays inside MemoryService and never enters audit. */
-export function createPluginMemoryHost(options: PluginMemoryHostOptions): PluginMemoryHost {
-  return async (plugin: string, operation: string, rawParams: unknown): Promise<unknown> => {
-    const params = rawParams as {
-      scope: PluginMemoryScope
-      id?: string
-      query?: string
-      options?: { limit?: number; tags?: readonly string[]; pinned?: boolean }
-      content?: string
-      tags?: readonly string[]
-      pinned?: boolean
-      patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
-    }
-    const scope =
-      params.scope === 'workspace'
-        ? workspaceMemoryScope()
-        : params.scope === 'project'
-          ? projectMemoryScope(options.cwd)
-          : options.sessionId
-            ? sessionMemoryScope(options.cwd, options.sessionId)
-            : (() => {
-                throw new MemoryError(
-                  'memory_scope_denied',
-                  'Session memory requires an active session',
-                )
-              })()
-    const auditPath = join(options.home, 'memory', 'audit.jsonl')
-    const writeOperation = ['create', 'update', 'delete'].includes(operation)
-    if (writeOperation) {
-      await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
-      await appendFile(
-        auditPath,
-        `${JSON.stringify({
-          schemaVersion: 1,
-          at: new Date().toISOString(),
-          phase: 'attempt',
-          plugin,
-          operation,
-          scope: params.scope,
-          ...(params.id ? { id: sanitize(params.id) } : {}),
-        })}\n`,
-        { encoding: 'utf8', mode: 0o600 },
-      )
-    }
-    let result: unknown
-    if (operation === 'get') result = (await options.memory.get(scope, String(params.id))) ?? null
-    else if (operation === 'list') result = await options.memory.list(scope, params.options)
-    else if (operation === 'search')
-      result = await options.memoryRecall.recall(scope, String(params.query ?? ''), params.options)
-    else if (operation === 'create')
-      result = await options.memory.create({
-        ...(params.id ? { id: params.id } : {}),
-        scope,
-        content: String(params.content ?? ''),
-        provenance: { source: 'agent', actorId: `plugin:${plugin}` },
-        ...(params.tags ? { tags: params.tags } : {}),
-        ...(params.pinned === undefined ? {} : { pinned: params.pinned }),
-      })
-    else if (operation === 'update')
-      result = await options.memory.update(scope, String(params.id), params.patch ?? {})
-    else if (operation === 'delete') result = await options.memory.delete(scope, String(params.id))
-    else result = await options.memoryTransfer.export([scope])
-    await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
-    await appendFile(
-      auditPath,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        at: new Date().toISOString(),
-        phase: 'success',
-        plugin,
-        operation,
-        scope: params.scope,
-        ...(params.id ? { id: sanitize(params.id) } : {}),
-      })}\n`,
-      { encoding: 'utf8', mode: 0o600 },
-    )
-    return result
-  }
-}
-
-/**
- * Resolve the legacy context-tuning compatibility switch for a production Runner.
- * A missing file is the documented default-off case. Unreadable, invalid, or non-boolean
- * configuration fails closed by propagating the configuration error before tuning is read.
- * Only an own-property boolean `true` is authority; an inherited/prototype value never counts.
- */
-export async function loadProductionContextTuning(options: {
-  readonly home: string
-  readonly persistence: EvolutionPersistence
-  readonly logger: Pick<Logger, 'warn'>
-}): Promise<{
-  readonly config: Record<string, JsonValue>
-  readonly values: Record<ContextTunableParam, number>
-}> {
-  let enabled = false
-  let config: Record<string, JsonValue> = {}
-  try {
-    config = await loadTomlFile(join(options.home, 'config.toml'), {
-      onWarning: (message) => options.logger.warn(message),
-    })
-    const section = config.evolution
-    enabled = Boolean(
-      section &&
-      typeof section === 'object' &&
-      !Array.isArray(section) &&
-      Object.hasOwn(section, 'enabled') &&
-      section.enabled === true,
-    )
-  } catch (error) {
-    // A missing file means the documented default-off posture. Syntax, type, and I/O
-    // failures are configuration failures and must stop Runner construction (§8.3/C.1).
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  return {
-    config,
-    values: await new EvolutionEngine(options.persistence, { enabled }).values(),
-  }
-}
-
-/**
- * 插件命令贡献 → 斜杠命令注册表（UI 经 subscribe 热更新）。handler 在插件沙箱里
- * 经桥执行，返回字符串即作为系统消息进 transcript。撞内置名 / 撞已注册命令时
- * warn + 跳过该命令（不拖累插件其余贡献）；返回注销函数集（deactivate 时摘除）。
- */
-export function registerPluginCommands(
-  registry: MutableSlashCommandRegistry,
-  plugin: string,
-  commands: readonly CommandContribution[],
-  onWarn: (message: string) => void,
-): Array<() => void> {
-  const unsubscribes: Array<() => void> = []
-  for (const command of commands) {
-    try {
-      unsubscribes.push(
-        registry.register(
-          {
-            name: command.name,
-            description: command.description || `/${command.name} (plugin command)`,
-            ...(command.order !== undefined ? { order: command.order } : {}),
-            run: async ({ args }) => {
-              const result = await command.run(args)
-              if (typeof result === 'string' && result) return result
-              // 列表 / 页签视图（纯数据描述符）原样透传：UI 渲染成可搜索面板
-              if (isCommandListView(result)) return result
-              if (isCommandTabsView(result)) return result
-              return undefined
-            },
-          },
-          { kind: 'plugin', plugin },
-        ),
-      )
-    } catch (error) {
-      onWarn(
-        `Plugin command /${command.name} from ${plugin} not registered: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      )
-    }
-  }
-  return unsubscribes
-}
-
-/**
- * [env] 值的前置解析（applyEnv 写入 process.env 之前）：
- * - 开头 `~` / `~/...` → 用户主目录；
- * - `${VAR}` 与裸 `$VAR` → source 里已有的环境变量。**只有名字已设置才展开**：
- *   未设置的引用一律保持字面（值里的 `$` 常见于凭据/正则，撞不到真实环境变量名
- *   就不会被误伤）；`${VAR}` 形式未设置时额外回调 onUnresolved（显式意图，值得
- *   fail-visible），裸 `$VAR` 未设置则静默保持字面。
- * 单趟展开不递归；同段 key 互引用不支持——source 取应用前的环境快照。
- */
-export function expandEnvValue(
-  value: string,
-  source: Record<string, string | undefined>,
-  onUnresolved?: (name: string) => void,
-): string {
-  const tildeExpanded =
-    value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}${value.slice(1)}` : value
-  return tildeExpanded.replaceAll(
-    /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
-    (raw, braced: string | undefined, bare: string | undefined) => {
-      const name = (braced ?? bare)!
-      const resolved = source[name]
-      if (resolved === undefined) {
-        if (braced) onUnresolved?.(name)
-        return raw
-      }
-      return resolved
-    },
-  )
-}
-
-/**
- * [env] 段的生效快照（/env 内置插件的数据源）：每次调用重读用户级 config.toml，
- * 与当前 process.env 对比出 effective / pending / overridden；sandboxPassthrough
- * 标出该名字是否经最小继承集（PATH/HOME/LANG/TZ）或 [tools] pass_through_env
- * 白名单进入沙箱。缺配置文件 → 空列表；类型错按 C.1 传播 config_invalid。
- *
- * 配置值先经前置解析（`~` / `${VAR}`，见 expandEnvValue）再与 process.env 比较：
- * `applied`（applyEnv 记录的应用值）在本进程跑过 applyEnv 时是精确基准；否则
- * （一次性子命令）按「扣除本段 key 的当前环境」就地展开，展示"应用后会是这个值"。
- */
-export async function readEffectiveEnv(
-  home: string,
-  applied?: Record<string, string>,
-): Promise<EffectiveEnvEntry[]> {
-  let config: Record<string, JsonValue> = {}
-  try {
-    config = await loadTomlFile(join(home, 'config.toml'))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  const envSection =
-    config.env && typeof config.env === 'object' && !Array.isArray(config.env)
-      ? (config.env as Record<string, JsonValue>)
-      : {}
-  const toolsSection =
-    config.tools && typeof config.tools === 'object' && !Array.isArray(config.tools)
-      ? (config.tools as Record<string, JsonValue>)
-      : {}
-  const passThrough = new Set(MINIMAL_ENV_KEYS)
-  if (Array.isArray(toolsSection.pass_through_env))
-    for (const name of toolsSection.pass_through_env)
-      if (typeof name === 'string' && name) passThrough.add(name)
-  // 就地展开的基准要扣除本段 key：applyEnv 跑过的进程里这些名字的值来自配置
-  // 本身，拿它们当引用基准会把自引用误判成已解析。
-  const basis = { ...process.env }
-  for (const key of Object.keys(envSection)) delete basis[key]
-  const entries: EffectiveEnvEntry[] = []
-  for (const [key, value] of Object.entries(envSection)) {
-    if (typeof value !== 'string') continue
-    const expected = applied?.[key] ?? expandEnvValue(value, basis)
-    const actual = process.env[key] ?? null
-    entries.push({
-      key,
-      configured: expected,
-      actual,
-      status: actual === null ? 'pending' : actual === expected ? 'effective' : 'overridden',
-      sandboxPassthrough: passThrough.has(key),
-    })
-  }
-  return entries
-}
-
-/**
- * 内置插件根目录（随产物分发的 apps/cli/plugins/<name>/）。与 native 资产同一
- * 解析惯例（resolver.ts standaloneArtifactDir）：standalone 先看
- * VOLUND_STANDALONE_ASSET_DIR，否则取产物旁——bun --compile 后是 execPath 旁，
- * dist 单文件布局是 dist/plugins/，源码布局（vitest）是 apps/cli/plugins/。
- * 取第一个存在的候选，不存在 → undefined（无内置插件）。
- */
-export function builtinPluginRoot(): string | undefined {
-  const here = standaloneArtifactDir(import.meta.url, process.execPath)
-  const candidates = [
-    process.env.VOLUND_STANDALONE_ASSET_DIR
-      ? join(process.env.VOLUND_STANDALONE_ASSET_DIR, 'plugins')
-      : undefined,
-    join(here, 'plugins'),
-    join(here, '..', 'plugins'),
-  ]
-  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate
-  return undefined
-}
-
-/**
- * SM-08b：收集插件捆绑 skills 目录（`<pluginDir>/skills/`，随插件信任）。
- * builtin 无条件收录（产物自带，与二进制同信任级）；dev/market 以
- * plugin-state.v2 的 enabled 为门——禁用的插件不进 skills 发现面。
- */
-export async function collectPluginSkillDirs(input: {
-  builtinRoot: string | undefined
-  stateEntries: readonly { dir: string; enabled: boolean }[]
-}): Promise<string[]> {
-  const dirs: string[] = []
-  if (input.builtinRoot) {
-    try {
-      for (const entry of await readdir(input.builtinRoot, { withFileTypes: true }))
-        if (entry.isDirectory()) dirs.push(join(input.builtinRoot, entry.name, 'skills'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  for (const entry of input.stateEntries) if (entry.enabled) dirs.push(join(entry.dir, 'skills'))
-  return dirs
-}
-
 /**
  * Bash 工具的生产 native 桥（spec 04-tools-permissions.md §4.3.1 / r13-I11）：
  * 把工具算好的最小 env（PATH/HOME/LANG/TZ + [tools] pass_through_env 白名单，
@@ -2417,18 +670,21 @@ export function createSandboxNativeBridge(options: {
   }
 }
 
+export interface ProductionOptions {
+  volundHome?: string
+  identity: Readonly<AppIdentity>
+  model?: string
+}
+
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
   // 它的会话级兄弟层，S2 起插件贡献也经应用级内核汇聚。
-  const appKernel = new Context()
-  appKernel.plugin(UiService)
+  const appKernel = createAppKernel()
   // H2：活会话内核的 tools 服务集合——插件卸载/禁用时对每个活内核广播摘除。
   const liveToolServices = new Set<ToolsService>()
   const backups = new BackupStore(join(home, 'backups'))
   const evolution = new EvolutionStore(join(home, 'tuning'))
-  const memoryRepository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
-  const memoryIndex = new LocalKeywordMemoryIndex(join(home, 'memory', 'index.json'))
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
   const telemetryPath = join(home, 'telemetry', 'events.jsonl')
@@ -2443,474 +699,30 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     global: join(home, 'permissions.toml'),
     logger,
   })
-  const pluginRoot = join(home, 'plugins')
-  const plugins = new PluginManager(pluginRoot, options.identity.version, async () => false)
-  const pluginsReady = plugins.init()
-  void pluginsReady.catch(() => undefined)
-  // 唯一的本地插件 v2 生命周期状态源。legacy plugins/plugins.json 继续 deny-only，
-  // 不参与安装/批准/启用/装载决策。
-  const localPluginState = new LocalPluginStateStore(home)
-  const localPluginStateReady = localPluginState.init()
-  void localPluginStateReady.catch(() => undefined)
-  // PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1 本地插件路径：内置（apps/cli/plugins/，
-  // 随产物分发）、dev（~/.volund/plugins-dev + VOLUND_DEV_PLUGINS）、市场
-  // （[plugins] market 下载到 ~/.volund/plugins/<name>/）三个发现源、同一条链路——
-  // 经 volund-sandbox --run-plugin 子进程激活，代码全程不出沙箱；主进程只见到经
-  // 权限 guard 的桥方法。贡献的 /status 页签汇入 runtimeStatusData。
-  // legacy plugins/plugins.json 继续 deny-only；本地三源只由同级
-  // plugin-state.v2.json 决定 approved/enabled，绝不从安装目录推断为可执行。
-  interface LoadedPluginEntry {
-    readonly source: 'builtin' | 'dev' | 'market'
-    readonly name: string
-    readonly version: string
-    readonly dir: string
-    readonly handle: ActivatedLocalPlugin
-    readonly unsubscribes: readonly (() => void)[]
-  }
-  const loadedPluginEntries: LoadedPluginEntry[] = []
-  // applyEnv 应用过的 [env] 键值（前置解析后）：readEffectiveEnv 的精确比较基准，
-  // 保证 /env 的 effective 判定与启动时实际写入 process.env 的值一致。
-  let appliedEnvEntries: Record<string, string> | undefined
-  // 插件 render 回调里 volund.session.getUsage() 读到的值：最近一次 /status 组装的
-  // 会话用量（同一轮 refresh 内先算 usage 再调 render，数据同源）。
-  let lastSessionUsage: StatusPanelData['usage']
-  const localPluginHub = {
-    get tabs(): readonly StatusTabContribution[] {
-      return loadedPluginEntries.flatMap((entry) => [...entry.handle.statusTabs])
-    },
-    onUsage(usage: StatusPanelData['usage']): void {
-      lastSessionUsage = usage
-    },
-  }
-  // 市场索引缓存（/plugins 反复打开不重复拉取；install/uninstall 后失效）。
-  let marketIndexCache: { source: string; fetchedAt: number; index: MarketIndex } | undefined
-  const MARKET_INDEX_TTL_MS = 60_000
-  // 桥 RPC 10s 超时（plugin_host.mjs）：安装整体 deadline 控制在 9s 内，
-  // 保证宿主先给出明确结果，而不是插件侧先报 bridge call timed out。
-  const MARKET_INSTALL_DEADLINE_MS = 9_000
-  async function cachedMarketIndex(
-    source: string,
-    fresh = false,
-    signal?: AbortSignal,
-  ): Promise<MarketIndex> {
-    if (
-      !fresh &&
-      marketIndexCache &&
-      marketIndexCache.source === source &&
-      Date.now() - marketIndexCache.fetchedAt < MARKET_INDEX_TTL_MS
-    )
-      return marketIndexCache.index
-    const index = await fetchMarketIndex(source, signal)
-    marketIndexCache = { source, fetchedAt: Date.now(), index }
-    return index
-  }
-  async function activateLocal(
-    dir: string,
-    source: LoadedPluginEntry['source'],
-    integrity?: Record<string, string>,
-  ) {
-    const resolved = resolve(dir)
-    const manifest = validateManifest(
-      JSON.parse(await readFile(join(resolved, 'manifest.json'), 'utf8')),
-      options.identity.version,
-    )
-    const lifecycle = await localPluginState.discover(manifest, source, resolved)
-    if (!isPluginApproved(lifecycle))
-      throw new PluginError(
-        'plugin_approval_required',
-        `${manifest.name} requires approval for ${manifest.version} / ${lifecycle.permissionHash}`,
-      )
-    if (!lifecycle.enabled)
-      throw new PluginError('plugin_disabled', `${manifest.name} is installed but disabled`)
-    const activated = await activateLocalPlugin({
-      dir: resolved,
-      volundVersion: options.identity.version,
-      dataDirRoot: join(home, source === 'market' ? 'plugins-data' : 'plugins-dev-data'),
-      ...(integrity ? { integrity } : {}),
-      services: {
-        log: (level, message) => void telemetry.emit('plugin.log', 'plugin', { level, message }),
-        getSessionUsage: () =>
-          lastSessionUsage
-            ? {
-                inputTokens: lastSessionUsage.tokens.input,
-                outputTokens: lastSessionUsage.tokens.output,
-                cost: lastSessionUsage.costUSD,
-              }
-            : null,
-        // /env 等内置插件的数据源：宿主侧重读 config.toml [env] 段并与
-        // process.env 对比（沙箱内读不到主进程环境）。
-        getEffectiveEnv: () => readEffectiveEnv(home, appliedEnvEntries),
-        // /plugins 内置插件的数据源与动作（宿主侧；沙箱内无网络）。
-        listPlugins: () => pluginInventory(),
-        inspectPlugin: (name: string) => inspectPlugin(name),
-        installMarketPlugin: (name: string) => installMarketPlugin(name),
-        approvePlugin: (name: string, hash: string) => approvePlugin(name, hash),
-        enablePlugin: (name: string) => enablePlugin(name),
-        disablePlugin: (name: string) => disablePlugin(name),
-        uninstallMarketPlugin: (name: string) => uninstallMarketPlugin(name),
-      },
-    })
-    loadedPluginEntries.push({
-      source,
-      name: activated.manifest.name,
-      version: activated.manifest.version,
-      dir: resolved,
-      handle: activated,
-      // 插件贡献的斜杠命令进 MutableSlashCommandRegistry（UI 经 subscribe 热更新）。
-      unsubscribes: registerPluginCommands(
-        slashCommands,
-        activated.manifest.name,
-        activated.commands,
-        (message) => logger.warn(message),
-      ),
-    })
-    return { name: activated.manifest.name, statusTabs: activated.statusTabs.length }
-  }
-  /** 停用并摘除单个已装载插件（uninstall / 同名重装换新版时用）。 */
-  async function unloadPlugin(name: string): Promise<LoadedPluginEntry | undefined> {
-    const index = loadedPluginEntries.findIndex((entry) => entry.name === name)
-    if (index < 0) return undefined
-    const [entry] = loadedPluginEntries.splice(index, 1)
-    for (const unsubscribe of entry?.unsubscribes || []) unsubscribe()
-    await entry?.handle?.deactivate()
-    // H2：对每个活会话内核摘除该插件的贡献工具（下会话自然不再注册）。
-    if (entry) for (const tools of liveToolServices) tools.unregisterPlugin(entry.name)
-    return entry
-  }
-  async function inventoryEntry(entry: LocalPluginStateEntry): Promise<PluginInventoryEntry> {
-    const loaded = loadedPluginEntries.find((candidate) => candidate.name === entry.name)
-    let permissions: PluginInventoryEntry['permissions']
-    try {
-      permissions = validateManifest(
-        JSON.parse(await readFile(join(entry.dir, 'manifest.json'), 'utf8')),
-        options.identity.version,
-      ).permissions
-    } catch {
-      permissions = undefined
-    }
-    return {
-      name: entry.name,
-      version: entry.version,
-      dir: entry.dir,
-      source: entry.source,
-      commands: loaded?.handle.commands.length ?? 0,
-      statusTabs: loaded?.handle.statusTabs.length ?? 0,
-      lifecycle: {
-        permissionHash: entry.permissionHash,
-        approved: isPluginApproved(entry),
-        enabled: entry.enabled,
-        loaded: Boolean(loaded),
-      },
-      ...(permissions ? { permissions } : {}),
-    }
-  }
-  async function inventorySnapshot(
-    source: LoadedPluginEntry['source'],
-  ): Promise<PluginInventoryEntry[]> {
-    const state = await localPluginState.list()
-    return Promise.all(
-      state.filter((entry) => entry.source === source).map((entry) => inventoryEntry(entry)),
-    )
-  }
-  async function inspectPlugin(input: string): Promise<PluginInventoryEntry> {
-    const name = normalizePluginName(input)
-    const current = await localPluginState.get(name)
-    if (!current) throw new PluginError('plugin_not_installed', name)
-    const manifest = validateManifest(
-      JSON.parse(await readFile(join(current.dir, 'manifest.json'), 'utf8')),
-      options.identity.version,
-    )
-    return inventoryEntry(await localPluginState.discover(manifest, current.source, current.dir))
-  }
-  /** volund.plugins.list 的宿主实现：三源快照 + 市场索引（未配置/失败给 error）。 */
-  async function pluginInventory(): Promise<PluginInventory> {
-    let registry: PluginInventory['market']['registry']
-    try {
-      const source = await readMarketSource(home)
-      if (!source)
-        registry = {
-          error:
-            'no market configured — add `[plugins] market = "https://…/index.json"` to ~/.volund/config.toml',
-        }
-      else {
-        const index = await cachedMarketIndex(source)
-        registry = {
-          source,
-          plugins: index.plugins.map(({ name, version, description, publisher }) => ({
-            name,
-            version,
-            ...(description ? { description } : {}),
-            ...(publisher ? { publisher } : {}),
-          })),
-        }
-      }
-    } catch (error) {
-      registry = { error: error instanceof Error ? error.message : String(error) }
-    }
-    return {
-      domains: localPlugins ? await localPlugins.builtinDomains() : [],
-      builtin: await inventorySnapshot('builtin'),
-      dev: await inventorySnapshot('dev'),
-      market: { installed: await inventorySnapshot('market'), registry },
-    }
-  }
-  /** volund.plugins.install：只下载、校验、登记。批准与启用必须由后续显式命令完成。 */
-  async function installMarketPlugin(input: string): Promise<PluginInstallResult> {
-    const name = normalizePluginName(input)
-    const source = await readMarketSource(home)
-    if (!source)
-      throw new Error('no market configured — set [plugins] market in ~/.volund/config.toml')
-    if (!isLocalMarketSource(source))
-      throw new PluginError(
-        'plugin_registry_signature_required',
-        'remote market installs require a verified publisher signature and trusted key',
-      )
-    // 整个安装（索引 + 全部文件）共享一个 9s deadline（见 MARKET_INSTALL_DEADLINE_MS）。
-    const deadline = AbortSignal.timeout(MARKET_INSTALL_DEADLINE_MS)
-    const index = await cachedMarketIndex(source, true, deadline)
-    const entry = index.plugins.find((candidate) => candidate.name === name)
-    if (!entry) throw new Error(`${name} not found in market index (${source})`)
-    // 同名已装载（旧版本）先停用；换新版后必须重新批准，绝不自动重启。
-    await unloadPlugin(name)
-    const installed = await installFromMarket({
-      home,
-      source,
-      entry,
-      volundVersion: options.identity.version,
-      signal: deadline,
-    })
-    const lifecycle = await localPluginState.discover(installed.manifest, 'market', installed.dir)
-    marketIndexCache = undefined
-    void telemetry.emit('plugin.market_installed', 'plugin', {
-      name,
-      version: installed.version,
-    })
-    return {
-      name: installed.name,
-      version: installed.version,
-      dir: installed.dir,
-      permissionHash: lifecycle.permissionHash,
-      approvalRequired: true,
-      permissions: installed.manifest.permissions,
-    }
-  }
-  async function approvePlugin(input: string, expectedHash: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    const approved = await localPluginState.approve(inspected.name, expectedHash)
-    return inventoryEntry(approved)
-  }
-  async function enablePlugin(input: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    const enabled = await localPluginState.setEnabled(inspected.name, true)
-    if (!loadedPluginEntries.some((entry) => entry.name === enabled.name))
-      await activateLocal(
-        enabled.dir,
-        enabled.source,
-        enabled.source === 'market' ? await readMarketIntegrity(enabled.dir) : undefined,
-      )
-    return inventoryEntry((await localPluginState.get(enabled.name)) ?? enabled)
-  }
-  async function disablePlugin(input: string): Promise<PluginInventoryEntry> {
-    const inspected = await inspectPlugin(input)
-    await unloadPlugin(inspected.name)
-    return inventoryEntry(await localPluginState.setEnabled(inspected.name, false))
-  }
-  /**
-   * volund.plugins.uninstall / 端口卸载的宿主实现：停用（热——命令与页签当场
-   * 摘除）+ 删除 ~/.volund/plugins/<name>/。仅市场插件可卸载：内置随产物分发、
-   * dev 目录归开发者管理，命中这两类时给出明确拒绝而不是裸 plugin_not_installed。
-   */
-  async function uninstallMarketPlugin(input: string): Promise<{ name: string }> {
-    const name = normalizePluginName(input)
-    const state = await localPluginState.get(name)
-    const loaded = loadedPluginEntries.find((entry) => entry.name === name)
-    const source = loaded?.source ?? state?.source
-    if (source === 'builtin')
-      throw new Error(
-        `${name} is a builtin plugin shipped with the ${productIdentity.shortName} artifact; it cannot be uninstalled`,
-      )
-    if (source === 'dev')
-      throw new Error(
-        `${name} is a dev plugin (from ~/.volund/plugins-dev/ or VOLUND_DEV_PLUGINS); remove its directory and restart the REPL to unload it`,
-      )
-    await unloadPlugin(name)
-    await uninstallMarketDir(home, name)
-    await localPluginState.remove(name)
-    marketIndexCache = undefined
-    return { name }
-  }
-  // 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：内置插件发现源是
-  // 产物自带的 apps/cli/plugins/<name>/；dev 插件发现源是正式约定目录
-  // ~/.volund/plugins-dev/<name>/ 自动发现（含 manifest.json 的子目录才激活，单个
-  // 失败不阻塞启动），VOLUND_DEV_PLUGINS=<dir>[,<dir>...] 仅用于仓库内插件开发的
-  // 额外路径；市场插件装在 ~/.volund/plugins/<name>/（带 volund-market.json 完整性
-  // 映射，激活期重验）。数据目录在 ~/.volund/plugins-dev-data/<name>/（市场插件为
-  // ~/.volund/plugins-data/<name>/），与插件代码目录分离（沙箱内代码只读）。
-  const localPlugins = {
-    async activateLocal(dir: string) {
-      return activateLocal(dir, 'dev')
-    },
-    async loadDevPlugins(extraDirs: readonly string[] = []) {
-      const candidates: string[] = []
-      // 约定目录：plugins-dev 下每个含 manifest.json 的子目录
-      try {
-        for (const entry of await readdir(join(home, 'plugins-dev'), { withFileTypes: true }))
-          if (entry.isDirectory() || entry.isSymbolicLink())
-            candidates.push(join(home, 'plugins-dev', entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      candidates.push(...extraDirs)
-      return this.loadLocalPluginsFrom(candidates, 'dev')
-    },
-    /**
-     * 内置插件（apps/cli/plugins/<name>/，随产物分发）：与 dev 插件同一条
-     * 沙箱/桥链路，差异仅在目录来源。内置插件只信产物本身，manifest 校验、
-     * bundle 完整性检查、权限 guard 一样不少。
-     */
-    /** F1：第一方工具域清单（enabled = 未列入 [plugins] builtin_disabled）。 */
-    async builtinDomains() {
-      await ensureBuiltinToolsConfig()
-      return builtinToolDomains().map((domain) => ({
-        id: domain.id,
-        label: domain.label,
-        description: domain.description,
-        enabled: !builtinToolsDisabled.has(domain.id),
-      }))
-    },
-    async setBuiltinDomain(id: string, enabled: boolean) {
-      if (!/^volund\.(core-tools|exec|orchestration)$/.test(id))
-        throw new Error(`Unknown builtin tool domain: ${id}`)
-      await updateConfigBuiltinDisabled({ home, domain: id, disable: !enabled })
-      if (enabled) builtinToolsDisabled.delete(id)
-      else builtinToolsDisabled.add(id)
-    },
-    async loadBuiltinPlugins() {
-      const root = builtinPluginRoot()
-      if (!root) return { loaded: [], failed: [] }
-      const candidates: string[] = []
-      try {
-        for (const entry of await readdir(root, { withFileTypes: true }))
-          if (entry.isDirectory()) candidates.push(join(root, entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      return this.loadLocalPluginsFrom(candidates, 'builtin')
-    },
-    /**
-     * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录
-     * 跳过——staging 与 legacy 状态文件不在此列，但防御性排除；无 manifest.json
-     * 的目录跳过）。发现只登记；approved + enabled 后才逐文件重验并激活。
-     */
-    async loadMarketPlugins() {
-      const root = marketInstallRoot(home)
-      const candidates: string[] = []
-      try {
-        for (const entry of await readdir(root, { withFileTypes: true }))
-          if (
-            (entry.isDirectory() || entry.isSymbolicLink()) &&
-            !entry.name.startsWith('.') &&
-            entry.name !== 'plugins.json'
-          )
-            candidates.push(join(root, entry.name))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      const loaded: { name: string; statusTabs: number }[] = []
-      const failed: { dir: string; error: string }[] = []
-      for (const candidate of candidates) {
-        try {
-          await access(join(candidate, 'manifest.json'))
-        } catch {
-          continue // 无 manifest 的目录不视为插件（legacy 状态文件等）
-        }
-        try {
-          const manifest = validateManifest(
-            JSON.parse(await readFile(join(candidate, 'manifest.json'), 'utf8')),
-            options.identity.version,
-          )
-          const lifecycle = await localPluginState.discover(manifest, 'market', resolve(candidate))
-          if (!isPluginApproved(lifecycle) || !lifecycle.enabled) continue
-          loaded.push(
-            await activateLocal(candidate, 'market', await readMarketIntegrity(candidate)),
-          )
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          failed.push({ dir: candidate, error: message })
-          void telemetry.emit('plugin.local_load_failed', 'plugin', {
-            dir: basename(candidate),
-            error: message,
-          })
-        }
-      }
-      return { loaded, failed }
-    },
-    async inspectPlugin(input: string) {
-      return inspectPlugin(input)
-    },
-    async approvePlugin(input: string, hash: string) {
-      return approvePlugin(input, hash)
-    },
-    async enablePlugin(input: string) {
-      return enablePlugin(input)
-    },
-    async disablePlugin(input: string) {
-      return disablePlugin(input)
-    },
-    async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {
-      const loaded: { name: string; statusTabs: number }[] = []
-      const failed: { dir: string; error: string }[] = []
-      for (const candidate of candidates) {
-        try {
-          await access(join(candidate, 'manifest.json'))
-        } catch {
-          continue // 无 manifest 的目录不视为插件
-        }
-        try {
-          loaded.push(await activateLocal(candidate, source))
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          failed.push({ dir: candidate, error: message })
-          void telemetry.emit('plugin.local_load_failed', 'plugin', {
-            dir: basename(candidate),
-            error: message,
-          })
-        }
-      }
-      return { loaded, failed }
-    },
-    /**
-     * 卸载市场插件（端口面，管理命令/未来 CLI 子命令用；桥上经
-     * volund.plugins.uninstall 走同一实现）：热生效——停用、摘命令与页签、
-     * 删目录，当前会话立即可见。内置/dev 插件明确拒绝（见实现内说明）。
-     */
-    async uninstallMarketPlugin(input: string) {
-      return uninstallMarketPlugin(input)
-    },
-    async deactivateAll() {
-      const entries = loadedPluginEntries.splice(0)
-      await Promise.allSettled(
-        entries.map(async (entry) => {
-          for (const unsubscribe of entry.unsubscribes) unsubscribe()
-          await entry.handle.deactivate()
-        }),
-      )
-    },
-  }
-  let memory: MemoryService
-  let memoryRecall: DefaultMemoryRecallService
-  let memoryTransfer: MemoryTransferService
-  memory = new IndexingMemoryService(
-    new DefaultMemoryService(memoryRepository),
-    memoryRepository,
-    memoryIndex,
-  )
-  memoryRecall = new DefaultMemoryRecallService(memory, memoryIndex)
-  const memoryMaintenance = new DefaultMemoryMaintenanceService(memoryRepository, memoryIndex)
-  memoryTransfer = new MemoryTransferService(memory, {
-    journalPath: join(home, 'memory', 'import-journal.json'),
-  })
   const slashCommands = new MutableSlashCommandRegistry()
+  // P1-04d：插件域装配迁入 app-runtime（createPluginDomain）；loadedPluginEntries /
+  // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
+  const pluginDomain = createPluginDomain({
+    home,
+    volundVersion: options.identity.version,
+    logger,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+    slashCommands,
+    getAppliedEnv: () => configDomain.appliedEnv(),
+    liveToolServices,
+    resolveBuiltinPluginRoot: builtinPluginRoot,
+  })
+  const localPlugins = pluginDomain.localPlugins
+  const localPluginState = pluginDomain.localPluginState
+  const loadedPluginEntries = pluginDomain.loadedPluginEntries
+  const localPluginHub = pluginDomain.localPluginHub
+  const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
+  const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
+  const memoryStack = createMemoryStack(home)
+  const memory = memoryStack.memory
+  const memoryRecall = memoryStack.memoryRecall
+  const memoryMaintenance = memoryStack.memoryMaintenance
+  const memoryTransfer = memoryStack.memoryTransfer
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -2924,47 +736,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     passphrase,
     join(home, 'auth.state.json'),
   )
-  /**
-   * 用户级 config.toml 的 [auth] 段（§8.4 Layer 4 / skipAuth）。
-   * 项目级 config 到不了这里：§8.3.1 数据流向门把整段标为 forbidden。
-   */
-  const readAuthSection = async (): Promise<Record<string, JsonValue>> => {
-    let config: Record<string, JsonValue>
-    try {
-      config = await loadTomlFile(join(home, 'config.toml'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-      throw error
-    }
-    const section = config.auth
-    return section && typeof section === 'object' && !Array.isArray(section) ? section : {}
-  }
-  /** login 的 verify 请求要打向配置的网关（§8.3 provider.<name>.baseUrl），否则网关 key 在官方端点上必然 4xx。 */
-  const readAnthropicBaseUrl = async (): Promise<string | undefined> => {
-    let config: Record<string, JsonValue>
-    try {
-      config = await loadTomlFile(join(home, 'config.toml'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw error
-    }
-    const provider = config.provider
-    const entry =
-      provider && typeof provider === 'object' && !Array.isArray(provider)
-        ? (provider as Record<string, JsonValue>).anthropic
-        : undefined
-    const baseUrl =
-      entry && typeof entry === 'object' && !Array.isArray(entry)
-        ? (entry as Record<string, JsonValue>).baseUrl
-        : undefined
-    return typeof baseUrl === 'string' && baseUrl ? baseUrl : undefined
-  }
   const auth = new AuthManager({
     encrypted,
     env: process.env,
     telemetry,
     configKeys: async (provider) => {
-      const value = (await readAuthSection())[`${provider}_api_key`]
+      const value = (await readAuthSection(home))[`${provider}_api_key`]
       return typeof value === 'string' && value ? value : undefined
     },
   })
@@ -3051,466 +828,43 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 名单——面板 / config 任一侧改名单对所有会话即时生效）。
   // F1：第一方工具域禁用名单（[plugins] builtin_disabled）——createRunner 装配
   // 与 volund plugins builtin 面板/CLI 共用同一份可变状态。
-  const builtinToolsDisabled = new Set<string>()
-  let builtinToolsConfigLoaded = false
-  async function ensureBuiltinToolsConfig(): Promise<void> {
-    if (builtinToolsConfigLoaded) return
-    builtinToolsConfigLoaded = true
-    try {
-      const config = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      for (const domain of builtinDisabledFrom(config.plugins)) builtinToolsDisabled.add(domain)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  const skillsRuntimes = new Set<SkillsRuntime>()
-  const skillsDisabled = new Set<string>()
-  let skillsConfigLoaded = false
-  async function ensureSkillsConfig(): Promise<void> {
-    if (skillsConfigLoaded) return
-    skillsConfigLoaded = true
-    try {
-      const config = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      for (const name of disabledNamesFrom(config.skills)) skillsDisabled.add(name)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  // mcp：runtime 级单例 manager（首会话 cwd 已知时初始化；项目级 mcp.toml /
-  // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
-  const mcpDisabled = new Set<string>()
-  let mcpManager: McpManager | undefined
-  async function ensureMcpManager(cwd: string): Promise<McpManager> {
-    if (mcpManager) return mcpManager
-    try {
-      const config = await loadTomlFile(join(home, 'config.toml'), {
-        onWarning: (message) => logger.warn(message),
-      })
-      for (const name of disabledNamesFrom(config.mcp)) mcpDisabled.add(name)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    const servers = await loadMcpServerConfigs({
-      volundHome: home,
-      cwd,
-      onWarning: (message) => logger.warn(message),
-      onEvent: (event, fields) => void telemetry.emit(event, 'mcp', sanitize(fields)),
-    })
-    const previousStatuses = new Map<string, string>()
-    mcpManager = new McpManager({
-      servers,
-      disabled: mcpDisabled,
-      onWarning: (message) => logger.warn(message),
-      // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
-      // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
-      logPath: join(home, 'mcp.log'),
-      // W7：headers 的 keyref:// 占位在连接期经 auth store 解析。
-      resolveKeyref: (reference) => auth.getCredential(reference),
-      // §S3.8：状态迁移采样；server 名 sha256 前 8 位（不落明文名字）。
-      onStateChange: () => {
-        if (!mcpManager) return
-        for (const entry of mcpManager.snapshot()) {
-          const from = previousStatuses.get(entry.name)
-          if (from !== undefined && from !== entry.status)
-            void telemetry.emit(
-              'mcp.server_state_changed',
-              'mcp',
-              sanitize({
-                name_kind: createHash('sha256').update(entry.name).digest('hex').slice(0, 8),
-                from,
-                to: entry.status,
-              }),
-            )
-          previousStatuses.set(entry.name, entry.status)
-        }
-      },
-    })
-    void mcpManager.connect()
-    return mcpManager
-  }
-  function skillsPanelEntries(): SkillsPanelEntry[] {
-    const runtime = [...skillsRuntimes][0]
-    if (!runtime) return []
-    return runtime.entries().map(toPanelEntry)
-  }
-  // SKILLS-MCPS-r1 §S3.3a：每个 user-invocable skill 注册为同名 slash 命令。
-  // `/skill-name [args]` = 一次性调用：skill body + 任务文本作为用户消息进当轮
-  // 对话（不持久改 system prompt；区别于 /skill activate 的会话级激活与面板 a 键）。
-  // 主会话 runtime 的 entries 是唯一快照源；首次装载、面板 r 重扫、启停切换后
-  // 都会重新 sync（幂等 diff）。
-  const skillCommands = new SkillSlashCommands({
-    registry: slashCommands,
-    invoke: async (name, args) => {
-      const runtime = [...skillsRuntimes][0]
-      if (!runtime) throw new Error('No active session; open a session first')
-      // 业界堆叠：`/a /b task` —— 后续 token 命中已注册 skill 名即续堆（上限 6）。
-      const { stack, taskArgs } = splitSkillStack(
-        name,
-        args,
-        slashInvocableSkillNames(runtime.entries()),
-      )
-      const invocations = []
-      for (const skillName of stack) invocations.push(await runtime.readInvocation(skillName))
-      // 堆叠里每个 skill 的 allowed-tools 都授予回合级放行（我们的特点：授权语义
-      // 与单调用一致，且会话级激活/自动激活不受影响）。
-      for (const invocation of invocations)
-        if (invocation.allowedTools?.length)
-          activeSkillGrants?.grant(
-            mapAllowedTools(invocation.allowedTools, (message) => logger.warn(message)),
-          )
-      return {
-        kind: 'submit',
-        text: buildStackedSkillInvocationText(invocations, taskArgs),
-      }
-    },
-    onWarn: (message) => logger.warn(message),
+  // P1-04c：skills 域装配迁入 app-runtime（createSkillDomain）；skillsRuntimes /
+  // skillsDisabled 等多会话共享状态由工厂持有，createRunner 与面板经解构句柄取用。
+  const skillDomain = createSkillDomain({
+    home,
+    volundVersion: options.identity.version,
+    logger,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+    slashCommands,
+    getDefaultCwd: () => process.cwd(),
+    getUserHome: homedir,
+    getSkillGrants: () => activeSkillGrants,
+    pluginSkillDirs: async () =>
+      collectPluginSkillDirs({
+        builtinRoot: builtinPluginRoot(),
+        stateEntries: await localPluginState.list().catch(() => []),
+      }),
   })
-  function syncSkillSlashCommands(): void {
-    const runtime = [...skillsRuntimes][0]
-    if (runtime) skillCommands.sync(runtime.entries())
-  }
-  function toPanelEntry(entry: SkillEntry): SkillsPanelEntry {
-    return {
-      name: entry.name,
-      description: entry.description,
-      scope: entry.scope,
-      source: entry.path,
-      status: entry.status,
-      ...(entry.version ? { version: entry.version } : {}),
-      ...(entry.reason ? { reason: entry.reason } : {}),
-      flags: [
-        ...(entry.disableModelInvocation ? ['disable-model-invocation'] : []),
-        ...(entry.userInvocable ? [] : ['user-invocable-false']),
-      ],
-    }
-  }
-  const skillsPanelController: SkillsPanelController = {
-    async list() {
-      // §S3.8：面板数据加载采样（打开/刷新）。
-      const entries = skillsPanelEntries()
-      void telemetry.emit(
-        'skills.panel_opened',
-        'skills',
-        sanitize({
-          count: entries.length,
-          broken_count: entries.filter(
-            (entry) => entry.status === 'broken' || entry.status === 'incompatible',
-          ).length,
-        }),
-      )
-      return entries
-    },
-    async reload() {
-      for (const runtime of skillsRuntimes) {
-        await runtime.discover()
-        await runtime.registerIndex()
-      }
-      syncSkillSlashCommands()
-      return skillsPanelEntries()
-    },
-    async setActive(name, active) {
-      if (skillsRuntimes.size === 0) throw new Error('No active session; open a session first')
-      for (const runtime of skillsRuntimes) {
-        if (active) await runtime.activate(name)
-        else runtime.deactivate(name)
-      }
-      return `skill ${name} ${active ? 'activated' : 'deactivated'}`
-    },
-    async setEnabled(name, enabled) {
-      if (enabled) skillsDisabled.delete(name)
-      else {
-        skillsDisabled.add(name)
-        for (const runtime of skillsRuntimes) runtime.deactivate(name)
-      }
-      for (const runtime of skillsRuntimes) await runtime.registerIndex()
-      syncSkillSlashCommands()
-      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
-      return `skill ${name} ${enabled ? 'enabled' : 'disabled'}`
-    },
-    async show(name) {
-      const runtime = [...skillsRuntimes][0]
-      const entry = runtime?.entries().find((item) => item.name === name)
-      if (!entry || !entry.path) return `[failed to read: No SKILL.md available for ${name}]`
-      try {
-        const body = await readFile(entry.path, 'utf8')
-        return body || `[${name}: SKILL.md is empty]`
-      } catch (error) {
-        return `[failed to read ${entry.path}: ${error instanceof Error ? error.message : String(error)}]`
-      }
-    },
-  }
-  // ── SKILLS-MCPS-r1 §S3.7：CLI 管理命令族端口（volund skill / volund mcp）────────
-  /** CLI 一次性进程用：按当前 cwd 的多作用域源构造发现 runtime（无会话 composer）。 */
-  async function listingSkillsRuntime(): Promise<SkillsRuntime> {
-    await ensureSkillsConfig()
-    return new SkillsRuntime({
-      sources: async () =>
-        defaultSkillSources({
-          volundHome: home,
-          userHome: homedir(),
-          cwd: process.cwd(),
-          pluginDirs: await collectPluginSkillDirs({
-            builtinRoot: builtinPluginRoot(),
-            stateEntries: await localPluginState.list().catch(() => []),
-          }),
-        }),
-      volundVersion: options.identity.version,
-      composer: new DefaultPromptComposer(),
-      disabled: skillsDisabled,
-      onWarning: (message) => logger.warn(message),
-      onEvent: (event, payload) => void telemetry.emit(event, 'skills', sanitize(payload)),
-    })
-  }
-  const skillPort: SkillPort = {
-    async list() {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      return runtime.entries().map((entry) => ({
-        name: entry.name,
-        description: entry.description,
-        scope: entry.scope,
-        status: entry.status,
-        ...(entry.version ? { version: entry.version } : {}),
-        path: entry.path,
-      }))
-    },
-    async install(spec, installOptions) {
-      const { directories, cleanup } = await resolveSkillSpecToDirectories(spec, {
-        onInfo: (message) => logger.warn(message),
-      })
-      try {
-        const runtime = await listingSkillsRuntime()
-        // 逐个安装,失败（重名/目录已存在/格式错）记警告继续，其余照常装。
-        const installedNames: string[] = []
-        const failures: string[] = []
-        for (const directory of directories) {
-          try {
-            const installed = await runtime.installFromDirectory(directory, {
-              scope: installOptions?.scope ?? 'user',
-            })
-            installedNames.push(installed.name)
-          } catch (error) {
-            const name = directory.split('/').pop() ?? directory
-            failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
-          }
-        }
-        if (failures.length > 0)
-          logger.warn(`skill install partial: ${failures.length} skipped (${failures.join('; ')})`)
-        await runtime.discover()
-        // 只返回本次新装的（发现源里还有互操作路径等既有 skill，不该混进安装回执）。
-        return runtime
-          .entries()
-          .filter((entry) => installedNames.includes(entry.name))
-          .map((entry) => ({
-            name: entry.name,
-            description: entry.description,
-            scope: entry.scope,
-            status: entry.status,
-            ...(entry.version ? { version: entry.version } : {}),
-            path: entry.path,
-          }))
-      } finally {
-        await cleanup()
-      }
-    },
-    async uninstall(name, uninstallOptions) {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      const entry = runtime
-        .entries()
-        .find(
-          (item) =>
-            item.name === name &&
-            (!uninstallOptions?.scope || item.scope === uninstallOptions.scope) &&
-            !item.interop,
-        )
-      if (!entry || !entry.path)
-        throw new Error(
-          `Skill not found in a managed (non-interop) ${uninstallOptions?.scope ?? 'user|project'} scope: ${name}`,
-        )
-      await rm(resolve(entry.path, '..'), { recursive: true, force: true })
-    },
-    async show(name) {
-      const runtime = await listingSkillsRuntime()
-      await runtime.discover()
-      const entry = runtime.entries().find((item) => item.name === name)
-      if (!entry || !entry.path) throw new Error(`No SKILL.md available for ${name}`)
-      return readFile(entry.path, 'utf8')
-    },
-    async setEnabled(name, enabled) {
-      await ensureSkillsConfig()
-      if (enabled) skillsDisabled.delete(name)
-      else skillsDisabled.add(name)
-      await updateConfigDisabledList({ home, section: 'skills', name, add: !enabled })
-    },
-  }
-  const mcpPort: McpPort = {
-    async login(serverName) {
-      // SM-07：浏览器 OAuth 2.1 + PKCE + DCR。token 存 auth（`mcp.<name>.oauth`
-      // + `Bearer` 头快照 `mcp.<name>.Authorization`），连接期经 resolveKeyref
-      // / 无 header 自动注入消费。
-      const servers = await loadMcpServerConfigs({
-        volundHome: home,
-        cwd: process.cwd(),
-        onWarning: (message) => logger.warn(message),
-      })
-      const server = servers.find((entry) => entry.name === serverName)
-      if (!server) throw new Error(`Unknown MCP server: ${serverName}`)
-      if (server.transport.kind !== 'http')
-        throw new Error(`mcp login applies to http servers only: '${serverName}' is stdio`)
-      const oauth = new McpOAuthClient({
-        serverName,
-        serverUrl: server.transport.url,
-        store: encrypted,
-      })
-      await oauth.login()
-      return { server: serverName }
-    },
-    async logout(serverName) {
-      const oauth = new McpOAuthClient({
-        serverName,
-        serverUrl: `https://${serverName}.invalid`,
-        store: encrypted,
-      })
-      await oauth.logout()
-      // AuthManager 进程内缓存不在 oauth client 的视野里：显式逐 key 失效，
-      // 否则同进程的 keyref 解析会继续命中已删除的旧 token。
-      await auth.logout(oauthCredentialKey(serverName))
-      await auth.logout(oauthHeaderKey(serverName))
-    },
-    async list() {
-      const manager = await ensureMcpManager(process.cwd())
-      // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
-      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
-      const snapshot = manager.snapshot().map((entry) => ({
-        name: entry.name,
-        transport: entry.transport,
-        scope: entry.scope,
-        status: entry.status,
-        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
-        ...(entry.protocolVersion ? { protocolVersion: entry.protocolVersion } : {}),
-      }))
-      await manager.close()
-      return snapshot
-    },
-    async test(name) {
-      const manager = await ensureMcpManager(process.cwd())
-      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
-      try {
-        const { entry } = await manager.inspect(name)
-        if (entry.status !== 'connected')
-          throw new Error(
-            `mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`,
-          )
-        return { protocolVersion: entry.protocolVersion ?? 'unknown' }
-      } finally {
-        await manager.close()
-      }
-    },
-    async inspect(name) {
-      const manager = await ensureMcpManager(process.cwd())
-      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
-      try {
-        const { tools } = await manager.inspect(name)
-        return {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            ...(tool.description ? { description: tool.description } : {}),
-          })),
-        }
-      } finally {
-        await manager.close()
-      }
-    },
-    async add(input) {
-      const file =
-        input.scope === 'project'
-          ? join(process.cwd(), '.volund', 'mcp.toml')
-          : join(home, 'mcp.toml')
-      await upsertMcpServerToml({
-        file,
-        name: input.name,
-        transport:
-          input.transport.kind === 'stdio'
-            ? {
-                kind: 'stdio',
-                command: input.transport.command,
-                args: input.transport.args,
-                env: input.transport.env,
-              }
-            : {
-                kind: 'http',
-                url: input.transport.url,
-                headers: input.transport.headers,
-                legacySse: input.transport.legacySse ?? false,
-              },
-      })
-      return { file }
-    },
-    async remove(name, scope) {
-      const files =
-        scope === 'project'
-          ? [join(process.cwd(), '.volund', 'mcp.toml')]
-          : scope === 'user'
-            ? [join(home, 'mcp.toml')]
-            : [join(process.cwd(), '.volund', 'mcp.toml'), join(home, 'mcp.toml')]
-      for (const file of files) if (await removeMcpServerToml({ file, name })) return { file }
-      throw new Error(`MCP server not configured: ${name}`)
-    },
-    async setEnabled(name, enabled) {
-      const manager = await ensureMcpManager(process.cwd())
-      if (enabled) mcpDisabled.delete(name)
-      else mcpDisabled.add(name)
-      await updateConfigDisabledList({ home, section: 'mcp', name, add: !enabled })
-      // CLI 一次性进程：ensure 触发的后台连接要收尾，否则 stdio 子进程挂住事件循环。
-      await manager.close()
-    },
-  }
-  const mcpPanelController: McpPanelController = {
-    async list() {
-      // §S3.8：面板数据加载采样（打开/刷新）。
-      const snapshot = mcpManager?.snapshot() ?? []
-      void telemetry.emit(
-        'mcp.panel_opened',
-        'mcp',
-        sanitize({
-          count: snapshot.length,
-          connected: snapshot.filter((entry) => entry.status === 'connected').length,
-          failed: snapshot.filter((entry) => entry.status === 'failed').length,
-          needs_auth: snapshot.filter((entry) => entry.status === 'needs-auth').length,
-        }),
-      )
-      return snapshot
-    },
-    async reload() {
-      if (!mcpManager) return []
-      await mcpManager.reload()
-      return mcpManager.snapshot()
-    },
-    async setEnabled(name, enabled) {
-      if (!mcpManager) throw new Error('MCP is not available in this session')
-      if (enabled) mcpDisabled.delete(name)
-      else mcpDisabled.add(name)
-      await mcpManager.setEnabled(name, enabled)
-      await updateConfigDisabledList({ home, section: 'mcp', name, add: !enabled })
-      return `mcp server ${name} ${enabled ? 'enabled' : 'disabled'}`
-    },
-    async inspect(name) {
-      if (!mcpManager) throw new Error('MCP is not available in this session')
-      const { entry, tools } = await mcpManager.inspect(name)
-      return {
-        entry: entry,
-        tools: tools.map((tool) => ({
-          name: tool.name,
-          ...(tool.description ? { description: tool.description } : {}),
-        })),
-      }
-    },
-  }
+  const skillsRuntimes = skillDomain.skillsRuntimes
+  const skillsDisabled = skillDomain.skillsDisabled
+  const skillsPanelController = skillDomain.skillsPanelController
+  const skillPort = skillDomain.skillPort
+  const ensureSkillsConfig = skillDomain.ensureSkillsConfig
+  const syncSkillSlashCommands = skillDomain.syncSkillSlashCommands
+  // P1-04d：MCP 域装配迁入 app-runtime（createMcpDomain）；单例 manager 与
+  // 端口/面板由工厂持有，createRunner 与 shutdown 经解构句柄取用。
+  const mcpDomain = createMcpDomain({
+    home,
+    logger,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+    getDefaultCwd: () => process.cwd(),
+    credentialStore: encrypted,
+    authGetCredential: (key) => auth.getCredential(key),
+    authLogout: (key) => auth.logout(key),
+  })
+  const mcpPort = mcpDomain.mcpPort
+  const mcpPanelController = mcpDomain.mcpPanelController
+  const ensureMcpManager = mcpDomain.ensureManager
 
   // ── SUBAGENTS-UI-r1：/subagents 面板控制器（dispatcher 运行注册表）──────────
   // 运行是 REPL 进程本地的：面板即管理面，取消走 dispatcher.cancel 的
@@ -3557,7 +911,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onWarning: (message) => logger.warn(message),
   })
   agentRegistry.discover()
-  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 RuntimeSessionPort
+  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 SessionController
   // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
   const background = new BackgroundShells()
   const createRunner: RunnerFactory = async (state, events, agent) => {
@@ -3571,6 +925,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       logger,
       interactivePermissionPrompt: () => interactivePermissionPrompt,
       rules: permissionRules,
+      // P1-05：line 模式的 TTY 接缝显式注入（app-runtime 不再回退模块级 readline 默认）。
+      terminalIsInteractive: isInteractiveTerminal,
+      linePermissionPrompt: promptLineMaybe,
     })
     // /mode 只挂顶层会话；子会话沿用其冻结快照里的模式。
     if (state.lineage.depth === 0) {
@@ -3585,10 +942,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     }
     // 内核脊柱：每会话一棵 Context 树，先挂 bus/session；model/tools/sandbox
     // 在各自装配点以同形态服务挂载。第三方插件的贡献最终也注册进同一棵树。
-    const kernel = new Context()
-    kernel.plugin(ModelService)
-    kernel.plugin(BusService, events)
-    kernel.plugin(SessionService, state)
+    const kernel = createSessionKernel({ events, state })
     // skill allowed-tools 的回合边界：turn 终态即清空（业界语义=授权只活一轮）。
     kernel.bus.events.subscribe((event) => {
       if (event.type === 'turn.completed' || event.type === 'turn.aborted')
@@ -4142,22 +1496,25 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     })
   dispatcher = buildDispatcher()
-  const session = new RuntimeSessionPort(
-    join(home, 'sessions'),
+  // P1-03（§22.7.1）：会话控制器 = 应用级内核的 Cordis service（行为等价于原
+  // RuntimeSessionPort；新增 turn mutex，终端接缝经 options.terminal 注入）。
+  // cordis 的 Context 增强只能声明非泛型形态，这里按实际装配取回类型化实例。
+  appKernel.plugin(SessionController, {
+    sessionsDir: join(home, 'sessions'),
     createRunner,
-    (input) => permissionPolicy.configureSecurity(input),
-    (input) => permissionPolicy.configureInteraction(input),
-    async (sessionId) => {
+    onSecurity: (input) => permissionPolicy.configureSecurity(input),
+    onPermissionInteraction: (input) => permissionPolicy.configureInteraction(input),
+    onEnd: async (sessionId) => {
       permissionPolicy.releaseLineage(sessionId)
       await memory.flush()
     },
-    (input) => {
+    onTerminalOutput: (input) => {
       streamToStdout = input.streamToStdout
     },
-    (handler) => {
+    onPermissionPromptHandler: (handler) => {
       interactivePermissionPrompt = handler
     },
-    createStatusSnapshotAdapter({
+    statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,
       dangerousPermissions: (state) =>
         permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
@@ -4186,8 +1543,29 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     }),
     background,
-  )
-  return {
+    terminal: { isInteractive: isInteractiveTerminal, promptLine: promptLineMaybe },
+  })
+  const session = appKernel.sessions as SessionController<StatusViewModel>
+  // P1-04e：auth/config/native 三域装配（app-runtime 工厂；凭据交互输入与
+  // verify 网络调用经 options 注入，行为等价）。
+  const authDomain = createAuthDomain({
+    home,
+    auth,
+    promptCredential: (prompt) => promptSecret(prompt),
+    verifyAnthropic: (credential, baseUrl) =>
+      verifyAnthropicCredential(http, credential, undefined, baseUrl),
+  })
+  const configDomain = createConfigDomain({
+    home,
+    logger,
+    statusRuntime: options,
+    localPluginHub,
+  })
+  const nativeDomain = createNativeDomain({
+    version: options.identity.version,
+    emitTelemetry: (name, category, payload) => telemetry.emit(name, category, payload),
+  })
+  const assembled: VolundPorts = {
     identity: options.identity,
     version: options.identity.version,
     session,
@@ -4227,6 +1605,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
+    changes: {
+      list: (sessionId) => backups.changes(sessionId),
+      previewUndo: (sessionId) => backups.previewUndoStep(sessionId),
+      undoStep: (sessionId) => backups.undoStep(sessionId),
+    },
     evolution: {
       show: (showOptions) => evolution.audit(showOptions.namespace, showOptions.since),
       rollback: (rollbackOptions) =>
@@ -4240,337 +1623,24 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     memoryRecall,
     memoryMaintenance,
     memoryTransfer,
-    plugin: {
-      async install(_source) {
-        throw new PluginError(
-          LEGACY_PLUGIN_UNAVAILABLE.code,
-          `${LEGACY_PLUGIN_UNAVAILABLE.detail} Reopen requires ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition}.`,
-        )
-      },
-      async uninstall(name) {
-        assertLegacyPluginName(name)
-        if (await localPluginState.get(name))
-          throw new PluginError(
-            'plugin_lifecycle_authority_mismatch',
-            `${name} is managed by plugin-state.v2.json; use /plugins uninstall ${name.replace(/^volund-plugin-/, '')}`,
-          )
-        await pluginsReady
-        await plugins.uninstall(name)
-      },
-      async list() {
-        await pluginsReady
-        return plugins.list()
-      },
-      async setEnabled(name, enabled) {
-        assertLegacyPluginName(name)
-        if (enabled)
-          throw new PluginError(
-            LEGACY_PLUGIN_UNAVAILABLE.code,
-            `${LEGACY_PLUGIN_UNAVAILABLE.detail} Reopen requires ${LEGACY_PLUGIN_UNAVAILABLE.reopenCondition}.`,
-          )
-        await pluginsReady
-        await plugins.setEnabled(name, enabled)
-      },
-      async availability() {
-        return LEGACY_PLUGIN_UNAVAILABLE
-      },
-      async doctor(name) {
-        assertLegacyPluginName(name)
-        await pluginsReady
-        const approvals = plugins.list()
-        const state = Object.hasOwn(approvals, name) ? approvals[name] : undefined
-        if (!state) throw new PluginError('plugin_not_installed', name)
-        const diagnostic = await readContainedPluginDiagnostic(
-          pluginRoot,
-          name,
-          state.version,
-          options.identity.version,
-        )
-        return {
-          name,
-          version: diagnostic.version,
-          permissions: diagnostic.permissions,
-          compatibility: diagnostic.compatibility,
-          availability: LEGACY_PLUGIN_UNAVAILABLE,
-        }
-      },
-    },
+    plugin: pluginDomain.legacyPluginPort,
     localPlugins,
     skill: skillPort,
     mcp: mcpPort,
+    auth: authDomain,
+    config: configDomain.port,
+    native: nativeDomain,
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
       summary: () => telemetryStore.summary(),
       export: (target) => telemetryStore.export(target),
       clear: () => telemetryStore.clear(),
       health: () => telemetryStore.health(),
+      events: (limit) => telemetryStore.recent(limit),
     },
     confirmation: {
       confirmDangerousNoSandbox: async (sentence) =>
         (await promptLine(`Type "${sentence}" to continue: `)) === sentence,
-    },
-    auth: {
-      async health() {
-        const section = await readAuthSection()
-        if (section.skipAuth === true) {
-          const keyIgnored =
-            typeof section.anthropic_api_key === 'string' && section.anthropic_api_key !== ''
-          return {
-            configured: true,
-            detail: `anthropic credential skipped by config (auth.skipAuth)${keyIgnored ? '; auth.anthropic_api_key is set but ignored while skipAuth=true' : ''}`,
-          }
-        }
-        const configured = Boolean(await auth.getCredential('anthropic'))
-        return {
-          configured,
-          detail: configured
-            ? 'anthropic credential available'
-            : 'anthropic credential unavailable',
-        }
-      },
-      async login(input) {
-        const section = await readAuthSection()
-        // §8.4：skipAuth / config Layer 4 已覆盖时，交互登录是 no-op——
-        // 不弹输入、不发 verify；显式 --api-key-stdin 仍可落盘
-        if (input.credential === undefined) {
-          if (section.skipAuth === true)
-            return {
-              detail: `${input.provider} authentication is skipped by config (auth.skipAuth=true); nothing to store`,
-            }
-          const configured = section[`${input.provider}_api_key`]
-          if (typeof configured === 'string' && configured)
-            return {
-              detail: `${input.provider} credential already provided by config (auth.${input.provider}_api_key); login is unnecessary`,
-            }
-        }
-        const credential = input.credential ?? (await promptSecret('Anthropic API key: ')).trim()
-        if (!credential) throw new Error('Credential input was cancelled')
-        const verifyBaseUrl = await readAnthropicBaseUrl()
-        await auth.login(
-          input.provider,
-          credential,
-          (value) => verifyAnthropicCredential(http, value, undefined, verifyBaseUrl),
-          { flow: input.flow, dangerouslySkipVerify: input.dangerouslySkipVerify },
-        )
-        const skipNote =
-          section.skipAuth === true
-            ? ' (note: auth.skipAuth=true in config; the stored credential stays unused until it is removed)'
-            : ''
-        return {
-          detail: `${input.provider} credential stored in encrypted credential store${skipNote}`,
-        }
-      },
-      async logout(provider) {
-        await auth.logout(provider)
-        return { detail: `${provider} credential removed` }
-      },
-    },
-    config: {
-      /**
-       * [env] 段（§8.3 / 附录 C）：会话启动时把用户级 config.toml 的显式环境变量
-       * 写入 process.env——之后 spawn 的子进程（native worker / 插件宿主 / MCP
-       * stdio）随之继承；沙箱内 Bash 走 env_clear 白名单模型，仅 [tools]
-       * pass_through_env 列出的名字进入（值可来自这里写入的 process.env）。
-       * 值先经 expandEnvValue 前置解析（`~` / `${VAR}`）；解析后的应用值记入
-       * appliedEnvEntries，作为 /env 生效判定的精确基准。
-       * 缺文件是 no-op；类型错按 C.1 传播 config_invalid（启动 fail）。
-       */
-      async applyEnv() {
-        let config: Record<string, JsonValue>
-        try {
-          config = await loadTomlFile(join(home, 'config.toml'), {
-            onWarning: (message) => logger.warn(message),
-          })
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-          throw error
-        }
-        const section = config.env
-        if (!section || typeof section !== 'object' || Array.isArray(section)) return
-        // 展开基准 = 写入前的环境快照：${PATH} 这类"在已有值上追加"的写法拿到的
-        // 是启动时已有的值；同段 key 互引用不支持（快照里还没有它们）。
-        const basis = { ...process.env }
-        const applied: Record<string, string> = {}
-        for (const [key, value] of Object.entries(section)) {
-          if (typeof value !== 'string') continue
-          const resolvedValue = expandEnvValue(value, basis, (name) =>
-            logger.warn(
-              `[env] ${key}: referenced variable ${name} is not set; kept the placeholder literal`,
-            ),
-          )
-          process.env[key] = resolvedValue
-          applied[key] = resolvedValue
-        }
-        appliedEnvEntries = applied
-      },
-      async health(cwd) {
-        try {
-          const warnings: string[] = []
-          for (const path of [join(home, 'config.toml'), join(cwd, '.volund', 'config.toml')]) {
-            try {
-              await access(path)
-              // r13-I4 §8.3：未知 key warn + 忽略；已知 key 类型错 → fail（file + key + 期望类型）
-              await loadTomlFile(path, {
-                onWarning: (message) => warnings.push(message),
-              })
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-            }
-          }
-          return warnings.length > 0
-            ? { valid: true, detail: warnings.join('; ') }
-            : { valid: true, detail: 'valid' }
-        } catch (error) {
-          return { valid: false, detail: error instanceof Error ? error.message : String(error) }
-        }
-      },
-      async status(input) {
-        return runtimeStatusData(home, options, input, localPluginHub)
-      },
-      async updatePreference(id, value, input) {
-        const data = await runtimeStatusData(
-          home,
-          options,
-          { ...input, includeStats: true },
-          localPluginHub,
-        )
-        const item = data.config.find((candidate) => candidate.id === id)
-        if (!item) throw new Error(`Unknown configuration item: ${id}`)
-        validateStatusConfigValue(item, value)
-        const path = join(home, 'config.toml')
-        let config: Record<string, JsonValue> = {}
-        try {
-          config = await parseTomlFile(path)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        }
-        const preferences = config.preferences
-        const target =
-          preferences && typeof preferences === 'object' && !Array.isArray(preferences)
-            ? (preferences as Record<string, JsonValue>)
-            : ((config.preferences = {}) as Record<string, JsonValue>)
-        target[id] = value
-        await mkdir(home, { recursive: true })
-        const temporary = `${path}.${process.pid}.tmp`
-        await writeFile(temporary, serializeConfig(config), { encoding: 'utf8', mode: 0o600 })
-        await rename(temporary, path)
-        return runtimeStatusData(home, options, { ...input, includeStats: true }, localPluginHub)
-      },
-      /**
-       * §11.3.3 `volund config list` 的合并视图：user + project 两层文件经
-       * loadConfig 的层合并与 projectOverride forbidden 过滤。这是只读检视
-       * （同 health 的 parse-only），不等于会话生效语义——会话还叠加 defaults
-       * /env/flags 与项目配置信任门。
-       */
-      async listMerged({ cwd }: { cwd: string }) {
-        const warnings: string[] = []
-        const user = await loadTomlFile(join(home, 'config.toml'), {
-          onWarning: (message) => warnings.push(message),
-        }).catch((error: unknown) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-          throw error
-        })
-        const project = await loadTomlFile(join(cwd, '.volund', 'config.toml'), {
-          onWarning: (message) => warnings.push(message),
-        }).catch((error: unknown) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-          throw error
-        })
-        const forbidden: string[] = []
-        const { config: merged } = await loadConfig({
-          defaults: {},
-          global: user,
-          project,
-          trustProjectConfig: true,
-          warning: (key) =>
-            forbidden.push(`project override of '${key}' is forbidden (§8.3.1); ignored`),
-        })
-        return { config: merged, warnings: [...warnings, ...forbidden] }
-      },
-      async setValue({ cwd, key, value, project }) {
-        if (project && isProjectOverrideForbidden(key))
-          throw new VolundError(
-            'config_project_forbidden',
-            `'${key}' cannot be set in project config (data-flow gate, §8.3.1)`,
-          )
-        assertConfigKeyValue(key, value)
-        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
-        const config = await readConfigFileOrEmpty(file)
-        assignConfigValue(config, key, value)
-        await writeConfigFile(file, config)
-        return { file }
-      },
-      async unsetValue({ cwd, key, project }) {
-        // unset 不做 forbidden 门：从 project 配置里移除 forbidden key 是清理，应当允许。
-        const file = project ? join(cwd, '.volund', 'config.toml') : join(home, 'config.toml')
-        const config = await readConfigFileOrEmpty(file)
-        const removed = deleteConfigValue(config, key)
-        if (removed) await writeConfigFile(file, config)
-        return { file, removed }
-      },
-      filePaths({ cwd }: { cwd: string }) {
-        return {
-          user: join(home, 'config.toml'),
-          project: join(cwd, '.volund', 'config.toml'),
-        }
-      },
-    },
-    native: {
-      /** Tri-state availability snapshot (r13-P1): 'probing' until backfill. */
-      available() {
-        const availability = nativeProbes.available
-        return {
-          sandbox: availability.sandbox,
-          search: availability.search,
-          fs: availability.fs,
-        }
-      },
-      /**
-       * r13-P1 startup contract (spec 05-rust-sidecar.md §5.8): fires every
-       * native probe (sandbox --probe + search/fs worker handshakes) in
-       * parallel. The REPL never awaits them — `available.*` starts as
-       * 'probing' and backfills asynchronously; side-effect waits are
-       * budget-bounded instead.
-       */
-      startProbes() {
-        nativeProbes.start()
-      },
-      /** Resolves when every probe settled or its budget expired (probe.ts contract). */
-      settled() {
-        return nativeProbes.settled()
-      },
-      async probe() {
-        const info = await probeSandbox()
-        const features = info.features as Record<string, unknown>
-        const mechanism =
-          typeof features.mechanism === 'string' ? features.mechanism : 'volund-sandbox'
-        const abi = typeof features.abi === 'string' ? features.abi : 'unknown'
-        const disclosure = {
-          tier: info.tier,
-          mechanism,
-          features: {
-            filesystem: Boolean(features.filesystem ?? info.tier !== 'none'),
-            network: Boolean(features.network),
-          },
-          degradationReasons: info.known_limitations,
-        }
-        await telemetry.emit('sandbox.probe', 'sandbox', {
-          tier: disclosure.tier,
-          mechanism: disclosure.mechanism,
-          abi,
-          version: options.identity.version,
-          probedAt: new Date().toISOString(),
-        })
-        return disclosure
-      },
-      async health() {
-        const [probe, search, fs] = await Promise.all([
-          probeSandbox(),
-          resolveBinary('search'),
-          resolveBinary('fs'),
-        ])
-        return { sandbox: probe.tier !== 'none', search: search !== null, fs: fs !== null }
-      },
     },
     /**
      * 进程收尾：插件宿主的 fd3 管道与 MCP stdio/SSE 连接都是 ref 住事件循环的
@@ -4579,257 +1649,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
      * 幂等；单项失败不阻塞其他项（allSettled）。
      */
     async shutdown() {
-      const manager = mcpManager
-      await Promise.allSettled([
-        localPlugins.deactivateAll(),
-        manager ? manager.close().then(() => manager.logsFlushed()) : undefined,
-      ])
+      await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
     },
   }
-}
-
-async function runtimeStatusData(
-  home: string,
-  options: ProductionOptions,
-  input: { cwd: string; sessionId?: string; includeStats?: boolean },
-  localPluginHub?: {
-    tabs: readonly StatusTabContribution[]
-    onUsage?: (usage: StatusPanelData['usage']) => void
-  },
-): Promise<StatusPanelData> {
-  let config: Record<string, JsonValue> = {}
-  try {
-    config = await parseTomlFile(join(home, 'config.toml'))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  const preferences =
-    config.preferences &&
-    typeof config.preferences === 'object' &&
-    !Array.isArray(config.preferences)
-      ? (config.preferences as Record<string, JsonValue>)
-      : {}
-  const authSection =
-    config.auth && typeof config.auth === 'object' && !Array.isArray(config.auth)
-      ? (config.auth as Record<string, JsonValue>)
-      : undefined
-  const authMethod =
-    authSection?.skipAuth === true ? 'skipped (auth.skipAuth)' : 'credential store (value hidden)'
-  const providerSection =
-    config.provider && typeof config.provider === 'object' && !Array.isArray(config.provider)
-      ? (config.provider as Record<string, JsonValue>)
-      : undefined
-  const anthropicEntry =
-    providerSection?.anthropic &&
-    typeof providerSection.anthropic === 'object' &&
-    !Array.isArray(providerSection.anthropic)
-      ? (providerSection.anthropic as Record<string, JsonValue>)
-      : undefined
-  const providerModel = typeof anthropicEntry?.model === 'string' ? anthropicEntry.model : undefined
-  const model =
-    options.model ??
-    (typeof preferences.model === 'string' ? preferences.model : undefined) ??
-    providerModel ??
-    'claude-sonnet-4-20250514'
-  const editable: StatusConfigItem[] = [
-    preference('language', 'Language', preferences.language ?? 'system', 'string'),
-    preference('model', 'Model', model, 'string'),
-    {
-      ...preference(
-        'reasoningEffort',
-        'Reasoning Effort',
-        preferences.reasoningEffort ?? 'medium',
-        'enum',
-      ),
-      choices: ['low', 'medium', 'high'],
-    },
-    ...[
-      ['autoCompact', 'Auto-compact'],
-      ['notifications', 'Notifications'],
-      ['promptSuggestions', 'Prompt suggestions'],
-      ['showTokensCounter', 'Show tokens counter'],
-      ['terminalProgressBar', 'Terminal progress bar'],
-      ['autoMemory', 'Auto Memory'],
-      ['typedMemory', 'Typed Memory'],
-    ].map(([id, label]) => preference(id!, label!, preferences[id!] ?? false, 'boolean')),
-    {
-      ...preference('outputStyle', 'Output Style', preferences.outputStyle ?? 'default', 'enum'),
-      choices: ['default', 'concise', 'explanatory'],
-    },
-    {
-      ...preference('cleanupPeriod', 'Cleanup Period', preferences.cleanupPeriod ?? 30, 'number'),
-      min: 1,
-      max: 365,
-    },
-  ]
-  const readonly = (id: string, label: string, value: string): StatusConfigItem => ({
-    id,
-    label,
-    value,
-    editable: false,
-    readonlyReason: 'Security state cannot be changed here',
-  })
-  // Usage（当前会话）与 Stats（全历史）从 sessions 事件日志聚合；
-  // 扫描失败只意味着页签显示不可用，绝不让 /status 本身失败。
-  const sessionsDir = join(home, 'sessions')
-  let usage: StatusPanelData['usage']
-  let sessionScan: Awaited<ReturnType<typeof scanSessionFile>> | undefined
-  if (input.sessionId && sessionIdPattern.test(input.sessionId)) {
-    try {
-      sessionScan = await scanSessionFile(
-        join(sessionsDir, `${input.sessionId}.jsonl`),
-        input.sessionId,
-      )
-      usage = buildUsageData(sessionScan, Date.now())
-    } catch {
-      usage = undefined
-    }
-  }
-  let stats: StatusPanelData['stats']
-  if (input.includeStats) {
-    try {
-      stats = buildStatsData(await scanSessionsDir(sessionsDir), Date.now())
-    } catch {
-      stats = undefined
-    }
-  }
-  // PLUGIN-STATUS-UI-r1：插件页签的 render 在此经桥回调取值（面板打开 / 刷新时）。
-  // render 失败 → error 占位行（§S3.4 降级语义）；返回 null → 本次不渲染。
-  let pluginTabs: StatusPanelData['pluginTabs']
-  if (localPluginHub && localPluginHub.tabs.length > 0) {
-    localPluginHub.onUsage?.(usage)
-    const rendered = await Promise.all(
-      localPluginHub.tabs.map(async (tab) => {
-        try {
-          const body = await tab.render()
-          if (!body || typeof body !== 'object') return null
-          return {
-            schemaVersion: 1 as const,
-            id: tab.id,
-            label: tab.label,
-            body: body as PluginStatusTab['body'],
-          }
-        } catch {
-          return { id: tab.id, label: tab.label, error: true as const }
-        }
-      }),
-    )
-    pluginTabs = rendered.filter((tab): tab is NonNullable<typeof tab> => tab !== null)
-  }
-  return {
-    settings: [
-      { label: 'Language', value: String(preferences.language ?? 'system') },
-      { label: 'Model', value: model },
-      { label: 'Output Style', value: String(preferences.outputStyle ?? 'default') },
-      { label: 'Settings sources', value: 'defaults, user' },
-    ],
-    status: [
-      { label: 'Version', value: options.identity.version },
-      { label: 'Session ID', value: input.sessionId ?? 'not available' },
-      { label: 'cwd', value: input.cwd },
-      { label: 'Auth method', value: authMethod },
-      { label: 'Model', value: model },
-      { label: 'Lite model', value: 'not available' },
-      { label: 'Reasoning model', value: 'not available' },
-      { label: 'Memory', value: preferences.autoMemory === true ? 'auto' : 'off' },
-      { label: 'Settings sources', value: 'defaults, user' },
-      { label: 'Workspace', value: input.cwd },
-      { label: 'MCP servers', value: 'not available' },
-      { label: 'Skills', value: 'not available' },
-      { label: 'Plugins', value: 'not available' },
-      { label: 'Permissions', value: 'ask' },
-      { label: 'Sandbox', value: 'resolved at session startup' },
-      { label: 'Network', value: 'resolved at session startup' },
-      { label: 'Filesystem', value: 'resolved at session startup' },
-    ],
-    config: [
-      ...editable,
-      readonly('authMethod', 'Auth method', authMethod),
-      readonly('sessionId', 'Session ID', input.sessionId ?? 'not available'),
-      readonly('enterprisePolicies', 'Enterprise managed policies', 'not available'),
-      readonly('trustAllDirectory', 'Trust all Directory', 'read-only'),
-      readonly('mcpPermissions', 'MCP Server permissions', 'read-only'),
-      readonly('filesystemPermissions', 'Filesystem permissions', 'read-only'),
-      readonly('externalAccounts', 'External account connections', 'not available'),
-    ],
-    ...(usage ? { usage } : {}),
-    ...(stats ? { stats } : {}),
-    ...(pluginTabs ? { pluginTabs } : {}),
-  }
-}
-
-function preference(
-  id: string,
-  label: string,
-  value: JsonValue,
-  kind: Exclude<StatusConfigItem['kind'], undefined>,
-): StatusConfigItem {
-  return { id, label, value: value as StatusValue, editable: true, kind }
-}
-
-/** 插件工具输出的不可信包裹转义（与 MCP 工具同策略）。 */
-function escapeUntrustedText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-/**
- * H1：插件 hook 派发器——已激活插件的 hook 订阅按装载顺序执行，首个 HookResult
- * （veto/rewrite）生效；handler 错误 fail-open（warn 后继续），回合中止即停止
- * 派发。独立导出以便沙箱 e2e 正测（veto 必须真的拦下工具调用）。
- */
-export function createPluginHookDispatcher(
-  entries: readonly {
-    name: string
-    handle?: Pick<ActivatedLocalPlugin, 'hooks'> | undefined
-  }[],
-  logger: { warn(message: string): void },
-): ToolHookDispatcher {
-  return (event, payload, options) => {
-    const run = async (): Promise<ToolHookOutcome | undefined> => {
-      for (const loaded of entries) {
-        if (!loaded.handle) continue
-        if (options?.signal?.aborted) return undefined
-        for (const hook of loaded.handle.hooks) {
-          if (hook.event !== event) continue
-          try {
-            const result = (await hook.invoke(payload)) as
-              | { veto?: unknown; reason?: unknown; value?: unknown }
-              | undefined
-            if (result && typeof result === 'object') {
-              return {
-                ...(result.veto === true
-                  ? {
-                      veto: true,
-                      ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
-                    }
-                  : {}),
-                ...('value' in result ? { value: result.value } : {}),
-              }
-            }
-          } catch (error) {
-            logger.warn(
-              `plugin hook ${event} from ${loaded.name} failed (fail-open): ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            )
-          }
-        }
-      }
-      return undefined
-    }
-    return run()
-  }
-}
-
-function serializeConfig(config: Record<string, JsonValue>) {
-  const lines: string[] = []
-  for (const [section, raw] of Object.entries(config)) {
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      lines.push(`[${section}]`)
-      for (const [key, value] of Object.entries(raw))
-        lines.push(`${key} = ${JSON.stringify(value)}`)
-      lines.push('')
-    } else lines.push(`${section} = ${JSON.stringify(raw)}`)
-  }
-  return `${lines.join('\n').trim()}\n`
+  // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）。
+  assembled.web = createWebPort(assembled)
+  return assembled
 }

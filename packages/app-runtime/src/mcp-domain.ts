@@ -1,19 +1,10 @@
-import { execFile } from 'node:child_process'
-import {
-  appendFile,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
+import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { promisify } from 'node:util'
 
-import { parseTomlFile } from '@volund/config'
+import { McpOAuthClient, oauthCredentialKey, oauthHeaderKey } from '@volund/auth'
+import type { CredentialStore } from '@volund/auth'
+import { loadTomlFile, parseTomlFile } from '@volund/config'
 import {
   HttpSseTransport,
   McpClient,
@@ -22,8 +13,15 @@ import {
   type McpToolDescription,
   type McpTransport,
 } from '@volund/mcp-client'
+import { sanitize } from '@volund/shared'
+import type { Logger } from '@volund/shared'
 import { productIdentity, type JsonValue } from '@volund/shared'
 import type { Tool, ToolRegistry } from '@volund/tool-kit'
+
+import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
+import type { McpPanelController } from './mcp-panel'
+import type { McpPort } from './ports'
+import { serializeToml } from './toml'
 
 /**
  * SKILLS-MCPS-r1 §S3.5：MCP 配置装载 + 连接管理（原生实现，不经插件桥）。
@@ -676,96 +674,11 @@ export function transportSummary(config: McpServerConfig): string {
 
 // ── mcp.toml 写入面（§S3.7 `volund mcp add/remove`）───────────────────────────
 
-const execFileAsync = promisify(execFile)
-
 /**
  * 通用 TOML 序列化（与 parseTomlFile 的 JSON 值方言配对）：标量/数组以
  * `key = <JSON>` 输出，嵌套对象递归为 `[section.sub]` 表；顶层标量先行。
  * 只覆盖 volund 产出的配置形状（字符串/数字/布尔/数组/嵌套 record）。
  */
-export function serializeToml(config: Record<string, JsonValue>): string {
-  const lines: string[] = []
-  const tables: Array<{ path: string; value: Record<string, JsonValue> }> = []
-  for (const [key, value] of Object.entries(config)) {
-    if (value && typeof value === 'object' && !Array.isArray(value))
-      tables.push({ path: key, value: value as Record<string, JsonValue> })
-    else lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
-  }
-  const emitTable = (path: string, table: Record<string, JsonValue>) => {
-    const scalars = Object.entries(table).filter(
-      ([, value]) => !(value && typeof value === 'object' && !Array.isArray(value)),
-    )
-    const nested = Object.entries(table).filter(
-      ([, value]) => value && typeof value === 'object' && !Array.isArray(value),
-    ) as Array<[string, Record<string, JsonValue>]>
-    if (scalars.length > 0 || nested.length === 0) lines.push('', `[${tomlSectionPath(path)}]`)
-    for (const [key, value] of scalars) lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
-    for (const [key, value] of nested) emitTable(`${path}.${key}`, value)
-  }
-  for (const table of tables) emitTable(table.path, table.value)
-  return `${lines.join('\n').replace(/^\n+/, '')}\n`
-}
-/**
- * TOML 值序列化：标量走 JSON（basic string 转义与 TOML 兼容），嵌套结构产出
- * TOML 内联表/数组（`{ tool = "Bash" }`，`=` 语法）——permissions.toml 的对象
- * 数组必须能被外部 TOML 工具读取，不能落成 JSON 的冒号语法。键序原样保留
- * （grant key 依赖 spec 键序，往返不得规范化）。
- */
-function tomlValue(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map((item) => tomlValue(item)).join(', ')}]`
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value).map(
-      ([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`,
-    )
-    return entries.length > 0 ? `{ ${entries.join(', ')} }` : '{}'
-  }
-  return JSON.stringify(value)
-}
-function tomlKey(key: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)
-}
-/** 表路径按段校验：`mcp_servers.demo.env` 合法（点号是段分隔符，不是 key 字符）。 */
-function tomlSectionPath(path: string): string {
-  return path.split('.').every((segment) => /^[A-Za-z0-9_-]+$/.test(segment))
-    ? path
-    : path
-        .split('.')
-        .map((segment) => (/^[A-Za-z0-9_-]+$/.test(segment) ? segment : JSON.stringify(segment)))
-        .join('.')
-}
-
-async function atomicWrite(path: string, contents: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${process.pid}.tmp`
-  await writeFile(temporary, contents, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporary, path)
-}
-
-async function readTomlOrEmpty(path: string): Promise<Record<string, JsonValue>> {
-  try {
-    return await parseTomlFile(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    throw error
-  }
-}
-
-function serverTomlEntry(transport: McpTransportConfig): Record<string, JsonValue> {
-  if (transport.kind === 'stdio') {
-    const entry: Record<string, JsonValue> = { command: transport.command, args: transport.args }
-    if (Object.keys(transport.env).length > 0) entry.env = transport.env
-    if (transport.cwd) entry.cwd = transport.cwd
-    return entry
-  }
-  const entry: Record<string, JsonValue> = {
-    type: transport.legacySse ? 'sse' : 'http',
-    url: transport.url,
-  }
-  if (Object.keys(transport.headers).length > 0) entry.headers = transport.headers
-  return entry
-}
-
-/** `volund mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */
 export async function upsertMcpServerToml(input: {
   file: string
   name: string
@@ -809,69 +722,300 @@ export async function removeMcpServerToml(input: { file: string; name: string })
  * 覆盖 anthropic/skills、claude-plugins-official 的 `plugins/<name>/skills/…`
  * 等嵌套结构。
  */
-async function collectSkillDirectories(root: string): Promise<string[]> {
-  const SKIP = new Set([
-    'node_modules',
-    'vendor',
-    'dist',
-    'build',
-    'out',
-    'target',
-    'coverage',
-    '__pycache__',
-  ])
-  const found: string[] = []
-  const walk = async (dir: string): Promise<void> => {
-    const entries = await readdir(dir, { withFileTypes: true })
-    // 目录里先有 SKILL.md 就收（不再深入——skill 目录是叶子，内部 resources/ 不再扫描）
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name === 'SKILL.md') {
-        found.push(dir)
-        return
-      }
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.') || SKIP.has(entry.name)) continue
-      await walk(join(dir, entry.name))
-    }
-  }
-  await walk(root)
-  return found.sort((a, b) => a.localeCompare(b))
+async function atomicWrite(path: string, contents: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, contents, { encoding: 'utf8', mode: 0o600 })
+  await rename(temporary, path)
 }
 
-export async function resolveSkillSpecToDirectories(
-  spec: string,
-  options: { onInfo?: (message: string) => void } = {},
-): Promise<{ directories: string[]; cleanup: () => Promise<void> }> {
-  const isGitSpec =
-    spec.startsWith('https://') ||
-    spec.startsWith('git@') ||
-    spec.startsWith('github:') ||
-    spec.startsWith('file://') ||
-    /^\w[\w.-]*\/\w[\w.-]*$/.test(spec)
-  if (!isGitSpec) return { directories: [spec], cleanup: async () => {} }
-  let url = spec
-  if (spec.startsWith('github:')) url = `https://github.com/${spec.slice('github:'.length)}.git`
-  else if (!spec.startsWith('https://') && !spec.startsWith('git@') && !spec.startsWith('file://'))
-    url = `https://github.com/${spec}.git`
-  options.onInfo?.(`cloning ${url}`)
-  const temporary = await mkdtemp(join(tmpdir(), 'volund-skill-'))
-  const cleanup = () => rm(temporary, { recursive: true, force: true })
+async function readTomlOrEmpty(path: string): Promise<Record<string, JsonValue>> {
   try {
-    await execFileAsync('git', ['clone', '--quiet', '--depth', '1', url, temporary], {
-      timeout: 120_000,
-    })
-    // 根有 SKILL.md → 装 root;否则递归扫描（任意深度,装全部命中目录）
-    try {
-      await readFile(join(temporary, 'SKILL.md'), 'utf8')
-      return { directories: [temporary], cleanup }
-    } catch {
-      const withSkill = await collectSkillDirectories(temporary)
-      if (withSkill.length === 0) throw new Error(`No SKILL.md found in ${spec}`)
-      return { directories: withSkill, cleanup }
-    }
+    return await parseTomlFile(path)
   } catch (error) {
-    await cleanup()
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
+  }
+}
+
+function serverTomlEntry(transport: McpTransportConfig): Record<string, JsonValue> {
+  if (transport.kind === 'stdio') {
+    const entry: Record<string, JsonValue> = { command: transport.command, args: transport.args }
+    if (Object.keys(transport.env).length > 0) entry.env = transport.env
+    if (transport.cwd) entry.cwd = transport.cwd
+    return entry
+  }
+  const entry: Record<string, JsonValue> = {
+    type: transport.legacySse ? 'sse' : 'http',
+    url: transport.url,
+  }
+  if (Object.keys(transport.headers).length > 0) entry.headers = transport.headers
+  return entry
+}
+
+/** `volund mcp add`：upsert 到目标 scope 的 mcp.toml（同名整条覆盖）。 */
+
+// ─────────────────────────────────────────────────────────────────────────────
+// McpController 域（§22.7.1 / Web 计划 P1-04d）：runtime 级单例 manager +
+// CLI 管理端口 + 面板控制器。从 createProductionPorts 闭包迁入；宿主读数
+// （cwd/auth/凭据存储）经 options 注入，行为等价。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** MCP 域的宿主接缝。 */
+export interface McpDomainOptions {
+  readonly home: string
+  readonly logger: Logger
+  readonly emitTelemetry: (
+    name: string,
+    category: string,
+    payload: Record<string, unknown>,
+  ) => Promise<unknown> | void
+  /** 原 process.cwd() 读数（CLI 一次性端口）；Web 传 workspace root。 */
+  readonly getDefaultCwd: () => string
+  /** MCP OAuth 的凭据存储（EncryptedCredentialStore）。 */
+  readonly credentialStore: CredentialStore
+  /** AuthManager 读/吊销（keyref 解析与 OAuth logout 的缓存失效）。 */
+  readonly authGetCredential: (key: string) => Promise<string | undefined>
+  readonly authLogout: (key: string) => Promise<unknown>
+}
+
+export interface McpDomain {
+  readonly mcpPort: McpPort
+  readonly mcpPanelController: McpPanelController
+  /** createRunner 的 attach 点：共享连接挂进会话工具注册表。 */
+  readonly ensureManager: (cwd: string) => Promise<McpManager>
+  /** shutdown：关闭单例 manager 并 flush 诊断日志。 */
+  readonly closeManager: () => Promise<void>
+  readonly getManager: () => McpManager | undefined
+}
+
+export function createMcpDomain(options: McpDomainOptions): McpDomain {
+  // mcp：runtime 级单例 manager（首会话 cwd 已知时初始化；项目级 mcp.toml /
+  // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
+  const mcpDisabled = new Set<string>()
+  let mcpManager: McpManager | undefined
+  async function ensureMcpManager(cwd: string): Promise<McpManager> {
+    if (mcpManager) return mcpManager
+    try {
+      const config = await loadTomlFile(join(options.home, 'config.toml'), {
+        onWarning: (message) => options.logger.warn(message),
+      })
+      for (const name of disabledNamesFrom(config.mcp)) mcpDisabled.add(name)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const servers = await loadMcpServerConfigs({
+      volundHome: options.home,
+      cwd,
+      onWarning: (message) => options.logger.warn(message),
+      onEvent: (event, fields) => void options.emitTelemetry(event, 'mcp', sanitize(fields)),
+    })
+    const previousStatuses = new Map<string, string>()
+    mcpManager = new McpManager({
+      servers,
+      disabled: mcpDisabled,
+      onWarning: (message) => options.logger.warn(message),
+      // SKILLS-MCPS-r1 §S3.6：结构化诊断 JSONL（启动/连接/失败/stderr 尾），
+      // 与 telemetry 同目录。追加写、失败静默（不阻塞主链路）。
+      logPath: join(options.home, 'mcp.log'),
+      // W7：headers 的 keyref:// 占位在连接期经 auth store 解析。
+      resolveKeyref: (reference) => options.authGetCredential(reference),
+      // §S3.8：状态迁移采样；server 名 sha256 前 8 位（不落明文名字）。
+      onStateChange: () => {
+        if (!mcpManager) return
+        for (const entry of mcpManager.snapshot()) {
+          const from = previousStatuses.get(entry.name)
+          if (from !== undefined && from !== entry.status)
+            void options.emitTelemetry(
+              'mcp.server_state_changed',
+              'mcp',
+              sanitize({
+                name_kind: createHash('sha256').update(entry.name).digest('hex').slice(0, 8),
+                from,
+                to: entry.status,
+              }),
+            )
+          previousStatuses.set(entry.name, entry.status)
+        }
+      },
+    })
+    void mcpManager.connect()
+    return mcpManager
+  }
+  const mcpPort: McpPort = {
+    async login(serverName) {
+      // SM-07：浏览器 OAuth 2.1 + PKCE + DCR。token 存 auth（`mcp.<name>.oauth`
+      // + `Bearer` 头快照 `mcp.<name>.Authorization`），连接期经 resolveKeyref
+      // / 无 header 自动注入消费。
+      const servers = await loadMcpServerConfigs({
+        volundHome: options.home,
+        cwd: options.getDefaultCwd(),
+        onWarning: (message) => options.logger.warn(message),
+      })
+      const server = servers.find((entry) => entry.name === serverName)
+      if (!server) throw new Error(`Unknown MCP server: ${serverName}`)
+      if (server.transport.kind !== 'http')
+        throw new Error(`mcp login applies to http servers only: '${serverName}' is stdio`)
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: server.transport.url,
+        store: options.credentialStore,
+      })
+      await oauth.login()
+      return { server: serverName }
+    },
+    async logout(serverName) {
+      const oauth = new McpOAuthClient({
+        serverName,
+        serverUrl: `https://${serverName}.invalid`,
+        store: options.credentialStore,
+      })
+      await oauth.logout()
+      // AuthManager 进程内缓存不在 oauth client 的视野里：显式逐 key 失效，
+      // 否则同进程的 keyref 解析会继续命中已删除的旧 token。
+      await options.authLogout(oauthCredentialKey(serverName))
+      await options.authLogout(oauthHeaderKey(serverName))
+    },
+    async list() {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
+      const snapshot = manager.snapshot().map((entry) => ({
+        name: entry.name,
+        transport: entry.transport,
+        scope: entry.scope,
+        status: entry.status,
+        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
+        ...(entry.protocolVersion ? { protocolVersion: entry.protocolVersion } : {}),
+      }))
+      await manager.close()
+      return snapshot
+    },
+    async test(name) {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
+      try {
+        const { entry } = await manager.inspect(name)
+        if (entry.status !== 'connected')
+          throw new Error(
+            `mcp server '${name}' is ${entry.status}${entry.detail ? `: ${entry.detail}` : ''}`,
+          )
+        return { protocolVersion: entry.protocolVersion ?? 'unknown' }
+      } finally {
+        await manager.close()
+      }
+    },
+    async inspect(name) {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
+      try {
+        const { tools } = await manager.inspect(name)
+        return {
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            ...(tool.description ? { description: tool.description } : {}),
+          })),
+        }
+      } finally {
+        await manager.close()
+      }
+    },
+    async add(input) {
+      const file =
+        input.scope === 'project'
+          ? join(options.getDefaultCwd(), '.volund', 'mcp.toml')
+          : join(options.home, 'mcp.toml')
+      await upsertMcpServerToml({
+        file,
+        name: input.name,
+        transport:
+          input.transport.kind === 'stdio'
+            ? {
+                kind: 'stdio',
+                command: input.transport.command,
+                args: input.transport.args,
+                env: input.transport.env,
+              }
+            : {
+                kind: 'http',
+                url: input.transport.url,
+                headers: input.transport.headers,
+                legacySse: input.transport.legacySse ?? false,
+              },
+      })
+      return { file }
+    },
+    async remove(name, scope) {
+      const files =
+        scope === 'project'
+          ? [join(options.getDefaultCwd(), '.volund', 'mcp.toml')]
+          : scope === 'user'
+            ? [join(options.home, 'mcp.toml')]
+            : [join(options.getDefaultCwd(), '.volund', 'mcp.toml'), join(options.home, 'mcp.toml')]
+      for (const file of files) if (await removeMcpServerToml({ file, name })) return { file }
+      throw new Error(`MCP server not configured: ${name}`)
+    },
+    async setEnabled(name, enabled) {
+      const manager = await ensureMcpManager(options.getDefaultCwd())
+      if (enabled) mcpDisabled.delete(name)
+      else mcpDisabled.add(name)
+      await updateConfigDisabledList({ home: options.home, section: 'mcp', name, add: !enabled })
+      // CLI 一次性进程：ensure 触发的后台连接要收尾，否则 stdio 子进程挂住事件循环。
+      await manager.close()
+    },
+  }
+  const mcpPanelController: McpPanelController = {
+    async list() {
+      // §S3.8：面板数据加载采样（打开/刷新）。
+      const snapshot = mcpManager?.snapshot() ?? []
+      void options.emitTelemetry(
+        'mcp.panel_opened',
+        'mcp',
+        sanitize({
+          count: snapshot.length,
+          connected: snapshot.filter((entry) => entry.status === 'connected').length,
+          failed: snapshot.filter((entry) => entry.status === 'failed').length,
+          needs_auth: snapshot.filter((entry) => entry.status === 'needs-auth').length,
+        }),
+      )
+      return snapshot
+    },
+    async reload() {
+      if (!mcpManager) return []
+      await mcpManager.reload()
+      return mcpManager.snapshot()
+    },
+    async setEnabled(name, enabled) {
+      if (!mcpManager) throw new Error('MCP is not available in this session')
+      if (enabled) mcpDisabled.delete(name)
+      else mcpDisabled.add(name)
+      await mcpManager.setEnabled(name, enabled)
+      await updateConfigDisabledList({ home: options.home, section: 'mcp', name, add: !enabled })
+      return `mcp server ${name} ${enabled ? 'enabled' : 'disabled'}`
+    },
+    async inspect(name) {
+      if (!mcpManager) throw new Error('MCP is not available in this session')
+      const { entry, tools } = await mcpManager.inspect(name)
+      return {
+        entry: entry,
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.description ? { description: tool.description } : {}),
+        })),
+      }
+    },
+  }
+  return {
+    mcpPort,
+    mcpPanelController,
+    ensureManager: ensureMcpManager,
+    closeManager: async () => {
+      const manager = mcpManager
+      if (manager) {
+        await manager.close()
+        await manager.logsFlushed()
+      }
+    },
+    getManager: () => mcpManager,
   }
 }

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@types/react": "catalog:",
+    "@volund/app-runtime": "workspace:*",
     "@volund/core": "workspace:*",
     "@volund/shared": "workspace:*",
     "ink": "catalog:",

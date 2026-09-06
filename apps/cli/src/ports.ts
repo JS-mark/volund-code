@@ -1,4 +1,8 @@
-import type { EventBus } from '@volund/core'
+// §22.7.1 / Web P1-03：会话契约已迁至 @volund/app-runtime；此处 re-export 保持兼容。
+import type {
+  InteractiveSession as InteractiveSessionContract,
+  PermissionInteractionMode as PermissionInteractionModeContract,
+} from '@volund/app-runtime'
 import type { JsonValue } from '@volund/shared'
 import type {
   MemoryMaintenanceService,
@@ -6,44 +10,62 @@ import type {
   MemoryService,
   MemoryTransferService,
 } from '@volund/storage'
+import type { SessionChanges, UndoPreview, UndoStepResult } from '@volund/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@volund/telemetry'
 import type {
-  InteractivePermissionDecision,
-  InteractivePermissionRequest,
   InteractiveAppHandle,
   InteractiveAppOptions,
   DirectoryTrustDecision,
-  PasteAttachmentResult,
   SandboxDisclosure,
   StatusPanelData,
   StatusValue,
   StatusViewModel,
-  SubmitOptions,
   SessionCandidate,
-  TranscriptEntry,
 } from '@volund/ui'
 
 import type { AppIdentity } from './shared/app-identity'
 
-export interface DoctorHealth {
-  detail: string
-  valid?: boolean
-  configured?: boolean
-}
-export interface NativeHealth {
-  sandbox: boolean
-  search: boolean
-  fs: boolean
-}
-/** r13-P1 tri-state: `'probing'` until the startup probe backfills. */
-export interface NativeAvailabilityView {
-  sandbox: boolean | 'probing'
-  search: boolean | 'probing'
-  fs: boolean | 'probing'
-}
-export type PermissionInteractionMode = 'none' | 'line' | 'tui'
+export type PermissionInteractionMode = PermissionInteractionModeContract
+
+// ── 已迁至 @volund/app-runtime 的 UI-neutral 端口契约（P1-04）；re-export 保持兼容 ──
+export type {
+  ContextPort,
+  ContextStatus,
+  DoctorHealth,
+  EvolutionPort,
+  HistoryMessage,
+  HistoryPort,
+  HistorySearchHit,
+  HistorySessionDetail,
+  LocalPluginPort,
+  McpAddInput,
+  McpPort,
+  McpServerListing,
+  NativeAvailabilityView,
+  NativeHealth,
+  PluginAvailability,
+  PluginCompatibilityDiagnostic,
+  PluginPort,
+  SkillListing,
+  SkillPort,
+  TrustPort,
+} from '@volund/app-runtime'
+// 本地类型化需引用（VolundPorts 聚合形状）
+import type {
+  ContextPort,
+  DoctorHealth,
+  EvolutionPort,
+  HistoryPort,
+  LocalPluginPort,
+  McpPort,
+  NativeAvailabilityView,
+  NativeHealth,
+  PluginPort,
+  SkillPort,
+  TrustPort,
+} from '@volund/app-runtime'
 export interface SessionPort {
-  start(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
+  startSession(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
   resumeInteractive?(id: string): Promise<InteractiveSession>
   resume(id: string): Promise<{ id: string }>
@@ -55,37 +77,9 @@ export interface SessionPort {
   configureOutput?(input: { json: boolean; write: (value: string) => void }): void
   configureTerminalOutput?(input: { streamToStdout: boolean }): void
 }
-export interface InteractiveSession {
-  id: string
-  events: EventBus
-  cwd?: string
-  transcript?: readonly TranscriptEntry[]
-  getStatus?(): Promise<StatusViewModel>
-  /** Interrupts the in-flight turn (esc in the TUI). Optional: esc stays inert without it. */
-  interrupt?(): Promise<void>
-  setPermissionPromptHandler?(
-    handler:
-      | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
-      | undefined,
-  ): void
-  /**
-   * §7.5.2 Ctrl+V：读系统剪贴板 → 首次弹会话级授权 → 图片经 AttachmentStore
-   * 落盘返回 handle chip，文件返回 path 引用 chip；纯文本剪贴板原样返回文本。
-   * 可选：headless / 非交互会话不实现，UI 隐藏该手势。
-   */
-  pasteClipboardAttachment?(): Promise<PasteAttachmentResult>
-  /**
-   * §7.5.2 粘贴/拖拽的文件路径（bracketed paste 进来的文本解析为文件）：
-   * cwd 内返回 path 引用 chip；cwd 外的图片读字节落盘成 blob chip。
-   * 不可附加（不存在/目录/超限制）时返回非 'attached'，UI 回退为插入原文本。
-   */
-  attachFilePath?(path: string): Promise<PasteAttachmentResult>
-  /** §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限量排序）。 */
-  listFiles?(): Promise<readonly string[]>
-  submit(input: string, options?: SubmitOptions): Promise<void>
-  end(): Promise<void>
-  exitCode(): number
-}
+// InteractiveSession 契约已迁至 @volund/app-runtime（§22.7.1 / P1-03）；
+// 上游 W-05 的 paste/attach/listFiles 方法已并入契约；此处 re-export 保持兼容。
+export type InteractiveSession = InteractiveSessionContract<StatusViewModel>
 export interface UiPort {
   renderInteractiveApp(options: InteractiveAppOptions): InteractiveAppHandle
   renderSessionPicker?(input: {
@@ -96,208 +90,6 @@ export interface UiPort {
     canonicalPath: string
     parentPath: string
   }): Promise<DirectoryTrustDecision>
-}
-export interface TrustPort {
-  check(path: string): Promise<{
-    canonicalPath: string
-    trusted: boolean
-    matchedPath?: string
-    scope?: 'exact' | 'tree'
-  }>
-  grant(path: string, scope: 'exact' | 'tree'): Promise<{ path: string; scope: 'exact' | 'tree' }>
-  list(): Promise<Array<{ path: string; scope: 'exact' | 'tree'; trustedAt: string }>>
-  revoke(path: string): Promise<number>
-  revokeAll(): Promise<number>
-}
-export interface ContextStatus {
-  policy: string
-  currentTokens: number
-  maxTokens: number
-  threshold: number
-  sources: Record<string, number>
-  lastCompaction?: { compactedMessageIds: string[]; at: string }
-}
-export interface ContextPort {
-  show(): Promise<ContextStatus>
-  keep(target: string): Promise<void>
-  unkeep(target: string): Promise<void>
-  compact(strategy?: 'sliding' | 'summary'): Promise<{ beforeTokens: number; afterTokens: number }>
-  getPolicy(): Promise<{ name: string; params: Record<string, boolean | number | string> }>
-  setPolicy(name: string, params: Record<string, string>): Promise<void>
-}
-export interface EvolutionPort {
-  show(options: { namespace?: string; since?: Date }): Promise<unknown[]>
-  rollback(options: {
-    namespace?: 'context' | 'router' | 'retry' | 'tool-timeout'
-    to?: Date
-  }): Promise<unknown[]>
-  /** §15.11 T1b: tuning journal health for `volund doctor`. */
-  health?(): Promise<DoctorHealth>
-}
-export interface McpServerListing {
-  name: string
-  transport: string
-  scope?: 'user' | 'project'
-  status?: 'connected' | 'connecting' | 'needs-auth' | 'failed' | 'disabled'
-  tools?: number
-  protocolVersion?: string
-}
-export interface McpAddInput {
-  name: string
-  scope: 'user' | 'project'
-  transport:
-    | { kind: 'stdio'; command: string; args: string[]; env: Record<string, string> }
-    | { kind: 'http'; url: string; headers: Record<string, string>; legacySse?: boolean }
-}
-export interface McpPort {
-  list(): Promise<readonly McpServerListing[]>
-  test(name: string, signal: AbortSignal): Promise<{ protocolVersion: string }>
-  inspect(
-    name: string,
-    signal: AbortSignal,
-  ): Promise<{ tools: Array<{ name: string; description?: string }> }>
-  /** SKILLS-MCPS-r1 §S3.7：写入目标 scope 的 mcp.toml（同名整条覆盖）。 */
-  add(input: McpAddInput): Promise<{ file: string }>
-  remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string }>
-  setEnabled(name: string, enabled: boolean): Promise<void>
-  /** SM-07：浏览器 OAuth 2.1 + PKCE + DCR；token 存 auth，回程 loopback。 */
-  login(name: string): Promise<{ server: string }>
-  /** SM-07：吊销（best-effort）并清除凭据。 */
-  logout(name: string): Promise<void>
-}
-export interface SkillListing {
-  name: string
-  description: string
-  /** plugin = 已启用插件捆绑的 skills（随插件信任，只读面）。 */
-  scope: 'user' | 'project' | 'plugin'
-  status: string
-  version?: string
-  path: string
-}
-export interface SkillPort {
-  list(): Promise<readonly SkillListing[]>
-  /**
-   * SKILLS-MCPS-r1 §S3.7：安装三方源——`<本地目录>` / git URL / `github:owner/repo`
-   * / `owner/repo` 简写；git 仓库根有 SKILL.md 装 root，否则装一层子目录里全部
-   * 带 SKILL.md 的 skill。scope 默认 user，project 写 `<cwd>/.volund/skills`。
-   */
-  install(spec: string, options?: { scope?: 'user' | 'project' }): Promise<readonly SkillListing[]>
-  uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<void>
-  show(name: string): Promise<string>
-  setEnabled(name: string, enabled: boolean): Promise<void>
-}
-export interface PluginPort {
-  availability(): Promise<PluginAvailability>
-  install(source: string): Promise<{ name: string; version: string }>
-  uninstall(name: string): Promise<void>
-  list(): Promise<Record<string, { version: string; enabled: boolean; failures?: number }>>
-  setEnabled(name: string, enabled: boolean): Promise<void>
-  doctor(name: string): Promise<{
-    name: string
-    version: string
-    permissions: readonly string[]
-    availability: PluginAvailability
-    compatibility: PluginCompatibilityDiagnostic
-  }>
-}
-/**
- * 本地插件装载端口（PLUGIN-STATUS-UI-r1 / PLUGIN-MANAGER-r1）：三个发现源共用
- * 同一条激活链路（manifest 校验 → bundle 校验 → 沙箱宿主 volund-sandbox
- * --run-plugin）——内置插件（随产物分发的 apps/cli/plugins/<name>/）、dev 插件
- * （约定目录 ~/.volund/plugins-dev/<name>/ 自动发现 + VOLUND_DEV_PLUGINS 额外
- * 路径）、市场插件（[plugins] market 安装到 ~/.volund/plugins/<name>/，带
- * volund-market.json 完整性映射，激活期重验）。~/.volund/plugins 与冻结中的
- * legacy Catalog 状态文件（plugins/plugins.json approvals，deny-only）完全隔离；本地
- * 三源的持久生命周期统一由同级 plugin-state.v2.json 管理。
- */
-export interface LocalPluginPort {
-  activateLocal(dir: string): Promise<{ name: string; statusTabs: number }>
-  loadDevPlugins(extraDirs?: readonly string[]): Promise<{
-    loaded: { name: string; statusTabs: number }[]
-    failed: { dir: string; error: string }[]
-  }>
-  /**
-   * 内置插件（随产物分发的 apps/cli/plugins/<name>/）：与 dev 插件同一沙箱链路，
-   * 仅发现源不同。交互会话启动时装载一次；一次性管理子命令（如 status）不装载。
-   */
-  loadBuiltinPlugins(): Promise<{
-    loaded: { name: string; statusTabs: number }[]
-    failed: { dir: string; error: string }[]
-  }>
-  /**
-   * 市场插件：~/.volund/plugins/<name>/ 自动发现（dot 目录与无 manifest.json
-   * 的目录跳过），但只有 v2 状态同时 approved + enabled 才装载；激活前逐文件重验。
-   */
-  loadMarketPlugins(): Promise<{
-    loaded: { name: string; statusTabs: number }[]
-    failed: { dir: string; error: string }[]
-  }>
-  /** v2 生命周期管理；市场插件必须 inspect → approve(hash) → enable。 */
-  inspectPlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
-  approvePlugin(
-    input: string,
-    permissionHash: string,
-  ): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
-  enablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
-  disablePlugin(input: string): Promise<import('@volund/plugin-sdk').PluginInventoryEntry>
-  /**
-   * F1 插件一等公民：第一方工具域（volund.core-tools / volund.exec /
-   * volund.orchestration）——/plugins 与 CLI 可见可禁用，落
-   * [plugins] builtin_disabled。
-   */
-  builtinDomains(): Promise<{ id: string; label: string; description: string; enabled: boolean }[]>
-  setBuiltinDomain(id: string, enabled: boolean): Promise<void>
-  /**
-   * 卸载市场插件（热生效）：停用（命令/页签当场摘除）+ 删除
-   * ~/.volund/plugins/<name>/。仅市场插件可卸载——内置随产物分发不可卸，
-   * dev 目录归开发者管理（命中即明确拒绝）。
-   */
-  uninstallMarketPlugin(input: string): Promise<{ name: string }>
-  deactivateAll(): Promise<void>
-}
-export interface PluginCompatibilityDiagnostic {
-  status: 'compatible' | 'incompatible' | 'invalid'
-  detail: string
-}
-export interface PluginAvailability {
-  available: false
-  code: 'plugin_legacy_activation_unavailable'
-  detail: string
-  reopenCondition: string
-}
-export interface HistoryMessage {
-  role: string
-  text: string
-}
-export interface HistorySessionDetail {
-  id: string
-  cwd: string
-  startedAt?: string
-  updatedAt: string
-  events: number
-  messages: HistoryMessage[]
-}
-export interface HistorySearchHit {
-  sessionId: string
-  snippet: string
-  at?: string
-}
-/**
- * §11.3.4 `volund history` 命令族：操作 ~/.volund/sessions/<id>.jsonl 会话档案
- * （与输入行历史 ~/.volund/history 无关）。list 复用 session port 的候选派生
- * （事件 replay），show/export 走同一 replay，search 只做本地关键词匹配。
- */
-export interface HistoryPort {
-  list(options: {
-    limit?: number
-    since?: Date
-    cwd?: string
-  }): Promise<readonly SessionCandidate[]>
-  show(id: string): Promise<HistorySessionDetail>
-  exportSession(id: string, format: 'markdown' | 'json'): Promise<string>
-  importSession(content: string): Promise<{ id: string; file: string }>
-  clear(options: { all?: boolean; olderThan?: Date }): Promise<{ removed: string[] }>
-  search(query: string, options?: { limit?: number }): Promise<readonly HistorySearchHit[]>
 }
 export interface VolundPorts {
   identity: Readonly<AppIdentity>
@@ -373,6 +165,12 @@ export interface VolundPorts {
     export(target: string): Promise<number>
     clear(): Promise<void>
     health(): Promise<TelemetryHealth>
+    /** P5：最近遥测事件（本地 loopback 控制台浏览用）。 */
+    events?(limit: number): Promise<{
+      events: readonly { name: string; category?: string; at?: string }[]
+      corruptLines: number
+      total: number
+    }>
   }
   confirmation: { confirmDangerousNoSandbox(sentence: string): Promise<boolean> }
   trust: TrustPort
@@ -401,6 +199,21 @@ export interface VolundPorts {
   localPlugins?: LocalPluginPort
   history?: HistoryPort
   ui?: UiPort
+  /** W-08：会话文件变更聚合 + undo 预览/执行（BackupStore 背书）。 */
+  changes?: {
+    list(sessionId: string): Promise<SessionChanges>
+    previewUndo(sessionId: string): Promise<UndoPreview>
+    undoStep(sessionId: string): Promise<UndoStepResult>
+  }
+  /** §22 W-01：`volund web` 本地控制台；serve 阻塞到 server 关闭。 */
+  web?: {
+    serve(input: {
+      cwd: string
+      port: number
+      open: boolean
+      onReady(handle: { url: string; port: number }): void
+    }): Promise<{ url: string; port: number }>
+  }
   /**
    * 进程收尾：关闭插件宿主 / MCP 连接等长驻资源（它们的子进程管道 ref 住事件
    * 循环，不关则 UI 退出后进程仍悬挂）。交互会话退出与信号处理都会调用；
@@ -461,7 +274,7 @@ export function unavailablePorts(): VolundPorts {
       revokeAll: async () => 0,
     },
     session: {
-      start: async () => ({ id: 'unconnected-session' }),
+      startSession: async () => ({ id: 'unconnected-session' }),
       resume: async (id) => ({ id }),
       list: async () => [],
       interrupt: async () => {},
