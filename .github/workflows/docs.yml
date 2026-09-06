@@ -44,6 +44,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # apps/docs/api 是 gitignore 的 typedoc 生成物：test 校验生成 prose，
       # 必须先于 test 生成（vitepress build 会在自身流程里再次生成，保持幂等）。
+      # typedoc 沿 import 链解析 ui→app-runtime 的 dist 类型：先全量构建。
+      - run: pnpm build
       - run: pnpm --filter @volund/docs exec typedoc --options ../../typedoc.json
       - run: pnpm --filter @volund/docs test
       - run: pnpm --filter @volund/docs build
