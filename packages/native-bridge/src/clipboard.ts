@@ -48,7 +48,7 @@ function defaultExec(file: string, args: readonly string[]): Promise<ClipboardEx
   return new Promise((resolve, reject) => {
     execFile(
       file,
-      [...args],
+      args,
       { encoding: 'buffer', maxBuffer: EXEC_MAX_BUFFER, timeout: EXEC_TIMEOUT_MS },
       (error, stdout, stderr) => {
         if (error) {

@@ -10,6 +10,7 @@ import {
   permissionRuleMatches,
   type PermissionRequest,
 } from './index'
+import { toPosixSeparators as toPosix } from './path-pattern'
 const req = (toolName = 'Write') => ({
   toolName,
   spec: { fs: { write: ['x'] } },
@@ -467,7 +468,7 @@ describe('generalizePermissionSpec', () => {
       { fs: { write: [join(cwd, 'a.md'), join(cwd, 'src', 'b.ts')] } },
       cwd,
     )
-    expect(spec.fs?.write).toEqual([`${cwd}/**`])
+    expect(spec.fs?.write).toEqual([toPosix(`${cwd}/**`)])
   })
   it('keeps existing globs and out-of-cwd paths as-is', () => {
     const spec = generalizePermissionSpec(
@@ -475,7 +476,7 @@ describe('generalizePermissionSpec', () => {
       cwd,
     )
     expect(spec.fs?.read).toEqual(['docs/**/*.md'])
-    expect(spec.fs?.write).toEqual(['/etc/hosts', `${cwd}/**`])
+    expect(spec.fs?.write).toEqual(['/etc/hosts', toPosix(`${cwd}/**`)])
   })
   it('returns bash / net specs untouched (identity is command / origin)', () => {
     const bashSpec = { bash: { command: 'git status' }, fs: { read: ['.'], write: ['.'] } }
