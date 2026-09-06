@@ -1,5 +1,81 @@
 # volund-code
 
+## 0.2.0
+
+### Minor Changes
+
+- 5344f22: Config-provided auth (spec §8.4): `AuthManager` gains Layer 4 — user-level `~/.volund/config.toml` `[auth] <provider>_api_key` (explicit opt-in; project-level forbidden per §8.3.1) resolving after keychain/encrypted-file/env with `layer: 4` telemetry. `[auth] skipAuth = true` (user-level only) skips credential resolution entirely: requests go out without `x-api-key`, health/status report `skipped (auth.skipAuth)`, and the first skip emits `auth.credential.skipped`. `provider-anthropic`'s `CredentialPort` now allows `undefined` (header omitted); the CLI also wires `provider.anthropic.baseUrl` into `AnthropicClient` for gateway/proxy deployments. Registry + appendix C.2 rows added; `pnpm verify:config-docs` stays green.
+- 7e94e19: Clipboard attachment paste (spec §7.5.2): Ctrl+V in the TUI reads the system clipboard — images are staged content-addressed into the session attachment store and inserted as atomic, sequentially numbered `[image_1]` chips, copied files become `[file: <name>]` path references, and plain text is inserted in place. Dragging a file into the terminal or pasting a resolvable file path attaches it too (bracketed paste; in-workspace files by path, out-of-workspace images staged as blobs). Cmd+V pastes images too: an empty bracketed paste (clipboard holds an image, no text) triggers the clipboard read — the same onEmptyPaste semantics as Claude Code. Pasting requires no permission prompt (the chip is a local reference; content leaves only when the message is sent); submissions expand chips into image/file content parts for vision-capable providers (others degrade to a textual note). History and transcripts keep only chip text, never binary.
+
+  The `@` unified picker (spec §7.5.3) is wired into the input box: typing `@` lists model aliases (⭐) and workspace files (📄) with prefix filtering; selecting a file attaches it, selecting a model sets the turn-level override. TIFF-only clipboards convert via `sips`.
+
+  A `/paste` command provides a keybinding-independent attach path (for terminals that capture Ctrl+V), the permission prompt accepts `y` as allow-once, and the input box no longer loses its draft and attachment chips when the welcome screen hides (it is no longer remounted on view switches).
+
+  The input box now supports cursor movement (←/→, Home/End, Ctrl+A/Ctrl+E) with edits applying at the cursor; pasted multi-line text no longer triggers premature submission.
+
+- 9e969d3: Make adaptive runtime tuning default-off and harden its persistence boundary. Configuration now
+  requires an explicit own-property boolean opt-in, context tuning uses exported frozen bounds plus
+  an atomic cross-field snapshot projection, and non-context persisted apply remains deny-only.
+  Configuration parsing also rejects prototype-pollution key segments
+  (`__proto__` / `constructor` / `prototype`) fail-closed. Evolution records are written as strict
+  version-1 JSONL, legacy records retain explicit compatibility provenance, invalid or future
+  records fail closed, and rollback consumes only validated context history. The flat V1 format is
+  intentionally not yet crash-atomic or evidence-grade; record identity, sequencing, dual-file
+  recovery, and migration diagnostics remain a separate T1b change.
+- a0eecf1: Give the adaptive tuning store crash-recoverable, cross-process-coordinated persistence.
+  New records are written as flat schema-version-2 lines carrying a store-assigned record id and a
+  per-namespace monotonic sequence (strictly increasing; regressions are dropped with a fixed
+  diagnostic). Every dual append runs under a best-effort cross-process lock and a
+  `.evolution-txn.json` journal (PREPARED → NAMESPACE_DURABLE → BOTH_DURABLE, fsync at each step):
+  recovery proves a commit only when both files end with the exact journalled record, aborts torn
+  partial writes back to the journalled pre-sizes, and fails closed into a RECOVERY_REQUIRED state
+  that refuses appends until manual intervention. `volund doctor` surfaces the tuning journal
+  health. Honesty limits: file content is fsynced but new-file creation cannot be made durable
+  across power loss without a directory fsync (no portable Node API; Windows deployments must
+  disclose), the lock is a local coordination primitive rather than a security boundary, and the
+  audit trail is still not promotion evidence for later shadow/apply stages without further review.
+
+### Patch Changes
+
+- 7ad5a34: Temporarily contain legacy plugin install and activation until Catalog v2 and the verified capability ABI can reopen them safely. Production manager/runtime paths are deny-only, stale approvals are projected disabled without a state rewrite, plugin machine errors follow the two-event NDJSON contract, and the published package excludes all test authority and legacy host seams.
+- Updated dependencies [5344f22]
+- Updated dependencies [7e94e19]
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7ad5a34]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+- Updated dependencies [4b83a10]
+- Updated dependencies [9e969d3]
+- Updated dependencies [a0eecf1]
+- Updated dependencies [3697fb7]
+- Updated dependencies [001768a]
+  - @volund/auth@0.2.0
+  - @volund/provider-anthropic@0.2.0
+  - @volund/shared@0.2.0
+  - @volund/native-bridge@0.2.0
+  - @volund/ui@0.2.0
+  - @volund/plugin-runtime@0.1.1
+  - @volund/config@0.2.0
+  - @volund/core@0.2.0
+  - @volund/storage@0.2.0
+  - @volund/app-runtime@0.1.1
+  - @volund/mcp-client@0.1.1
+  - @volund/permission@0.1.1
+  - @volund/provider-gemini@0.1.1
+  - @volund/provider-kit@0.1.1
+  - @volund/provider-ollama@0.1.1
+  - @volund/provider-openai@0.1.1
+  - @volund/skills-runtime@0.1.1
+  - @volund/subagent@0.1.1
+  - @volund/telemetry@0.1.1
+  - @volund/tool-kit@0.1.1
+  - @volund/tools@0.1.1
+  - @volund/web-server@0.1.1
+  - @volund/kernel@0.1.1
+  - @volund/context@0.1.1
+  - @volund/plugin-sdk@0.1.1
+  - @volund/router@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

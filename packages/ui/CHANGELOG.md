@@ -1,5 +1,34 @@
 # @volund/ui
 
+## 0.2.0
+
+### Minor Changes
+
+- 7e94e19: Clipboard attachment paste (spec §7.5.2): Ctrl+V in the TUI reads the system clipboard — images are staged content-addressed into the session attachment store and inserted as atomic, sequentially numbered `[image_1]` chips, copied files become `[file: <name>]` path references, and plain text is inserted in place. Dragging a file into the terminal or pasting a resolvable file path attaches it too (bracketed paste; in-workspace files by path, out-of-workspace images staged as blobs). Cmd+V pastes images too: an empty bracketed paste (clipboard holds an image, no text) triggers the clipboard read — the same onEmptyPaste semantics as Claude Code. Pasting requires no permission prompt (the chip is a local reference; content leaves only when the message is sent); submissions expand chips into image/file content parts for vision-capable providers (others degrade to a textual note). History and transcripts keep only chip text, never binary.
+
+  The `@` unified picker (spec §7.5.3) is wired into the input box: typing `@` lists model aliases (⭐) and workspace files (📄) with prefix filtering; selecting a file attaches it, selecting a model sets the turn-level override. TIFF-only clipboards convert via `sips`.
+
+  A `/paste` command provides a keybinding-independent attach path (for terminals that capture Ctrl+V), the permission prompt accepts `y` as allow-once, and the input box no longer loses its draft and attachment chips when the welcome screen hides (it is no longer remounted on view switches).
+
+  The input box now supports cursor movement (←/→, Home/End, Ctrl+A/Ctrl+E) with edits applying at the cursor; pasted multi-line text no longer triggers premature submission.
+
+### Patch Changes
+
+- 3697fb7: Blink the input box cursor like a terminal: the `▌` caret now toggles every 500 ms while the box is focused, stays visible at the end of typed input (previously it vanished once text was entered), resets to visible on every keystroke, and pauses while the input is disabled so streaming frames are not redrawn for blink alone.
+- 001768a: Surface provider errors in the TUI status line: `error.raised` now renders `code: context.message` (e.g. `runner_error: Anthropic request failed (401)`) instead of the bare code, and a subsequent `turn.aborted` with `reason: 'error'` no longer overwrites that specific status with a generic 'turn aborted'.
+- Updated dependencies [5344f22]
+- Updated dependencies [7e94e19]
+- Updated dependencies [ad0e7b5]
+- Updated dependencies [7ad5a34]
+- Updated dependencies [7d1147e]
+- Updated dependencies [4ac2411]
+- Updated dependencies [4b83a10]
+- Updated dependencies [9e969d3]
+- Updated dependencies [a0eecf1]
+  - @volund/shared@0.2.0
+  - @volund/core@0.2.0
+  - @volund/app-runtime@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
