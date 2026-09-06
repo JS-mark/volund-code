@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { createProductionToolPermissionChain } from '@volund/app-runtime'
 import { createSession, EventBus, MachineEventFormatter } from '@volund/core'
 import type { JsonValue } from '@volund/shared'
 import type { ToolContext } from '@volund/tool-kit'
@@ -12,7 +13,6 @@ import { runCli } from './cli'
 import { command } from './command'
 import { assignConfigValue, deleteConfigValue } from './config-edit'
 import type { VolundPorts, PermissionInteractionMode } from './ports'
-import { createProductionToolPermissionChain } from './runtime'
 
 const fixtures: string[] = []
 afterEach(async () =>
@@ -69,7 +69,7 @@ function ports(overrides: Partial<VolundPorts> = {}): VolundPorts {
       revokeAll: vi.fn(async () => 0),
     },
     session: {
-      start: vi.fn(async () => ({ id: 'session-1' })),
+      startSession: vi.fn(async () => ({ id: 'session-1' })),
       resume: vi.fn(async (id) => ({ id })),
       interrupt: vi.fn(async () => {}),
       end: vi.fn(async () => {}),
@@ -100,6 +100,7 @@ describe('runCli', () => {
       'hook',
       'skill',
       'mcp',
+      'web',
       'version',
       'help',
     ])
@@ -143,7 +144,7 @@ describe('runCli', () => {
     expect(result.stdout).toContain('volund')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
     await expect(runCli(['-h'], ports())).resolves.toMatchObject({ exitCode: 0, stderr: '' })
   })
 
@@ -165,7 +166,7 @@ describe('runCli', () => {
     expect(mcpHelp.stdout).toContain('-- <command> [args...]')
     expect(mcpHelp.stdout).not.toContain('Usage: volund <command>')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
 
     const doctorHelp = await runCli(['help', 'doctor'], testPorts)
     expect(doctorHelp).toMatchObject({ exitCode: 0, stderr: '' })
@@ -326,7 +327,7 @@ describe('runCli', () => {
     expect(result).toEqual({ exitCode: 0, stdout: '0.0.0-test\n', stderr: '' })
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
     await expect(runCli(['-v'], ports())).resolves.toMatchObject({
       exitCode: 0,
       stdout: '0.0.0-test\n',
@@ -372,7 +373,7 @@ describe('runCli', () => {
     })
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
   }, 30_000)
 
   it('rejects non-chat global flags without starting a session', async () => {
@@ -396,7 +397,7 @@ describe('runCli', () => {
     expect(loginOnly.stderr).toContain('--api-key-stdin')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
     expect(testPorts.confirmation.confirmDangerousNoSandbox).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
   })
 
   it('installs, lists, diagnoses, disables, and uninstalls plugins through one port', async () => {
@@ -697,7 +698,7 @@ describe('runCli', () => {
     const testPorts = ports()
     const result = await runCli(['chat', 'hello', '--cwd', nested], testPorts)
     expect(result.exitCode).toBe(0)
-    expect(testPorts.session.start).toHaveBeenCalledWith(
+    expect(testPorts.session.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: nested, prompt: 'hello' }),
     )
   })
@@ -706,10 +707,10 @@ describe('runCli', () => {
     const testPorts = ports()
     const result = await runCli(['chat'], testPorts)
     expect(result.exitCode).toBe(0)
-    expect(testPorts.session.start).toHaveBeenCalledWith(
+    expect(testPorts.session.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: process.cwd() }),
     )
-    expect(testPorts.session.start).not.toHaveBeenCalledWith(
+    expect(testPorts.session.startSession).not.toHaveBeenCalledWith(
       expect.objectContaining({ prompt: '' }),
     )
   })
@@ -743,7 +744,7 @@ describe('runCli', () => {
         startProbes: vi.fn(),
       },
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -792,7 +793,7 @@ describe('runCli', () => {
     const waitUntilExit = vi.fn(async () => {})
     const testPorts = ports({
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -817,7 +818,7 @@ describe('runCli', () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '' })
     expect(testPorts.session.startInteractive).toHaveBeenCalledWith({ cwd: process.cwd() })
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
     expect(testPorts.session.configureTerminalOutput).toHaveBeenCalledWith({
       streamToStdout: false,
     })
@@ -898,7 +899,7 @@ describe('runCli', () => {
         }),
       },
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -941,7 +942,7 @@ describe('runCli', () => {
     }))
     const firstPorts = ports({
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => withPaste),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -978,7 +979,7 @@ describe('runCli', () => {
     }))
     const secondPorts = ports({
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => withoutPaste),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -1020,7 +1021,7 @@ describe('runCli', () => {
         })),
       },
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -1070,7 +1071,7 @@ describe('runCli', () => {
     }
     const testPorts = ports({
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -1116,7 +1117,7 @@ describe('runCli', () => {
     }
     const testPorts = ports({
       session: {
-        start: vi.fn(async () => ({ id: 'legacy-session' })),
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
         startInteractive: vi.fn(async () => interactive),
         resume: vi.fn(async (id) => ({ id })),
         interrupt: vi.fn(async () => {}),
@@ -1141,7 +1142,7 @@ describe('runCli', () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('Before we start:')
-    expect(testPorts.session.start).toHaveBeenCalledWith(
+    expect(testPorts.session.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: process.cwd() }),
     )
     expect(testPorts.session.startInteractive).not.toHaveBeenCalled()
@@ -1178,7 +1179,7 @@ describe('runCli', () => {
       interactionMode = input.mode
     })
     const session = {
-      start: vi.fn(async ({ cwd }: { cwd: string; prompt?: string }) => {
+      startSession: vi.fn(async ({ cwd }: { cwd: string; prompt?: string }) => {
         const state = createSession({
           id: 'session-json-tty',
           cwd,
@@ -1324,7 +1325,7 @@ describe('runCli', () => {
     const result = await runCli([], testPorts)
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain('I understand the risk')
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
   })
 
   it('resumes a persisted session through the session runtime port', async () => {
@@ -1461,7 +1462,7 @@ describe('runCli', () => {
     expect(result).toMatchObject({ exitCode: 1, stderr: '' })
     expect(result.stdout).toContain('directory_untrusted')
     expect(testPorts.native.probe).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
   })
 
   it('supports a scriptable exact-folder opt-in', async () => {
@@ -1476,7 +1477,7 @@ describe('runCli', () => {
     const result = await runCli(['chat', 'hello', '--json', '--trust-workspace'], testPorts)
     expect(result.exitCode).toBe(0)
     expect(trust.grant).toHaveBeenCalledWith(expect.any(String), 'exact')
-    expect(testPorts.session.start).toHaveBeenCalledOnce()
+    expect(testPorts.session.startSession).toHaveBeenCalledOnce()
   })
 
   it('exits an interactive trust prompt without starting any runtime', async () => {
@@ -1499,7 +1500,7 @@ describe('runCli', () => {
     })
     expect(result.exitCode).toBe(1)
     expect(testPorts.native.probe).not.toHaveBeenCalled()
-    expect(testPorts.session.start).not.toHaveBeenCalled()
+    expect(testPorts.session.startSession).not.toHaveBeenCalled()
   })
 
   it('lists and revokes trust rules without gating the management command', async () => {

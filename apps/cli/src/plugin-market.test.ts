@@ -5,10 +5,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { probeSandbox, resolveBinary } from '@volund/native-bridge'
-import { PluginError } from '@volund/plugin-runtime'
-import { afterEach, describe, expect, it } from 'vitest'
-
 import {
   fetchMarketIndex,
   installFromMarket,
@@ -21,7 +17,11 @@ import {
   readMarketSource,
   uninstallMarketDir,
   type MarketPluginEntry,
-} from './plugin-market'
+} from '@volund/app-runtime'
+import { probeSandbox, resolveBinary } from '@volund/native-bridge'
+import { PluginError } from '@volund/plugin-runtime'
+import { afterEach, describe, expect, it } from 'vitest'
+
 import { createProductionPorts } from './runtime'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')

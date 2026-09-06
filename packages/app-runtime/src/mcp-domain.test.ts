@@ -16,10 +16,10 @@ import {
   McpManager,
   parseMcpServerEntries,
   removeMcpServerToml,
-  resolveSkillSpecToDirectories,
   upsertMcpServerToml,
   type McpServerConfig,
-} from './mcp'
+} from './mcp-domain'
+import { resolveSkillSpecToDirectories } from './skill-install'
 
 const dirs: string[] = []
 afterEach(async () =>

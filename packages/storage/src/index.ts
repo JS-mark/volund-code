@@ -354,6 +354,29 @@ export interface UndoStepResult {
   stepCreatedAt?: string
 }
 
+/** W-08：单会话文件变更聚合（changes 视图的数据源）。 */
+export interface SessionChanges {
+  paths: {
+    path: string
+    /** 首个备份时文件不存在 = 会话新建。 */
+    created: boolean
+    batches: number
+    lastModifiedAt: string
+    /** 全部批次已被 /undo 消费。 */
+    allConsumed: boolean
+  }[]
+  missing: boolean
+}
+
+/** W-08：undo 预览（不执行、不消费）。 */
+export interface UndoPreview {
+  undoable: boolean
+  reason?: 'no_backup'
+  paths: string[]
+  warnings: UndoStepWarning[]
+  stepCreatedAt?: string
+}
+
 export interface RestoreResult {
   restored: string[]
   conflicts: string[]
@@ -560,6 +583,76 @@ export class BackupStore {
       }
     } finally {
       for (const release of releases.toReversed()) await release()
+    }
+  }
+  /**
+   * W-08 Web changes 视图：按路径聚合本会话的备份批次（会话归属的文件效果；
+   * Bash 无备份语义，天然不在此列）。只读，不消费任何批次。
+   */
+  async changes(sessionId: string): Promise<SessionChanges> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest) return { paths: [], missing: true }
+    const byPath = new Map<string, BackupRecord[]>()
+    for (const record of manifest.records) {
+      const list = byPath.get(record.path) ?? []
+      list.push(record)
+      byPath.set(record.path, list)
+    }
+    const paths = [...byPath.entries()]
+      .map(([path, records]) => {
+        const sorted = [...records].toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
+        const first = sorted[0]!
+        const last = sorted.at(-1)!
+        return {
+          path,
+          created: !first.existed,
+          batches: new Set(sorted.map((record) => record.stepId ?? record.createdAt)).size,
+          lastModifiedAt: last.createdAt,
+          allConsumed: sorted.every((record) => record.consumedAt !== undefined),
+        }
+      })
+      .toSorted((a, b) => b.lastModifiedAt.localeCompare(a.lastModifiedAt))
+    return { paths, missing: false }
+  }
+  /**
+   * W-08 undo 预览（§8.6.2 / §22：destructive 动作先 preview 再确认）：
+   * 返回下一批可撤销批次的路径与警告，不执行、不消费。
+   */
+  async previewUndoStep(sessionId: string): Promise<UndoPreview> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest || manifest.records.length === 0)
+      return { undoable: false, reason: 'no_backup', paths: [], warnings: [] }
+    const step = undoStepsOf(manifest.records).find((records) =>
+      records.every((record) => !record.consumedAt),
+    )
+    if (!step) return { undoable: false, reason: 'no_backup', paths: [], warnings: [] }
+    const paths = [...new Set(step.map((record) => record.path))].toSorted()
+    const warnings: UndoStepWarning[] = []
+    for (const record of step) {
+      if (!record.existed || !record.backupPath) continue
+      try {
+        await stat(record.backupPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          warnings.push({ path: record.path, kind: 'backup_missing' })
+        continue
+      }
+      try {
+        const currentHash = await sourceHash(record.path)
+        if (currentHash !== record.afterHash && currentHash !== record.beforeHash)
+          warnings.push({ path: record.path, kind: 'target_modified' })
+      } catch {
+        // 备份后目标已消失：恢复会重建它，无需警告。
+      }
+    }
+    const stepCreatedAt = step[0]?.createdAt
+    return {
+      undoable: true,
+      paths,
+      warnings,
+      ...(stepCreatedAt ? { stepCreatedAt } : {}),
     }
   }
   private async markConsumed(sessionId: string, step: readonly BackupRecord[]): Promise<void> {

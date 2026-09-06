@@ -2,8 +2,13 @@ import { createReadStream } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 
-import { formatShortDay } from '@volund/ui'
-import type { StatsModelShare, StatsOverview, StatusStatsData, StatusUsageData } from '@volund/ui'
+import { formatShortDay } from './status-view'
+import type {
+  StatsModelShare,
+  StatsOverview,
+  StatusStatsData,
+  StatusUsageData,
+} from './status-view'
 
 /**
  * /status Usage 与 Stats 页签的数据源：直接挖掘 ~/.volund/sessions/*.jsonl

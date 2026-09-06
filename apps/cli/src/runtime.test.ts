@@ -14,6 +14,18 @@ import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+import {
+  buildStatusViewModel,
+  composeAttachmentInput,
+  registerRuntimeMemoryPrompts,
+  Context,
+  createPluginMemoryHost,
+  createProductionToolPermissionChain,
+  createStatusSnapshotAdapter,
+  ProductionPermissionSessionPolicy,
+  requestPermission,
+  SessionController,
+} from '@volund/app-runtime'
 import { createSession, DefaultPromptComposer, EventBus, updateSession } from '@volund/core'
 import type { Runner, SessionState } from '@volund/core'
 import type { PermissionRequest } from '@volund/permission'
@@ -30,15 +42,10 @@ import { projectMemoryScope } from './memory-scope'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import {
-  buildStatusViewModel,
   collectPluginSkillDirs,
-  createPluginMemoryHost,
   createProductionPorts,
   NodeHttpPort,
-  ProductionPermissionSessionPolicy,
   resetProxyTlsCache,
-  createProductionToolPermissionChain,
-  createStatusSnapshotAdapter,
   FileInputHistoryStore,
   expandEnvValue,
   languagePromptFragment,
@@ -46,11 +53,7 @@ import {
   loadProductionContextTuning,
   readEffectiveEnv,
   registerPluginCommands,
-  registerRuntimeMemoryPrompts,
-  composeAttachmentInput,
   requestHttp2,
-  requestPermission,
-  RuntimeSessionPort,
 } from './runtime'
 import { buildSkillInvocationText, createSkillTool, mapAllowedTools } from './skill-tool'
 
@@ -114,12 +117,15 @@ function fakeFactory(
   }
 }
 
-describe('RuntimeSessionPort', () => {
+describe('SessionController（自 RuntimeSessionPort 迁入 app-runtime）', () => {
   it('runs through a real session port and persists appendix D events (no session.snapshot)', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
-    const runtime = new RuntimeSessionPort(root, fakeFactory())
-    const { id } = await runtime.start({ cwd: process.cwd(), prompt: 'hello' })
+    const runtime = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
+    const { id } = await runtime.startSession({ cwd: process.cwd(), prompt: 'hello' })
     const lines = (await readFile(join(root, `${id}.jsonl`), 'utf8'))
       .trim()
       .split('\n')
@@ -141,15 +147,18 @@ describe('RuntimeSessionPort', () => {
   it('resumes via event replay, aborts an incomplete turn, and emits session.resumed', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
-    const first = new RuntimeSessionPort(root, fakeFactory())
-    const { id } = await first.start({ cwd: process.cwd(), prompt: 'unfinished' })
+    const first = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
+    const { id } = await first.startSession({ cwd: process.cwd(), prompt: 'unfinished' })
     let restored: SessionState | undefined
-    const second = new RuntimeSessionPort(
-      root,
-      fakeFactory((state) => {
+    const second = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory((state) => {
         restored = state
       }),
-    )
+    })
     await second.resume(id)
     expect(restored?.activeTurn).toBeNull()
     expect(restored?.turns[0]?.status).toBe('aborted')
@@ -159,9 +168,15 @@ describe('RuntimeSessionPort', () => {
   it('returns an interactive handle for the restored session', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
-    const first = new RuntimeSessionPort(root, fakeFactory())
-    const { id } = await first.start({ cwd: process.cwd(), prompt: 'before resume' })
-    const second = new RuntimeSessionPort(root, fakeFactory())
+    const first = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
+    const { id } = await first.startSession({ cwd: process.cwd(), prompt: 'before resume' })
+    const second = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
 
     const interactive = await second.resumeInteractive(id)
     await interactive.submit('after resume')
@@ -173,8 +188,11 @@ describe('RuntimeSessionPort', () => {
   it('preserves markdown block structure in the resumed transcript', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
-    const first = new RuntimeSessionPort(root, fakeFactory())
-    const { id } = await first.start({ cwd: process.cwd(), prompt: 'before resume' })
+    const first = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
+    const { id } = await first.startSession({ cwd: process.cwd(), prompt: 'before resume' })
     // 追加一条带多行 markdown 的 assistant 事件，模拟真实会话落盘内容。
     const markdown = '## 标题\n\n- 第一项\n- 第二项\n\n```ts\nconst a = 1\n```'
     await appendFile(
@@ -192,7 +210,10 @@ describe('RuntimeSessionPort', () => {
       })}\n`,
     )
 
-    const second = new RuntimeSessionPort(root, fakeFactory())
+    const second = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
     const interactive = await second.resumeInteractive(id)
 
     const entry = interactive.transcript?.find((item) => item.id === 'assistant-1')
@@ -202,13 +223,19 @@ describe('RuntimeSessionPort', () => {
   it('keeps the current session active when a resumed runner cannot be constructed', async () => {
     const root = await mkdtemp(join(process.cwd(), '.runtime-'))
     fixtures.push(root)
-    const targetRuntime = new RuntimeSessionPort(root, fakeFactory())
-    const target = await targetRuntime.start({ cwd: process.cwd(), prompt: 'target' })
+    const targetRuntime = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: fakeFactory(),
+    })
+    const target = await targetRuntime.startSession({ cwd: process.cwd(), prompt: 'target' })
     let creations = 0
-    const runtime = new RuntimeSessionPort(root, (state, events) => {
-      creations += 1
-      if (creations > 1) throw new Error('runner construction failed')
-      return fakeFactory()(state, events)
+    const runtime = new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: (state, events) => {
+        creations += 1
+        if (creations > 1) throw new Error('runner construction failed')
+        return fakeFactory()(state, events)
+      },
     })
     const current = await runtime.startInteractive({ cwd: process.cwd() })
 
@@ -249,18 +276,11 @@ describe('§7.5.2 clipboard attachment paste', () => {
     captured: { input?: unknown },
     clipboard: { read: () => Promise<unknown> },
   ) {
-    return new RuntimeSessionPort(
-      root,
-      captureFactory(captured),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      clipboard as never,
-    )
+    return new SessionController(new Context(), {
+      sessionsDir: root,
+      createRunner: captureFactory(captured),
+      clipboard: clipboard as never,
+    })
   }
 
   it('stages a clipboard image and submits it as an image ContentPart (no consent gate)', async () => {

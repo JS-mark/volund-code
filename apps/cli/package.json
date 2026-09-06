@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@volund/app-runtime": "workspace:*",
     "@volund/auth": "workspace:*",
     "@volund/config": "workspace:*",
     "@volund/context": "workspace:*",
@@ -40,6 +41,7 @@
     "@volund/tool-kit": "workspace:*",
     "@volund/tools": "workspace:*",
     "@volund/ui": "workspace:*",
+    "@volund/web-server": "workspace:*",
     "citty": "catalog:",
     "react-devtools-core": "catalog:",
     "uuid": "catalog:"

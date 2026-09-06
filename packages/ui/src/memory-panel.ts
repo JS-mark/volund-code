@@ -1,78 +1,14 @@
-export type MemoryPanelErrorCode =
-  | 'memory_conflict'
-  | 'memory_corrupt'
-  | 'memory_index_corrupt'
-  | 'memory_index_busy'
-  | 'memory_index_unavailable'
-  | 'memory_io'
-  | 'memory_not_found'
-  | 'memory_scope_denied'
-  | 'memory_validation'
-  | 'memory_unknown'
-
-export interface MemoryPanelError extends Error {
-  code?: MemoryPanelErrorCode
-}
-
-export interface MemoryPanelRecord {
-  id: string
-  content: string
-  tags: readonly string[]
-  pinned: boolean
-  scope: string
-  source: string
-  actor?: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface MemoryPanelPage {
-  items: readonly MemoryPanelRecord[]
-  nextCursor?: string
-}
-
-export interface MemoryPanelController {
-  readonly scopeLabel: string
-  readonly searchAvailable: boolean
-  list(input: { cursor?: string; limit: number; signal?: AbortSignal }): Promise<MemoryPanelPage>
-  search(input: {
-    query: string
-    limit: number
-    signal?: AbortSignal
-  }): Promise<readonly MemoryPanelRecord[]>
-  get(id: string, signal?: AbortSignal): Promise<MemoryPanelRecord | undefined>
-  update(
-    id: string,
-    patch: { content: string; tags: readonly string[] },
-    expectedUpdatedAt: string,
-  ): Promise<MemoryPanelRecord>
-  delete(id: string, expectedUpdatedAt: string): Promise<void>
-  pin(id: string, expectedUpdatedAt: string): Promise<MemoryPanelRecord>
-  unpin(id: string, expectedUpdatedAt: string): Promise<MemoryPanelRecord>
-}
-
-export type MemoryPanelMode =
-  | 'confirmDelete'
-  | 'conflict'
-  | 'detail'
-  | 'discardEdit'
-  | 'edit'
-  | 'empty'
-  | 'list'
-  | 'loadError'
-  | 'loading'
-  | 'mutating'
-  | 'noMatch'
-  | 'searchError'
-  | 'searching'
-
-export function memoryPanelError(error: unknown): { code: MemoryPanelErrorCode; message: string } {
-  const value = error as MemoryPanelError
-  return {
-    code: value?.code ?? 'memory_unknown',
-    message: error instanceof Error ? error.message : String(error),
-  }
-}
+// Memory 面板契约已迁至 @volund/app-runtime（P1-04b）；此处 re-export 保持兼容。
+// 终端宽度渲染函数留在本包（Ink 渲染关注列宽）。
+export {
+  memoryPanelError,
+  type MemoryPanelController,
+  type MemoryPanelError,
+  type MemoryPanelErrorCode,
+  type MemoryPanelMode,
+  type MemoryPanelPage,
+  type MemoryPanelRecord,
+} from '@volund/app-runtime'
 
 export function truncateTerminal(value: string, columns: number): string {
   if (columns <= 0) return ''
