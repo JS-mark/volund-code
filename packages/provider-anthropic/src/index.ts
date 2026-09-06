@@ -193,7 +193,9 @@ export function mapAnthropicError(
   let message = body?.error?.message ?? `Anthropic request failed (${status})`
   // 兼容型网关常按模型路由图片能力（如 "No endpoints found that support image
   // input"）——把冷门的网关话术翻译成可操作的指引。
-  if (/image input|support image|not support.*image|image.*not (?:supported|support)/i.test(message))
+  if (
+    /image input|support image|not support.*image|image.*not (?:supported|support)/i.test(message)
+  )
     message += ` — model '${model ?? 'current'}' does not accept image input on this endpoint: switch to a vision-capable model (/model), or resend without the image`
   return Object.assign(new Error(message), {
     provider: 'anthropic',

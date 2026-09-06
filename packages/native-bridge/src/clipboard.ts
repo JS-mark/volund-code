@@ -28,10 +28,7 @@ export interface ClipboardExecResult {
   readonly stdout: Uint8Array
   readonly stderr: Uint8Array
 }
-export type ClipboardExec = (
-  file: string,
-  args: readonly string[],
-) => Promise<ClipboardExecResult>
+export type ClipboardExec = (file: string, args: readonly string[]) => Promise<ClipboardExecResult>
 
 export interface ClipboardReaderOptions {
   readonly platform?: NodeJS.Platform

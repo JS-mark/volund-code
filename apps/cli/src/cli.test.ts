@@ -891,7 +891,9 @@ describe('runCli', () => {
       config: {
         health: async () => ({ valid: true, detail: 'ok' }),
         listMerged: async () => ({
-          config: { models: { aliases: { vision: { provider: 'anthropic', model: 'mimo-v2.5' } } } },
+          config: {
+            models: { aliases: { vision: { provider: 'anthropic', model: 'mimo-v2.5' } } },
+          },
           warnings: [],
         }),
       },

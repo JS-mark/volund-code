@@ -954,7 +954,11 @@ export async function runCli(
             : undefined
         if (aliases)
           for (const [name, value] of Object.entries(aliases))
-            if (value && typeof value === 'object' && typeof (value as { model?: unknown }).model === 'string') {
+            if (
+              value &&
+              typeof value === 'object' &&
+              typeof (value as { model?: unknown }).model === 'string'
+            ) {
               const entry = value as { provider?: unknown; model: string }
               modelAliases[name] = {
                 provider: typeof entry.provider === 'string' ? entry.provider : 'anthropic',
@@ -1027,9 +1031,7 @@ export async function runCli(
                     ...(resumed.attachFilePath
                       ? { onAttachFilePath: (path: string) => resumed.attachFilePath!(path) }
                       : {}),
-                    ...(resumed.listFiles
-                      ? { listFiles: () => resumed.listFiles!() }
-                      : {}),
+                    ...(resumed.listFiles ? { listFiles: () => resumed.listFiles!() } : {}),
                     onSubmit: resumed.submit,
                     ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
                   }

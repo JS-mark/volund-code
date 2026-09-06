@@ -21,16 +21,13 @@ afterEach(async () => {
 })
 
 /** darwin 假 exec：按 osascript 脚本内容/pbpaste 分派，图片经 argv 落点写临时文件。 */
-function darwinExec(handlers: {
-  file?: string
-  image?: Uint8Array
-  text?: string
-}): ClipboardExec {
+function darwinExec(handlers: { file?: string; image?: Uint8Array; text?: string }): ClipboardExec {
   return async (file, args) => {
     if (file === 'osascript') {
       const script = args.join(' ')
       if (script.includes('«class furl»')) {
-        if (handlers.file) return { stderr: new Uint8Array(), stdout: new TextEncoder().encode(handlers.file) }
+        if (handlers.file)
+          return { stderr: new Uint8Array(), stdout: new TextEncoder().encode(handlers.file) }
         throw new Error('no file on clipboard')
       }
       const imageClass = script.match(/«class (\w+)»/)?.[1]
@@ -43,7 +40,8 @@ function darwinExec(handlers: {
       throw new Error(`clipboard has no ${imageClass}`)
     }
     if (file === 'pbpaste') {
-      if (handlers.text) return { stderr: new Uint8Array(), stdout: new TextEncoder().encode(handlers.text) }
+      if (handlers.text)
+        return { stderr: new Uint8Array(), stdout: new TextEncoder().encode(handlers.text) }
       throw new Error('empty clipboard')
     }
     throw new Error(`unexpected command: ${file}`)
@@ -128,9 +126,11 @@ describe('createClipboardReader (linux)', () => {
     const exec: ClipboardExec = async (file, args) => {
       expect(file).toBe('wl-paste')
       if (args.includes('--list-types'))
-        return { stderr: new Uint8Array(), stdout: new TextEncoder().encode('text/plain\nimage/png\n') }
-      if (args.includes('image/png'))
-        return { stderr: new Uint8Array(), stdout: PNG_BYTES }
+        return {
+          stderr: new Uint8Array(),
+          stdout: new TextEncoder().encode('text/plain\nimage/png\n'),
+        }
+      if (args.includes('image/png')) return { stderr: new Uint8Array(), stdout: PNG_BYTES }
       return { stderr: new Uint8Array(), stdout: new TextEncoder().encode('plain') }
     }
     const reader = createClipboardReader({ exec, platform: 'linux' })
@@ -145,7 +145,10 @@ describe('createClipboardReader (linux)', () => {
     const exec: ClipboardExec = async (file, args) => {
       if (file === 'wl-paste') throw new Error('command not found')
       if (args.includes('TARGETS'))
-        return { stderr: new Uint8Array(), stdout: new TextEncoder().encode('UTF8_STRING\ntext/plain\n') }
+        return {
+          stderr: new Uint8Array(),
+          stdout: new TextEncoder().encode('UTF8_STRING\ntext/plain\n'),
+        }
       return { stderr: new Uint8Array(), stdout: new TextEncoder().encode('x11 text') }
     }
     const reader = createClipboardReader({ exec, platform: 'linux' })

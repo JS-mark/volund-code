@@ -25,10 +25,10 @@ import { StreamingStatus, type StreamingPhase } from './components/StreamingStat
 import { SubagentsPanel } from './components/SubagentsPanel'
 import { TabbedListView } from './components/TabbedListView'
 import { TopBar } from './components/TopBar'
-import { WelcomeScreen } from './components/welcome/WelcomeScreen'
-import { WelcomeStatusBar } from './components/welcome/WelcomeStatusBar'
 import { getWelcomeLayout } from './components/welcome/welcomeLayout'
+import { WelcomeScreen } from './components/welcome/WelcomeScreen'
 import { buildWelcomeScreenState } from './components/welcome/welcomeStateAdapter'
+import { WelcomeStatusBar } from './components/welcome/WelcomeStatusBar'
 import { useSessionEvents } from './hooks/useSessionEvents'
 import { useStreamBuffer } from './hooks/useStreamBuffer'
 import type { CommandListEntry, CommandListView } from './list-picker'
@@ -520,8 +520,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         if (result.kind === 'denied') appendSystemMessage(setState, 'clipboard attachment denied')
         else if (result.kind === 'empty')
           appendSystemMessage(setState, 'clipboard has no image or file to attach')
-        else
-          appendSystemMessage(setState, `clipboard attachment unavailable: ${result.reason}`)
+        else appendSystemMessage(setState, `clipboard attachment unavailable: ${result.reason}`)
         return result
       } catch (error) {
         setShowWelcome(false)
@@ -810,7 +809,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               }
             },
           }
-        : unavailableSlashCommand('paste', 'Attach the clipboard image or file to the input box', 140),
+        : unavailableSlashCommand(
+            'paste',
+            'Attach the clipboard image or file to the input box',
+            140,
+          ),
     ]
     return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
   }, [
