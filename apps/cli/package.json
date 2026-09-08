@@ -44,7 +44,6 @@
     "@volund/ui": "workspace:*",
     "@volund/web-server": "workspace:*",
     "citty": "catalog:",
-    "react-devtools-core": "catalog:",
     "uuid": "catalog:"
   },
   "devDependencies": {
