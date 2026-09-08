@@ -524,6 +524,14 @@ html[data-theme='light'] .rail-menu-item.disabled {
   font-size: 11px;
   color: var(--ant-color-text-quaternary);
 }
+/* 下拉菜单里的自绘图标槽位：antd 的 item-icon 槽位类只克隆到自家图标组件上，
+   自绘 SVG 拿不到——菜单项图标间距/字号在这里补齐（与原生 slot 实测值对齐）。 */
+.wb-menu-icon {
+  display: inline-flex;
+  margin-inline-end: 8px;
+  font-size: 12px;
+  vertical-align: -1.5px;
+}
 .wb-pane {
   flex: 1;
   min-height: 0;

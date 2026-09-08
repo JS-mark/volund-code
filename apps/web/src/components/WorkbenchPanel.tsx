@@ -43,22 +43,26 @@ const TOOL_DEFS: { kind: ToolKind; title: string; icon: React.ReactNode }[] = [
   { kind: 'terminal', title: '终端', icon: <TerminalIcon /> },
 ]
 
-/** 终端图标（antd 无终端图标，按参考图手绘：显示器 + >_）。 */
+/** 终端图标（antd 无终端图标，按参考图手绘：显示器 + >_）。
+ * 自绘 SVG 必须包 anticon 类 span——antd 菜单/按钮的图标间距挂在 .anticon
+ * 选择器上，裸 SVG 图标会贴住文字。 */
 function TerminalIcon() {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      width="1em"
-      height="1em"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.3}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" />
-      <path d="M4.4 5.8l2.4 2.2-2.4 2.2M7.8 10.4h3.4" />
-    </svg>
+    <span role="img" aria-label="终端" className="anticon">
+      <svg
+        viewBox="0 0 16 16"
+        width="1em"
+        height="1em"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" />
+        <path d="M4.4 5.8l2.4 2.2-2.4 2.2M7.8 10.4h3.4" />
+      </svg>
+    </span>
   )
 }
 
@@ -76,21 +80,25 @@ const wbIconProps = {
 /** 新建对话图标（气泡 + 加号，对齐参考图）。 */
 export function NewChatIcon() {
   return (
-    <svg {...wbIconProps}>
-      <path d="M8 2.2c-3.5 0-6.2 2.2-6.2 5 0 1.6.9 3 2.3 4l-.5 2.6 2.5-1.2c.6.1 1.2.2 1.9.2" />
-      <path d="M11 9.4v4.4M8.8 11.6h4.4" />
-      <circle cx="11" cy="11.6" r="3.4" />
-    </svg>
+    <span role="img" aria-label="新对话" className="anticon">
+      <svg {...wbIconProps}>
+        <path d="M8 2.2c-3.5 0-6.2 2.2-6.2 5 0 1.6.9 3 2.3 4l-.5 2.6 2.5-1.2c.6.1 1.2.2 1.9.2" />
+        <path d="M11 9.4v4.4M8.8 11.6h4.4" />
+        <circle cx="11" cy="11.6" r="3.4" />
+      </svg>
+    </span>
   )
 }
 
 /** 工作台图标（右侧面板，对齐参考图）。 */
 export function WorkbenchIcon() {
   return (
-    <svg {...wbIconProps}>
-      <rect x="1.6" y="2.8" width="12.8" height="10.4" rx="1.6" />
-      <path d="M9.8 2.8v10.4M11.6 6h1M11.6 8h1" />
-    </svg>
+    <span role="img" aria-label="工作台" className="anticon">
+      <svg {...wbIconProps}>
+        <rect x="1.6" y="2.8" width="12.8" height="10.4" rx="1.6" />
+        <path d="M9.8 2.8v10.4M11.6 6h1M11.6 8h1" />
+      </svg>
+    </span>
   )
 }
 
@@ -567,7 +575,17 @@ export function WorkbenchPanel({
           placement="bottomRight"
           menu={{
             items: [
-              ...TOOL_DEFS.map((tool) => ({ key: tool.kind, label: tool.title, icon: tool.icon })),
+              ...TOOL_DEFS.map((tool) => ({
+                key: tool.kind,
+                label: tool.title,
+                // 自绘图标补菜单槽位样式（antd 的 item-icon 类不会克隆给非自家图标）。
+                icon:
+                  tool.kind === 'terminal' ? (
+                    <span className="wb-menu-icon">{tool.icon}</span>
+                  ) : (
+                    tool.icon
+                  ),
+              })),
               { key: 'open-file', label: '打开文件', icon: <FileOutlined /> },
             ],
             onClick: ({ key }) => {
