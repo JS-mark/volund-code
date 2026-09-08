@@ -10,6 +10,7 @@
     "**/build/**",
     "**/coverage/**",
     "**/node_modules/**",
-    "apps/docs/api/**"
+    "apps/docs/api/**",
+    "**/next-env.d.ts"
   ]
 }
