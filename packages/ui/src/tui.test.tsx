@@ -953,11 +953,12 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('> /help Show slash commands')
-    expect(stdout.output).toContain('/status Show runtime status (not available)')
-    expect(stdout.output).toContain('/context Show context status (not available)')
-    expect(stdout.output).toContain('/memory Browse and manage memory (not available)')
-    expect(stdout.output).toContain('/resume Resume a saved session (not available)')
+    // 两栏布局：命令名固定列宽 + 描述列截断，中间是填充空格，断言用 \s+ 跨列。
+    expect(stdout.output).toMatch(/> \/help\s+Show slash commands/)
+    expect(stdout.output).toMatch(/\/status\s+Show runtime status \(not available\)/)
+    expect(stdout.output).toMatch(/\/context\s+Show context status \(not available\)/)
+    expect(stdout.output).toMatch(/\/memory\s+Browse and manage memory \(not available\)/)
+    expect(stdout.output).toMatch(/\/resume\s+Resume a saved session \(not available\)/)
   })
 
   it('lists /resume, switches bindings, and does not store the slash command in input history', async () => {
@@ -1101,11 +1102,11 @@ describe('renderInteractiveApp', () => {
     )
 
     await input.waitUntilRenderFlush()
-    expect(stdout.output).toContain('> /help Show slash commands')
+    expect(stdout.output).toMatch(/> \/help\s+Show slash commands/)
 
     stdin.write('\u001B[B')
     await input.waitUntilRenderFlush()
-    expect(stdout.output).toContain('> /model Switch model')
+    expect(stdout.output).toMatch(/> \/model\s+Switch model/)
 
     stdin.write('\r')
     await input.waitUntilRenderFlush()
@@ -1147,7 +1148,43 @@ describe('renderInteractiveApp', () => {
 
     for (let index = 0; index < 10; index += 1) stdin.write('\u001B[B')
     await input.waitUntilRenderFlush()
-    expect(stdout.output).toContain('> /cmd10 command 10')
+    expect(stdout.output).toMatch(/> \/cmd10\s+command 10/)
+
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
+  it('truncates long slash command descriptions instead of wrapping', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 50
+    const stdin = new MemoryReadStream()
+    const input = render(
+      createElement(InputBox, {
+        initialValue: '/',
+        onSubmit: () => {},
+        slashCommands: [
+          {
+            name: 'help',
+            description: 'Show slash commands with a very verbose explanation that wraps',
+            run: () => {},
+          },
+        ],
+        terminalColumns: 50,
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    // 两栏布局：描述列 truncate-end 截断（…），任何宽度下都不折行——旧实现
+    // 在 50 列下会把整行折到多行，尾部 'that wraps' 仍然完整可见。
+    expect(stdout.output).toContain('…')
+    expect(stdout.output).not.toContain('that wraps')
 
     input.unmount()
     await input.waitUntilExit()
@@ -1874,8 +1911,8 @@ describe('renderInteractiveApp', () => {
     await app.unmount()
     await app.waitUntilExit()
 
-    expect(stdout.output).toContain('/model Switch model')
-    expect(stdout.output).not.toContain('/model Switch model (not available)')
+    expect(stdout.output).toMatch(/\/model\s+Switch model/)
+    expect(stdout.output).not.toMatch(/\/model\s+Switch model \(not available\)/)
   })
 
   it('opens /status and closes it with escape', async () => {

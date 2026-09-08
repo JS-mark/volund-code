@@ -203,6 +203,23 @@ export function InputBox({
   const imageSequence = useRef(0)
   const ranges = chipRanges(value, chips)
   const suggestions = slashSuggestions(value, slashCommands)
+  // 建议列表滚动窗口与命令名列宽在渲染前算一次（窗口起止原在 JSX 里重复两份）。
+  const slashWindowStart = Math.min(
+    Math.max(0, slashSuggestionIndex - (SLASH_SUGGESTION_WINDOW - 1)),
+    Math.max(0, suggestions.length - SLASH_SUGGESTION_WINDOW),
+  )
+  const visibleSuggestions = suggestions
+    .map((command, index) => ({ command, index }))
+    .slice(slashWindowStart, slashWindowStart + SLASH_SUGGESTION_WINDOW)
+  // 命令名列宽 = 选中标记 2 格（"> " / "  "）+ 可见窗口内最长 "/name" + 4 格间隙；
+  // 封顶可用宽度一半（插件长名不挤掉描述列），保底 16 格。超出的名字自身也截断。
+  const slashNameColumnWidth =
+    visibleSuggestions.length === 0
+      ? 0
+      : Math.min(
+          Math.max(...visibleSuggestions.map(({ command }) => command.name.length + 7)),
+          Math.max(16, Math.floor((terminalColumns - 8) / 2)),
+        )
   // §7.5.3 `@` 统一 picker：行尾 token 边界的 @query 触发，⭐ 模型别名置顶 + 📄 文件。
   const mention = mentionQueryAt(value, cursor)
   const [mentionDismissed, setMentionDismissed] = useState(false)
@@ -585,28 +602,38 @@ export function InputBox({
             {/*
               高度预算 10 行，但完整候选可能更多（内置 10 个 + 插件命令）：
               渲染跟随选中项的滚动窗口，方向键在完整列表上循环。
+              两栏布局（对齐 Claude Code）：选中标记 + 命令名固定列宽 + 描述占满
+              剩余宽度并 truncate-end 截断（…），任何宽度下都不折行；选中行整行
+              亮青加粗，不可用命令整行灰。
             */}
-            {suggestions
-              .map((command, index) => ({ command, index }))
-              .slice(
-                Math.min(
-                  Math.max(0, slashSuggestionIndex - (SLASH_SUGGESTION_WINDOW - 1)),
-                  Math.max(0, suggestions.length - SLASH_SUGGESTION_WINDOW),
-                ),
-                Math.min(
-                  Math.max(0, slashSuggestionIndex - (SLASH_SUGGESTION_WINDOW - 1)),
-                  Math.max(0, suggestions.length - SLASH_SUGGESTION_WINDOW),
-                ) + SLASH_SUGGESTION_WINDOW,
+            {visibleSuggestions.map(({ command, index }) => {
+              const active = index === slashSuggestionIndex
+              const unavailable = command.available === false
+              const nameColor = unavailable ? 'gray' : active ? 'cyan' : undefined
+              return (
+                <Box key={command.name}>
+                  <Box flexShrink={0} width={slashNameColumnWidth}>
+                    <Text
+                      bold={active && !unavailable}
+                      wrap="truncate-end"
+                      {...(nameColor ? { color: nameColor } : {})}
+                    >
+                      {active ? '> ' : '  '}/{command.name}
+                    </Text>
+                  </Box>
+                  <Box flexGrow={1} minWidth={0}>
+                    <Text
+                      bold={active && !unavailable}
+                      color={unavailable || !active ? 'gray' : 'cyan'}
+                      wrap="truncate-end"
+                    >
+                      {command.description}
+                      {unavailable ? ' (not available)' : ''}
+                    </Text>
+                  </Box>
+                </Box>
               )
-              .map(({ command, index }) => {
-                const active = index === slashSuggestionIndex
-                return (
-                  <Text color={command.available === false ? 'gray' : 'cyan'} key={command.name}>
-                    {active ? '> ' : '  '}/{command.name} {command.description}
-                    {command.available === false ? ' (not available)' : ''}
-                  </Text>
-                )
-              })}
+            })}
           </Box>
         ) : null}
       </Box>
