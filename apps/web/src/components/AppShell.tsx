@@ -150,15 +150,20 @@ export function AppShell() {
   }, [route])
   const sidebarSearchRef = useRef<InputRef>(null)
 
-  // 全局快捷键:⌘J 打开工作台并聚焦终端(对齐 CodeBuddy web);⌘B 收起/展开侧栏(对齐 VS Code);
-  // ⌘, 打开设置(macOS 惯例;Safari 会拦截给自身偏好设置,无法 preventDefault)。
+  // 全局快捷键:⌘J 打开工作台并聚焦终端(对齐 CodeBuddy web);⌘B 收起/展开侧栏(对齐 VS Code,
+  // 侧栏仅会话页存在,故只在该路由生效,避免其他 tab 上暗改状态);⌘, 打开设置(macOS 惯例;Safari 会拦截给自身偏好设置,无法 preventDefault)。
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
         event.preventDefault()
         setRightPanel('workbench')
         setTerminalSignal((value) => value + 1)
-      } else if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
+      } else if (
+        route === 'chat' &&
+        event.metaKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'b'
+      ) {
         event.preventDefault()
         setSidebarCollapsed((collapsed) => !collapsed)
       } else if (event.metaKey && !event.shiftKey && event.key === ',') {
@@ -168,7 +173,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [route])
 
   useEffect(() => {
     let cancelled = false
@@ -378,16 +383,19 @@ export function AppShell() {
         )}
         {railButton('status', '状态', <ApiOutlined />)}
         <span style={{ flex: 1 }} />
-        <Tooltip title={sidebarCollapsed ? '展开侧栏（⌘B）' : '收起侧栏（⌘B）'} placement="right">
-          <button
-            type="button"
-            className="rail-btn"
-            aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          >
-            {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-          </button>
-        </Tooltip>
+        {/* 侧栏属于会话页,收起/展开按钮也只在会话 tab 出现。 */}
+        {route === 'chat' && (
+          <Tooltip title={sidebarCollapsed ? '展开侧栏（⌘B）' : '收起侧栏（⌘B）'} placement="right">
+            <button
+              type="button"
+              className="rail-btn"
+              aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+          </Tooltip>
+        )}
         <Dropdown
           trigger={['click']}
           placement="topLeft"
