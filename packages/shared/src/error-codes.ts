@@ -225,6 +225,9 @@ export const ErrorCodes = {
   webCsrfInvalid: 'web_csrf_invalid', // §22.10.1：mutation 缺 CSRF 头或不匹配
   webSchemaInvalid: 'web_schema_invalid', // §22.8：未知端点/非法 JSON 体
   webCapabilityUnavailable: 'web_capability_unavailable', // §22.3.4：能力未接线（诚实降级）
+  webAttachmentRejected: 'web_attachment_rejected', // §22 W-05：附件类型/大小/魔数校验失败或无活动会话
+  webStateConflict: 'web_state_conflict', // §22 W-01/§22.9.2：嵌入式模式下会话所有权在 TUI，web 侧 start/resume 被拒
+  webSessionGroupNotFound: 'web_session_group_not_found', // Web 侧栏会话分组：rename/delete/assign 指向的分组 id 不存在
   trustStoreUnavailable: 'trust_store_unavailable',
   unsupportedFlag: 'unsupported_flag',
 

@@ -14,6 +14,18 @@
     "./session-hub": {
       "types": "./dist/session-hub.d.ts",
       "default": "./dist/session-hub.js"
+    },
+    "./session-groups": {
+      "types": "./dist/session-groups.d.ts",
+      "default": "./dist/session-groups.js"
+    },
+    "./workbench": {
+      "types": "./dist/workbench.d.ts",
+      "default": "./dist/workbench.js"
+    },
+    "./terminal": {
+      "types": "./dist/terminal.d.ts",
+      "default": "./dist/terminal.js"
     }
   },
   "scripts": {
@@ -23,6 +35,7 @@
   },
   "dependencies": {
     "@volund/app-runtime": "workspace:*",
+    "@volund/gateway-server": "workspace:*",
     "@volund/shared": "workspace:*"
   },
   "devDependencies": {

@@ -57,6 +57,7 @@
 | `web_state_conflict`                   | Web API error（proposed）         | §22.9.2：config/permission/undo/extension mutation 的 revision/CAS 已过期                                                                            |
 | `web_server_draining`                  | Web API error（proposed）         | §22.9.2：server shutdown drain 期间拒绝新 mutation                                                                                                  |
 | `web_capability_unavailable`           | Web API error（proposed）         | §22.3.4：请求能力在当前平台/装配/安全门下不可用；details 返回 typed reason，不用空列表伪装                                                          |
+| `web_attachment_rejected`            | Web API error（proposed）         | §22 W-05：附件上传的类型/大小/魔数校验失败或无活动会话；不暴露磁盘路径细节                                                                          |
 | exit code `4`                          | CLI exit code                     | §17（review 存在 ≥ gate 级 finding）                                                                                                               |
 | exit code `130`                        | CLI exit code                     | §11（Ctrl+C 终止）                                                                                                                                 |
 | exit code `1` / `2`                    | CLI exit code                     | §11（一般错误 / 用法错误）                                                                                                                         |

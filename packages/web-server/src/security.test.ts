@@ -16,7 +16,9 @@ afterEach(async () => {
   handle = undefined
 })
 
-async function start(): Promise<WebServerHandle> {
+async function start(
+  overrides: Partial<Parameters<typeof createWebServer>[0]> = {},
+): Promise<WebServerHandle> {
   handle = await createWebServer({
     host: '127.0.0.1',
     port: 0,
@@ -25,46 +27,56 @@ async function start(): Promise<WebServerHandle> {
       cwd: '/tmp/web-security-test',
       session: { list: async () => [] },
     },
+    ...overrides,
   })
   return handle
 }
 
 function baseOf(handle: WebServerHandle): string {
-  return handle.url.split('/#')[0]! + '/'
+  return new URL(handle.url).origin + '/'
 }
 
-async function exchange(handle: WebServerHandle): Promise<{ cookie: string; csrf: string }> {
-  const nonce = handle.url.split('#token=')[1]!
-  const res = await fetch(`${baseOf(handle)}api/v1/browser-session/exchange`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: baseOf(handle).slice(0, -1) },
-    body: JSON.stringify({ nonce }),
-  })
+/** bootstrap 自动签发 browser session（进入无 token 门）：取 cookie + CSRF。 */
+async function authedSession(handle: WebServerHandle): Promise<{ cookie: string; csrf: string }> {
+  const res = await fetch(`${baseOf(handle)}api/v1/bootstrap`)
   expect(res.status).toBe(200)
   const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0]!
-  const csrf = ((await res.json()) as { data: { csrfToken: string } }).data.csrfToken
+  const csrf = ((await res.json()) as { data: { session: { csrfToken: string } } }).data.session
+    .csrfToken
   return { cookie, csrf }
 }
 
 describe('web attack corpus', () => {
   it('oversized bodies are rejected before parsing (64 KiB cap)', async () => {
-    const handle = await start()
+    const handle = await start({ permissionMode: { current: () => 'ask', set() {} } })
     const base = baseOf(handle)
+    const { cookie, csrf } = await authedSession(handle)
     const big = 'x'.repeat(65 * 1024)
-    const res = await fetch(`${base}api/v1/browser-session/exchange`, {
+    const res = await fetch(`${base}api/v1/permission-mode`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: base.slice(0, -1) },
-      body: JSON.stringify({ nonce: big }),
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: base.slice(0, -1),
+        Cookie: cookie,
+        'X-Volund-Csrf': csrf,
+      },
+      body: JSON.stringify({ mode: big }),
     })
-    expect([400, 403]).toContain(res.status)
+    expect(res.status).toBe(400)
   })
 
   it('malformed JSON bodies are rejected', async () => {
-    const handle = await start()
+    const handle = await start({ permissionMode: { current: () => 'ask', set() {} } })
     const base = baseOf(handle)
-    const res = await fetch(`${base}api/v1/browser-session/exchange`, {
+    const { cookie, csrf } = await authedSession(handle)
+    const res = await fetch(`${base}api/v1/permission-mode`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: base.slice(0, -1) },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: base.slice(0, -1),
+        Cookie: cookie,
+        'X-Volund-Csrf': csrf,
+      },
       body: '{broken',
     })
     expect(res.status).toBe(400)
@@ -81,7 +93,7 @@ describe('web attack corpus', () => {
     })
     expect(noSession.status).toBe(401)
     // 有 session 无 CSRF → 403。
-    const { cookie } = await exchange(handle)
+    const { cookie } = await authedSession(handle)
     const noCsrf = await fetch(`${base}api/v1/permissions/decide`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: base.slice(0, -1), Cookie: cookie },
@@ -142,7 +154,7 @@ describe('web attack corpus', () => {
       },
     })
     const base = baseOf(handle)
-    const { cookie } = await exchange(handle)
+    const { cookie } = await authedSession(handle)
     const res = await fetch(`${base}api/v1/sessions`, { headers: { Cookie: cookie } })
     const body = (await res.json()) as { data: { sessions: { title: string }[] } }
     // JSON 原样透传（无渲染），载荷完整但绝不会被服务器包成 HTML。
@@ -161,20 +173,22 @@ describe('web attack corpus', () => {
     }
   })
 
-  it('the startup nonce never appears in any HTTP response', async () => {
+  it('the startup URL carries no credential material (entry is tokenless)', async () => {
     const handle = await start()
-    const nonce = handle.url.split('#token=')[1]!
+    // 进入无 token 门：地址 = 裸 origin，任何响应面都不含凭据。
+    expect(new URL(handle.url).hash).toBe('')
+    expect(handle.url).not.toContain('token')
     const base = baseOf(handle)
     const page = await fetch(base)
-    expect(await page.text()).not.toContain(nonce)
+    expect(await page.text()).not.toContain('csrfToken')
     const health = await fetch(`${base}api/v1/health`)
-    expect(await health.text()).not.toContain(nonce)
+    expect(await health.text()).not.toContain('csrfToken')
   })
 
   it('unknown endpoints and unsupported methods are 404 without disclosure', async () => {
     const handle = await start()
     const base = baseOf(handle)
-    const { cookie } = await exchange(handle)
+    const { cookie } = await authedSession(handle)
     const unknown = await fetch(`${base}api/v1/definitely-not-a-route`, {
       headers: { Cookie: cookie },
     })
@@ -209,7 +223,7 @@ describe('web attack corpus', () => {
   it('server id rotation invalidates prior browser sessions (restart semantics)', async () => {
     const first = await start()
     const base = baseOf(first)
-    const { cookie } = await exchange(first)
+    const { cookie } = await authedSession(first)
     expect((await fetch(`${base}api/v1/sessions`, { headers: { Cookie: cookie } })).status).toBe(
       200,
     )
@@ -222,7 +236,7 @@ describe('web attack corpus', () => {
 
   it('DNS rebinding: a page rebound to the server IP sends a foreign Host and is rejected', async () => {
     const handle = await start()
-    const { hostname, port } = new URL(handle.url.split('/#')[0]!)
+    const { hostname, port } = new URL(handle.url)
     // DNS rebinding 的等效形态：请求打到 127.0.0.1:port 但 Host 是攻击者域
     //（浏览器按目标主机设 Host）。用原生 http.client 伪造（fetch 会规范化）。
     for (const path of ['/api/v1/health', '/']) {

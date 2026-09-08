@@ -99,7 +99,7 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 1. 用户执行 `volund web --cwd <path>`。
 2. CLI 归一化 cwd，执行与 `volund` 相同的 path guard 和 workspace trust。
 3. 未信任目录先在终端或浏览器完成 trust gate；信任前不得读取项目配置、MCP 或插件。
-4. server 绑定 loopback 随机端口，生成内存态启动 nonce 和 browser session。
+4. server 绑定 loopback 随机端口；browser session 由 bootstrap 自动签发（进入无 token 门）。
 5. 浏览器打开 `/onboarding`，展示工作区、沙箱 tier、Provider、关键风险和缺失依赖。
 6. 用户选择模型并创建首个 session；失败时保留诊断入口。
 
@@ -340,7 +340,7 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 5. 默认不暴露公网；tunnel/relay 必须显式 opt-in，支持立即撤销。
 6. 微信/企业微信只做消息 adapter，不直接拥有工具、文件或 permission authority。
 
-远程功能不得通过简单开放 `--host 0.0.0.0`、关闭 Origin 检查或复用启动 nonce 实现。
+远程功能不得通过简单开放 `--host 0.0.0.0` 或关闭 Origin 检查实现。
 
 ## 22.7 架构与包边界
 
@@ -389,7 +389,7 @@ CI 增加 import-boundary 检查；浏览器 bundle 扫描不得包含 Node poly
 
 ```text
 LoopbackListener
-├─ BrowserSessionGuard    # nonce exchange、HttpOnly cookie、Origin/Host/CSRF
+├─ BrowserSessionGuard    # bootstrap 自动签发、HttpOnly cookie、Origin/Host/CSRF
 ├─ ApiRouter              # typed commands + schema validation
 ├─ EventStreamGateway     # CoreEvent/view-event SSE、cursor、backpressure
 ├─ SnapshotService        # sessions/status/controllers 的权威快照
@@ -414,9 +414,8 @@ LoopbackListener
 
 | Method | Endpoint | 用途 |
 |---|---|---|
-| `POST` | `/browser-session/exchange` | 一次性启动 nonce 换 HttpOnly browser session |
 | `GET` | `/health` | server/version/runtime health |
-| `GET` | `/bootstrap` | workspace、capabilities、current user-safe settings |
+| `GET` | `/bootstrap` | 无有效 cookie 时自动签发 browser session；workspace、capabilities、current user-safe settings |
 | `GET` | `/events?cursor=` | SSE event stream |
 | `GET/POST` | `/sessions` | list/create |
 | `GET/PATCH` | `/sessions/:id` | snapshot/rename |
@@ -489,10 +488,10 @@ interface WebEventEnvelope {
 
 ### 22.10.1 浏览器会话
 
-1. 启动 URL 带一次性 fragment nonce（fragment 不发给 HTTP server/log）；bootstrap JS 通过 POST exchange。
-2. server 设置 `HttpOnly; SameSite=Strict` cookie；生产模式不把 bearer token 暴露给 JS。
+1. 进入无 token 门：启动 URL 为裸 loopback 地址；首个 GET /bootstrap 在无有效 cookie 时自动签发 browser session。
+2. server 设置 `HttpOnly; SameSite=Strict` cookie；CSRF token 只经 bootstrap payload 下发（JS 内存态持有）。
 3. mutation 需要 CSRF token + exact Origin/Host 检查。
-4. nonce 单次、有界有效期；browser session 绑定 server id，server 重启即失效。
+4. browser session 绑定 server id、有界有效期（默认 12h），server 重启即失效。
 5. CORS 默认完全关闭；不支持第三方 origin iframe。
 
 ### 22.10.2 Web 安全头
@@ -593,7 +592,7 @@ Volund CLI 的 R1–R5 不应被 Web 阻塞；Web 是可选产品 slice。但一
 - composition root 已抽取；TUI 与 Web 共用 controller，重复业务实现清单为 0。
 - new/resume/stream/interrupt/permission/tool/diff/undo/attachment 全链路 E2E 通过。
 - Memory/Skill/MCP/Plugin/settings/status 对未实现能力诚实降级。
-- Origin/Host/CSRF/nonce/XSS/path/secret/backpressure 安全 corpus 通过。
+- Origin/Host/CSRF/XSS/path/secret/backpressure 安全 corpus 通过。
 - existing dirty worktree E2E 证明不会覆盖未归属修改。
 - 10k session、5k message、高频 stream 性能预算通过。
 - desktop/tablet、键盘和 screen reader 验收通过。
@@ -615,6 +614,6 @@ Volund CLI 的 R1–R5 不应被 Web 阻塞；Web 是可选产品 slice。但一
 | plugin UI | 声明式 schema；禁止第三方 JS/HTML |
 | remote/微信/企微 | 长期独立项目，不进入本地版本 |
 | default telemetry | 本地；不自动上传 |
-| authentication | 一次性启动 nonce → HttpOnly local browser session |
+| authentication | 无进入 token；bootstrap 自动签发 HttpOnly local browser session |
 
 > ↩ [返回索引](./README.md) · ← [上一章：§21 动态反思](./21-dynamic-reflection.md)
