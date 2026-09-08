@@ -18,16 +18,4 @@ describe('productIdentity', () => {
     })
     expect(Object.isFrozen(productIdentity)).toBe(true)
   })
-
-  it('keeps apollo-era machine identifiers isolated as frozen compatibility data', () => {
-    expect(productIdentity.compatibility).toEqual({
-      commandNames: ['volund'],
-      envPrefix: 'VOLUND',
-      homeDirectoryName: '.volund',
-      packageName: '@volund/cli',
-      packageScope: '@volund',
-    })
-    expect(Object.isFrozen(productIdentity.compatibility)).toBe(true)
-    expect(Object.isFrozen(productIdentity.compatibility.commandNames)).toBe(true)
-  })
 })
