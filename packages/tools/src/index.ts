@@ -213,7 +213,7 @@ async function acquireMutationLock(path: string, sessionId: string): Promise<() 
     } catch (error) {
       lastError = error
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      if (attempt === 3) throw new Error(await lockConflictMessage(lockPath), { cause: lastError })
+      if (attempt === 3) throw new Error(await lockConflictMessage(lockPath), { cause: error })
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
     }
   }
