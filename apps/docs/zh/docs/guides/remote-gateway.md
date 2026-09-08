@@ -12,9 +12,10 @@ SSE 流式补全、WebSocket 交互会话通道。适合把编码 agent 能力�
 volund gateway --port 8788          # 或 GATEWAY_PORT
 ```
 
-首次启动且无客户端配置时，生成 bootstrap 客户端并写入 `~/.volund/gateway/clients.json`
-（0600），client_id / client_secret 只在启动输出里打印一次。签名密钥缺省生成并
-持久化在 `~/.volund/gateway/token-key`——删掉它会让所有已签发 token 失效。
+首次启动且无客户端配置时，生成 bootstrap 客户端：明文 client_secret 只在启动输出里
+打印一次，`~/.volund/gateway/clients.json`（0600）里只存其域分隔 SHA-256 哈希——老的
+明文格式文件在下次启动时自动迁移为哈希。签名密钥缺省生成并持久化在
+`~/.volund/gateway/token-key`——删掉它会让所有已签发 token 失效。
 
 ## 认证
 

@@ -26,11 +26,19 @@ import { attachWsConnection, WsBroadcaster } from './ws'
 
 export type { ChatCompletionParsed, TurnOutcome } from './chat'
 export type { GatewayEnvelope, GatewayHubLike } from './hub'
-export type { GatewayOAuthClient, GatewayTokenClaims, IssuedToken } from './oauth'
+export type {
+  GatewayOAuthClient,
+  GatewayTokenClaims,
+  GeneratedGatewayClient,
+  IssuedToken,
+  ParsedGatewayClients,
+} from './oauth'
 export {
   deriveSigningKey,
   GatewayOAuthServer,
   generateGatewayClient,
+  hashGatewayClient,
+  hashGatewayClientREFID_014Q,
   parseGatewayClients,
 } from './oauth'
 export { GatewayError, TurnQueue } from './queue'
@@ -60,7 +68,12 @@ export interface GatewayServerOptions {
   readonly listModels?: () => Promise<readonly GatewayModelListing[]>
   /** GET /v1/sessions 数据源（可恢复会话清单）；缺省返回空列表。 */
   readonly listSessions?: () => Promise<readonly unknown[]>
-  /** 无 '/' 的 model 名补的 provider 前缀（默认 'openai'）。 */
+  /**
+   * model 名归一钩子（别名 → 全限定 id → 裸名补 provider 前缀）。
+   * 缺省实现：`provider/model` 原样、裸名补 defaultProvider 前缀。
+   */
+  readonly resolveModel?: (model: string) => string
+  /** 缺省 resolveModel 用的 provider 前缀（默认 'openai'）。 */
   readonly defaultProvider?: string
   /** 队列等待上限（默认 600s）。 */
   readonly queueTimeoutMs?: number
@@ -271,8 +284,9 @@ export async function createGatewayServer(
           res,
           new GatewayError('gateway_schema_invalid', 400, 'malformed token request body'),
         )
-      let clientId = fields.get('client_id') ?? ''
-      let clientSecret = fields.get('client_secret') ?? ''
+      // 标准字段是 client_id/client_secret；{id, secret} 简写也收（内部工具/测试便利）。
+      let clientId = fields.get('client_id') ?? fields.get('id') ?? ''
+      let clientSecret = fields.get('client_secret') ?? fields.get('secret') ?? ''
       const basic = req.headers.authorization
       if (basic?.toLowerCase().startsWith('basic ')) {
         try {
@@ -388,7 +402,10 @@ export async function createGatewayServer(
               hub,
               queue,
               workspaceCwd: options.workspaceCwd,
-              defaultProvider: options.defaultProvider ?? 'openai',
+              resolveModel:
+                options.resolveModel ??
+                ((model) =>
+                  model.includes('/') ? model : `${options.defaultProvider ?? 'openai'}/${model}`),
               queueTimeoutMs,
             },
             body,

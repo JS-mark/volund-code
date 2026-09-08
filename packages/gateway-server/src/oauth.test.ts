@@ -4,14 +4,18 @@ import {
   deriveSigningKey,
   GatewayOAuthServer,
   generateGatewayClient,
+  hashGatewayClient,
+  hashGatewayClientREFID_014Q,
   parseGatewayClients,
 } from './oauth'
 import type { GatewayOAuthClient } from './oauth'
 
 const key = deriveSigningKey('test-key-material')
+/** 客户端明文只活在测试体里；服务器只见哈希。 */
+const CLIENT_PLAINTEXT = 's'.repeat(43)
 const client: GatewayOAuthClient = {
   id: 'ci-bot',
-  secret: 's'.repeat(43),
+  secretHash: hashGatewayClientREFID_014Q(CLIENT_PLAINTEXT),
   scopes: ['chat', 'sessions'],
 }
 
@@ -90,44 +94,63 @@ describe('GatewayOAuthServer', () => {
       issuer: 'volund-gateway',
       signingKey: key,
       tokenTtlSeconds: 3600,
-      clients: [{ id: 'other', secret: 't'.repeat(43), scopes: ['chat'] }],
+      clients: [
+        { id: 'other', secretHash: hashGatewayClientREFID_014Q('t'.repeat(43)), scopes: ['chat'] },
+      ],
     })
     expect(stranger.verify(issued.accessToken)).toBeUndefined()
   })
 
-  it('authenticates client credentials with constant-time compare', () => {
+  it('authenticates plaintext against the stored hash (constant-time)', () => {
     const oauth = makeServer()
-    expect(oauth.authenticate('ci-bot', 's'.repeat(43))?.id).toBe('ci-bot')
+    expect(oauth.authenticate('ci-bot', CLIENT_PLAINTEXT)?.id).toBe('ci-bot')
     expect(oauth.authenticate('ci-bot', 'wrong-secret-value')).toBeUndefined()
-    expect(oauth.authenticate('nobody', 's'.repeat(43))).toBeUndefined()
+    expect(oauth.authenticate('nobody', CLIENT_PLAINTEXT)).toBeUndefined()
   })
 })
 
 describe('parseGatewayClients', () => {
-  it('parses a valid client list', () => {
-    const clients = parseGatewayClients(
+  it('hashes plaintext entries and reports them for migration', () => {
+    const parsed = parseGatewayClients(
       JSON.stringify([{ id: 'a', secret: 'x'.repeat(32), scopes: ['chat'] }]),
     )
-    expect(clients).toEqual([{ id: 'a', secret: 'x'.repeat(32), scopes: ['chat'] }])
+    expect(parsed.clients).toEqual([
+      { id: 'a', secretHash: hashGatewayClientREFID_014Q('x'.repeat(32)), scopes: ['chat'] },
+    ])
+    expect(parsed.migratedPlaintextIds).toEqual(['a'])
+    // 落盘形态里不含明文
+    expect(JSON.stringify(parsed.clients)).not.toContain('x'.repeat(32))
+  })
+
+  it('accepts hash-form entries untouched', () => {
+    const hash = hashGatewayClientREFID_014Q('x'.repeat(32))
+    const parsed = parseGatewayClients(JSON.stringify([{ id: 'a', secretHash: hash }]))
+    expect(parsed.clients[0]?.secretHash).toBe(hash)
+    expect(parsed.migratedPlaintextIds).toEqual([])
   })
 
   it('defaults scopes to [chat]', () => {
-    const clients = parseGatewayClients(JSON.stringify([{ id: 'a', secret: 'x'.repeat(32) }]))
-    expect(clients[0]?.scopes).toEqual(['chat'])
+    const parsed = parseGatewayClients(JSON.stringify([{ id: 'a', secret: 'x'.repeat(32) }]))
+    expect(parsed.clients[0]?.scopes).toEqual(['chat'])
   })
 
   it.each([
     ['not json', 'not json'],
     ['non-array', '{}'],
     ['empty array', '[]'],
-    ['missing secret', JSON.stringify([{ id: 'a' }])],
+    ['neither secret nor hash', JSON.stringify([{ id: 'a' }])],
+    [
+      'both secret and hash',
+      JSON.stringify([{ id: 'a', secret: 'x'.repeat(32), secretHash: 'f'.repeat(64) }]),
+    ],
     ['short secret', JSON.stringify([{ id: 'a', secret: 'short' }])],
+    ['bad hash shape', JSON.stringify([{ id: 'a', secretHash: 'not-hex' }])],
     ['bad id chars', JSON.stringify([{ id: 'a b c', secret: 'x'.repeat(32) }])],
     [
       'duplicate id',
       JSON.stringify([
         { id: 'a', secret: 'x'.repeat(32) },
-        { id: 'a', secret: 'y'.repeat(32) },
+        { id: 'a', secretHash: 'f'.repeat(64) },
       ]),
     ],
     ['bad scopes', JSON.stringify([{ id: 'a', secret: 'x'.repeat(32), scopes: 'chat' }])],
@@ -136,13 +159,16 @@ describe('parseGatewayClients', () => {
   })
 })
 
-describe('generateGatewayClient', () => {
-  it('generates unique clients with chat+sessions scopes', () => {
+describe('generateGatewayClient / hashGatewayClient', () => {
+  it('generates unique clients; storage form carries only the hash', () => {
     const a = generateGatewayClient()
     const b = generateGatewayClient()
     expect(a.id).not.toBe(b.id)
     expect(a.secret).not.toBe(b.secret)
-    expect(a.scopes).toEqual(['chat', 'sessions'])
     expect(a.secret.length).toBeGreaterThanOrEqual(32)
+    const stored = hashGatewayClient(a)
+    expect(stored).not.toHaveProperty('secret')
+    expect(stored.secretHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(stored.scopes).toEqual(a.scopes)
   })
 })

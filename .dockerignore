@@ -4,8 +4,11 @@ node_modules
 **/node_modules
 **/dist
 target
+.turbo
+**/.turbo
 _tmp_test
 apps/web/out
+**/.next
 apps/docs/.vitepress/cache
 apps/docs/.vitepress/dist
 *.log

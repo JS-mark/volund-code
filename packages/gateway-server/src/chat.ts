@@ -59,7 +59,7 @@ function textOf(content: unknown, index: number): string {
 /** body 校验 + prompt 渲染；所有拒绝都是 400/409 级别的 GatewayError。 */
 export function parseChatCompletionBody(
   body: unknown,
-  options: { defaultProvider: string },
+  options: { resolveModel: (model: string) => string },
 ): ChatCompletionParsed {
   if (!body || typeof body !== 'object' || Array.isArray(body))
     throw new GatewayError('gateway_schema_invalid', 400, 'request body must be a JSON object')
@@ -81,8 +81,7 @@ export function parseChatCompletionBody(
   if (input.session_id !== undefined && sessionId === undefined)
     throw new GatewayError('gateway_schema_invalid', 400, 'session_id must be a non-empty string')
   let model: string | undefined
-  if (typeof input.model === 'string' && input.model)
-    model = input.model.includes('/') ? input.model : `${options.defaultProvider}/${input.model}`
+  if (typeof input.model === 'string' && input.model) model = options.resolveModel(input.model)
   const stream = input.stream === true
   const streamOptions = input.stream_options
   const includeUsage = Boolean(
@@ -218,7 +217,8 @@ export interface ChatHandlerDeps {
   readonly hub: GatewayHubLike
   readonly queue: TurnQueue
   readonly workspaceCwd: string
-  readonly defaultProvider: string
+  /** model 名归一（别名→全限定、裸名→补 provider 前缀）；由装配侧注入。 */
+  readonly resolveModel: (model: string) => string
   readonly queueTimeoutMs: number
   /** 客户端断开时是否 interrupt 在途 turn（默认 true）。 */
   readonly interruptOnDisconnect?: boolean
@@ -234,7 +234,7 @@ export async function handleChatCompletion(
   res: ServerResponse,
   disconnectSignal: { disconnected: () => boolean; onDisconnect(listener: () => void): void },
 ): Promise<void> {
-  const parsed = parseChatCompletionBody(body, { defaultProvider: deps.defaultProvider })
+  const parsed = parseChatCompletionBody(body, { resolveModel: deps.resolveModel })
   const release = await deps.queue.acquire(deps.queueTimeoutMs)
   const requestId = `chatcmpl-${randomUUID().replaceAll('-', '').slice(0, 24)}`
   const created = Math.floor(Date.now() / 1000)

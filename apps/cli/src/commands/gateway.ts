@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto'
  * 配置面（全部环境变量，不入 config.toml——网关是部署关注点不是用户偏好）：
  * - GATEWAY_HOST / GATEWAY_PORT（默认 0.0.0.0 / 8788；--port 可覆盖）
  * - GATEWAY_CLIENTS（JSON 数组）或 GATEWAY_CLIENTS_FILE（默认 <home>/gateway/clients.json）；
- *   两者都缺省时生成 bootstrap client 落盘并只打印一次 secret
+ *   两者都缺省时生成 bootstrap client（只打印一次明文 secret，落盘只存哈希）
  * - GATEWAY_TOKEN_SECRET；缺省生成随机密钥落盘 <home>/gateway/token-key（0600）
  * - GATEWAY_TOKEN_TTL_SECONDS（默认 3600）
  * - GATEWAY_PERMISSION_MODE（ask|auto|full，默认 auto）
@@ -28,10 +28,11 @@ import {
   createGatewayServer,
   deriveSigningKey,
   generateGatewayClient,
+  hashGatewayClient,
   parseGatewayClients,
 } from '@volund/gateway-server'
 import type { GatewayHubLike, GatewayModelListing } from '@volund/gateway-server'
-import type { GatewayOAuthClient } from '@volund/gateway-server'
+import type { GatewayOAuthClient, GeneratedGatewayClient } from '@volund/gateway-server'
 import { SessionHub } from '@volund/web-server/session-hub'
 
 import type { VolundPorts } from '../ports'
@@ -94,14 +95,17 @@ export function resolveGatewayConfig(input: {
 export interface GatewayCredentialsResolution {
   readonly clients: readonly GatewayOAuthClient[]
   readonly signingKey: Uint8Array
-  /** bootstrap 生成的客户端（需要装配侧把 secret 打印一次给运维）。 */
-  readonly generated: GatewayOAuthClient | undefined
+  /** bootstrap 生成的客户端（明文 secret 只经启动输出给运维一次，绝不落盘）。 */
+  readonly generated: GeneratedGatewayClient | undefined
   readonly source: 'env' | 'file' | 'generated'
+  /** 老格式文件（明文 secret）被自动迁移为哈希存储时为 true。 */
+  readonly migrated: boolean
 }
 
 /**
  * 客户端与签名密钥解析：env 优先，其次 <home>/gateway/ 下的 0600 文件，
- * 都没有则生成 bootstrap 客户端并落盘（secret 只出现在启动输出里一次）。
+ * 都没有则生成 bootstrap 客户端。落盘只存 secret 的域分隔 SHA-256 哈希；
+ * 读到老的明文格式时认证照常、随后整文件重写为哈希（自动迁移）。
  */
 export async function resolveGatewayCredentials(
   home: string,
@@ -126,26 +130,36 @@ export async function resolveGatewayCredentials(
 
   if (env.GATEWAY_CLIENTS) {
     return {
-      clients: parseGatewayClients(env.GATEWAY_CLIENTS),
+      clients: parseGatewayClients(env.GATEWAY_CLIENTS).clients,
       signingKey,
       generated: undefined,
       source: 'env',
+      migrated: false,
     }
   }
   const clientsFile = env.GATEWAY_CLIENTS_FILE ?? join(dir, 'clients.json')
   try {
+    const parsed = parseGatewayClients(await readFile(clientsFile, 'utf8'))
+    if (parsed.migratedPlaintextIds.length > 0) {
+      // 自动迁移：明文条目已哈希化，整文件重写（保留 scopes 等字段由 parsed.clients 承载）。
+      await writeFile(clientsFile, `${JSON.stringify(parsed.clients, null, 2)}\n`, {
+        mode: 0o600,
+      })
+    }
     return {
-      clients: parseGatewayClients(await readFile(clientsFile, 'utf8')),
+      clients: parsed.clients,
       signingKey,
       generated: undefined,
       source: 'file',
+      migrated: parsed.migratedPlaintextIds.length > 0,
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
   }
   const generated = generateGatewayClient()
-  await writeFile(clientsFile, `${JSON.stringify([generated], null, 2)}\n`, { mode: 0o600 })
-  return { clients: [generated], signingKey, generated, source: 'generated' }
+  const stored = hashGatewayClient(generated)
+  await writeFile(clientsFile, `${JSON.stringify([stored], null, 2)}\n`, { mode: 0o600 })
+  return { clients: [stored], signingKey, generated, source: 'generated', migrated: false }
 }
 
 function cryptoRandomKey(): string {
@@ -193,6 +207,21 @@ async function listGatewayModels(
   return models
 }
 
+/**
+ * model 归一：[models.aliases] 别名优先（vision → anthropic/mimo-v2.5），
+ * 已含 '/' 的全限定 id 原样，裸名补默认 provider 前缀。HTTP 与 WS 共用同一解析。
+ */
+export function createGatewayModelResolver(input: {
+  aliases: ReadonlyMap<string, { provider: string; model: string }>
+  defaultProvider: string
+}): (model: string) => string {
+  return (model) => {
+    const aliased = input.aliases.get(model)
+    if (aliased) return `${aliased.provider}/${aliased.model}`
+    return model.includes('/') ? model : `${input.defaultProvider}/${model}`
+  }
+}
+
 export function createGatewayCommand(): CommandDefinition {
   return {
     name: 'gateway',
@@ -218,12 +247,11 @@ export function createGatewayCommand(): CommandDefinition {
         .listMerged?.({ cwd: config.workspace })
         .catch(() => undefined)) as { config?: Record<string, unknown> } | undefined
       const aliases = readModelAliases(merged?.config ?? {})
-      const resolveModel = (model: string | undefined): string | undefined => {
-        if (!model) return undefined
-        const aliased = aliases.get(model)
-        return aliased ? `${aliased.provider}/${aliased.model}` : model
-      }
-      // submit 前过别名表；其余方法原样委托（getter active 显式转发，避免展开丢 getter）。
+      const resolveModel = createGatewayModelResolver({
+        aliases,
+        resolveModel,
+      })
+      // WS 通道的 turn.submit 不经 HTTP 层解析——hub 包装里过同一解析器。
       const aliasedHub: GatewayHubLike = {
         get active() {
           return hub.active
@@ -231,7 +259,7 @@ export function createGatewayCommand(): CommandDefinition {
         start: (input) => hub.start(input),
         resume: (id) => hub.resume(id),
         submit: (input) => {
-          const model = resolveModel(input.model)
+          const model = input.model ? resolveModel(input.model) : undefined
           return hub.submit({ prompt: input.prompt, ...(model ? { model } : {}) })
         },
         interrupt: () => hub.interrupt(),
@@ -255,7 +283,7 @@ export function createGatewayCommand(): CommandDefinition {
         hub: aliasedHub,
         listModels: () => listGatewayModels(ports, config.workspace),
         listSessions: () => ports.session.list?.() ?? Promise.resolve([]),
-        defaultProvider: config.defaultProvider,
+        resolveModel,
         queueTimeoutMs: config.queueTimeoutMs,
         permissionTimeoutMs: config.permissionTimeoutMs,
         maxTurnHoldMs: config.maxTurnHoldMs,
@@ -288,9 +316,12 @@ export function createGatewayCommand(): CommandDefinition {
       if (credentials.generated) {
         stdout += args.json
           ? ''
-          : `\nbootstrap client created (secret shown once; also in ${home}/gateway/clients.json):\n` +
+          : `\nbootstrap client created (secret shown ONCE here; only its SHA-256 hash is stored in ${home}/gateway/clients.json):\n` +
             `  client_id:     ${credentials.generated.id}\n` +
             `  client_secret: ${credentials.generated.secret}\n`
+      }
+      if (credentials.migrated && !args.json) {
+        stdout += `\nnote: clients.json contained plaintext secrets and was rewritten to hashes.\n`
       }
       process.stdout.write(stdout)
       // 常驻服务：命令 promise 永不 resolve，进程生命周期由 bin.ts 的信号处理收尾。

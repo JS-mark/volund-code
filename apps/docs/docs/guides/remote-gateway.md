@@ -13,10 +13,11 @@ and CI callers.
 volund gateway --port 8788          # or GATEWAY_PORT
 ```
 
-With no clients configured, a bootstrap client is generated and persisted to
-`~/.volund/gateway/clients.json` (0600); its credentials print once at startup. The
-JWT signing key is generated and persisted at `~/.volund/gateway/token-key` — deleting
-it invalidates every issued token.
+With no clients configured, a bootstrap client is generated: its plaintext client_secret
+prints once at startup, and `~/.volund/gateway/clients.json` (0600) stores only its
+domain-separated SHA-256 hash — legacy plaintext files are migrated to hashes automatically
+on next start. The JWT signing key is generated and persisted at
+`~/.volund/gateway/token-key` — deleting it invalidates every issued token.
 
 ## Authentication
 

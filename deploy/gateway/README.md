@@ -19,6 +19,10 @@
 | `GET /v1/sessions` | Bearer | 可恢复会话清单 |
 | `POST /v1/chat/completions` | Bearer | OpenAI 兼容补全；`stream: true` 走 SSE |
 | `GET /v1/ws` | Bearer | WebSocket 交互会话通道（审批、打断、事件流） |
+| `GET /v1/sessions/active/transcript` | Bearer | 活动会话持久化快照（移动端刷新重建视图） |
+| `GET /uplink` | Bearer(uplink scope) | **中转模式**：本机 volund 反向拨出注册（远程控制） |
+| `POST /pairing/redeem` | 无（IP 限流） | **中转模式**：配对码核销 → 移动设备长期 token |
+| `GET /`（非 API 路径） | 无 | **中转模式**：移动端网站静态托管（同源免 CORS） |
 
 ## 快速开始（Docker）
 
@@ -27,7 +31,7 @@ cd deploy/gateway
 cp .env.example .env        # 填 OPENAI_API_KEY 等
 mkdir -p workspace          # 会话工作区（agent 读写文件的根）
 docker compose up -d --build
-docker compose logs gateway # 首启打印 bootstrap client 凭证（只此一次）
+docker compose logs gateway # 首启打印 bootstrap client 明文凭证（只此一次，不落盘）
 ```
 
 DNS 把 `ai-gateway.nexo-ai.top` 指到主机后，Caddy 自动签发/续期 TLS 证书。
@@ -38,7 +42,11 @@ DNS 把 `ai-gateway.nexo-ai.top` 指到主机后，Caddy 自动签发/续期 TLS
 - **沙箱**：镜像内没有 volund-syscall 沙箱（原生模块不进镜像），工具直接跑在容器
   文件系统上——容器边界就是隔离边界。`GATEWAY_PERMISSION_MODE` 建议 `auto` 或 `full`；
   `ask` 模式下需要提权的命令会推审批卡到 WS 客户端，无人决策超时自动 deny。
-- **数据卷**：`/data`（VOLUND_HOME：会话、客户端、签名密钥、凭据）必须持久化；
+- **凭证存储**：`clients.json` 只存 client_secret 的域分隔 SHA-256 哈希，明文绝不落盘
+  （bootstrap 明文只在首次启动日志里出现一次；老的明文格式文件下次启动自动迁移为哈希）。
+  再进一步：把 `GATEWAY_TOKEN_SECRET` 也走 env（k8s REFID_001Q 等），则 `/data` 卷
+  整个泄露也换不出可用凭证。
+- **数据卷**：`/data`（VOLUND_HOME：会话、客户端哈希、签名密钥、凭据）必须持久化；
   删掉它 = 所有已签发 token 失效 + 会话历史丢失。
 - **上游配置**：把写好的 `config.toml` 挂到 `/data/config.toml`，例如：
 
@@ -49,6 +57,37 @@ DNS 把 `ai-gateway.nexo-ai.top` 指到主机后，Caddy 自动签发/续期 TLS
   [models.aliases]
   fast = { provider = "openai", model = "gpt-4o-mini" }
   ```
+
+## 远程控制中转模式（GATEWAY_RELAY=1）
+
+直挂模式（默认）容器自带会话 runner；**中转模式**把网关变成纯中转——
+本机 Mac 上的 volund（TUI/Web 控制台）主动向网关拨出 `/uplink`，手机经
+网关中转控制**本机**会话（拓扑：手机 → 网关(VPS) → uplink 隧道 → 本机）。
+
+```bash
+# 网关侧（compose 环境加）：
+GATEWAY_RELAY=1
+GATEWAY_PUBLIC_URL=https://ai-gateway.nexo-ai.top   # 配对二维码里的入口地址
+# 客户端需要 uplink scope（clients.json 里的 scopes 含 "uplink"；
+# bootstrap 生成的客户端默认带）
+
+# 本机侧（桌面 Web 控制台 → 远程控制 tab）：
+# 网关地址 / client_id / client_secret 填进配置（写入 ~/.volund/config.toml）：
+#   [remote]
+#   enabled = true
+#   gateway_url = "https://ai-gateway.nexo-ai.top"
+#   client_id = "volund-xxxx"
+#   client_secret = "..."
+```
+
+流程：远程控制页开开关 → 本机拨出注册 → 「添加移动设备」生成配对码/二维码 →
+手机打开网关地址输入/扫码 → 核销签发设备 token（默认 30 天，落盘
+`/data/gateway/devices.json`，网关重启不掉线已配对设备）→ 手机站聊天/审批/会话切换
+全部经隧道落本机。审批与桌面共享同一队列：手机、Web、TUI 任一端决策全端清卡。
+
+安全面：设备 token 只授 chat scope（网关 API 面本就没有 workbench/文件写）；
+会话 cwd 被关进本机工作区（网关与本机双重校验）；配对码一次性、5 分钟有效、
+redeem 端点按 IP 限流；远程控制页可随时撤销设备（撤销即 token 失效）。
 
 ## 客户端用法
 
@@ -136,8 +175,8 @@ ws.onmessage = (e) => {
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `GATEWAY_HOST` / `GATEWAY_PORT` | `0.0.0.0` / `8788` | 绑定地址 |
-| `GATEWAY_CLIENTS` | — | OAuth 客户端 JSON 数组（优先于文件） |
-| `GATEWAY_CLIENTS_FILE` | `<home>/gateway/clients.json` | 客户端文件 |
+| `GATEWAY_CLIENTS` | — | OAuth 客户端 JSON 数组（优先于文件；`secret` 明文只在内存） |
+| `GATEWAY_CLIENTS_FILE` | `<home>/gateway/clients.json` | 客户端文件（只存 `secretHash`） |
 | `GATEWAY_TOKEN_SECRET` | 生成并落盘 | JWT HS256 签名密钥（任意长字符串，内部 SHA256 拉伸） |
 | `GATEWAY_TOKEN_TTL_SECONDS` | `3600` | token 有效期 |
 | `GATEWAY_PERMISSION_MODE` | `auto` | ask / auto / full |

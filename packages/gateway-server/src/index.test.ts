@@ -12,9 +12,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { GatewayEnvelope, GatewayHubLike } from './hub'
 import { createGatewayServer } from './index'
 import type { GatewayServerHandle } from './index'
-import { deriveSigningKey } from './oauth'
+import { deriveSigningKey, hashGatewayClientREFID_014Q } from './oauth'
 
-const CLIENT = { id: 'test-client', secret: 'c'.repeat(43), scopes: ['chat', 'sessions'] }
+/** 明文只在请求侧；服务器配置里只放哈希。 */
+const CLIENT_PLAINTEXT = 'c'.repeat(43)
+const CLIENT = {
+  id: 'test-client',
+  secretHash: hashGatewayClientREFID_014Q(CLIENT_PLAINTEXT),
+  scopes: ['chat', 'sessions'],
+}
 
 class FakeHub implements GatewayHubLike {
   activeSession: { id: string; cwd?: string } | undefined
@@ -132,7 +138,7 @@ async function fetchToken(extra: Record<string, string> = {}): Promise<string> {
     body: new URLSearchParams({
       grant_type: 'client_credentials',
       client_id: CLIENT.id,
-      client_secret: CLIENT.secret,
+      client_secret: CLIENT_PLAINTEXT,
       ...extra,
     }),
   })
@@ -150,7 +156,7 @@ describe('oauth token endpoint', () => {
 
   it('accepts JSON bodies and Basic auth', async () => {
     await startServer()
-    const basic = Buffer.from(`${CLIENT.id}:${CLIENT.secret}`).toString('base64')
+    const basic = Buffer.from(`${CLIENT.id}:${CLIENT_PLAINTEXT}`).toString('base64')
     const response = await fetch(`${base}/oauth/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Basic ${basic}` },
@@ -187,7 +193,7 @@ describe('oauth token endpoint', () => {
       body: new URLSearchParams({
         grant_type: 'password',
         client_id: CLIENT.id,
-        client_secret: CLIENT.secret,
+        client_secret: CLIENT_PLAINTEXT,
       }),
     })
     expect(response.status).toBe(400)
@@ -206,7 +212,7 @@ describe('oauth token endpoint', () => {
       body: new URLSearchParams({
         grant_type: 'client_credentials',
         client_id: CLIENT.id,
-        client_secret: CLIENT.secret,
+        client_secret: CLIENT_PLAINTEXT,
       }),
     })
     expect(third.status).toBe(429)
@@ -454,6 +460,23 @@ describe('chat/completions', () => {
     expect(text).toContain('gateway_upstream_failed')
     expect(text).toContain('upstream exploded')
     expect(text.trim().endsWith('data: [DONE]')).toBe(true)
+  })
+
+  it('applies a custom resolveModel hook (alias resolution) before submit', async () => {
+    await startServer({
+      resolveModel: (model: string) => (model === 'vision' ? 'anthropic/mimo-v2.5' : model),
+    })
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'vision',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(hub.submitted[0]?.model).toBe('anthropic/mimo-v2.5')
   })
 
   it('rate-limits API calls per client', async () => {
