@@ -71,7 +71,7 @@ describe('localPlugins dev 发现（~/.volund/plugins-dev）', () => {
     }
     const home = await fixtureHome()
     const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
-    const demoSource = join(repoRoot, 'examples', 'plugin-status-demo')
+    const demoSource = join(repoRoot, 'examples', 'plugins', 'plugin-status-demo')
     const target = join(home, 'plugins-dev', 'volund-plugin-status-demo')
     await mkdir(target, { recursive: true })
     const { copyFile, readFile } = await import('node:fs/promises')

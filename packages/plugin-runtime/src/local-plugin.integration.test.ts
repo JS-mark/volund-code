@@ -10,7 +10,7 @@ import { activateLocalPlugin, type ActivatedLocalPlugin } from './local-plugin'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = resolve(packageRoot, '../..')
-const demoPluginDir = join(repoRoot, 'examples', 'plugin-status-demo')
+const demoPluginDir = join(repoRoot, 'examples', 'plugins', 'plugin-status-demo')
 
 const dirs: string[] = []
 const handles: ActivatedLocalPlugin[] = []
