@@ -404,8 +404,9 @@ export function AppShell() {
           </button>
         </Dropdown>
       </div>
-      {/* 二栏：搜索 + 会话分组列表（可收起，⌘B / 图标轨按钮切换） */}
-      {!sidebarCollapsed && (
+      {/* 二栏：搜索 + 会话分组列表（可收起，⌘B / 图标轨按钮切换）。
+          会话列表属于对话页,只在 chat 路由渲染;切到其他 tab 隐藏,切回恢复。 */}
+      {!sidebarCollapsed && route === 'chat' && (
         <div className="column">
           <SessionSidebar
             api={loaded.api}
