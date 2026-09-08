@@ -6,6 +6,8 @@
  * - 打开的工具以可关闭标签页承载（全部保活——终端切走不杀 shell）；
  * - 资源管理器是懒加载文件树，点文件开查看器（可编辑保存）；
  * - 终端是 xterm.js + WebSocket 交互式 shell（服务端 expect/script 提供 PTY）；
+ *   握手 query 带初始尺寸（cols/rows），pty 出生即真实几何——中途改尺寸会让
+ *   zsh/p10k 重绘留残帧（重复提示行 + '%'）。
  * - 左缘拖拽调宽（320..720px）。
  */
 import '@xterm/xterm/css/xterm.css'
@@ -430,7 +432,12 @@ function TerminalPanel({ api }: { api: WebApi }) {
       })
 
       let exited = false
-      const ws = new WebSocket(`ws://${window.location.host}/api/v1/workbench/terminal/ws`)
+      // 握手带初始尺寸：pty 出生即真实几何，避免初始化中途 resize 触发 SIGWINCH
+      // 重绘残帧（zsh/p10k 会留重复提示行 + '%'）。onopen 的 resize 仍发——
+      // 覆盖建连间隙的尺寸漂移（同尺寸时服务端跳过，不会多打 SIGWINCH）。
+      const ws = new WebSocket(
+        `ws://${window.location.host}/api/v1/workbench/terminal/ws?cols=${term.cols}&rows=${term.rows}`,
+      )
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
       }

@@ -161,6 +161,59 @@ describe('terminal port (interactive shell)', () => {
     20_000,
   )
 
+  // 初始尺寸预设（WS 握手 query → spawnShell(size)）：pty 出生即真实几何，
+  // 避免 shell 初始化途中 resize 触发 SIGWINCH 重绘残帧（zsh/p10k '%' 残影）。
+  it.runIf(process.platform === 'darwin')(
+    'spawns the pty at the requested initial size',
+    async () => {
+      const root = await workspace()
+      const session = createTerminalPort(root, { shell: '/bin/sh' }).spawnShell({
+        cols: 132,
+        rows: 43,
+      })
+      let buffer = ''
+      session.onData((data) => {
+        buffer += data
+      })
+      await vi.waitFor(() => expect(buffer).toContain('$'), { timeout: 8000 })
+      session.write('stty size\n')
+      // 不经 resize，第一条命令就该看到预设尺寸。
+      await vi.waitFor(() => expect(buffer).toContain('43 132'), { timeout: 8000 })
+      session.kill()
+    },
+    20_000,
+  )
+
+  it.runIf(process.platform === 'darwin')(
+    'skips resize when the size is unchanged',
+    async () => {
+      const root = await workspace()
+      const session = createTerminalPort(root, { shell: '/bin/sh' }).spawnShell({
+        cols: 100,
+        rows: 30,
+      })
+      let buffer = ''
+      session.onData((data) => {
+        buffer += data
+      })
+      await vi.waitFor(() => expect(buffer).toContain('$'), { timeout: 8000 })
+      // 用 trap 直接观测 SIGWINCH：同尺寸 resize 必须不发信号（否则初始化
+      // 途中的多余 SIGWINCH 会让 zsh/p10k 重绘留残帧）。
+      session.write("trap 'echo GOT-WINCH' WINCH\n")
+      await vi.waitFor(() => expect(buffer).toContain('GOT-WINCH'), { timeout: 8000 })
+      // ↑ trap 安装命令本身的回显包含 GOT-WINCH 字样；清掉基线再测。
+      buffer = ''
+      session.resize(100, 30)
+      session.write('echo winch-probe-done\n')
+      await vi.waitFor(() => expect(buffer).toContain('winch-probe-done'), { timeout: 8000 })
+      // stty 走异步 execFile：留窗口让（坏实现下的）迟到 SIGWINCH 有机会暴露。
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(buffer).not.toContain('GOT-WINCH')
+      session.kill()
+    },
+    20_000,
+  )
+
   it('honors configured shell and exposes settings', async () => {
     const root = await workspace()
     const port = createTerminalPort(root, { shell: '/bin/sh', fontSize: 14, scrollback: 500 })
@@ -266,6 +319,8 @@ async function wsHandshake(opts: {
   port: number
   cookie?: string
   origin?: string
+  /** 握手路径的 query（如 cols=111&rows=33 初始尺寸预设）。 */
+  query?: string
 }): Promise<{ socket: import('node:net').Socket; rest: Buffer }> {
   const socket = connect(opts.port, '127.0.0.1')
   await new Promise<void>((resolveConnect, rejectConnect) => {
@@ -274,7 +329,7 @@ async function wsHandshake(opts: {
   })
   const key = randomBytes(16).toString('base64')
   socket.write(
-    `GET /api/v1/workbench/terminal/ws HTTP/1.1\r\n` +
+    `GET /api/v1/workbench/terminal/ws${opts.query ? `?${opts.query}` : ''} HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${opts.port}\r\n` +
       `Upgrade: websocket\r\nConnection: Upgrade\r\n` +
       `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n` +
@@ -369,4 +424,40 @@ describe('terminal websocket route', () => {
       socket.destroy()
     }
   }, 20_000)
+
+  // 初始尺寸经握手 query 直达 spawn（WS 不能带自定义头）：pty 出生即真实几何。
+  it.runIf(process.platform === 'darwin')(
+    'applies handshake query cols/rows as the initial pty size',
+    async () => {
+      const { port, cookie } = await startWithTerminal()
+      const { socket, rest } = await wsHandshake({ port, cookie, query: 'cols=111&rows=33' })
+      try {
+        // 首批输出可能与握手响应同 TCP 段到达——rest 必须并入接收缓冲。
+        let received = rest.toString('utf8')
+        socket.on('data', (chunk: Buffer) => {
+          let buf = chunk
+          while (buf.length >= 2) {
+            let length = buf[1]! & 0x7f
+            let offset = 2
+            if (length === 126) {
+              if (buf.length < 4) break
+              length = buf.readUInt16BE(2)
+              offset = 4
+            }
+            if (buf.length < offset + length) break
+            received += buf.subarray(offset, offset + length).toString('utf8')
+            buf = buf.subarray(offset + length)
+          }
+        })
+        await vi.waitFor(() => expect(received).toContain('$'), { timeout: 8000 })
+        socket.write(wsTextFrame(JSON.stringify({ type: 'in', data: 'stty size\n' })))
+        await vi.waitFor(() => expect(received).toContain('33 111'), { timeout: 8000 })
+        socket.write(wsTextFrame(JSON.stringify({ type: 'in', data: 'exit\n' })))
+        await vi.waitFor(() => expect(received).toContain('"type":"exit"'), { timeout: 8000 })
+      } finally {
+        socket.destroy()
+      }
+    },
+    20_000,
+  )
 })

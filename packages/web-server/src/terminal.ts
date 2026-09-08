@@ -71,6 +71,15 @@ const normalizeSize = (size?: TerminalSize): Required<TerminalSize> => {
   }
 }
 
+/** resize 输入校验：非正整数/超界一律忽略（不能回退默认值——误改几何会触发重绘）。 */
+const validSize = (cols: number, rows: number): boolean =>
+  Number.isInteger(cols) &&
+  Number.isInteger(rows) &&
+  cols >= 1 &&
+  cols <= 500 &&
+  rows >= 1 &&
+  rows <= 200
+
 /** expect 脚本：spawn PTY → stderr 打 slave 路径标记 → 预设初始尺寸 → interact。 */
 const expectScript = (shell: string, cols: number, rows: number): string =>
   `spawn -noecho {${shell}}\n` +
@@ -98,16 +107,25 @@ export function createTerminalPort(
   }
   return {
     settings,
-    spawnShell() {
+    spawnShell(size) {
+      const initial = normalizeSize(size)
       const useExpect = !isWin && process.platform === 'darwin' && existsSync('/usr/bin/expect')
       const [command, args] = isWin
         ? [shell, [] as string[]]
         : useExpect
           ? // Tcl 大括号包裹：shell 路径原样进 spawn（空格安全）。
-            ['expect', ['-c', expectScript(shell)]]
+            ['expect', ['-c', expectScript(shell, initial.cols, initial.rows)]]
           : process.platform === 'darwin'
             ? ['sh', ['-c', `cat | script -q /dev/null ${shQuote(shell)}`]]
-            : ['script', ['-qec', shell, '/dev/null']]
+            : // script -c 走 sh -c：先 stty 预设初始尺寸再 exec shell（slave 即 stdin）。
+              [
+                'script',
+                [
+                  '-qec',
+                  `stty rows ${initial.rows} columns ${initial.cols}; exec ${shQuote(shell)}`,
+                  '/dev/null',
+                ],
+              ]
       // detached：独立进程组，kill 时 SIGHUP 整组（cat/script/shell 一勺烩）。
       const child = spawn(command!, args, {
         cwd,
@@ -118,6 +136,9 @@ export function createTerminalPort(
       let dataCb: ((data: string) => void) | undefined
       let exitCb: ((code: number | null) => void) | undefined
       let exited = false
+      // 当前 pty 尺寸：resize 与现值相同时跳过 stty（避免多余 SIGWINCH 重绘残帧）。
+      let currentCols = initial.cols
+      let currentRows = initial.rows
       const fireExit = (code: number | null) => {
         if (exited) return
         exited = true
@@ -150,7 +171,10 @@ export function createTerminalPort(
           if (child.stdin.writable) child.stdin.write(data)
         },
         resize(cols, rows) {
-          if (!ptyPath || isWin) return
+          if (!ptyPath || isWin || !validSize(cols, rows)) return
+          if (cols === currentCols && rows === currentRows) return
+          currentCols = cols
+          currentRows = rows
           // stty -f/-F 落到 slave pty：改 winsize 并向前台进程组发 SIGWINCH。
           execFile(
             'stty',

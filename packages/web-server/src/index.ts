@@ -1223,9 +1223,12 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
 
   // ── 工作台终端：WebSocket 交互式 shell（浏览器 WS 握手带不了自定义头——
   // CSWSH 门 = Host/Origin 精确匹配 + session cookie，与 HTTP mutation 同模型）。
+  // 握手 query 带初始尺寸 ?cols&rows：pty 一 spawn 就是真实几何——先 80x24 再改
+  // 会在 shell 初始化途中触发 SIGWINCH 重绘，清屏序列按旧几何擦屏幕会留下
+  // 重复提示行 + zsh/p10k 的 '%' 残帧（PROMPT_SP）。
   // JSON 文本帧：⇦ {type:'in',data}|{type:'resize',cols,rows}；⇨ {type:'out',data}|{type:'exit',code}。
   const terminal = options.terminal
-  server.on('upgrade', (req, socket, head) => {
+  server.on('upgrade', (req, socket, _head) => {
     const reject = (status: number) => {
       socket.write(`HTTP/1.1 ${status} Forbidden\r\nConnection: close\r\n\r\n`)
       socket.destroy()
@@ -1244,7 +1247,15 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       return
     }
     const conn = new WsConnection(socket, { pingIntervalMs: 30_000 })
-    const shellSession = terminal.spawnShell()
+    const queryInt = (name: string) => {
+      const value = Number(url.searchParams.get(name))
+      return Number.isInteger(value) && value > 0 ? value : undefined
+    }
+    const cols = queryInt('cols')
+    const rows = queryInt('rows')
+    const shellSession = terminal.spawnShell(
+      cols !== undefined && rows !== undefined ? { cols, rows } : undefined,
+    )
     shellSession.onData((data) => conn.send(JSON.stringify({ type: 'out', data })))
     shellSession.onExit((code) => {
       conn.send(JSON.stringify({ type: 'exit', code }))
