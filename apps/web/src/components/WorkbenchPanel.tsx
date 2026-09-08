@@ -4,6 +4,8 @@
  * 工作台（右侧栏，对齐 CodeBuddy web 的 workbench）：
  * - 空态：「打开工作区工具」五入口（资源管理器/打开文件/搜索/源代码管理/终端⌘J）；
  * - 打开的工具以可关闭标签页承载（全部保活——终端切走不杀 shell）；
+ * - 终端可多开：+ 菜单/空态按钮每次新开一个标签页（终端 1/2/…），⌘J 聚焦最近的
+ *   终端、没有则新开；
  * - 资源管理器是懒加载文件树，点文件开查看器（可编辑保存）；
  * - 终端是 xterm.js + WebSocket 交互式 shell（服务端 expect/script 提供 PTY）；
  *   握手 query 带初始尺寸（cols/rows），pty 出生即真实几何——中途改尺寸会让
@@ -504,6 +506,12 @@ export function WorkbenchPanel({
   const [activeKey, setActiveKey] = useState<string>()
   const [quickOpen, setQuickOpen] = useState(false)
   const [width, setWidth] = useState(400)
+  const terminalSeq = useRef(0)
+  // ⌘J effect 要读最新 tabs 但不能依赖它（否则每次开标签都会误触发聚焦）。
+  const tabsRef = useRef<ToolTab[]>([])
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   const activate = useCallback((tab: ToolTab) => {
     setTabs((current) =>
@@ -513,7 +521,16 @@ export function WorkbenchPanel({
   }, [])
 
   const openTool = useCallback(
-    (kind: ToolKind) => activate({ key: kind, kind, title: toolTitle(kind) }),
+    (kind: ToolKind) => {
+      // 终端多开：序号单调递增（关掉再开不复用号，避免两个同名「终端 1」）。
+      if (kind === 'terminal') {
+        terminalSeq.current += 1
+        const seq = terminalSeq.current
+        activate({ key: `terminal:${seq}`, kind, title: `终端 ${seq}` })
+        return
+      }
+      activate({ key: kind, kind, title: toolTitle(kind) })
+    },
     [activate],
   )
   const openFile = useCallback(
@@ -538,11 +555,13 @@ export function WorkbenchPanel({
     [activate],
   )
 
-  // ⌘J（AppShell 全局快捷键）：打开/聚焦终端标签页。
+  // ⌘J（AppShell 全局快捷键）：聚焦最近的终端标签页，没有则新开。
   useEffect(() => {
-    if (terminalSignal > 0) openTool('terminal')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalSignal])
+    if (terminalSignal <= 0) return
+    const existing = tabsRef.current.filter((tab) => tab.kind === 'terminal').at(-1)
+    if (existing) setActiveKey(existing.key)
+    else openTool('terminal')
+  }, [terminalSignal, openTool])
 
   const closeTab = (key: string) => {
     setTabs((current) => {
