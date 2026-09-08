@@ -228,6 +228,18 @@ export const ErrorCodes = {
   trustStoreUnavailable: 'trust_store_unavailable',
   unsupportedFlag: 'unsupported_flag',
 
+  /* ── gateway 域（远程网关，packages/gateway-server；§GATEWAY-r1） ────────── */
+  gatewayAuthInvalid: 'gateway_auth_invalid', // Bearer token 缺失/过期/签名不符（401）
+  gatewayClientRejected: 'gateway_client_rejected', // /oauth/token 客户端凭证错误（401）
+  gatewayGrantUnsupported: 'gateway_grant_unsupported', // grant_type ≠ client_credentials（400）
+  gatewayRateLimited: 'gateway_rate_limited', // 每客户端/每 IP 每分钟限流（429）
+  gatewaySchemaInvalid: 'gateway_schema_invalid', // body/帧形状非法、未知端点（400/404）
+  gatewaySessionBusy: 'gateway_session_busy', // 单 runner 被占或队列等待超时（409）
+  gatewaySessionNotFound: 'gateway_session_not_found', // session_id 不存在或不可恢复（404）
+  gatewayUnsupportedContent: 'gateway_unsupported_content', // chat 多模态 part（400）
+  gatewayUpstreamFailed: 'gateway_upstream_failed', // runner/装配侧失败（502）
+  gatewayWsProtocolError: 'gateway_ws_protocol_error', // WS 帧非 JSON / 缺 type / 未知类型
+
   /* ── ui 域（主题 / 斜杠命令，packages/ui） ───────────────────────────── */
   slashCommandBuiltinReserved: 'slash_command_builtin_reserved',
   slashCommandConflict: 'slash_command_conflict',
