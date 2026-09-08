@@ -1,0 +1,654 @@
+/* 全局样式：antd cssVar 已开（--ant-* 变量随主题算法切换）；这里只补布局骨架。 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+body {
+  background: var(--ant-color-bg-base, #fff);
+  color: var(--ant-color-text-base, #1c2330);
+}
+#__next {
+  height: 100%;
+}
+/* 品牌标配色：浅色主题用官方深色底；深色主题反转为锻造青底，保证图标块在暗色页面上可见。 */
+:root {
+  --volund-mark-bg: #06100f;
+  --volund-mark-fg: #2bbd9b;
+}
+[data-theme='dark'] {
+  --volund-mark-bg: #2bbd9b;
+  --volund-mark-fg: #06100f;
+}
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--ant-color-bg-layout, transparent);
+}
+.rail {
+  width: 52px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-right: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-bg-container);
+}
+.rail-logo {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 4px;
+}
+.column {
+  width: 264px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-bg-container);
+  min-height: 0;
+}
+.main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.main-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chat-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.chat-column {
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+}
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 2px;
+}
+.hero {
+  margin: auto;
+  text-align: center;
+  padding: 6vh 16px 4vh;
+}
+.hero-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 24px;
+}
+.msg-image {
+  max-width: 240px;
+  max-height: 180px;
+  border-radius: 10px;
+  display: block;
+  margin-bottom: 6px;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown pre {
+  margin: 0;
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  padding: 4px 10px;
+}
+
+/* 设置页（W-13）：左侧分区导航 + 右侧行式表单。 */
+.settings-wrap {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.settings-nav {
+  width: 176px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-bg-container);
+  padding: 12px 8px;
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 28px 48px;
+}
+.settings-inner {
+  max-width: 720px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.settings-row:last-child {
+  border-bottom: 0;
+}
+.settings-row-main {
+  min-width: 0;
+  flex: 1;
+}
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.45));
+  margin-top: 2px;
+}
+.settings-row-control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 左下角轨道菜单：暗色分组弹层为基础主题；浅色主题覆盖见下方 html[data-theme=light] 块。 */
+.rail-menu {
+  width: 208px;
+  padding: 6px;
+  background: #1e1e24;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+.rail-menu-group {
+  padding: 6px 10px 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  user-select: none;
+}
+.rail-menu-divider {
+  height: 1px;
+  margin: 6px 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.rail-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.rail-menu-item:hover:not(.disabled),
+.rail-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+}
+.rail-menu-item.active {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+}
+.rail-menu-item.disabled {
+  color: rgba(255, 255, 255, 0.32);
+  cursor: not-allowed;
+}
+.rail-menu-icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 16px;
+  font-size: 15px;
+}
+
+/* 浅色主题适配：菜单是 body 级弹层，antd cssVar 挂在 .ant-app 作用域覆盖不到
+   （见 terminal 主题同款坑），不能 var(--ant-*)——按 html[data-theme] 写字面量。 */
+html[data-theme='light'] .rail-menu {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 6px 16px 0 rgba(0, 0, 0, 0.08),
+    0 3px 6px -4px rgba(0, 0, 0, 0.12),
+    0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+html[data-theme='light'] .rail-menu-group {
+  color: rgba(0, 0, 0, 0.45);
+}
+html[data-theme='light'] .rail-menu-divider {
+  background: rgba(0, 0, 0, 0.06);
+}
+html[data-theme='light'] .rail-menu-item {
+  color: rgba(0, 0, 0, 0.88);
+}
+html[data-theme='light'] .rail-menu-item:hover:not(.disabled),
+html[data-theme='light'] .rail-menu-item:focus-visible {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.88);
+}
+html[data-theme='light'] .rail-menu-item.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.88);
+}
+html[data-theme='light'] .rail-menu-item.disabled {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+/* 侧栏会话分组：分组头 + 会话条目 + 每分组「更多」分页。 */
+.sg-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 4px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+}
+.sg-group-header:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.sg-caret {
+  font-size: 10px;
+}
+.sg-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sg-group-count {
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+}
+.sg-group-empty {
+  padding: 4px 8px 8px 26px;
+  font-size: 12px;
+  color: var(--ant-color-text-quaternary);
+}
+.sg-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.sg-item:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.sg-item-active,
+.sg-item-active:hover {
+  background: var(--ant-control-item-bg-active);
+}
+.sg-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--ant-color-primary, #2f6feb);
+  color: #fff;
+  display: grid;
+  place-content: center;
+  font-weight: 700;
+}
+.sg-item-text {
+  flex: 1;
+  min-width: 0;
+}
+/* 条目/分组头的 ⋯ 菜单平时隐藏，悬停或已展开时露出。 */
+.sg-item-menu {
+  visibility: hidden;
+  flex-shrink: 0;
+}
+.sg-item:hover .sg-item-menu,
+.sg-item-menu.ant-dropdown-open,
+.sg-group-header:hover .sg-item-menu,
+.sg-group-header .sg-item-menu.ant-dropdown-open {
+  visibility: visible;
+}
+.sg-more {
+  padding-left: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+/* ── 最近会话弹层（对齐 CodeBuddy web：标题 · 项目名 + X；空态；底部管理入口） */
+.recent-popover .ant-popover-container {
+  padding: 0;
+  width: 340px;
+}
+.recent-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+}
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.recent-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.recent-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 16px;
+  color: var(--ant-color-text-quaternary);
+}
+.recent-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.recent-item:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.recent-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.recent-footer:hover {
+  color: var(--ant-color-text);
+  background: var(--ant-color-fill-quaternary);
+}
+
+/* ── 工作台（右侧栏）：标题行 + 标签页 + 工具面板 + 左缘拖拽调宽。 */
+.workbench {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-bg-container);
+  min-height: 0;
+}
+.workbench-resize {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.workbench-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.workbench-tabs {
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.workbench-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+.workbench-tabs > .ant-tabs-nav::before {
+  border-bottom: 0;
+}
+.workbench-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.workbench-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+}
+.workbench-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 20px;
+  width: 220px;
+}
+.workbench-tools .ant-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 36px;
+}
+.wb-kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+}
+.wb-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+.wb-quick-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wb-quick-item:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.wb-search-group {
+  margin-top: 10px;
+}
+.wb-search-file {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  color: var(--ant-color-text-secondary);
+}
+.wb-search-line {
+  display: flex;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--ant-font-family-code);
+}
+.wb-search-line:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.wb-search-lineno {
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: right;
+  color: var(--ant-color-text-quaternary);
+}
+.wb-search-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-git-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wb-git-item:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.wb-diff {
+  margin: 0;
+  padding: 8px;
+  font-size: 12px;
+  font-family: var(--ant-font-family-code);
+  overflow: auto;
+  flex: 1;
+}
+.wb-diff-add {
+  color: var(--ant-color-success);
+  background: var(--ant-color-success-bg);
+}
+.wb-diff-del {
+  color: var(--ant-color-error);
+  background: var(--ant-color-error-bg);
+}
+.wb-diff-hunk {
+  color: var(--ant-color-info);
+}
+.wb-file {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.wb-file-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.wb-file-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0;
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+  line-height: 19px;
+}
+.wb-file-line {
+  display: flex;
+  white-space: pre;
+  padding-right: 12px;
+}
+.wb-file-line-hit {
+  background: var(--ant-color-warning-bg);
+}
+.wb-file-lineno {
+  flex-shrink: 0;
+  width: 44px;
+  text-align: right;
+  padding-right: 12px;
+  color: var(--ant-color-text-quaternary);
+  user-select: none;
+}
+.wb-file-editor {
+  flex: 1;
+  margin: 8px;
+  width: calc(100% - 16px);
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+}
+.wb-xterm {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 4px 8px;
+}
+.wb-xterm .xterm {
+  height: 100%;
+}
+
+/* ── 代码页（内嵌 vscode workbench / monaco-vscode-api）：全幅容器 + 启动遮罩。 */
+.code-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--ant-color-bg-base);
+}
+.code-vscode-host {
+  flex: 1;
+  min-height: 0;
+}
+.code-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 24px;
+  background: var(--ant-color-bg-base);
+}
+/* 资源管理器文件类型徽章（FileTree + FileTypeIcon）。 */
+.ft-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--ant-font-family-code);
+}

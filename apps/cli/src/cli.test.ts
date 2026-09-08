@@ -100,7 +100,6 @@ describe('runCli', () => {
       'hook',
       'skill',
       'mcp',
-      'web',
       'version',
       'help',
     ])

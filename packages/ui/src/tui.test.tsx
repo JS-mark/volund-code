@@ -106,6 +106,51 @@ describe('renderInteractiveApp', () => {
     expect(flattened).toContain('fs not loaded')
   })
 
+  it('follows a web-driven session activation by rebinding the facade (§22 W-01)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    let activate!: (session: import('./app').ResumedInteractiveSession) => void
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        welcome: welcomeFixture(),
+        sessionActivation: {
+          subscribe: (listener) => {
+            activate = listener
+            return () => {}
+          },
+        },
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+    await app.waitUntilRenderFlush()
+    expect(stripVTControlCharacters(stdout.output)).toContain('session-1234')
+
+    // web 端 resume 了另一个会话 → TUI 经激活源换绑（状态行可见；TopBar 在欢迎屏
+    // 期间显示的是静态 welcome 数据，换绑后的 id 要等首条消息收起欢迎屏才上屏）
+    activate({
+      cwd: '/repo',
+      events: new EventBus(),
+      id: 'web-session-9999',
+      onExit: () => {},
+      onSubmit: () => {},
+      transcript: [],
+    })
+    await app.waitUntilRenderFlush()
+    const flattened = stripVTControlCharacters(stdout.output)
+    expect(flattened).toContain('session switched from web')
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('renders and switches all five status tabs at narrow width', async () => {
     const stdout = new MemoryWriteStream()
     stdout.columns = 42

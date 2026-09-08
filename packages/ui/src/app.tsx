@@ -151,6 +151,11 @@ export interface SessionResumeController {
   resume(session: SessionCandidate): Promise<ResumedInteractiveSession>
 }
 
+/** §22 W-01：外部驱动（Web 嵌入式 start/resume）的会话激活推送。 */
+export interface SessionActivationSource {
+  subscribe(listener: (session: ResumedInteractiveSession) => void): () => void
+}
+
 export interface InteractiveAppOptions {
   cwd: string
   events?: EventBus
@@ -194,6 +199,11 @@ export interface InteractiveAppOptions {
     set(mode: 'ask' | 'auto' | 'full'): Promise<void> | void
   }
   resume?: SessionResumeController
+  /**
+   * §22 W-01：外部驱动（Web 嵌入式 start/resume）的会话激活源——新会话激活时
+   * 本组件换绑 facade（与 /resume 选择同路径，按会话 id 幂等去重）。
+   */
+  sessionActivation?: SessionActivationSource
   /**
    * r13-P1: resolves the settled native sandbox state after probing. When the
    * welcome panel still shows `sandbox: probing`, the app refreshes the welcome
@@ -296,6 +306,25 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     ? activeSession.onAttachFilePath
     : options.onAttachFilePath
   const activeListFiles = activeSession ? activeSession.listFiles : options.listFiles
+  // §22 W-01：外部（Web 嵌入式 start/resume）驱动的会话切换——controller 激活
+  // 新会话时换绑 facade，与 /resume 的 onSelect 同一路径；按 id 幂等去重
+  // （TUI 自己 /resume 触发的激活不重复换绑）。
+  const sessionIdRef = useRef(state.sessionId)
+  sessionIdRef.current = state.sessionId
+  useEffect(() => {
+    return options.sessionActivation?.subscribe((session) => {
+      if (session.id === sessionIdRef.current) return
+      setActiveSession(session)
+      setState((current) => ({
+        ...current,
+        sessionId: session.id,
+        transcript: [...(session.transcript ?? [])],
+        pendingAssistantText: '',
+        status: 'session switched from web',
+        statusLevel: 'muted',
+      }))
+    })
+  }, [options.sessionActivation])
   // §7.5.3 @ picker 文件候选：会话切换时重取（cwd 变了）；失败静默降级为仅模型别名。
   const [mentionFiles, setMentionFiles] = useState<readonly string[]>([])
   useEffect(() => {

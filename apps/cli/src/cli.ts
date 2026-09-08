@@ -481,36 +481,6 @@ export async function runCli(
     }
     return { exitCode: 2, stdout, stderr: `Unknown skill action: ${action}` }
   }
-  if (subcommand === 'web') {
-    // §22 W-01 / Web P2-07：本地 Web 控制台。server 生命周期随进程（SIGINT 由
-    // bin.ts 的 shutdown 链路收尾）；首版只绑 loopback。
-    if (!ports.web) {
-      const message = 'web console is not available in this build'
-      return jsonMode
-        ? jsonFailure(message, 1, 'web_capability_unavailable', 'capability')
-        : { exitCode: 1, stdout, stderr: message }
-    }
-    const rawPort = args.port as string | undefined
-    const port = rawPort === undefined ? 0 : Number.parseInt(rawPort, 10)
-    if (rawPort !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
-      const message = `--port must be 1024..65535 (got ${rawPort}); omit for a random free port`
-      return jsonMode
-        ? jsonFailure(message, 2, 'unsupported_flag', 'usage')
-        : { exitCode: 2, stdout, stderr: message }
-    }
-    const result = await ports.web.serve({
-      cwd,
-      port,
-      open: args.open !== false,
-      onReady: (handle) => {
-        // 启动信息立即落终端（§22.3.3：URL/PID/cwd/停止方式持续可见）。
-        process.stderr.write(
-          `Volund Web listening at ${handle.url}\n  cwd: ${cwd}\n  pid: ${process.pid}\n  stop: Ctrl+C\n`,
-        )
-      },
-    })
-    return { exitCode: 0, stdout: `${stdout}Volund Web closed (${result.url})\n`, stderr }
-  }
   if (subcommand === 'context') {
     if (!ports.context)
       return { exitCode: 2, stdout, stderr: 'context integration port is not connected' }
@@ -932,12 +902,26 @@ export async function runCli(
           stderr += `${note}\n`
         }
       }
-      const permissions = new PermissionPromptController()
+      // §22 W-07 多路审批：TUI 与 Web 共享进程级队列（runtime 已把它接进权限链），
+      // 任一端决策全端清卡；无共享队列的宿主退回本地实例。
+      const permissions = ports.permissionPrompts ?? new PermissionPromptController()
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
       const permissionsBypassed = Boolean(args.yolo || args.dangerouslySkipPermissions)
       const statusText = (tier: string) =>
         `sandbox ${tier}${permissionsBypassed ? '; permissions bypassed' : ''}`
+      // §22 W-01：静默自启 Web 控制台（挂载本会话；[web] enabled=false / VOLUND_WEB=0
+      // 关闭）——在欢迎屏组装前完成，地址直接上屏；失败进启动 notices，不阻塞 TUI。
+      let webConsole: { url: string; port: number; close(): Promise<void> } | undefined
+      if (ports.web?.startEmbedded) {
+        try {
+          webConsole = await ports.web.startEmbedded({ cwd })
+        } catch (cause) {
+          startupNotices.push(
+            `Web console failed to start: ${cause instanceof Error ? cause.message : String(cause)}`,
+          )
+        }
+      }
       // 模型展示对齐 §8.3 实际生效值：status 端口的 Model 行已按
       // options.model → preferences.model → provider.anthropic.model 收口。
       // picker/welcome 不再写死 defaultInteractiveModel（否则企业网关自定义模型时
@@ -961,6 +945,7 @@ export async function runCli(
         sandbox: { status: 'probing' },
         sessionId: interactive.id,
         trustLabel,
+        ...(webConsole ? { webUrl: webConsole.url } : {}),
         ...(configuredModel
           ? {
               model: {
@@ -1045,31 +1030,45 @@ export async function runCli(
               }
             },
           ),
+        // facade → TUI 会话形状的统一映射（/resume 与 web 驱动激活共用）。
         ...(ports.session.list && ports.session.resumeInteractive
-          ? {
-              resume: {
-                list: () => ports.session.list!(),
-                resume: async (candidate: import('@volund/ui').SessionCandidate) => {
-                  const resumed = await ports.session.resumeInteractive!(candidate.id)
-                  return {
-                    cwd: resumed.cwd ?? candidate.cwd,
-                    events: resumed.events,
-                    id: resumed.id,
-                    onExit: resumed.end,
-                    ...(resumed.interrupt ? { onInterrupt: () => resumed.interrupt!() } : {}),
-                    ...(resumed.pasteClipboardAttachment
-                      ? { onPasteAttachment: () => resumed.pasteClipboardAttachment!() }
-                      : {}),
-                    ...(resumed.attachFilePath
-                      ? { onAttachFilePath: (path: string) => resumed.attachFilePath!(path) }
-                      : {}),
-                    ...(resumed.listFiles ? { listFiles: () => resumed.listFiles!() } : {}),
-                    onSubmit: resumed.submit,
-                    ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
-                  }
+          ? (() => {
+              const mapResumed = (resumed: import('./ports').InteractiveSession) => ({
+                cwd: resumed.cwd ?? cwd,
+                events: resumed.events,
+                id: resumed.id,
+                onExit: resumed.end,
+                ...(resumed.interrupt ? { onInterrupt: () => resumed.interrupt!() } : {}),
+                ...(resumed.pasteClipboardAttachment
+                  ? { onPasteAttachment: () => resumed.pasteClipboardAttachment!() }
+                  : {}),
+                ...(resumed.attachFilePath
+                  ? { onAttachFilePath: (path: string) => resumed.attachFilePath!(path) }
+                  : {}),
+                ...(resumed.listFiles ? { listFiles: () => resumed.listFiles!() } : {}),
+                onSubmit: resumed.submit,
+                ...(resumed.transcript ? { transcript: resumed.transcript } : {}),
+              })
+              return {
+                resume: {
+                  list: () => ports.session.list!(),
+                  resume: async (candidate: import('@volund/ui').SessionCandidate) =>
+                    mapResumed(await ports.session.resumeInteractive!(candidate.id)),
                 },
-              },
-            }
+                // §22 W-01：web 驱动 start/resume → controller 激活 → TUI 跟随换绑。
+                ...(ports.session.onActivate
+                  ? {
+                      sessionActivation: {
+                        subscribe: (
+                          listener: (
+                            session: import('@volund/ui').ResumedInteractiveSession,
+                          ) => void,
+                        ) => ports.session!.onActivate!((session) => listener(mapResumed(session))),
+                      },
+                    }
+                  : {}),
+              }
+            })()
           : {}),
         sessionId: interactive.id,
         status: statusText('probing'),
@@ -1112,6 +1111,8 @@ export async function runCli(
           budget,
         ])
       }
+      // W-01：嵌入式 Web 控制台随 TUI 退出关闭（同样在界内等待，不拖进程）。
+      await webConsole?.close().catch(() => {})
       return { exitCode: interactive.exitCode(), stdout, stderr }
     }
     const session = await ports.session.startSession({
@@ -1150,6 +1151,8 @@ async function buildWelcomePanelData(input: {
   sandbox: WelcomeSandboxStatus
   sessionId: string
   trustLabel: string
+  /** §22 W-01：嵌入式 Web 控制台地址（含 bearer token），存在即上欢迎屏。 */
+  webUrl?: string
   model?: WelcomeModelStatus & { status: 'available' }
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
@@ -1160,6 +1163,7 @@ async function buildWelcomePanelData(input: {
     sessionId: input.sessionId,
     trustLabel: input.trustLabel,
     cwd: input.cwd,
+    ...(input.webUrl ? { web: { url: input.webUrl } } : {}),
     model: input.model ?? {
       status: 'available',
       provider: 'anthropic',

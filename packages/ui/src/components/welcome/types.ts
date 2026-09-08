@@ -11,6 +11,8 @@ export interface WelcomeScreenState {
   agent: { mode: string; status: string; thinking: 'on' | 'off' }
   /** native-bridge 探针加载状态（sandbox/search/fs 各一行）；缺省视为 probing。 */
   native: ReadonlyArray<{ label: string; state: string; tone: StatusTone }>
+  /** §22 W-01：嵌入式 Web 控制台地址（无 token，进入即用）；null = 未启动不渲染。 */
+  web: { url: string | null }
 }
 
 // bottomStatus / commandInput 不再是本组件的插槽：welcome 退出时它们若随

@@ -31,6 +31,7 @@ import {
   createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
+  PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
 } from '@volund/app-runtime'
@@ -901,6 +902,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   let interactivePermissionPrompt:
     | ((request: InteractivePermissionRequest) => Promise<InteractivePermissionDecision>)
     | undefined
+  // §22 W-07 多路审批：进程级共享队列是权限链的唯一 prompt 源——TUI 与 Web
+  // 都订阅它，任一端决策全端清卡（不再经 setPermissionPromptHandler 抢单槽）。
+  const permissionPrompts = new PermissionPromptController()
+  interactivePermissionPrompt = (request) => permissionPrompts.request(request)
+  // §22 W-01：嵌入式 Web 控制台的 URL cell（startEmbedded 起服务后回填，状态面板 Web 行读取）。
+  let webConsoleUrl: string | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
   // §2.7.1（r13-G3）：自定义 agent 定义两层装载（<home>/agents 与
@@ -1511,8 +1518,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onTerminalOutput: (input) => {
       streamToStdout = input.streamToStdout
     },
-    onPermissionPromptHandler: (handler) => {
-      interactivePermissionPrompt = handler
+    onPermissionPromptHandler: () => {
+      // 共享队列是唯一 prompt 源：set/clear 都重断言，端侧互不覆盖（W-07 多路）。
+      interactivePermissionPrompt = (request) => permissionPrompts.request(request)
     },
     statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,
@@ -1558,7 +1566,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const configDomain = createConfigDomain({
     home,
     logger,
-    statusRuntime: options,
+    statusRuntime: { ...options, webConsoleUrl: () => webConsoleUrl },
     localPluginHub,
   })
   const nativeDomain = createNativeDomain({
@@ -1595,6 +1603,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
     trust,
     // §4.4 三档权限模式：current 供 /mode 与欢迎屏显示；set 对新会话生效并热切活动顶层会话。
+    // §22 W-07：进程级共享审批队列（TUI/Web 多路订阅；权限链 prompt 源）。
+    permissionPrompts,
     permissionMode: {
       current: () =>
         activePermissionControl?.get() ?? overridePermissionMode ?? configPermissionMode ?? 'ask',
@@ -1652,7 +1662,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
     },
   }
-  // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）。
-  assembled.web = createWebPort(assembled)
+  // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）；
+  // onUrl 回填状态面板的 Web 行（嵌入式自启/显式 web 命令共用）。
+  assembled.web = createWebPort(assembled, {
+    onUrl: (url) => {
+      webConsoleUrl = url
+    },
+  })
   return assembled
 }

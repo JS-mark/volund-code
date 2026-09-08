@@ -67,6 +67,12 @@ export function WelcomeScreen({ state, terminalSize }: WelcomeScreenProps) {
                 {`${state.session.label} · permission `}
                 <Text color={colorForTone(state.permission.tone)}>{state.permission.label}</Text>
               </Text>
+              {state.web.url !== null && (
+                <Text color="gray" wrap="truncate-end">
+                  {'web '}
+                  <Text color={welcomeTheme.brandAccent}>{state.web.url}</Text>
+                </Text>
+              )}
             </Box>
           </Box>
         </Box>

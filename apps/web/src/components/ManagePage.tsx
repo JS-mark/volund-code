@@ -1,6 +1,9 @@
+'use client'
+
+import { Alert, Button, Empty, Input, List, Space, Table, Tabs, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
-import type { WebApi } from './api'
+import type { WebApi } from '../lib/api'
 
 type Tab = 'memory' | 'skill' | 'mcp' | 'plugins' | 'telemetry'
 
@@ -12,8 +15,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'telemetry', label: 'Telemetry' },
 ]
 
-/** 管理页（§22 W-11/W-12/W-14 首版）：全部走 tagged-union actions 端点。 */
-export function Manage({
+/** 管理页（§22 W-11/W-12/W-14）：全部走 tagged-union actions 端点。 */
+export function ManagePage({
   api,
   capabilities,
 }: {
@@ -22,35 +25,46 @@ export function Manage({
 }) {
   const mgmt = (capabilities.management ?? {}) as Record<string, boolean>
   const available = TABS.filter((tab) => mgmt[tab.id])
-  const [tab, setTab] = useState<Tab>(available[0]?.id ?? 'memory')
+
+  if (available.length === 0)
+    return (
+      <section style={{ padding: 24 }}>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          管理
+        </Typography.Title>
+        <Empty description="没有已装配的管理域（unavailable）" />
+      </section>
+    )
 
   return (
-    <section>
-      <h2>管理</h2>
-      {available.length === 0 ? (
-        <p className="muted">没有已装配的管理域（unavailable）。</p>
-      ) : (
-        <>
-          <div className="tabs">
-            {available.map((item) => (
-              <button
-                key={item.id}
-                className={tab === item.id ? 'active' : ''}
-                onClick={() => setTab(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          {tab === 'memory' && <MemoryPanel api={api} />}
-          {tab === 'skill' && <SkillsPanel api={api} />}
-          {tab === 'mcp' && <McpPanel api={api} />}
-          {tab === 'plugins' && <PluginsPanel api={api} />}
-          {tab === 'telemetry' && <TelemetryPanel api={api} />}
-        </>
-      )}
+    <section style={{ padding: 24, overflow: 'auto' }}>
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
+        管理
+      </Typography.Title>
+      <Tabs
+        items={available.map((tab) => ({
+          key: tab.id,
+          label: tab.label,
+          children: <TabBody api={api} tab={tab.id} />,
+        }))}
+      />
     </section>
   )
+}
+
+function TabBody({ api, tab }: { api: WebApi; tab: Tab }) {
+  switch (tab) {
+    case 'memory':
+      return <MemoryPanel api={api} />
+    case 'skill':
+      return <SkillsPanel api={api} />
+    case 'mcp':
+      return <McpPanel api={api} />
+    case 'plugins':
+      return <PluginsPanel api={api} />
+    case 'telemetry':
+      return <TelemetryPanel api={api} />
+  }
 }
 
 function useInventory<T>(
@@ -86,7 +100,7 @@ function useInventory<T>(
 
 function Notice({ message }: { message: string | undefined }) {
   if (!message) return null
-  return <p className="warn">{message}</p>
+  return <Alert type="warning" showIcon title={message} style={{ marginBottom: 8 }} />
 }
 
 type MemoryRecord = { id: string; content: string; pinned: boolean; updatedAt: string }
@@ -124,74 +138,72 @@ function MemoryPanel({ api }: { api: WebApi }) {
     [api, reload],
   )
 
-  if (error) return <p className="warn">{error}</p>
+  if (error) return <Alert type="error" showIcon title={error} />
   const items = results ?? data?.items?.items ?? []
   return (
     <div>
-      <div className="row">
-        <input
-          className="search"
+      <Space style={{ marginBottom: 8 }}>
+        <Input.Search
           placeholder={data?.searchAvailable ? '搜索 Memory…' : '搜索不可用（recall 未装配）'}
           value={query}
           disabled={!data?.searchAvailable}
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') void search()
-          }}
+          onSearch={() => void search()}
+          style={{ width: 320 }}
         />
-        <button onClick={() => void search()} disabled={!data?.searchAvailable}>
-          搜索
-        </button>
-        {results && (
-          <button className="ghost" onClick={() => setResults(undefined)}>
-            清除
-          </button>
-        )}
-      </div>
+        {results && <Button onClick={() => setResults(undefined)}>清除</Button>}
+      </Space>
       <Notice message={notice} />
-      <p className="muted">
+      <Typography.Text type="secondary">
         scope: {data?.scopeLabel ?? '…'} · {items.length} 条
-      </p>
-      <ul className="sessions">
-        {items.map((record) => (
-          <li key={record.id}>
-            <div className="row">
-              <div>
-                <div>{record.content.slice(0, 120)}</div>
-                <div className="muted">
-                  {record.id.slice(0, 8)} · {record.pinned ? '📌 ' : ''}
-                  {record.updatedAt}
-                </div>
-              </div>
-              <div className="actions">
-                <button
-                  onClick={() =>
-                    void act({
-                      action: record.pinned ? 'unpin' : 'pin',
-                      id: record.id,
-                      expectedUpdatedAt: record.updatedAt,
-                    })
-                  }
-                >
-                  {record.pinned ? '取消置顶' : '置顶'}
-                </button>
-                <button
-                  className="danger"
-                  onClick={() =>
-                    void act({
-                      action: 'delete',
-                      id: record.id,
-                      expectedUpdatedAt: record.updatedAt,
-                    })
-                  }
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
+      </Typography.Text>
+      <List
+        size="small"
+        dataSource={items}
+        renderItem={(record) => (
+          <List.Item
+            actions={[
+              <Button
+                key="pin"
+                size="small"
+                onClick={() =>
+                  void act({
+                    action: record.pinned ? 'unpin' : 'pin',
+                    id: record.id,
+                    expectedUpdatedAt: record.updatedAt,
+                  })
+                }
+              >
+                {record.pinned ? '取消置顶' : '置顶'}
+              </Button>,
+              <Button
+                key="delete"
+                size="small"
+                danger
+                onClick={() =>
+                  void act({
+                    action: 'delete',
+                    id: record.id,
+                    expectedUpdatedAt: record.updatedAt,
+                  })
+                }
+              >
+                删除
+              </Button>,
+            ]}
+          >
+            <List.Item.Meta
+              title={
+                <>
+                  {record.pinned && '📌 '}
+                  {record.content.slice(0, 120)}
+                </>
+              }
+              description={`${record.id.slice(0, 8)} · ${record.updatedAt}`}
+            />
+          </List.Item>
+        )}
+      />
     </div>
   )
 }
@@ -218,27 +230,36 @@ function SkillsPanel({ api }: { api: WebApi }) {
     },
     [api, reload],
   )
-  if (error) return <p className="warn">{error}</p>
+  if (error) return <Alert type="error" showIcon title={error} />
   return (
     <div>
       <Notice message={notice} />
-      <ul className="sessions">
-        {(data?.items ?? []).map((skill) => (
-          <li key={skill.name}>
-            <div className="row">
-              <div>
-                <div className="title">
-                  /{skill.name} <span className="muted">{skill.scope}</span>
-                </div>
-                <div className="muted">{skill.description}</div>
-              </div>
-              <button onClick={() => void toggle(skill.name, skill.status === 'disabled')}>
+      <List
+        size="small"
+        dataSource={data?.items ?? []}
+        renderItem={(skill) => (
+          <List.Item
+            actions={[
+              <Button
+                key="toggle"
+                size="small"
+                onClick={() => void toggle(skill.name, skill.status === 'disabled')}
+              >
                 {skill.status === 'disabled' ? '启用' : '禁用'}
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+              </Button>,
+            ]}
+          >
+            <List.Item.Meta
+              title={
+                <>
+                  /{skill.name} <Tag>{skill.scope}</Tag>
+                </>
+              }
+              description={skill.description}
+            />
+          </List.Item>
+        )}
+      />
     </div>
   )
 }
@@ -259,24 +280,19 @@ function McpPanel({ api }: { api: WebApi }) {
     },
     [api, reload],
   )
-  if (error) return <p className="warn">{error}</p>
+  if (error) return <Alert type="error" showIcon title={error} />
   return (
     <div>
       <Notice message={notice} />
-      <ul className="sessions">
-        {(data?.items ?? []).map((entry) => (
-          <li key={entry.name}>
-            <div className="row">
-              <div>
-                <div className="title">
-                  {entry.name} <span className="muted">{entry.transport}</span>
-                </div>
-                <div className="muted">
-                  {entry.scope ?? ''} · {entry.status ?? 'unknown'}
-                  {entry.tools !== undefined ? ` · ${entry.tools} tools` : ''}
-                </div>
-              </div>
-              <button
+      <List
+        size="small"
+        dataSource={data?.items ?? []}
+        renderItem={(entry) => (
+          <List.Item
+            actions={[
+              <Button
+                key="toggle"
+                size="small"
                 onClick={() => void toggle(entry.name, entry.status === 'disabled')}
                 disabled={
                   entry.status !== 'disabled' &&
@@ -285,11 +301,20 @@ function McpPanel({ api }: { api: WebApi }) {
                 }
               >
                 {entry.status === 'disabled' ? '启用' : '禁用'}
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+              </Button>,
+            ]}
+          >
+            <List.Item.Meta
+              title={
+                <>
+                  {entry.name} <Tag>{entry.transport}</Tag>
+                </>
+              }
+              description={`${entry.scope ?? ''} · ${entry.status ?? 'unknown'}${entry.tools !== undefined ? ` · ${entry.tools} tools` : ''}`}
+            />
+          </List.Item>
+        )}
+      />
     </div>
   )
 }
@@ -320,26 +345,34 @@ function PluginsPanel({ api }: { api: WebApi }) {
     },
     [api, reload],
   )
-  if (error) return <p className="warn">{error}</p>
+  if (error) return <Alert type="error" showIcon title={error} />
   return (
     <div>
-      {availability && <p className="muted">legacy catalog（deny-only）：{availability}</p>}
+      {availability && (
+        <Typography.Paragraph type="secondary">
+          legacy catalog（deny-only）：{availability}
+        </Typography.Paragraph>
+      )}
       <Notice message={notice} />
-      <ul className="sessions">
-        {(data?.items ?? []).map((domain) => (
-          <li key={domain.id}>
-            <div className="row">
-              <div>
-                <div className="title">{domain.label}</div>
-                <div className="muted">{domain.description}</div>
-              </div>
-              <button onClick={() => void toggle(domain.id, !domain.enabled)}>
+      <List
+        size="small"
+        dataSource={data?.items ?? []}
+        renderItem={(domain) => (
+          <List.Item
+            actions={[
+              <Button
+                key="toggle"
+                size="small"
+                onClick={() => void toggle(domain.id, !domain.enabled)}
+              >
                 {domain.enabled ? '禁用' : '启用'}
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+              </Button>,
+            ]}
+          >
+            <List.Item.Meta title={domain.label} description={domain.description} />
+          </List.Item>
+        )}
+      />
     </div>
   )
 }
@@ -370,43 +403,51 @@ function TelemetryPanel({ api }: { api: WebApi }) {
       )
       .catch(() => setEvents(undefined))
   }, [api, tab, reload])
-  if (error) return <p className="warn">{error}</p>
+  if (error) return <Alert type="error" showIcon title={error} />
   return (
     <div>
-      <div className="tabs">
-        <button className={tab === 'summary' ? 'active' : ''} onClick={() => setTab('summary')}>
-          摘要
-        </button>
-        <button className={tab === 'events' ? 'active' : ''} onClick={() => setTab('events')}>
-          最近事件
-        </button>
-      </div>
+      <Tabs
+        size="small"
+        activeKey={tab}
+        onChange={(key) => setTab(key as 'summary' | 'events')}
+        items={[
+          { key: 'summary', label: '摘要' },
+          { key: 'events', label: '最近事件' },
+        ]}
+      />
       {tab === 'summary' ? (
         <>
-          <h3>摘要</h3>
-          <pre className="code">{JSON.stringify(data?.summary ?? {}, null, 2)}</pre>
-          <h3>健康</h3>
-          <pre className="code">{JSON.stringify(data?.health ?? {}, null, 2)}</pre>
+          <Typography.Title level={5}>摘要</Typography.Title>
+          <pre style={{ fontSize: 12, overflow: 'auto' }}>
+            {JSON.stringify(data?.summary ?? {}, null, 2)}
+          </pre>
+          <Typography.Title level={5}>健康</Typography.Title>
+          <pre style={{ fontSize: 12, overflow: 'auto' }}>
+            {JSON.stringify(data?.health ?? {}, null, 2)}
+          </pre>
         </>
       ) : (
         <>
-          <p className="muted">
+          <Typography.Paragraph type="secondary">
             最近 {events?.events.length ?? 0} 条（共 {events?.total ?? 0}，损坏行{' '}
             {events?.corruptLines ?? 0}）
-          </p>
-          <table>
-            <tbody>
-              {(events?.events ?? []).toReversed().map((event, index) => (
-                <tr key={index}>
-                  <td className="muted">{event.at}</td>
-                  <td>
-                    {event.category ? `[${event.category}] ` : ''}
-                    {event.name}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          </Typography.Paragraph>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={(events?.events ?? []).toReversed().map((event, index) => ({
+              key: index,
+              ...event,
+            }))}
+            columns={[
+              { dataIndex: 'at', key: 'at', width: 200 },
+              {
+                key: 'name',
+                render: (_, event) =>
+                  `${event.category ? `[${event.category}] ` : ''}${event.name}`,
+              },
+            ]}
+          />
         </>
       )}
     </div>

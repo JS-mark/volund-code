@@ -31,7 +31,6 @@ export const createCommand = (identity: AppIdentity) =>
       hook: leaf('hook', 'List builtin hooks'),
       skill: leaf('skill', 'Install, manage, and show prompt skills'),
       mcp: leaf('mcp', 'Add, list, test, enable/disable, and inspect MCP servers'),
-      web: leaf('web', 'Start the local web console'),
       version: leaf('version', 'Print version'),
       help: leaf('help', 'Show command help'),
     },

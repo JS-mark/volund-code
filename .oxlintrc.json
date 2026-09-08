@@ -9,7 +9,14 @@
   "env": {
     "node": true
   },
-  "ignorePatterns": ["**/dist/**", "**/build/**", "**/coverage/**", "**/node_modules/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/.next/**",
+    "**/out/**",
+    "**/node_modules/**"
+  ],
   "options": {
     "typeAware": true
   },

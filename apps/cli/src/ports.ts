@@ -60,6 +60,7 @@ import type {
   McpPort,
   NativeAvailabilityView,
   NativeHealth,
+  PermissionPromptController,
   PluginPort,
   SkillPort,
   TrustPort,
@@ -68,6 +69,8 @@ export interface SessionPort {
   startSession(input: { cwd: string; prompt?: string }): Promise<{ id: string; exitCode?: number }>
   startInteractive?(input: { cwd: string }): Promise<InteractiveSession>
   resumeInteractive?(id: string): Promise<InteractiveSession>
+  /** §22 W-01：会话激活订阅（start/resumeInteractive 完成后触发；TUI 跟随 web 切换用）。 */
+  onActivate?(listener: (session: InteractiveSession) => void): () => void
   resume(id: string): Promise<{ id: string }>
   list?(): Promise<readonly SessionCandidate[]>
   interrupt(): Promise<void>
@@ -205,15 +208,21 @@ export interface VolundPorts {
     previewUndo(sessionId: string): Promise<UndoPreview>
     undoStep(sessionId: string): Promise<UndoStepResult>
   }
-  /** §22 W-01：`volund web` 本地控制台；serve 阻塞到 server 关闭。 */
+  /** §22 W-01：Web 控制台随 TUI 静默自启（无独立 web 子命令）。 */
   web?: {
-    serve(input: {
+    /**
+     * 后台起服务并挂载 TUI 活动会话；被配置/env 关闭或启动失败时返回
+     * undefined（不阻塞 TUI）。
+     */
+    startEmbedded?(input: {
       cwd: string
-      port: number
-      open: boolean
-      onReady(handle: { url: string; port: number }): void
-    }): Promise<{ url: string; port: number }>
+    }): Promise<{ url: string; port: number; close(): Promise<void> } | undefined>
   }
+  /**
+   * §22 W-07 多路审批：进程级共享权限请求队列（runtime 装配进权限链 prompt 源）。
+   * TUI 与 Web 都订阅它——任一端决策，全端清卡。
+   */
+  permissionPrompts?: PermissionPromptController
   /**
    * 进程收尾：关闭插件宿主 / MCP 连接等长驻资源（它们的子进程管道 ref 住事件
    * 循环，不关则 UI 退出后进程仍悬挂）。交互会话退出与信号处理都会调用；

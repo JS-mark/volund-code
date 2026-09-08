@@ -77,6 +77,13 @@ export const configKeyRegistry = {
   'plugins.market': 'forbidden',
   // builtin_disabled（F1 插件一等公民）：禁用的第一方工具域 id（volund.exec 等）
   'plugins.builtin_disabled': 'allowed',
+  // [web] §22 W-01：TUI 进入时 Web 控制台的静默自启开关与固定端口（默认开、随机端口）
+  'web.enabled': 'allowed',
+  'web.port': 'allowed',
+  // [web.terminal] 工作台终端：shell 覆盖 / 字号 / 滚动缓冲（本地用户自身面，无流向风险）
+  'web.terminal.shell': 'allowed',
+  'web.terminal.font_size': 'allowed',
+  'web.terminal.scrollback': 'allowed',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -246,6 +253,21 @@ export const ConfigSchema = z.strictObject({
     .strictObject({
       market: z.string().optional(),
       builtin_disabled: z.array(z.string()).optional(),
+    })
+    .optional(),
+  // [web]（§22 W-01）：TUI 进入时静默自启 Web 控制台；port=0 随机空闲端口
+  web: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      port: z.number().int().min(0).max(65535).optional(),
+      // 工作台终端：shell 覆盖（默认 $SHELL→/bin/sh，win32 cmd.exe）/ 字号 / 滚动缓冲行数
+      terminal: z
+        .strictObject({
+          shell: z.string().min(1).optional(),
+          font_size: z.number().int().min(9).max(32).optional(),
+          scrollback: z.number().int().min(100).max(100000).optional(),
+        })
+        .optional(),
     })
     .optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地

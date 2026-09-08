@@ -50,6 +50,11 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[telemetry]` | `sink` | `"local" \；⚠️ 占位：schema 收录但实现未消费 | "otel"`，默认 `local`（OTEL 未实现，local 硬编码） | §8.7 | **forbidden**（§8.3.1） |
 | `[telemetry.otel]` | `endpoint` | string；⚠️ 占位：schema 收录但实现未消费 | §8.7 | **forbidden**（§8.3.1） |
 | `[evolution]` | `enabled` | bool，默认 `false`；仅显式 `true` 应用已有 context tuning，不开启 observe/validate | §15 | allowed |
+| `[web]` | `enabled` | bool，默认 `true`；TUI 进入时静默自启 Web 控制台（loopback），`false` 关闭 | §22 W-01 | allowed |
+| `[web]` | `port` | int，默认 `0`（随机空闲端口）；显式值限 1024..65535 | §22 W-01 | allowed |
+| `[web.terminal]` | `shell` | string；工作台终端的 shell 覆盖（默认 `$SHELL` → `/bin/sh`；win32 `cmd.exe`） | §22 | allowed |
+| `[web.terminal]` | `font_size` | int，9–32，默认 `12`；工作台终端字号 | §22 | allowed |
+| `[web.terminal]` | `scrollback` | int，100–100000，默认 `2000`；终端滚动缓冲行数 | §22 | allowed |
 | `[reflection]` | `enabled` | bool，默认 `true` | §21.3 | allowed |
 | `[reflection]` | `triggers.on_error` / `triggers.on_compact` | bool，默认 `true` / `false` | §21.3 | allowed |
 | `[reflection]` | `triggers.every_n_turns` | int，默认 `0`（关；>0 如 `5` 开启定期反思） | §21.3 | allowed |

@@ -31,12 +31,16 @@ function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name)
     if (entry.isDirectory())
-      return entry.name === 'dist' || entry.name === 'node_modules' ? [] : walk(path)
+      return entry.name === 'dist' || entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'out'
+        ? []
+        : walk(path)
     return sourceExtensions.has(extname(entry.name)) ? [path] : []
   })
 }
 
 function sourceSpecifiers(path) {
+  // next-env.d.ts 是 Next 的生成标记文件（每次 build 重写，含 .d.ts 显式引用），跳过。
+  if (path.endsWith('next-env.d.ts')) return new Set()
   const source = readFileSync(path, 'utf8')
   const specifiers = new Set()
   const patterns = [

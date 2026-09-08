@@ -12,7 +12,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".vitepress/dist/**"]
+      "outputs": ["dist/**", "out/**", ".vitepress/dist/**"]
     },
     "test": {
       "dependsOn": ["^build", "//#verify:config-docs", "//#verify:error-codes"],
@@ -44,7 +44,7 @@
         "@volund/web#build",
         "@volund/kernel#build"
       ],
-      "outputs": ["dist/**", ".vitepress/dist/**"]
+      "outputs": ["dist/**", "out/**", ".vitepress/dist/**"]
     }
   }
 }
