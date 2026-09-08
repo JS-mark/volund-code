@@ -320,7 +320,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         .map((model) => ({ alias: model.label, model: model.id })),
     [options.modelPicker],
   )
-  // §7.5.2：handle digest 前 8 位 → 输入行 chip（[image_N]）的映射，提交时登记，
+  // §7.5.2：handle digest 前 8 位 → 输入行 chip（[Image #N]）的映射，提交时登记，
   // message.appended 落 transcript 时回译，保证两处展示一致。
   const attachmentChipLabels = useRef(new Map<string, string>())
   const rememberAttachmentChips = useCallback((attachments: readonly SubmitAttachment[]) => {
@@ -414,7 +414,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         if (event.type === 'tool.started') setShowWelcome(false)
         if (event.type === 'message.appended') {
           // §7.5.2：把 hash 形态的附件 chip（[image: 49779094.png]）回译成输入行的
-          // 顺序编号 chip（[image_1]），transcript 与输入行展示一致。
+          // 顺序编号 chip（[Image #1]），transcript 与输入行展示一致。
           setState((current) => {
             const next = applyInteractiveEvent(current, event)
             const added = next.transcript.length - current.transcript.length
@@ -1264,7 +1264,7 @@ function submitOptions(
 /**
  * §7.5.2：transcript 里 hash 形态的图片 chip（[image: 49779094.png]，由
  * contentPartChipLabel 从引用式 ContentPart 派生）回译成输入行的顺序编号
- * chip（[image_1]）。只处理 image；file chip 两侧同为 basename 无需映射。
+ * chip（[Image #1]）。只处理 image；file chip 两侧同为 basename 无需映射。
  */
 function remapImageChips(text: string, chipsByHandle: ReadonlyMap<string, string>): string {
   if (chipsByHandle.size === 0 || !text.includes('[image:')) return text

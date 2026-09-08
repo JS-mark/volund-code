@@ -654,7 +654,7 @@ describe('renderInteractiveApp', () => {
     for (let i = 0; i < 40 && !chipSeen; i++) {
       await new Promise((resolve) => setTimeout(resolve, 50))
       await app.waitUntilRenderFlush()
-      chipSeen = stdout.output.includes('> [image_1]')
+      chipSeen = stdout.output.includes('> [Image #1]')
     }
     expect(pastes).toBe(1)
     // 命令通道把 chip 注入输入行（命令不直接提交）。
@@ -731,7 +731,7 @@ describe('renderInteractiveApp', () => {
     stdin.write('\x16')
     await new Promise((resolve) => setTimeout(resolve, 30))
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('draft [image_1]')
+    expect(stdout.output).toContain('draft [Image #1]')
 
     // 第二次粘贴（空剪贴板）触发反馈消息 → welcome 退出 → 输入行必须存活。
     stdin.write('\x16')
@@ -739,12 +739,12 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('clipboard has no image or file to attach')
     const tail = stdout.output.slice(stdout.output.lastIndexOf('> draft'))
-    expect(tail).toContain('[image_1]')
+    expect(tail).toContain('[Image #1]')
     app.unmount()
     await app.waitUntilExit()
   })
 
-  it('§7.5.2: transcript echoes the sequential chip ([image_1]) assigned in the input line', async () => {
+  it('§7.5.2: transcript echoes the sequential chip ([Image #1]) assigned in the input line', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
@@ -777,14 +777,14 @@ describe('renderInteractiveApp', () => {
     stdin.write('\x16')
     await new Promise((resolve) => setTimeout(resolve, 20))
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('[image_1]')
+    expect(stdout.output).toContain('[Image #1]')
     stdin.write(' describe')
     await app.waitUntilRenderFlush()
     stdin.write('\r')
     await app.waitUntilRenderFlush()
 
     // runner 侧的 message.appended 带引用式 ContentPart（handle 形态）——
-    // transcript 必须回译成输入行的 [image_1]，而不是 hash 派生文本。
+    // transcript 必须回译成输入行的 [Image #1]，而不是 hash 派生文本。
     await events.emit({
       payload: {
         content: [
@@ -799,7 +799,7 @@ describe('renderInteractiveApp', () => {
       version: 1,
     })
     await app.waitUntilRenderFlush()
-    expect(stdout.output).toContain('[image_1] describe')
+    expect(stdout.output).toContain('[Image #1] describe')
     expect(stdout.output).not.toContain('[image: aaaaaaaa.png]')
     app.unmount()
     await app.waitUntilExit()
@@ -1315,18 +1315,18 @@ describe('renderInteractiveApp', () => {
     stdin.write('look at this')
     await input.waitUntilRenderFlush()
     // Ctrl+V → 权限门后插入 chip（异步解析后再 flush 一轮）；chip 由输入框
-    // 按粘贴顺序编号（[image_1]）。
+    // 按粘贴顺序编号（[Image #1]）。
     stdin.write('\x16')
     await input.waitUntilRenderFlush()
     await new Promise((resolve) => setTimeout(resolve, 20))
     await input.waitUntilRenderFlush()
-    expect(stdout.output).toContain('look at this [image_1]')
+    expect(stdout.output).toContain('look at this [Image #1]')
 
     stdin.write('\r')
     await input.waitUntilRenderFlush()
     // chip 插入时带尾随空格（便于继续输入）；runtime 提交时剔除 chip 并 trim。
     expect(submitted).toEqual([
-      { attachments: [{ ...staged, chip: '[image_1]' }], text: 'look at this [image_1] ' },
+      { attachments: [{ ...staged, chip: '[Image #1]' }], text: 'look at this [Image #1] ' },
     ])
     input.unmount()
     await input.waitUntilExit()
@@ -1363,14 +1363,14 @@ describe('renderInteractiveApp', () => {
     stdin.write('\x16')
     await new Promise((resolve) => setTimeout(resolve, 20))
     await input.waitUntilRenderFlush()
-    expect(stdout.output).toContain('[image_1]')
+    expect(stdout.output).toContain('[Image #1]')
 
     // 一次退格：chip 连同它后面的空格整枚消失，不是逐个字符删。
     // （debug 渲染保留全部历史帧——chip 的旧帧仍在 scrollback 里，只验最新帧。）
     stdin.write('\x7F')
     await input.waitUntilRenderFlush()
     const lastFrame = stdout.output.slice(stdout.output.lastIndexOf('> hi'))
-    expect(lastFrame).not.toContain('[image_1]')
+    expect(lastFrame).not.toContain('[Image #1]')
 
     stdin.write('\r')
     await input.waitUntilRenderFlush()
@@ -1491,7 +1491,7 @@ describe('renderInteractiveApp', () => {
     stdin.write('\x16')
     await new Promise((resolve) => setTimeout(resolve, 20))
     await input.waitUntilRenderFlush()
-    // 值：'before [image_1] '，光标在末尾（chip+空格之后）。
+    // 值：'before [Image #1] '，光标在末尾（chip+空格之后）。
     // ←：先越过尾随空格；再 ←：整枚跳过 chip 落到其左缘。
     stdin.write('\u001B[D')
     stdin.write('\u001B[D')
@@ -1501,7 +1501,7 @@ describe('renderInteractiveApp', () => {
     await input.waitUntilRenderFlush()
     const tail = stdout.output.slice(stdout.output.lastIndexOf('> before'))
     expect(tail).toContain('> before ')
-    expect(tail).not.toContain('[image_1]')
+    expect(tail).not.toContain('[Image #1]')
     input.unmount()
     await input.waitUntilExit()
   })
@@ -1732,7 +1732,7 @@ describe('renderInteractiveApp', () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
     await input.waitUntilRenderFlush()
     expect(reads).toBe(1)
-    expect(stdout.output).toContain('[image_1]')
+    expect(stdout.output).toContain('[Image #1]')
     input.unmount()
     await input.waitUntilExit()
   })

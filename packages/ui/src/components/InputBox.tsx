@@ -226,7 +226,7 @@ export function InputBox({
   }
   const insertChip = (info: StagedAttachmentInfo) => {
     // chip 文本归输入框所有：剪贴板图片（无路径的匿名 blob）按粘贴顺序编号
-    // （[image_1]、[image_2]…）；路径附件（拖拽/Finder 拷贝）带 basename。
+    // （[Image #1]、[Image #2]…）；路径附件（拖拽/Finder 拷贝）带 basename。
     const chip =
       info.kind === 'image' && !info.path
         ? imageChipLabel(++imageSequence.current)

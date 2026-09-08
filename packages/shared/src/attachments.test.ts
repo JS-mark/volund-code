@@ -10,8 +10,8 @@ import {
 
 describe('imageChipLabel (§7.5.2)', () => {
   it('numbers clipboard images sequentially', () => {
-    expect(imageChipLabel(1)).toBe('[image_1]')
-    expect(imageChipLabel(2)).toBe('[image_2]')
+    expect(imageChipLabel(1)).toBe('[Image #1]')
+    expect(imageChipLabel(2)).toBe('[Image #2]')
   })
 })
 

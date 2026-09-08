@@ -294,7 +294,7 @@ describe('§7.5.2 clipboard attachment paste', () => {
     const first = await session.pasteClipboardAttachment!()
     expect(first.kind).toBe('attached')
     if (first.kind !== 'attached') return
-    // chip 文本归 UI 分配（[image_N]）；宿主只回 handle/kind/mime/size。
+    // chip 文本归 UI 分配（[Image #N]）；宿主只回 handle/kind/mime/size。
     expect(first.attachment.handle).toMatch(/^[0-9a-f]{64}\.png$/)
     expect(first.attachment).not.toHaveProperty('chip')
     // 内容寻址落盘：~/.volund/sessions/<sid>/attachments/<sha256>.png
@@ -307,8 +307,8 @@ describe('§7.5.2 clipboard attachment paste', () => {
     if (second.kind !== 'attached') return
     expect(second.attachment.handle).toBe(first.attachment.handle)
 
-    const submitted = [{ ...first.attachment, chip: '[image_1]' }]
-    await session.submit(`看看 [image_1] 这个`, { attachments: submitted })
+    const submitted = [{ ...first.attachment, chip: '[Image #1]' }]
+    await session.submit(`看看 [Image #1] 这个`, { attachments: submitted })
     const input = captured.input as Array<Record<string, unknown>>
     expect(Array.isArray(input)).toBe(true)
     expect(input[0]).toEqual({

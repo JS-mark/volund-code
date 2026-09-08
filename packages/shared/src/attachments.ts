@@ -8,7 +8,7 @@
 
 export type SubmitAttachmentKind = 'file' | 'image'
 
-/** 宿主暂存完附件后回给 UI 的信息；chip 文本由输入框分配（[image_1] 顺序编号）。 */
+/** 宿主暂存完附件后回给 UI 的信息；chip 文本由输入框分配（[Image #1] 顺序编号）。 */
 export interface StagedAttachmentInfo {
   readonly kind: SubmitAttachmentKind
   readonly mime: string
@@ -20,7 +20,7 @@ export interface StagedAttachmentInfo {
 }
 
 export interface SubmitAttachment extends StagedAttachmentInfo {
-  /** 输入行占位 token 全文，如 `[image_1]` / `[file: report.pdf]`。 */
+  /** 输入行占位 token 全文，如 `[Image #1]` / `[file: report.pdf]`。 */
   readonly chip: string
 }
 
@@ -32,14 +32,14 @@ export type PasteAttachmentResult =
   | { readonly kind: 'denied' }
   | { readonly kind: 'unavailable'; readonly reason: string }
 
-/** 图片附件 chip：输入行内按粘贴顺序编号（[image_1]、[image_2]…）。 */
+/** 图片附件 chip：输入行内按粘贴顺序编号（[Image #1]、[Image #2]…）。 */
 export function imageChipLabel(sequence: number): string {
-  return `[image_${sequence}]`
+  return `[Image #${sequence}]`
 }
 
 /**
  * 附件 chip 文本派生（transcript/history 回放侧）：handle（`<sha256>.<ext>`）取
- * digest 前 8 位；路径取 basename。输入行展示以 UI 分配的 chip 为准（[image_N]），
+ * digest 前 8 位；路径取 basename。输入行展示以 UI 分配的 chip 为准（[Image #N]），
  * 二者经 app 层的 handle→chip 映射对齐。
  */
 export function attachmentChipLabel(input: {
