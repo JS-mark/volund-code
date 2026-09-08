@@ -11,6 +11,9 @@ import { createProductionPorts } from './runtime'
 
 const dirs: string[] = []
 afterEach(async () => {
+  // 插件域的 telemetry emit 是 fire-and-forget（void 调用），fixture home 若立即
+  // 删除，在飞的 sink write 会在 mkdir 与 open 之间撞上已删目录（ENOENT）。
+  await new Promise((resolve) => setTimeout(resolve, 50))
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
