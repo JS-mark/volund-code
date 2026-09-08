@@ -96,8 +96,6 @@ export interface UiPort {
 }
 export interface VolundPorts {
   identity: Readonly<AppIdentity>
-  /** @deprecated Use identity.version. */
-  version: string
   native: {
     probe(): Promise<SandboxDisclosure>
     health(): Promise<NativeHealth>
@@ -233,7 +231,6 @@ export interface VolundPorts {
 export function unavailablePorts(): VolundPorts {
   return {
     identity: { version: '0.0.0-test' },
-    version: '0.0.0-test',
     native: {
       probe: async () => ({
         tier: 'none',

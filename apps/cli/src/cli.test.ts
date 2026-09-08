@@ -22,7 +22,6 @@ afterEach(async () =>
 function ports(overrides: Partial<VolundPorts> = {}): VolundPorts {
   return {
     identity: { version: '0.0.0-test' },
-    version: '0.0.0-test',
     native: {
       probe: vi.fn(async () => ({
         tier: 'full' as const,

@@ -1575,7 +1575,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   })
   const assembled: VolundPorts = {
     identity: options.identity,
-    version: options.identity.version,
     session,
     // §11.3.4 `volund history`：会话档案的只读检视 + 导入/清理；list 复用
     // session port 的 replay 派生，两个入口不会出现两份候选逻辑。
