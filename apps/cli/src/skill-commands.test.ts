@@ -1,8 +1,7 @@
+import { SkillSlashCommands } from '@volund/app-runtime'
 import type { SkillEntry } from '@volund/skills-runtime'
 import { MutableSlashCommandRegistry } from '@volund/ui'
 import { describe, expect, it, vi } from 'vitest'
-
-import { SkillSlashCommands } from './skill-commands'
 
 function entry(name: string, overrides: Partial<SkillEntry> = {}): SkillEntry {
   return {
