@@ -43,6 +43,48 @@ body {
   height: 32px;
   margin-bottom: 4px;
 }
+/* 图标轨按钮：选中态对齐 CodeBuddy —— 轨道左缘蓝色指示条 + 图标提亮，无实心圆底。 */
+.rail-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 19px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.rail-btn:hover {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+.rail-btn:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 1px;
+}
+.rail-btn.active {
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+.rail-btn.active::before {
+  content: '';
+  position: absolute;
+  /* 36px 按钮在 52px 轨道内两侧各留 8px，指示条贴到轨道左缘。 */
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  border-radius: 3px;
+  background: var(--ant-color-primary);
+}
 .column {
   width: 264px;
   flex-shrink: 0;

@@ -45,6 +45,9 @@ interface Loaded {
 
 const DOCS_URL = 'https://github.com/JS-mark/volund-code#readme'
 
+/** 从图标轨菜单进入的路由：这些页面打开时齿轮按钮保持选中态。 */
+const MENU_ROUTES: ReadonlySet<Route> = new Set(['settings', 'shortcuts', 'changes', 'stats'])
+
 /** 分组能力未接线（旧 server）时的空视图：平铺展示。 */
 const EMPTY_GROUPS: SessionGroupsView = { groups: [], assignments: {} }
 
@@ -297,14 +300,17 @@ export function AppShell() {
   const embedded = bootstrap.capabilities.embedded === true
   const activeTitle = loaded.sessions.find((session) => session.id === activeId)?.title
 
+  // 选中态对齐 CodeBuddy：左侧蓝色指示条 + 图标提亮，不用实心圆底。
   const railButton = (key: Route, title: string, icon: React.ReactNode) => (
-    <Tooltip title={title} placement="right">
-      <Button
-        type={route === key ? 'primary' : 'text'}
-        shape="circle"
-        icon={icon}
+    <Tooltip key={key} title={title} placement="right">
+      <button
+        type="button"
+        className={`rail-btn${route === key ? ' active' : ''}`}
+        aria-label={title}
         onClick={() => setRoute(key)}
-      />
+      >
+        {icon}
+      </button>
     </Tooltip>
   )
 
@@ -373,12 +379,14 @@ export function AppShell() {
         {railButton('status', '状态', <ApiOutlined />)}
         <span style={{ flex: 1 }} />
         <Tooltip title={sidebarCollapsed ? '展开侧栏（⌘B）' : '收起侧栏（⌘B）'} placement="right">
-          <Button
-            type="text"
-            shape="circle"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          <button
+            type="button"
+            className="rail-btn"
+            aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
             onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          />
+          >
+            {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          </button>
         </Tooltip>
         <Dropdown
           trigger={['click']}
@@ -387,7 +395,13 @@ export function AppShell() {
           onOpenChange={setMenuOpen}
           popupRender={() => railMenu}
         >
-          <Button type="text" shape="circle" icon={<SettingOutlined />} title="设置与更多" />
+          <button
+            type="button"
+            className={`rail-btn${menuOpen || MENU_ROUTES.has(route) ? ' active' : ''}`}
+            aria-label="设置与更多"
+          >
+            <SettingOutlined />
+          </button>
         </Dropdown>
       </div>
       {/* 二栏：搜索 + 会话分组列表（可收起，⌘B / 图标轨按钮切换） */}
