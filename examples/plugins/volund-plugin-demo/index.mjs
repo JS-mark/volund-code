@@ -12,7 +12,7 @@
  *
  * 运行方式（开发插件，自动批准 + 启用）：
  *   ln -s "$PWD/examples/plugins/volund-plugin-demo" ~/.volund/plugins-dev/
- *   # 或 VOLUND_PLUGINS_DEV=examples/plugins volund
+ *   # 或 VOLUND_DEV_PLUGINS=examples/plugins volund
  * 代码全程跑在 volund-sandbox 子进程里；主进程只见经权限 guard 的桥调用。
  */
 export async function activate(volund) {
