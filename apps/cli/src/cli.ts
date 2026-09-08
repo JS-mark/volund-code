@@ -25,6 +25,7 @@ import { CommandRegistry } from './app/command-registry'
 import { createCommand, renderGlobalUsage } from './command'
 import { createConfigCommand } from './commands/config'
 import { doctorCommand } from './commands/doctor'
+import { createGatewayCommand } from './commands/gateway'
 import { actionStyleCommands, commandUsage } from './commands/help'
 import { createHistoryCommand } from './commands/history'
 import { createMemoryCommand } from './commands/memory'
@@ -170,6 +171,7 @@ export async function runCli(
     doctorCommand,
     telemetryCommand,
     trustCommand,
+    createGatewayCommand(),
     createConfigCommand(io),
     createHistoryCommand(io),
     createStatusCommand({

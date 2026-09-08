@@ -82,6 +82,7 @@ export default defineConfig({
               items: [
                 { text: 'Managing skills', link: '/docs/guides/managing-skills' },
                 { text: 'MCP servers', link: '/docs/guides/mcp-servers' },
+                { text: 'Remote gateway', link: '/docs/guides/remote-gateway' },
               ],
             },
             { text: 'API reference', link: '/api/README' },
@@ -137,6 +138,7 @@ export default defineConfig({
               items: [
                 { text: '管理 Skill', link: '/zh/docs/guides/managing-skills' },
                 { text: '接入 MCP Server', link: '/zh/docs/guides/mcp-servers' },
+                { text: '远程网关', link: '/zh/docs/guides/remote-gateway' },
               ],
             },
             { text: 'API 参考', link: '/api/README' },

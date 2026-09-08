@@ -110,6 +110,34 @@ Options:
   --strict    Exit 1 when any check fails
 `
 
+const gatewayUsage = `Usage: ${commandName} gateway [--port <n>] [--json]
+
+Serve the remote API gateway: OAuth2 client_credentials (POST /oauth/token),
+OpenAI-compatible POST /v1/chat/completions (SSE streaming), and a WebSocket
+session channel at /v1/ws. All turns serialize on the single local runner.
+
+Configuration is via environment variables:
+  GATEWAY_HOST / GATEWAY_PORT       Bind address (default 0.0.0.0:8788)
+  GATEWAY_CLIENTS                   JSON array of [{id, secret, scopes}]
+  GATEWAY_CLIENTS_FILE              Clients file (default <home>/gateway/clients.json)
+  GATEWAY_TOKEN_SECRET            JWT signing secret (default: generated, persisted 0600)
+  GATEWAY_TOKEN_TTL_SECONDS         Access token TTL (default 3600)
+  GATEWAY_PERMISSION_MODE           ask | auto | full (default auto)
+  GATEWAY_PERMISSION_TIMEOUT_MS     Auto-deny undecided approvals (default 120000)
+  GATEWAY_QUEUE_TIMEOUT_MS          Turn queue wait limit (default 600000)
+  GATEWAY_RATE_LIMIT_RPM            Per-client requests/minute (default 600)
+  GATEWAY_CORS_ORIGINS              Comma-separated origins (default: none)
+  GATEWAY_DEFAULT_PROVIDER          Provider prefix for bare model names (default openai)
+  GATEWAY_WORKSPACE                 Session workspace root (default: cwd)
+
+With no clients configured, a bootstrap client is generated and persisted to
+<home>/gateway/clients.json; its secret prints once at startup.
+
+Options:
+  --port <n>  Port (overrides GATEWAY_PORT)
+  --json      Emit the startup banner as one JSON document
+`
+
 const telemetryUsage = `Usage: ${commandName} telemetry <command> [options]
 
 Commands:
@@ -242,6 +270,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
   config: configUsage,
   history: historyUsage,
   doctor: doctorUsage,
+  gateway: gatewayUsage,
   memory: memoryUsage,
   telemetry: telemetryUsage,
   trust: trustUsage,

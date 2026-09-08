@@ -96,6 +96,7 @@ describe('runCli', () => {
       'telemetry',
       'trust',
       'doctor',
+      'gateway',
       'memory',
       'hook',
       'skill',

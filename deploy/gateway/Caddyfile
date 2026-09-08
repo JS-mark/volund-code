@@ -1,0 +1,4 @@
+# Caddy 自动管理 TLS（ACME）；WS /v1/ws 与 SSE 流式在 reverse_proxy 下默认支持。
+ai-gateway.nexo-ai.top {
+	reverse_proxy gateway:8788
+}
