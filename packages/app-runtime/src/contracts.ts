@@ -134,6 +134,15 @@ export interface InteractiveSession<TStatusView = unknown> {
   attachFilePath?(path: string): Promise<import('@volund/shared').PasteAttachmentResult>
   /** §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限量排序）。 */
   listFiles?(): Promise<readonly string[]>
+  /**
+   * §22 W-05 Web 上传暂存：浏览器读出的图片字节 → AttachmentStore 内容寻址
+   * 落盘返回 handle chip 信息（与 pasteClipboardAttachment 的 image 分支同管线；
+   * 字节永不进事件流/日志）。可选：headless / 非交互会话不实现。
+   */
+  stageAttachment?(
+    bytes: Uint8Array,
+    mime: string,
+  ): Promise<import('@volund/shared').PasteAttachmentResult>
   submit(input: string, options?: SubmitOptions): Promise<void>
   end(): Promise<void>
   exitCode(): number

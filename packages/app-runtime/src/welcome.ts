@@ -6,6 +6,8 @@ export interface UnavailableReason {
 export interface WelcomePanelData {
   authMethod?: string
   config: WelcomeConfigStatus
+  /** §22 W-01：嵌入式 Web 控制台地址（无 token，进入即用）；未启动时缺省不渲染。 */
+  web?: { url: string }
   cwd: string
   history: WelcomeHistoryStatus
   mcp: WelcomeMcpStatus

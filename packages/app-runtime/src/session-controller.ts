@@ -99,6 +99,8 @@ export class SessionController<TStatusView = unknown> extends Service {
   private lastExitCode = 0
   /** turn mutex：in-flight turn 的 promise；存在即拒绝新 submit（§22 W-03）。 */
   private turnFlight: Promise<unknown> | undefined
+  /** §22 W-01 嵌入式 Web：会话激活订阅（start/resumeInteractive 完成后触发）。 */
+  private readonly activateListeners = new Set<(session: InteractiveSession<TStatusView>) => void>()
 
   constructor(
     ctx: Context,
@@ -106,6 +108,19 @@ export class SessionController<TStatusView = unknown> extends Service {
   ) {
     super(ctx, 'sessions', true)
     this.backgroundShells = options.background
+  }
+
+  /** 当前活动会话的 facade（嵌入式 Web hub 挂载用）；无 runner 时 undefined。 */
+  getActive(): InteractiveSession<TStatusView> | undefined {
+    return this.runner ? this.interactiveSession() : undefined
+  }
+
+  /** 会话激活订阅：TUI 内 resume/新建后 Web hub 重新挂载到新 facade。 */
+  onActivate(listener: (session: InteractiveSession<TStatusView>) => void): () => void {
+    this.activateListeners.add(listener)
+    return () => {
+      this.activateListeners.delete(listener)
+    }
   }
 
   configureSecurity(input: { skipPermissions: boolean }): void {
@@ -153,20 +168,26 @@ export class SessionController<TStatusView = unknown> extends Service {
     await this.activate(
       createSession({ id, cwd: input.cwd, maxTokens: 200_000, toolRegistrySnapshot: 'builtin:l1' }),
     )
-    return this.interactiveSession()
+    return this.publishActive()
   }
 
   async resumeInteractive(id: string): Promise<InteractiveSession<TStatusView>> {
     await this.resume(id)
-    return this.interactiveSession()
+    return this.publishActive()
+  }
+
+  /** 建 facade + 通知激活订阅者（嵌入式 Web hub 随之重挂）。 */
+  private publishActive(): InteractiveSession<TStatusView> {
+    const session = this.interactiveSession()
+    for (const listener of this.activateListeners) listener(session)
+    return session
   }
 
   private interactiveSession(): InteractiveSession<TStatusView> {
-    return {
-      id: this.runner!.state.id,
-      cwd: this.runner!.state.cwd,
-      events: this.events!,
-      transcript: this.runner!.state.messages.flatMap((message) => {
+    // transcript 必须是 getter：runner 消息随 turn 增长，对象创建期的快照会让
+    // Web 端 hydrate 拿到过期（通常为空）的历史。
+    const readTranscript = (): TranscriptEntry[] =>
+      (this.runner?.state.messages ?? []).flatMap((message) => {
         const text = messageFullText(message.content)
         if (
           !text ||
@@ -175,7 +196,14 @@ export class SessionController<TStatusView = unknown> extends Service {
           return []
         const entry: TranscriptEntry = { id: message.id, role: message.role, text }
         return [entry]
-      }),
+      })
+    return {
+      id: this.runner!.state.id,
+      cwd: this.runner!.state.cwd,
+      events: this.events!,
+      get transcript() {
+        return readTranscript()
+      },
       ...(this.options.statusSnapshot
         ? { getStatus: () => this.options.statusSnapshot!(this.runner!.state) }
         : {}),
@@ -196,6 +224,8 @@ export class SessionController<TStatusView = unknown> extends Service {
       attachFilePath: (path: string) => this.attachFilePath(path),
       // §7.5.3 @ picker 的文件候选：会话 cwd 的相对路径快照（限深限量）。
       listFiles: () => listWorkspaceFiles(this.runner!.state.cwd),
+      // §22 W-05 Web 上传暂存：浏览器图片字节走与粘贴相同的落盘管线。
+      stageAttachment: (bytes: Uint8Array, mime: string) => this.stageImageBytes(bytes, mime),
       submit: (prompt: string, submitOptions?: SubmitOptions) =>
         this.runTurnExclusive(prompt, submitOptions),
       end: async () => {
@@ -262,7 +292,7 @@ export class SessionController<TStatusView = unknown> extends Service {
           id: state.id,
           cwd: state.cwd,
           updatedAt: entries.at(-1)?.at ?? new Date().toISOString(),
-          title: summary?.slice(0, 72) || `Session in ${state.cwd}`,
+          title: summary?.slice(0, 72) || '未命名会话',
           ...(summary ? { summary } : {}),
         })
       } catch {
@@ -316,33 +346,42 @@ export class SessionController<TStatusView = unknown> extends Service {
     }
     if (payload.kind === 'empty') return { kind: 'empty' }
     if (payload.kind === 'text') return { kind: 'text', text: payload.text }
-    if (payload.kind === 'image') {
-      try {
-        const store = new AttachmentStore(
-          join(this.options.sessionsDir, runner.state.id, 'attachments'),
-          20 * 1024 * 1024,
-          [runner.state.cwd],
-        )
-        const staged = await store.stage(payload.bytes, payload.mime)
-        return {
-          kind: 'attached',
-          attachment: {
-            handle: staged.handle,
-            kind: 'image',
-            mime: staged.mime,
-            size: staged.size,
-          },
-        }
-      } catch (error) {
-        return {
-          kind: 'unavailable',
-          reason: error instanceof Error ? error.message : String(error),
-        }
-      }
-    }
+    if (payload.kind === 'image') return this.stageImageBytes(payload.bytes, payload.mime)
     const target = payload.paths[0]
     if (!target) return { kind: 'empty' }
     return this.attachFilePath(target)
+  }
+
+  /**
+   * §7.5.2/§22 W-05：图片字节 → AttachmentStore 内容寻址落盘返回 handle chip——
+   * TUI 剪贴板粘贴与 Web 上传（stageAttachment）共用的同一条暂存管线；
+   * MIME 白名单与魔数校验由 AttachmentStore.stage 把守。
+   */
+  private async stageImageBytes(
+    bytes: Uint8Array,
+    mime: string,
+  ): Promise<import('@volund/shared').PasteAttachmentResult> {
+    const runner = this.runner
+    if (!runner) return { kind: 'unavailable', reason: 'no active session' }
+    try {
+      const store = new AttachmentStore(
+        join(this.options.sessionsDir, runner.state.id, 'attachments'),
+        20 * 1024 * 1024,
+        [runner.state.cwd],
+      )
+      const staged = await store.stage(bytes, mime)
+      return {
+        kind: 'attached',
+        attachment: {
+          handle: staged.handle,
+          kind: 'image',
+          mime: staged.mime,
+          size: staged.size,
+        },
+      }
+    } catch (error) {
+      return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) }
+    }
   }
   /**
    * §7.5.2 路径附件（粘贴/拖拽文件、Finder 拷贝）：cwd 内 → path 引用；cwd 外

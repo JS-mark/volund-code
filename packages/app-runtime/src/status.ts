@@ -36,6 +36,8 @@ export interface StatusPluginTabLike {
 export interface StatusRuntimeOptions {
   readonly identity: { readonly version: string }
   readonly model?: string | undefined
+  /** §22 W-01：嵌入式/显式 Web 控制台的运行中 URL（未启动时 undefined）。 */
+  readonly webConsoleUrl?: (() => string | undefined) | undefined
 }
 
 const statusSecretKeyPattern =
@@ -361,6 +363,8 @@ export async function runtimeStatusData(
       { label: 'Version', value: options.identity.version },
       { label: 'Session ID', value: input.sessionId ?? 'not available' },
       { label: 'cwd', value: input.cwd },
+      // §22 W-01：Web 控制台运行中才显示（URL 含一次性 nonce）。
+      ...(options.webConsoleUrl?.() ? [{ label: 'Web', value: options.webConsoleUrl()! }] : []),
       { label: 'Auth method', value: authMethod },
       { label: 'Model', value: model },
       { label: 'Lite model', value: 'not available' },
