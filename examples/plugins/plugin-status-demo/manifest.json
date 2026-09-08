@@ -1,0 +1,10 @@
+{
+  "name": "volund-plugin-status-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "volund": "^0.1.0" },
+  "permissions": {
+    "volund": ["ui.status", "session.read", "log.write"]
+  }
+}
