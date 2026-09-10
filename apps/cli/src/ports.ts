@@ -182,6 +182,8 @@ export interface VolundPorts {
   permissionMode?: {
     current(): 'ask' | 'auto' | 'full' | undefined
     set(mode: 'ask' | 'auto' | 'full'): void
+    /** 档位变更订阅（set + 权限卡 g 授权升级都会触发）；返回退订函数。 */
+    subscribe?(listener: (mode: 'ask' | 'auto' | 'full') => void): () => void
   }
   restore?: {
     restore(

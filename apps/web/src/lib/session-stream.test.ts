@@ -106,6 +106,35 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(resolved.permission).toBeUndefined()
   })
 
+  it('permission.mode 帧更新档位：非法值忽略，本地动作同写一处', () => {
+    // 回归：composer 档位曾只挂载拉取一次，TUI /mode / g 授权后 UI 脱钩。
+    const seeded = reduceChatState(initialChatState, { type: 'permission-mode', mode: 'ask' })
+    expect(seeded.permissionMode).toBe('ask')
+    const pushed = reduceChatState(
+      seeded,
+      envelope('view', { type: 'permission.mode', mode: 'full' }),
+    )
+    expect(pushed.permissionMode).toBe('full')
+    // 非法档位（畸形帧/坏响应）不落状态
+    expect(
+      reduceChatState(pushed, envelope('view', { type: 'permission.mode', mode: 'yolo' }))
+        .permissionMode,
+    ).toBe('full')
+    expect(
+      reduceChatState(pushed, { type: 'permission-mode', mode: 42 as never }).permissionMode,
+    ).toBe('full')
+  })
+
+  it('session.attached 重挂会话时保留进程级权限档位（选择器不闪没）', () => {
+    const seeded = reduceChatState(initialChatState, { type: 'permission-mode', mode: 'auto' })
+    const state = reduceChatState(
+      seeded,
+      envelope('view', { type: 'session.attached', id: 's2' }),
+    )
+    expect(state.messages).toHaveLength(0)
+    expect(state.permissionMode).toBe('auto')
+  })
+
   it('hydrate 以 transcript 为准替换消息列表', () => {
     const dirty = reduceChatState(initialChatState, { type: 'echo', text: '旧', images: [] })
     const state = reduceChatState(dirty, {

@@ -1376,6 +1376,38 @@ describe('production permission session snapshots', () => {
     expect(policy.snapshotForSession(nextRoot.id)).toBeDefined()
   })
 
+  it('escalates one session to full via g-grant without leaking, and an explicit mode choice clears it', () => {
+    const policy = new ProductionPermissionSessionPolicy()
+    const root = createSession({
+      id: 'g-root',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+    })
+    expect(policy.snapshotFor(root).mode).toBe('ask')
+
+    // g 授权：存活快照即时升级——同会话重建链（resume/重挂）不降档
+    policy.escalateSessionMode(root.id, 'full')
+    expect(policy.snapshotFor(root).mode).toBe('full')
+    // 不落盘不外溢：其它会话的冻结不受影响
+    const other = createSession({
+      id: 'g-other',
+      cwd: '/repo',
+      maxTokens: 100,
+      toolRegistrySnapshot: 'test',
+    })
+    expect(policy.snapshotFor(other).mode).toBe('ask')
+
+    // 会话结束再恢复（releaseLineage 后重新冻结）仍继承 g 授权——「本会话不再询问」
+    policy.releaseLineage(root.id)
+    expect(policy.snapshotFor(root).mode).toBe('full')
+
+    // 显式 /mode 切档 = 用户重申全局意图：升级清空，此后冻结取 #nextMode
+    policy.configureMode({ mode: 'auto' })
+    policy.releaseLineage(root.id)
+    expect(policy.snapshotFor(root).mode).toBe('auto')
+  })
+
   it('inherits policy without sharing a parent PermissionManager session cache', async () => {
     const policy = new ProductionPermissionSessionPolicy()
     policy.configureInteraction({ mode: 'tui' })
@@ -3528,6 +3560,21 @@ describe('session permission mode config + language preference', () => {
     const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(ports.permissionMode?.current()).toBe('ask')
+  })
+
+  it('notifies permission-mode subscribers on set and on unsubscribe stops delivering', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volund-permission-mode-subscribe-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({ volundHome: root, identity: { version: '1.2.3-test' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const seen: string[] = []
+    const unsubscribe = ports.permissionMode?.subscribe?.((mode) => seen.push(mode))
+    ports.permissionMode?.set('full')
+    ports.permissionMode?.set('auto')
+    expect(seen).toEqual(['full', 'auto'])
+    unsubscribe?.()
+    ports.permissionMode?.set('ask')
+    expect(seen).toEqual(['full', 'auto'])
   })
 
   it('injects a reply-language fragment only for an explicit preferences.language', async () => {

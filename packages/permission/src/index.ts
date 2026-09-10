@@ -179,6 +179,12 @@ export class PermissionManager {
       dangerouslySkip?: boolean
       mode?: PermissionSessionMode
       logger?: Logger
+      /**
+       * 弹窗「全部放行（本会话）」（allow-all-session）把本 manager 升级为 full 时
+       * 回调一次。调用方据此回写会话级档位（同会话重建 manager 不降档）并广播
+       * 多端（TUI /mode、Web composer 同步显示）。仅记录升级；setMode 不触发。
+       */
+      onFullAccessGranted?: () => void
       persist?: (
         scope: 'project' | 'global',
         request: PermissionRequest,
@@ -278,7 +284,10 @@ export class PermissionManager {
       decision.kind === 'deny-forever'
     )
       this.#cache.set(keyOf(request), decision.kind)
-    if (decision.kind === 'allow-all-session') this.#mode = 'full'
+    if (decision.kind === 'allow-all-session') {
+      this.#mode = 'full'
+      this.options.onFullAccessGranted?.()
+    }
     if (decision.kind === 'allow-project') await this.options.persist?.('project', request, true)
     if (decision.kind === 'allow-forever') await this.options.persist?.('global', request, true)
     if (decision.kind === 'deny-forever') await this.options.persist?.('global', request, false)

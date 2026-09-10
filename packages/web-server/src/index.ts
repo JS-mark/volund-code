@@ -121,6 +121,8 @@ export interface WebServerOptions {
   readonly permissionMode?: {
     current(): string
     set(mode: 'ask' | 'auto' | 'full'): void
+    /** 档位变更订阅（set + 权限卡 g 授权升级）：触发 hub 广播 permission.mode 帧。 */
+    subscribe?(listener: (mode: 'ask' | 'auto' | 'full') => void): () => void
   }
   /** 侧栏会话分组（分组 CRUD + 会话归属）；缺失时端点 503、前端隐藏分组入口。 */
   readonly sessionGroups?: SessionGroupsPort
@@ -387,6 +389,12 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     }
   }, 15_000)
   sseHeartbeat.unref()
+
+  // §4.4 档位变更广播（set / 权限卡 g 授权升级）→ hub view 帧 → SSE 全端同步；
+  // 前端 composer 此前只在挂载时拉一次，TUI /mode 或他端改档会脱钩。
+  const unsubscribePermissionMode = options.permissionMode?.subscribe?.((mode) => {
+    options.sessionHub?.emitPermissionMode(mode)
+  })
 
   const findSession = (req: IncomingMessage): BrowserSession | undefined => {
     const id = parseCookies(req.headers.cookie).get('volund_session')
@@ -1450,6 +1458,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
     close: () =>
       new Promise((resolveClose) => {
         clearInterval(sseHeartbeat)
+        unsubscribePermissionMode?.()
         for (const client of sseClients) client.res.end()
         sseClients.clear()
         sessions.clear()

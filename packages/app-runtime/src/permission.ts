@@ -67,6 +67,12 @@ export class ProductionPermissionSessionPolicy {
   #nextDangerouslySkip = false
   #nextInteractionMode: PermissionInteractionMode = 'none'
   #nextMode: PermissionSessionMode = 'ask'
+  /**
+   * 会话级 g 授权升级（allow-all-session）：只升不降、不落盘。同会话（同 id）
+   * 重建权限链时以此优先于 #nextMode——「本会话不再询问」的承诺覆盖进程内
+   * resume/重挂；显式 /mode 切档（configureMode）视为用户重申全局意图，清空之。
+   */
+  readonly #sessionModeEscalations = new Map<string, PermissionSessionMode>()
   readonly #snapshots = new Map<string, ProductionPermissionSessionSnapshot>()
 
   configureSecurity(input: { skipPermissions: boolean }): void {
@@ -80,10 +86,22 @@ export class ProductionPermissionSessionPolicy {
   /** §4.4 三档模式：新会话的冻结快照取这里；/mode 热切换另走活动会话控制。 */
   configureMode(input: { mode: PermissionSessionMode }): void {
     this.#nextMode = input.mode
+    this.#sessionModeEscalations.clear()
   }
 
   currentMode(): PermissionSessionMode {
     return this.#nextMode
+  }
+
+  /**
+   * 记录某会话被 g 授权升级为 full：更新其存活快照（活动链已自行升级，这里
+   * 保证同会话未来重建的链不降档）。子会话不可授予——调用方只对顶层会话调用。
+   */
+  escalateSessionMode(sessionId: string, mode: PermissionSessionMode): void {
+    this.#sessionModeEscalations.set(sessionId, mode)
+    const existing = this.#snapshots.get(sessionId)
+    if (existing && existing.mode !== mode)
+      this.#snapshots.set(sessionId, Object.freeze({ ...existing, mode }))
   }
 
   snapshotFor(state: Pick<SessionState, 'id' | 'lineage'>): ProductionPermissionSessionSnapshot {
@@ -93,7 +111,7 @@ export class ProductionPermissionSessionPolicy {
       const snapshot = Object.freeze({
         dangerouslySkip: this.#nextDangerouslySkip,
         interactionMode: this.#nextInteractionMode,
-        mode: this.#nextMode,
+        mode: this.#sessionModeEscalations.get(state.id) ?? this.#nextMode,
       })
       this.#snapshots.set(state.id, snapshot)
       return snapshot
@@ -431,6 +449,8 @@ export interface ProductionToolPermissionChainOptions {
   /** 持久化 project/global 权限规则（spec §4.4 决策链 1/2/4/5）；必须已完成装载
    * （生产路径 createRunner 先 await ready()），确定型测试可省略。 */
   rules?: PermissionRuleSource
+  /** 顶层会话 g 授权升级 full 的回调（子会话不授予：prompt 侧已降级 deny）。 */
+  onFullAccessGranted?: () => void
 }
 
 export interface ProductionToolPermissionChain {
@@ -478,6 +498,7 @@ export function createProductionToolPermissionChain(
     {
       ...configuration,
       ...(options.permissionSnapshot.mode ? { mode: options.permissionSnapshot.mode } : {}),
+      ...(options.onFullAccessGranted ? { onFullAccessGranted: options.onFullAccessGranted } : {}),
       ...(rules
         ? {
             persist: (scope: 'project' | 'global', request: PermissionRequest, allow: boolean) =>

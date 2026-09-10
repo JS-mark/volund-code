@@ -110,6 +110,15 @@ export class SessionHub {
     return () => this.subscribers.delete(fn)
   }
 
+  /**
+   * 档位变更广播（permissionMode port 的 subscribe 触发，装配侧接线）：
+   * view 帧 {type:'permission.mode', mode} → 前端 composer 选择器实时同步。
+   * 会话无关（进程级档位），sessionId 由 emit 按当前挂载附带即可。
+   */
+  emitPermissionMode(mode: 'ask' | 'auto' | 'full'): void {
+    this.emit('view', { type: 'permission.mode', mode })
+  }
+
   private emit(kind: WebEventEnvelope['kind'], event: unknown): void {
     this.cursor += 1
     const envelope: WebEventEnvelope = {

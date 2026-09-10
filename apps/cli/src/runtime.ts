@@ -768,6 +768,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 优先级：CLI flag / /mode 的 override > [permissions] mode 用户级 config > 'ask'。
   let overridePermissionMode: PermissionSessionMode | undefined
   let configPermissionMode: PermissionSessionMode | undefined
+  // §4.4 档位变更广播（TUI /mode、Web composer、权限卡 g 授权共用）：web 端
+  // SSE 推 permission.mode 帧，多端选择器实时同步（此前只在挂载时拉一次会脱钩）。
+  const permissionModeListeners = new Set<(mode: PermissionSessionMode) => void>()
+  const notifyPermissionMode = (mode: PermissionSessionMode): void => {
+    // 迭代副本：回调内退订不打断本轮通知
+    for (const listener of Array.from(permissionModeListeners)) listener(mode)
+  }
   // 启动期一次性装载的用户级 config 会话默认值：[subagent] 限制与 [models.aliases]。
   // config 是异步读的；dispatcher 在装载完成后整体替换（启动期必然没有在跑的 subagent）。
   let configSubagentLimits: {
@@ -936,6 +943,15 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       // P1-05：line 模式的 TTY 接缝显式注入（app-runtime 不再回退模块级 readline 默认）。
       terminalIsInteractive: isInteractiveTerminal,
       linePermissionPrompt: promptLineMaybe,
+      // 权限卡 g 授权升级：回写会话级快照（同会话重建链不降档）并广播全端。
+      ...(state.lineage.depth === 0
+        ? {
+            onFullAccessGranted: () => {
+              permissionPolicy.escalateSessionMode(state.id, 'full')
+              notifyPermissionMode('full')
+            },
+          }
+        : {}),
     })
     // /mode 只挂顶层会话；子会话沿用其冻结快照里的模式。
     if (state.lineage.depth === 0) {
@@ -1612,6 +1628,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         overridePermissionMode = mode
         permissionPolicy.configureMode({ mode })
         activePermissionControl?.set(mode)
+        notifyPermissionMode(mode)
+      },
+      subscribe: (listener) => {
+        permissionModeListeners.add(listener)
+        return () => permissionModeListeners.delete(listener)
       },
     },
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },

@@ -428,6 +428,17 @@ describe('session full access', () => {
     expect((await manager.request(bashReq('pnpm build'))).kind).toBe('allow-all-session')
     expect(prompt).toHaveBeenCalledTimes(2)
   })
+  it('fires onFullAccessGranted exactly once per allow-all-session decision', async () => {
+    const granted = vi.fn()
+    const prompt = vi.fn(async () => ({ kind: 'allow-all-session' as const }))
+    const manager = new PermissionManager({}, { onFullAccessGranted: granted })
+    manager.setPromptHandler(prompt)
+    await manager.request(bashReq('git status'))
+    // full 短路后不再有弹窗决策，回调不会重复触发
+    await manager.request(bashReq('pnpm build'))
+    expect(granted).toHaveBeenCalledTimes(1)
+    expect(manager.mode).toBe('full')
+  })
 })
 describe('session permission modes', () => {
   const writeReq = (path: string) => ({

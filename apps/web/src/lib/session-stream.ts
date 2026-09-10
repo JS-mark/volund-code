@@ -68,6 +68,11 @@ export interface ChatState {
       }
     | undefined
   permission: PermissionCard | undefined
+  /**
+   * 会话权限档位（ask/auto/full）：唯一来源是本 reducer——挂载/切会话拉取 +
+   * SSE permission.mode 帧同写这里（TUI /mode、他端选择器、权限卡 g 授权全同步）。
+   */
+  permissionMode: 'ask' | 'auto' | 'full' | undefined
   notice: string | undefined
 }
 
@@ -77,6 +82,7 @@ export const initialChatState: ChatState = {
   turn: 'idle',
   usage: undefined,
   permission: undefined,
+  permissionMode: undefined,
   notice: undefined,
 }
 
@@ -91,12 +97,14 @@ type Envelope = {
   }
 }
 
-/** 视图动作：SSE 信封之外的状态入口（transcript 水合 / 乐观回显 / 本地提示）。 */
+/** 视图动作：SSE 信封之外的状态入口（trаnscript 水合 / 乐观回显 / 本地提示）。 */
 export type StreamAction =
   | { type: 'envelope'; envelope: Envelope }
   | { type: 'hydrate'; transcript: readonly unknown[] }
   | { type: 'echo'; text: string; images: ChatImage[] }
   | { type: 'notice'; notice: string | undefined }
+  /** mode 原样传入（string）；非法值在 reducer 内忽略。 */
+  | { type: 'permission-mode'; mode: string }
   | { type: 'reset' }
 
 /** 只取 text part——thinking part 也有 text 字段，混进来会把思考内容粘进正文。 */
@@ -246,13 +254,26 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       break
   }
   if (envelope.kind === 'view') {
-    const view = event as unknown as { type: string; request?: PermissionCard; message?: string }
+    const view = event as unknown as {
+      type: string
+      request?: PermissionCard
+      message?: string
+      mode?: unknown
+    }
     if (view.type === 'permission.request' && view.request)
       return { ...state, permission: view.request }
     if (view.type === 'permission.resolved') return { ...state, permission: undefined }
+    if (view.type === 'permission.mode') {
+      if (view.mode === 'ask' || view.mode === 'auto' || view.mode === 'full')
+        return { ...state, permissionMode: view.mode }
+      return state
+    }
     if (view.type === 'turn.failed')
       return { ...state, turn: 'idle', notice: view.message ?? 'turn 失败' }
-    if (view.type === 'session.attached') return { ...initialChatState, notice: '已连接会话' }
+    // 会话重挂（TUI 侧 resume 等）：聊天状态归零，但进程级权限档位保留
+    // （SSE permission.mode 帧会持续纠正，不需要随会话切换清空）。
+    if (view.type === 'session.attached')
+      return { ...initialChatState, permissionMode: state.permissionMode, notice: '已连接会话' }
   }
   return state
 }
@@ -325,6 +346,11 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       }
     case 'notice':
       return { ...state, notice: action.notice }
+    case 'permission-mode': {
+      const mode = action.mode
+      if (mode !== 'ask' && mode !== 'auto' && mode !== 'full') return state
+      return { ...state, permissionMode: mode }
+    }
     case 'reset':
       return initialChatState
   }
@@ -335,6 +361,8 @@ export interface SessionStream {
   echo(text: string, images: ChatImage[]): void
   hydrate(transcript: readonly unknown[]): void
   setNotice(notice: string | undefined): void
+  /** 写入权限档位（非法值忽略）；SSE permission.mode 帧同写这里。 */
+  setPermissionMode(mode: string): void
   reset(): void
 }
 
@@ -383,6 +411,7 @@ export function useSessionStream(enabled: boolean, sessionId: string | undefined
       (notice: string | undefined) => dispatch({ type: 'notice', notice }),
       [],
     ),
+    setPermissionMode: useCallback((mode: string) => dispatch({ type: 'permission-mode', mode }), []),
     reset: useCallback(() => dispatch({ type: 'reset' }), []),
   }
 }

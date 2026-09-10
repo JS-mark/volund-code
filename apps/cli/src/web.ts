@@ -176,6 +176,10 @@ function buildServerOptions(
             permissionMode: {
               current: () => ports.permissionMode!.current() ?? 'ask',
               set: (mode: 'ask' | 'auto' | 'full') => ports.permissionMode!.set(mode),
+              // 档位变更 → hub view 帧（permission.mode）→ Web SSE 全端同步。
+              ...(ports.permissionMode.subscribe
+                ? { subscribe: (listener: (mode: 'ask' | 'auto' | 'full') => void) => ports.permissionMode!.subscribe!(listener) }
+                : {}),
             },
           }
         : {}),

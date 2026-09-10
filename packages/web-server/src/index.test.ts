@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { createWebServer } from './index'
 import type { RemoteControlPort, WebServerHandle } from './index'
+import { SessionHub } from './session-hub'
 
 let handle: WebServerHandle | undefined
 afterEach(async () => {
@@ -178,6 +179,58 @@ describe('web-server gateway', () => {
     const { value } = await reader.read()
     const text = new TextDecoder().decode(value)
     expect(text).toContain('"kind":"hello"')
+    controller.abort()
+  })
+
+  it('broadcasts permission.mode view frames when the port reports a change', async () => {
+    // 模拟 runtime 装配：set() 落档后经 subscribe 通知（TUI /mode、g 授权同路径）。
+    let mode: 'ask' | 'auto' | 'full' = 'ask'
+    const listeners = new Set<(next: 'ask' | 'auto' | 'full') => void>()
+    const hub = new SessionHub({
+      session: { interrupt: async () => {}, end: async () => {} },
+      permissions: {
+        subscribe: () => () => {},
+        requests: () => [],
+        decide: () => {},
+      } as never,
+    })
+    const { url } = await start({
+      sessionHub: hub,
+      permissionMode: {
+        current: () => mode,
+        set: (next) => {
+          mode = next
+          for (const listener of Array.from(listeners)) listener(next)
+        },
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+      },
+    })
+    const { base, headers } = await authed(url)
+    const controller = new AbortController()
+    const res = await fetch(`${base}api/v1/events`, { headers: { Cookie: headers.Cookie }, signal: controller.signal })
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const readUntil = async (marker: string): Promise<string> => {
+      for (;;) {
+        const found = buffer.indexOf(marker)
+        if (found >= 0) return buffer
+        const { value } = await reader.read()
+        buffer += decoder.decode(value, { stream: true })
+      }
+    }
+    await readUntil('hello')
+    const post = await fetch(`${base}api/v1/permission-mode`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ mode: 'full' }),
+    })
+    expect(post.status).toBe(200)
+    const chunk = await readUntil('permission.mode')
+    expect(chunk).toContain('"mode":"full"')
     controller.abort()
   })
 
