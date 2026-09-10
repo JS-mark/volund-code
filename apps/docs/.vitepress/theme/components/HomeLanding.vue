@@ -51,10 +51,53 @@ const copy = {
     ],
     startLabel: 'START WITH CONTEXT',
     startTitle: 'Your repo.\nYour rules.',
-    startBody: 'Read the five-minute guide, inspect every permission, and make one small change.',
-    startAction: 'Run the first task ↗',
-    footer: 'Open source · Apache-2.0 · Telemetry local by default',
-    footerDocs: 'Docs',
+    startBody:
+      'Three steps to your first supervised change — every write, command, and network call asks before it happens.',
+    startSteps: [
+      ['Install the CLI', 'npm install --global @volund/cli', '/docs/getting-started/install'],
+      ['Open your repo', 'cd your-repo && volund', '/docs/getting-started/first-run'],
+      [
+        'Run the first task',
+        'volund "fix the failing test"',
+        '/docs/getting-started/5min-tutorial',
+      ],
+    ],
+    footerTagline: 'Open source · Apache-2.0 · Telemetry local by default',
+    footerCols: [
+      {
+        title: 'Docs',
+        links: [
+          ['Install', '/docs/getting-started/install'],
+          ['First run', '/docs/getting-started/first-run'],
+          ['5-minute tutorial', '/docs/getting-started/5min-tutorial'],
+        ],
+      },
+      {
+        title: 'Guides',
+        links: [
+          ['Managing skills', '/docs/guides/managing-skills'],
+          ['MCP servers', '/docs/guides/mcp-servers'],
+          ['Remote gateway', '/docs/guides/remote-gateway'],
+        ],
+      },
+      {
+        title: 'Reference',
+        links: [
+          ['CLI reference', '/docs/reference/cli'],
+          ['API reference', '/api/README'],
+          ['Security model', '/docs/concepts/security-model'],
+        ],
+      },
+      {
+        title: 'Project',
+        links: [
+          ['GitHub', 'https://github.com/JS-mark/volund-code'],
+          ['Releases', 'https://github.com/JS-mark/volund-code/releases'],
+          ['Issues', 'https://github.com/JS-mark/volund-code/issues'],
+          ['License', 'https://github.com/JS-mark/volund-code/blob/main/LICENSE'],
+        ],
+      },
+    ],
     footerSecurity: 'Security',
   },
   zh: {
@@ -87,15 +130,56 @@ const copy = {
     ],
     startLabel: '从上下文开始',
     startTitle: '你的仓库。\n你的规则。',
-    startBody: '阅读五分钟教程，检查每一项权限，然后完成一个小而明确的改动。',
-    startAction: '运行第一个任务 ↗',
-    footer: '开源 · Apache-2.0 · 遥测默认保留在本地',
-    footerDocs: '文档',
+    startBody: '三步完成第一个受监督的改动——每次写文件、跑命令、访问网络，都会先经过你的确认。',
+    startSteps: [
+      ['安装 CLI', 'npm install --global @volund/cli', '/docs/getting-started/install'],
+      ['进入你的仓库', 'cd your-repo && volund', '/docs/getting-started/first-run'],
+      ['跑通第一个任务', 'volund "修复那个失败的测试"', '/docs/getting-started/5min-tutorial'],
+    ],
+    footerTagline: '开源 · Apache-2.0 · 遥测默认保留在本地',
+    footerCols: [
+      {
+        title: '文档',
+        links: [
+          ['安装', '/docs/getting-started/install'],
+          ['首次运行', '/docs/getting-started/first-run'],
+          ['5 分钟教程', '/docs/getting-started/5min-tutorial'],
+        ],
+      },
+      {
+        title: '指南',
+        links: [
+          ['管理 Skill', '/docs/guides/managing-skills'],
+          ['接入 MCP Server', '/docs/guides/mcp-servers'],
+          ['远程网关', '/docs/guides/remote-gateway'],
+        ],
+      },
+      {
+        title: '参考',
+        links: [
+          ['CLI 参考', '/docs/reference/cli'],
+          ['API 参考', '/api/README'],
+          ['安全模型', '/docs/concepts/security-model'],
+        ],
+      },
+      {
+        title: '项目',
+        links: [
+          ['GitHub', 'https://github.com/JS-mark/volund-code'],
+          ['发布记录', 'https://github.com/JS-mark/volund-code/releases'],
+          ['问题反馈', 'https://github.com/JS-mark/volund-code/issues'],
+          ['许可证', 'https://github.com/JS-mark/volund-code/blob/main/LICENSE'],
+        ],
+      },
+    ],
     footerSecurity: '安全',
   },
 }
 
 const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
+const year = new Date().getFullYear()
+// API 参考不在 zh 前缀下（双语共用一份 typedoc 产物），仅 /docs 路径走本地化。
+const footerHref = (href) => (href.startsWith('/docs') ? localizedPath(href) : href)
 </script>
 
 <template>
@@ -199,26 +283,50 @@ const t = computed(() => copy[isZh.value ? 'zh' : 'en'])
         <span class="eyebrow">{{ t.startLabel }}</span>
         <h2>{{ t.startTitle }}</h2>
       </div>
-      <div>
+      <div class="start-panel">
         <p>{{ t.startBody }}</p>
-        <a class="primary-action" :href="localizedPath('/docs/getting-started/5min-tutorial')">
-          {{ t.startAction }}
-        </a>
+        <ol class="start-steps">
+          <li v-for="(step, index) in t.startSteps" :key="step[0]">
+            <a :href="localizedPath(step[2])">
+              <span class="step-index">0{{ index + 1 }}</span>
+              <span class="step-detail">
+                <strong>{{ step[0] }}</strong>
+                <code>{{ step[1] }}</code>
+              </span>
+              <span class="step-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+        </ol>
       </div>
     </section>
 
     <footer class="volund-footer">
-      <a class="footer-brand" :href="localizedPath('/')">
-        <img :src="withBase('/volund-mark.svg')" alt="" width="28" height="28" />
-        <span>VOLUND CLI</span>
-      </a>
-      <p>{{ t.footer }}</p>
-      <div>
-        <a :href="localizedPath('/docs/getting-started/install')">{{ t.footerDocs }}</a>
-        <a href="https://github.com/JS-mark/volund-code/blob/main/SECURITY.md">{{
-          t.footerSecurity
-        }}</a>
-        <a href="https://github.com/JS-mark/volund-code">GitHub</a>
+      <div class="footer-sitemap">
+        <div class="footer-brand-col">
+          <a class="footer-brand" :href="localizedPath('/')">
+            <img :src="withBase('/volund-mark.svg')" alt="" width="28" height="28" />
+            <span>VOLUND CLI</span>
+          </a>
+          <p class="footer-tagline">{{ t.footerTagline }}</p>
+        </div>
+        <nav
+          v-for="col in t.footerCols"
+          :key="col.title"
+          class="footer-col"
+          :aria-label="col.title"
+        >
+          <strong>{{ col.title }}</strong>
+          <a v-for="link in col.links" :key="link[0]" :href="footerHref(link[1])">{{ link[0] }}</a>
+        </nav>
+      </div>
+      <div class="footer-bottom">
+        <p>© {{ year }} Volund contributors</p>
+        <div class="footer-legal">
+          <a href="https://github.com/JS-mark/volund-code/blob/main/SECURITY.md">{{
+            t.footerSecurity
+          }}</a>
+          <a href="https://github.com/JS-mark/volund-code">GitHub</a>
+        </div>
       </div>
     </footer>
   </main>
