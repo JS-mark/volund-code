@@ -1,0 +1,521 @@
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100dvh;
+  max-width: 100vw;
+  overflow: hidden;
+  overflow-x: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  background: #f5f6f8;
+  overscroll-behavior: none;
+}
+
+body[data-theme='dark'] {
+  background: #101418;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  max-width: 100vw;
+  overflow: hidden;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(5, 5, 5, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .app-header {
+  background: rgba(20, 24, 28, 0.92);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabbar {
+  display: flex;
+  border-top: 1px solid rgba(5, 5, 5, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  padding-bottom: env(safe-area-inset-bottom);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .tabbar {
+  background: rgba(20, 24, 28, 0.94);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.tabbar-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 6px;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: rgba(0, 0, 0, 0.55);
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-theme='dark'] .tabbar-item {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.tabbar-item.active {
+  color: #1677ff;
+}
+
+/* 聊天流（Virtuoso 滚动容器：不可加 padding——会破坏其滚动偏移计算；
+   padding 由 .chat-item 承载） */
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.chat-item {
+  padding: 12px 12px 0;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.bubble-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.bubble-row.user {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 86%;
+  padding: 9px 12px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.bubble.assistant {
+  background: #fff;
+  border: 1px solid rgba(5, 5, 5, 0.06);
+  border-top-left-radius: 4px;
+}
+
+[data-theme='dark'] .bubble.assistant {
+  background: #1b2026;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.bubble.user {
+  background: #1677ff;
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+.bubble.system {
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+[data-theme='dark'] .bubble.system {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.bubble pre {
+  margin: 6px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(5, 5, 5, 0.06);
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+[data-theme='dark'] .bubble pre {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.bubble code {
+  font-size: 13px;
+}
+
+.bubble p {
+  margin: 0 0 6px;
+}
+
+.bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.composer-wrap {
+  background: rgba(255, 255, 255, 0.94);
+  border-top: 1px solid rgba(5, 5, 5, 0.08);
+}
+
+[data-theme='dark'] .composer-wrap {
+  background: rgba(20, 24, 28, 0.94);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 待发图片 chips（选图即上传暂存，ready 才随提交出站） */
+.chips {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px 0;
+  overflow-x: auto;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.chip img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+}
+
+.chip.uploading img {
+  opacity: 0.55;
+}
+
+.chip.error img {
+  border-color: #ff4d4f;
+  opacity: 0.55;
+}
+
+.chip-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #ff4d4f;
+}
+
+.chip.uploading .chip-status {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.chip-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+}
+
+/* 附件按钮（回形针）：与输入框同高基线，无底色 */
+.attach-btn {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  height: 32px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.attach-btn:disabled {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+[data-theme='dark'] .attach-btn {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+[data-theme='dark'] .attach-btn:disabled {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* 用户消息里的图片缩略图（本地回显直出；水合/跨端面经网关拉回字节） */
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.msg-images img {
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 8px;
+}
+
+/* handle 引用图片的取字节中间态：占位一个缩略图大小的浅底框 */
+.msg-image-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.2);
+}
+
+/* 思考流（stream.delta kind=thinking）：默认折叠成一行摘要，点开展开全文 */
+.bubble details.thinking {
+  margin: 0 0 6px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bubble details.thinking summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.bubble details.thinking .thinking-body {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-left: 2px solid rgba(22, 119, 255, 0.35);
+  white-space: pre-wrap;
+}
+
+[data-theme='dark'] .bubble details.thinking {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.bubble.assistant.thinking {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+
+[data-theme='dark'] .bubble.assistant.thinking {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ── 聊天浮层（工具/审批/提示固定在输入区上方，不随滚动移出视野） ─────── */
+.chat-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 0;
+  max-height: 32dvh;
+  overflow-y: auto;
+}
+
+.overlay-hint {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  padding: 4px 8px;
+}
+
+[data-theme='dark'] .overlay-hint {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.overlay-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(22, 119, 255, 0.08);
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 11px;
+}
+
+[data-theme='dark'] .tool-chip {
+  background: rgba(22, 119, 255, 0.16);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ── 会话页：下拉刷新 + 上拉分页 ────────────────────────────────────── */
+.sessions-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  transition: height 0.18s ease-out;
+}
+
+.pull-indicator[data-state='pulling'],
+.pull-indicator[data-state='armed'],
+.pull-indicator[data-state='refreshing'] {
+  height: 34px;
+}
+
+.pull-indicator .pull-spinner {
+  display: inline-block;
+  font-size: 12px;
+}
+
+.pull-indicator[data-state='armed'] .pull-spinner {
+  transform: rotate(180deg);
+}
+
+.pull-indicator[data-state='refreshing'] .pull-spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px calc(env(safe-area-inset-bottom) + 12px);
+  overscroll-behavior: contain;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-theme='dark'] .session-item {
+  background: rgba(27, 32, 38, 0.7);
+}
+
+.session-item.active {
+  background: rgba(22, 119, 255, 0.1);
+}
+
+.session-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-item-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.session-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item-sub {
+  font-size: 12px;
+  display: block;
+}
+
+.load-more {
+  text-align: center;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+  padding: 10px 0 4px;
+}
+
+[data-theme='dark'] .load-more {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* 对话页无会话空态（创建/恢复从会话列表发起） */
+.chat-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-content: center;
+  padding: 24px;
+}
+
+/* header：标题区收缩防挤压，长会话名截断 */
+.app-header-title {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.app-header-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  max-width: 60%;
+}
+
+/* 模型选择器（对话页 header 最右）：窄宽度 + 选中值截断，防挤压会话标题 */
+.app-header .model-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 132px;
+  font-size: 12px;
+}
+
+.app-header .model-picker .ant-select-selection-wrap {
+  justify-content: flex-end;
+}

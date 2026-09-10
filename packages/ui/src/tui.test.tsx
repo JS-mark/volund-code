@@ -94,12 +94,13 @@ describe('renderInteractiveApp', () => {
       native: { sandbox: 'loaded', search: 'loaded', fs: 'unavailable' },
       status: 'sandbox full',
     })
-    await app.waitUntilRenderFlush()
+    // 回填是 promise 解析 → 状态更新 → 重渲染的级联——高并发下单次 render flush
+    // 可能只等到中间帧；waitFor 锚定终态后再收尾。
+    await vi.waitFor(() => expect(stdout.output).toContain('sandbox full'), { timeout: 5_000 })
     await app.unmount()
     await app.waitUntilExit()
     // Backfill refreshed the welcome native rows and the status line.
     // （sandbox 徽标即 Native modules 的 sandbox 行；底行不再展示 mechanism/tier。）
-    expect(stdout.output).toContain('sandbox full')
     const flattened = stripVTControlCharacters(stdout.output)
     expect(flattened).toContain('sandbox loaded')
     expect(flattened).toContain('search loaded')
@@ -144,9 +145,59 @@ describe('renderInteractiveApp', () => {
       onSubmit: () => {},
       transcript: [],
     })
+    // 换绑触发的是订阅回调里的状态更新级联——单次 render flush 在高并发下可能
+    // 只等到中间帧；用 waitFor 等到换绑提示上屏。
+    await vi.waitFor(
+      () => expect(stripVTControlCharacters(stdout.output)).toContain('session switched from web'),
+      { timeout: 5_000 },
+    )
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('backfills the welcome remote row when the uplink comes online (REM-r1)', async () => {
+    const stdout = new MemoryWriteStream()
+    stdout.columns = 120
+    const stdin = new MemoryReadStream()
+    let notify!: (status: {
+      state: 'off' | 'connecting' | 'online'
+      gatewayUrl: string | undefined
+    }) => void
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        sessionId: 'session-1234567890',
+        status: 'ready',
+        // 启动快照：uplink 还在 connecting（拨号是异步的），尚无网关地址。
+        welcome: { ...welcomeFixture(), remote: { state: 'connecting' } },
+        remoteStatus: {
+          subscribe: (listener) => {
+            notify = listener
+            return () => {}
+          },
+        },
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
     await app.waitUntilRenderFlush()
-    const flattened = stripVTControlCharacters(stdout.output)
-    expect(flattened).toContain('session switched from web')
+    expect(stripVTControlCharacters(stdout.output)).toContain('remote connecting')
+    expect(stripVTControlCharacters(stdout.output)).not.toContain('127.0.0.1:8788')
+
+    // uplink 上线 → 状态源推送 online + 网关地址 → 欢迎屏 remote 行原地刷新。
+    notify({ state: 'online', gatewayUrl: 'http://127.0.0.1:8788' })
+    await vi.waitFor(
+      () =>
+        expect(stripVTControlCharacters(stdout.output)).toContain(
+          'remote online http://127.0.0.1:8788',
+        ),
+      { timeout: 5_000 },
+    )
     await app.unmount()
     await app.waitUntilExit()
   })

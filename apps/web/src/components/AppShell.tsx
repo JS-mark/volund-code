@@ -5,6 +5,7 @@ import {
   AppstoreOutlined,
   BarChartOutlined,
   CodeOutlined,
+  CloudServerOutlined,
   CommentOutlined,
   ControlOutlined,
   ForkOutlined,
@@ -20,10 +21,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Bootstrap, SessionGroupsView, SessionSummary, StatusView } from '../lib/api'
 import { openBrowserSession, WebApi } from '../lib/api'
+import { BrandMark } from './BrandMark'
 import { ChangesPage } from './ChangesPage'
 import { ChatPanel } from './ChatPanel'
 import { CodePage } from './CodePage'
 import { ManagePage } from './ManagePage'
+import { RemotePage } from './RemotePage'
 import { RightPanel } from './RightPanel'
 import { SessionSidebar } from './SessionSidebar'
 import { SettingsPage } from './SettingsPage'
@@ -32,7 +35,16 @@ import { StatsPage } from './StatsPage'
 import { StatusPage } from './StatusPage'
 import { WorkbenchPanel } from './WorkbenchPanel'
 
-type Route = 'chat' | 'code' | 'status' | 'manage' | 'settings' | 'shortcuts' | 'changes' | 'stats'
+type Route =
+  | 'chat'
+  | 'code'
+  | 'status'
+  | 'manage'
+  | 'settings'
+  | 'shortcuts'
+  | 'changes'
+  | 'stats'
+  | 'remote'
 
 interface Loaded {
   api: WebApi
@@ -99,33 +111,6 @@ function PulseIcon() {
   return (
     <svg {...svgIconProps}>
       <path d="M1.8 8h2.8l1.5-3.6 2.6 7.2 1.7-3.6h3.8" />
-    </svg>
-  )
-}
-
-/**
- * 品牌像素锤标（与 apps/docs/public/volund-mark.svg 同一几何，内联避免额外资产请求）。
- * 颜色走 --volund-mark-* CSS 变量：浅色主题用官方深色底，深色主题反转为青底，
- * 否则深色页面上 #06100f 底与背景融为一体、看不到图标块。
- */
-function BrandMark({ size = 32 }: { size?: number }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      width={size}
-      height={size}
-      role="img"
-      aria-label="Volund"
-      style={{ display: 'block', borderRadius: size * 0.28 }}
-    >
-      <rect width="64" height="64" rx="8" fill="var(--volund-mark-bg)" />
-      <path fill="var(--volund-mark-fg)" d="M10 7H54V13H60V40H54V46H37V59H27V46H10V40H4V13H10Z" />
-      <rect x="14" y="17" width="36" height="19" fill="var(--volund-mark-bg)" />
-      <path
-        fill="var(--volund-mark-fg)"
-        d="M18 20H22V23H25V26H28V29H25V32H22V35H18V32H21V29H24V26H21V23H18Z"
-      />
-      <rect x="34" y="32" width="10" height="3" fill="var(--volund-mark-fg)" />
     </svg>
   )
 }
@@ -382,6 +367,7 @@ export function AppShell() {
           <AppstoreOutlined />,
         )}
         {railButton('status', '状态', <ApiOutlined />)}
+        {railButton('remote', '远程控制', <CloudServerOutlined />)}
         <span style={{ flex: 1 }} />
         {/* 侧栏属于会话页,收起/展开按钮也只在会话 tab 出现。 */}
         {route === 'chat' && (
@@ -464,6 +450,8 @@ export function AppShell() {
               <ManagePage api={loaded.api} capabilities={bootstrap.capabilities} />
             ) : route === 'status' ? (
               <StatusPage status={status} />
+            ) : route === 'remote' ? (
+              <RemotePage api={loaded.api} />
             ) : route === 'settings' ? (
               <SettingsPage
                 api={loaded.api}
@@ -504,7 +492,6 @@ export function AppShell() {
                 }}
                 onSessionChange={setActiveId}
                 onSessionsChanged={() => void refreshSessions()}
-                onNavigate={setRoute}
               />
             ))}
         </div>

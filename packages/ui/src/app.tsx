@@ -221,6 +221,18 @@ export interface InteractiveAppOptions {
   status?: string
   statusPanel?: StatusPanelData
   statusPanelController?: StatusPanelController
+  /**
+   * REM-r1：远程控制 uplink 状态源——欢迎屏 remote 行在 link 上线/掉线时
+   * 异步回填（启动时多半还在 connecting，等 online 后刷新出网关地址）。
+   */
+  remoteStatus?: {
+    subscribe(
+      listener: (status: {
+        state: 'off' | 'connecting' | 'online'
+        gatewayUrl: string | undefined
+      }) => void,
+    ): () => void
+  }
   undo?: UndoController
   welcome?: WelcomePanelData
 }
@@ -514,6 +526,29 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       disposed = true
     }
   }, [options.sandboxProbe, options.status, welcome])
+
+  useEffect(() => {
+    // REM-r1：uplink 拨号是异步的——欢迎屏渲染时多半还在 connecting；订阅状态
+    // 源，online 后把 remote 行回填进欢迎屏，off 时摘掉（与启动快照同一字段）。
+    if (!options.remoteStatus) return
+    return options.remoteStatus.subscribe((status) => {
+      setWelcome((current) => {
+        if (!current) return current
+        if (status.state === 'off') {
+          if (current.remote === undefined) return current
+          const { remote: _dropped, ...rest } = current
+          return rest
+        }
+        const remote = {
+          state: status.state,
+          ...(status.gatewayUrl ? { url: status.gatewayUrl } : {}),
+        }
+        if (current.remote?.state === remote.state && current.remote.url === remote.url)
+          return current
+        return { ...current, remote }
+      })
+    })
+  }, [options.remoteStatus])
 
   // §7.5.2：Ctrl+V 与 /paste 共用的剪贴板粘贴通道——结果反馈（系统消息）统一
   // 在这里处理，InputBox/命令各自只决定怎么消费 attached/text。

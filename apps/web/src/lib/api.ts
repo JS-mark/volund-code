@@ -97,15 +97,59 @@ export interface StatusView {
   [key: string]: unknown
 }
 
+// ── REM-r1 远程控制 ────────────────────────────────────────────────────
+export interface RemoteStatusView {
+  state: 'off' | 'connecting' | 'online'
+  gatewayUrl: string | undefined
+  attempt: number
+  lastError: string | undefined
+  lastOnlineAt: number | undefined
+}
+
+export interface RemoteChannel {
+  id: string
+  name: string
+  description: string
+  available: boolean
+}
+
+export interface RemoteDevice {
+  id: string
+  name: string
+  pairedAt: number
+  lastSeen: number
+}
+
+export interface RemoteView {
+  status: RemoteStatusView
+  channels: RemoteChannel[]
+  devices: RemoteDevice[]
+}
+
+export interface PairingInvitation {
+  code: string
+  url: string
+  expiresAt: number
+}
+
 export interface ActiveSession {
   active: { id: string; cwd?: string } | null
   pendingPermissions: string[]
+}
+
+/** transcript 条目携带的图片引用（chip = text 里的占位 token；handle = AttachmentStore 引用）。 */
+export interface TranscriptAttachment {
+  chip: string
+  kind: 'image'
+  mime: string
+  handle?: string
 }
 
 export interface TranscriptEntry {
   id: string
   role: 'assistant' | 'system' | 'user'
   text: string
+  attachments?: readonly TranscriptAttachment[]
 }
 
 /** §22 W-05：已暂存附件（AttachmentStore handle 引用；字节永不进事件流/日志）。 */
@@ -372,6 +416,23 @@ export class WebApi {
       await fetch('/api/v1/browser-session/logout', {
         method: 'POST',
         headers: this.headers(),
+      }),
+    )
+  }
+
+  // ── REM-r1 远程控制（/uplink 状态 / 渠道 / 设备 / 配对） ─────────────
+  async remote(): Promise<RemoteView> {
+    return parseResponse(await fetch('/api/v1/remote'))
+  }
+  async remoteAction(body: {
+    type: 'start' | 'stop' | 'create-pairing' | 'revoke-device'
+    deviceId?: string
+  }): Promise<unknown> {
+    return parseResponse(
+      await fetch('/api/v1/remote/actions', {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
       }),
     )
   }

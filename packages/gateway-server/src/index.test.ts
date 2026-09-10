@@ -9,7 +9,7 @@ import type { Socket } from 'node:net'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { GatewayEnvelope, GatewayHubLike } from './hub'
+import type { GatewayEnvelope, GatewayHubLike, GatewaySubmitAttachment } from './hub'
 import { createGatewayServer } from './index'
 import type { GatewayServerHandle } from './index'
 import { deriveSigningKey, hashGatewayClientREFID_014Q } from './oauth'
@@ -25,7 +25,12 @@ const CLIENT = {
 class FakeHub implements GatewayHubLike {
   activeSession: { id: string; cwd?: string } | undefined
   readonly listeners = new Set<(envelope: GatewayEnvelope) => void>()
-  readonly submitted: { prompt: string; model?: string }[] = []
+  readonly submitted: {
+    prompt: string
+    model?: string
+    attachments?: readonly GatewaySubmitAttachment[]
+  }[] = []
+  readonly staged: { mime: string; dataBase64: string }[] = []
   readonly decisions: [string, string][] = []
   private counter = 0
 
@@ -48,7 +53,11 @@ class FakeHub implements GatewayHubLike {
     return { id }
   }
 
-  async submit(input: { prompt: string; model?: string }): Promise<'accepted'> {
+  async submit(input: {
+    prompt: string
+    model?: string
+    attachments?: readonly GatewaySubmitAttachment[]
+  }): Promise<'accepted'> {
     if (!this.activeSession)
       throw Object.assign(new Error('no active session'), { code: 'web_session_invalid' })
     this.submitted.push(input)
@@ -87,6 +96,21 @@ class FakeHub implements GatewayHubLike {
   decide(requestId: string, kind: string): boolean {
     this.decisions.push([requestId, kind])
     return true
+  }
+
+  async stageAttachment(input: { mime: string; dataBase64: string }) {
+    this.staged.push(input)
+    return {
+      kind: 'image' as const,
+      mime: input.mime,
+      size: Buffer.from(input.dataBase64, 'base64').length,
+      handle: `handle-${this.staged.length}`,
+    }
+  }
+
+  async readAttachment(handle: string) {
+    if (handle !== `${'a'.repeat(64)}.png`) return undefined
+    return { mime: 'image/png', dataBase64: Buffer.from([1, 2, 3, 4]).toString('base64') }
   }
 
   pendingPermissionIds(): string[] {
@@ -277,6 +301,139 @@ describe('models and sessions', () => {
     })
     const body = (await response.json()) as { sessions: { id: string }[] }
     expect(body.sessions[0]?.id).toBe('existing-sess')
+  })
+})
+
+describe('attachments upload', () => {
+  it('stages image bytes and returns the hub handle', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'image/png' },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      kind: string
+      mime: string
+      size: number
+      handle: string
+    }
+    expect(body).toMatchObject({ kind: 'image', mime: 'image/png', size: 4, handle: 'handle-1' })
+    expect(hub.staged[0]?.dataBase64).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'))
+  })
+
+  it('rejects unsupported mime and missing auth', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const badMime = await fetch(`${base}/v1/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/plain' },
+      body: 'hello',
+    })
+    expect(badMime.status).toBe(400)
+    expect(((await badMime.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_unsupported_content',
+    )
+    const noAuth = await fetch(`${base}/v1/attachments`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: 'x',
+    })
+    expect(noAuth.status).toBe(401)
+  })
+
+  it('reports 413 upfront when content-length exceeds the cap', async () => {
+    await startServer({ maxAttachmentBytes: 8 })
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'image/png' },
+      body: Buffer.alloc(16, 1),
+    })
+    expect(response.status).toBe(413)
+  })
+
+  it('fails cleanly when the hub does not support attachments', async () => {
+    // 最小 hub 面：不带 stageAttachment（类原型方法 delete 不掉，故直接写字面量）。
+    const bare: GatewayHubLike = {
+      active: undefined,
+      start: async () => ({ id: 'x' }),
+      resume: async (id) => ({ id }),
+      submit: async () => 'accepted',
+      interrupt: async () => {},
+      closeActive: async () => {},
+      subscribe: () => () => {},
+      decide: () => false,
+      pendingPermissionIds: () => [],
+    }
+    await startServer({ hub: bare })
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'image/png' },
+      body: Buffer.from([1, 2, 3]),
+    })
+    expect(response.status).toBe(400)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_unsupported_content',
+    )
+  })
+})
+
+describe('attachments download', () => {
+  it('serves attachment bytes by handle', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/attachments/${'a'.repeat(64)}.png`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([1, 2, 3, 4]))
+  })
+
+  it('404s unknown handles, rejects malformed handles, and requires auth', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const missing = await fetch(`${base}/v1/attachments/${'b'.repeat(64)}.png`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(missing.status).toBe(404)
+    expect(((await missing.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_attachment_not_found',
+    )
+    // 非内容寻址形状的 handle 直接落未知端点，不进 hub。
+    const malformed = await fetch(`${base}/v1/attachments/not-a-handle`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(malformed.status).toBe(404)
+    const noAuth = await fetch(`${base}/v1/attachments/${'a'.repeat(64)}.png`)
+    expect(noAuth.status).toBe(401)
+  })
+
+  it('404s when the hub does not support attachment reads', async () => {
+    const bare: GatewayHubLike = {
+      active: undefined,
+      start: async () => ({ id: 'x' }),
+      resume: async (id) => ({ id }),
+      submit: async () => 'accepted',
+      interrupt: async () => {},
+      closeActive: async () => {},
+      subscribe: () => () => {},
+      decide: () => false,
+      pendingPermissionIds: () => [],
+    }
+    await startServer({ hub: bare })
+    const token = await fetchToken()
+    const response = await fetch(`${base}/v1/attachments/${'a'.repeat(64)}.png`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(response.status).toBe(404)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_attachment_not_found',
+    )
   })
 })
 
@@ -516,6 +673,24 @@ describe('CORS', () => {
     })
     expect(response.headers.get('access-control-allow-origin')).toBeNull()
   })
+
+  it('attaches allow headers to actual responses for whitelisted origins', async () => {
+    await startServer({ corsOrigins: ['https://app.example'] })
+    // 回归：预检通过但实际响应缺 allow 头时，浏览器照样拦截（移动站 redeem 跨域报错）。
+    const success = await fetch(`${base}/v1/health`, {
+      headers: { origin: 'https://app.example' },
+    })
+    expect(success.status).toBe(200)
+    expect(success.headers.get('access-control-allow-origin')).toBe('https://app.example')
+    expect(success.headers.get('vary')).toContain('Origin')
+
+    // 错误响应同样要带（否则浏览器连错误体都读不到）。
+    const rejected = await fetch(`${base}/v1/sessions`, {
+      headers: { origin: 'https://app.example' },
+    })
+    expect(rejected.status).toBe(401)
+    expect(rejected.headers.get('access-control-allow-origin')).toBe('https://app.example')
+  })
 })
 
 describe('permission timeout fallback', () => {
@@ -728,6 +903,51 @@ describe('websocket channel', () => {
     const error = await client.nextMessage()
     expect(error.type).toBe('error')
     expect(String(error.message)).toContain('no active session')
+    client.close()
+  })
+
+  it('forwards turn.submit attachments to the hub', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const client = await wsConnect('/v1/ws', { authorization: `Bearer ${token}` })
+    await client.nextMessage()
+    client.send({ type: 'session.start', ref: 's1' })
+    await client.nextMessage() // session.attached reply
+    await client.nextMessage() // session.attached broadcast
+    client.send({
+      type: 'turn.submit',
+      prompt: '[image_1]',
+      ref: 't1',
+      attachments: [
+        { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'handle-1' },
+      ],
+    })
+    const accepted = await client.nextMessage()
+    expect(accepted.type).toBe('turn.accepted')
+    expect(hub.submitted[0]?.attachments).toEqual([
+      { kind: 'image', chip: '[image_1]', mime: 'image/png', size: 4, handle: 'handle-1' },
+    ])
+    client.close()
+  })
+
+  it('rejects malformed attachments with gateway_schema_invalid', async () => {
+    await startServer()
+    const token = await fetchToken()
+    const client = await wsConnect('/v1/ws', { authorization: `Bearer ${token}` })
+    await client.nextMessage()
+    client.send({ type: 'session.start', ref: 's1' })
+    await client.nextMessage()
+    await client.nextMessage()
+    client.send({
+      type: 'turn.submit',
+      prompt: 'hi',
+      ref: 't2',
+      attachments: [{ kind: 'blob' }],
+    })
+    const error = await client.nextMessage()
+    expect(error.type).toBe('error')
+    expect(error.code).toBe('gateway_schema_invalid')
+    expect(String(error.message)).toContain('attachments')
     client.close()
   })
 })

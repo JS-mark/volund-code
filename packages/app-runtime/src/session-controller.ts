@@ -40,6 +40,7 @@ import type {
   PermissionInteractionMode,
   SessionCandidate,
   SubmitOptions,
+  TranscriptAttachment,
   TranscriptEntry,
 } from './contracts'
 import {
@@ -194,7 +195,13 @@ export class SessionController<TStatusView = unknown> extends Service {
           (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
         )
           return []
-        const entry: TranscriptEntry = { id: message.id, role: message.role, text }
+        const attachments = transcriptAttachments(message.content)
+        const entry: TranscriptEntry = {
+          id: message.id,
+          role: message.role,
+          text,
+          ...(attachments.length ? { attachments } : {}),
+        }
         return [entry]
       })
     return {
@@ -226,6 +233,21 @@ export class SessionController<TStatusView = unknown> extends Service {
       listFiles: () => listWorkspaceFiles(this.runner!.state.cwd),
       // §22 W-05 Web 上传暂存：浏览器图片字节走与粘贴相同的落盘管线。
       stageAttachment: (bytes: Uint8Array, mime: string) => this.stageImageBytes(bytes, mime),
+      // 附件字节回放（移动站 transcript 图片回显）：与暂存同一个 AttachmentStore 根，
+      // handle 形状由 store 把守；读不到（已清理/伪造）按 undefined → 404。
+      readAttachment: async (handle: string) => {
+        const runner = this.runner
+        if (!runner) return undefined
+        const store = new AttachmentStore(
+          join(this.options.sessionsDir, runner.state.id, 'attachments'),
+        )
+        try {
+          const bytes = await store.read({ kind: 'handle', handle })
+          return { mime: mimeForAttachmentPath(handle), bytes }
+        } catch {
+          return undefined
+        }
+      },
       submit: (prompt: string, submitOptions?: SubmitOptions) =>
         this.runTurnExclusive(prompt, submitOptions),
       end: async () => {
@@ -551,4 +573,26 @@ function messageFullText(content: SessionState['messages'][number]['content']): 
     })
     .join('')
     .trim()
+}
+
+/**
+ * transcript 条目的图片附件提取：image part → chip + handle 引用
+ * （path 引用无 handle——字节不落 AttachmentStore，远程客户端无从回放，chip 文本兜底）。
+ */
+function transcriptAttachments(
+  content: SessionState['messages'][number]['content'],
+): TranscriptAttachment[] {
+  const out: TranscriptAttachment[] = []
+  for (const part of content) {
+    if (part.type !== 'image') continue
+    const chip = contentPartChipLabel(part)
+    if (!chip) continue
+    out.push({
+      chip,
+      kind: 'image',
+      mime: part.mime,
+      ...(part.source.kind === 'handle' ? { handle: part.source.handle } : {}),
+    })
+  }
+  return out
 }

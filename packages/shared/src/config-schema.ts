@@ -84,6 +84,12 @@ export const configKeyRegistry = {
   'web.terminal.shell': 'allowed',
   'web.terminal.font_size': 'allowed',
   'web.terminal.scrollback': 'allowed',
+  // [remote] 远程控制（REM-r1）：本机经公网网关反向拨出的链路配置。
+  // client_secret 是凭据 → 项目级 forbidden（与 auth.* 同门）。
+  'remote.enabled': 'allowed',
+  'remote.gateway_url': 'allowed',
+  'remote.client_id': 'allowed',
+  'remote.client_secret': 'forbidden',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -268,6 +274,16 @@ export const ConfigSchema = z.strictObject({
           scrollback: z.number().int().min(100).max(100000).optional(),
         })
         .optional(),
+    })
+    .optional(),
+  // [remote] 远程控制（REM-r1）：本机向公网网关反向拨出（/uplink）的链路配置；
+  // 凭据只允许用户级（client_secret 项目级 forbidden）。
+  remote: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      gateway_url: z.string().min(1).optional(),
+      client_id: z.string().min(1).optional(),
+      client_secret: z.string().min(16).optional(),
     })
     .optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地

@@ -478,7 +478,7 @@ function AliasesEditor({ ctx }: { ctx: Ctx }) {
         cancelText="取消"
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Input
             placeholder="别名（如 fast）"
             value={name}
@@ -612,7 +612,7 @@ function ProvidersEditor({ ctx }: { ctx: Ctx }) {
         cancelText="取消"
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Input
             placeholder="名称（如 deepseek）"
             value={name}
@@ -713,7 +713,7 @@ function RouterChainEditor({ ctx }: { ctx: Ctx }) {
         cancelText="取消"
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Input
             placeholder="Provider（如 anthropic）"
             value={provider}
@@ -816,7 +816,7 @@ function EnvEditor({ ctx }: { ctx: Ctx }) {
         cancelText="取消"
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Input
             placeholder="名称（如 HTTP_PROXY；*_api_key 保存后不回显）"
             value={name}

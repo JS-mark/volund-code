@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createWebServer } from './index'
-import type { WebServerHandle } from './index'
+import type { RemoteControlPort, WebServerHandle } from './index'
 
 let handle: WebServerHandle | undefined
 afterEach(async () => {
@@ -282,7 +282,80 @@ describe('web-server gateway', () => {
       body: JSON.stringify({ prompt: 'x', attachments: [{ kind: 'image' }] }),
     })
     expect(malformed.status).toBe(400)
-  })
+    // 真实 loopback HTTP + 动态 import，常态 ~3.5s——高并发下 5s 默认超时太紧。
+  }, 15_000)
+
+  it('W-05 attachment bytes are served by handle (transcript image echo)', async () => {
+    const handle = `${'e'.repeat(64)}.png`
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const fakeSession = {
+      id: 'sess-att-read',
+      cwd: '/tmp/web-server-test',
+      events: { subscribe: () => () => {} },
+      transcript: [],
+      setPermissionPromptHandler() {},
+      async submit() {},
+      async end() {},
+      async readAttachment(wanted: string) {
+        return wanted === handle ? { mime: 'image/png', bytes } : undefined
+      },
+    }
+    const { SessionHub } = await import('./session-hub')
+    const { PermissionPromptController } = await import('@volund/app-runtime')
+    const sessionHub = new SessionHub({
+      permissions: new PermissionPromptController(),
+      session: {
+        async startInteractive() {
+          return fakeSession as never
+        },
+        async interrupt() {},
+        async end() {},
+      },
+    })
+    const { url } = await start({ sessionHub })
+    const { base, cookie, csrfToken } = await authed(url)
+    await fetch(`${base}api/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cwd: '/tmp/web-server-test' }),
+    })
+
+    // 无 cookie → 401（读端点同样要 browser session）
+    const anonymous = await fetch(`${base}api/v1/sessions/active/attachments/${handle}`)
+    expect(anonymous.status).toBe(401)
+
+    // 命中 → 200 + 原始字节 + 内容寻址长缓存
+    const hit = await fetch(`${base}api/v1/sessions/active/attachments/${handle}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(hit.status).toBe(200)
+    expect(hit.headers.get('content-type')).toBe('image/png')
+    expect(hit.headers.get('cache-control')).toContain('immutable')
+    expect(new Uint8Array(await hit.arrayBuffer())).toEqual(bytes)
+
+    // 合法形状但不存在 → 404 web_attachment_not_found
+    const missing = await fetch(`${base}api/v1/sessions/active/attachments/${'f'.repeat(64)}.png`, {
+      headers: { Cookie: cookie },
+    })
+    expect(missing.status).toBe(404)
+    expect(((await missing.json()) as { error: { code: string } }).error.code).toBe(
+      'web_attachment_not_found',
+    )
+
+    // 非法 handle 形状 → 路由不匹配，落未知端点 404
+    const badHandle = await fetch(`${base}api/v1/sessions/active/attachments/not-a-handle`, {
+      headers: { Cookie: cookie },
+    })
+    expect(badHandle.status).toBe(404)
+    expect(((await badHandle.json()) as { error: { code: string } }).error.code).toBe(
+      'web_schema_invalid',
+    )
+  }, 15_000)
 })
 
 describe('web-server session groups', () => {
@@ -671,5 +744,126 @@ describe('web-server config endpoints (W-13)', () => {
       body: JSON.stringify({ key: 'web.port' }),
     })
     expect(unset.status).toBe(503)
+  })
+})
+
+describe('web-server remote control endpoints (REM-r1)', () => {
+  function fakeRemote(overrides: Partial<RemoteControlPort> = {}) {
+    const state = {
+      current: 'off' as 'off' | 'connecting' | 'online',
+      started: 0,
+      stopped: 0,
+    }
+    const port: RemoteControlPort & { state: typeof state } = {
+      state,
+      status: () => ({
+        state: state.current,
+        gatewayUrl: state.current === 'off' ? undefined : 'https://gw.example.com',
+        attempt: state.current === 'online' ? 0 : 2,
+        lastError: state.current === 'online' ? undefined : 'not configured',
+        lastOnlineAt: state.current === 'online' ? 123 : undefined,
+      }),
+      start: () => {
+        state.started += 1
+        state.current = 'online'
+      },
+      stop: async () => {
+        state.stopped += 1
+        state.current = 'off'
+      },
+      createPairing: async () => ({
+        code: 'ABCD2345',
+        url: 'https://gw.example.com/#pair=ABCD2345',
+        expiresAt: 999,
+      }),
+      listDevices: async () => [{ id: 'dev-1', name: '手机', pairedAt: 1, lastSeen: 2 }],
+      revokeDevice: async (deviceId: string) => deviceId === 'dev-1',
+      ...overrides,
+    }
+    return port
+  }
+
+  it('serves remote status/channels/devices and capability flag', async () => {
+    const remote = fakeRemote()
+    const { url } = await start({ remote })
+    const boot = await fetch(`${new URL(url).origin}/api/v1/bootstrap`)
+    const capabilities = ((await boot.json()) as { data: { capabilities: { remote?: boolean } } })
+      .data.capabilities
+    expect(capabilities.remote).toBe(true)
+    const { base, headers } = await authed(url)
+    const res = await fetch(`${base}api/v1/remote`, { headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      data: {
+        status: { state: string }
+        channels: { id: string; available: boolean }[]
+        devices: { id: string }[]
+      }
+    }
+    expect(body.data.status.state).toBe('off')
+    expect(body.data.channels.map((channel) => channel.id)).toEqual([
+      'mobile-web',
+      'wechat',
+      'wecom',
+    ])
+    expect(body.data.devices).toEqual([{ id: 'dev-1', name: '手机', pairedAt: 1, lastSeen: 2 }])
+  })
+
+  it('dispatches start/stop/pairing/revoke actions', async () => {
+    const remote = fakeRemote()
+    const { url } = await start({ remote })
+    const { base, headers } = await authed(url)
+
+    const pairOffline = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'create-pairing' }),
+    })
+    expect(pairOffline.status).toBe(409)
+
+    const startRes = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'start' }),
+    })
+    expect(startRes.status).toBe(200)
+    expect(remote.state.started).toBe(1)
+
+    const pair = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'create-pairing' }),
+    })
+    expect(pair.status).toBe(200)
+    const pairing = ((await pair.json()) as { data: { pairing: { code: string } } }).data.pairing
+    expect(pairing.code).toBe('ABCD2345')
+
+    const revoke = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'revoke-device', deviceId: 'dev-1' }),
+    })
+    expect(((await revoke.json()) as { data: { revoked: boolean } }).data.revoked).toBe(true)
+
+    const stop = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'stop' }),
+    })
+    expect(stop.status).toBe(200)
+    expect(remote.state.stopped).toBe(1)
+  })
+
+  it('is 503 without the remote port wired', async () => {
+    const { url } = await start()
+    const { base, headers } = await authed(url)
+    const get = await fetch(`${base}api/v1/remote`, { headers })
+    expect(get.status).toBe(503)
+    const action = await fetch(`${base}api/v1/remote/actions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'start' }),
+    })
+    expect(action.status).toBe(503)
   })
 })

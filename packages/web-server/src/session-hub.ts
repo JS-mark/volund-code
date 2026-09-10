@@ -240,6 +240,11 @@ export class SessionHub {
     return result.attachment
   }
 
+  /** 附件字节回放（移动站 transcript 图片回显）：无会话/宿主未接线/handle 不存在 → undefined。 */
+  async readAttachment(handle: string): Promise<{ mime: string; bytes: Uint8Array } | undefined> {
+    return this.interactive?.readAttachment?.(handle)
+  }
+
   async interrupt(): Promise<void> {
     await this.interactive?.interrupt?.()
   }

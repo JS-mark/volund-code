@@ -95,7 +95,6 @@ describe('runCli', () => {
       'telemetry',
       'trust',
       'doctor',
-      'gateway',
       'memory',
       'hook',
       'skill',
@@ -1058,7 +1057,6 @@ describe('runCli', () => {
       }),
     )
   })
-
   it('does not register permission prompts in yolo TUI mode', async () => {
     const interactive = {
       id: 'session-1',

@@ -33,6 +33,7 @@
     "@volund/provider-kit": "workspace:*",
     "@volund/provider-ollama": "workspace:*",
     "@volund/provider-openai": "workspace:*",
+    "@volund/remote-link": "workspace:*",
     "@volund/router": "workspace:*",
     "@volund/shared": "workspace:*",
     "@volund/skills-runtime": "workspace:*",

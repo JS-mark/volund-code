@@ -6,7 +6,7 @@
  * - `session.start`    {cwd?}               → `session.attached`（cwd 限 workspace 内）
  * - `session.resume`   {id}                 → `session.attached`
  * - `session.end`                           → `session.ended`
- * - `turn.submit`      {prompt, model?}     → `turn.accepted`（串行排队，忙时等锁）
+ * - `turn.submit`      {prompt, model?, attachments?} → `turn.accepted`（串行排队，忙时等锁）
  * - `turn.interrupt`                        → `turn.interrupt_requested`
  * - `permission.decide` {requestId, kind}   → `permission.decided`
  *
@@ -22,7 +22,8 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 
-import type { GatewayHubLike } from './hub'
+import type { GatewayEnvelope, GatewayHubLike } from './hub'
+import { parseClientAttachments } from './protocol'
 import { GatewayError, TurnQueue } from './queue'
 import type { WsConnection } from './websocket'
 import { WS_CLOSE } from './websocket'
@@ -202,6 +203,15 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
             replyError(ref, new GatewayError('gateway_schema_invalid', 400, 'prompt is required'))
             return
           }
+          const attachments = parseClientAttachments(body.attachments)
+          if (attachments === undefined) {
+            release()
+            replyError(
+              ref,
+              new GatewayError('gateway_schema_invalid', 400, 'attachments are malformed'),
+            )
+            return
+          }
           if (!deps.hub.active) {
             release()
             replyError(
@@ -218,6 +228,7 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
             await deps.hub.submit({
               prompt,
               ...(typeof body.model === 'string' && body.model ? { model: body.model } : {}),
+              ...(attachments.length ? { attachments } : {}),
             })
           } catch (cause) {
             release()
@@ -244,16 +255,32 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
   }
 }
 
-/** WS 广播扇出：hub 事件 → 全部已认证连接。 */
+/**
+ * WS 广播扇出：hub 事件 → 全部已认证连接。
+ *
+ * 事件源带 client 标记（relay 模式下来自某台已注册机器的 uplink）：连接只在
+ * 自己归属机器有事件时收到广播——不同机器的会话流互不可见。直挂模式事件源
+ * 为 undefined，广播不筛。
+ *
+ * 连接同时记录设备 id（设备 token 的 sub）：设备被撤销时按 id 踢掉存量连接——
+ * 否则握手后授权不再复核，被撤销的设备会一直占用已建立的连接收发消息。
+ */
 export class WsBroadcaster {
-  private readonly connections = new Set<WsConnection>()
+  private readonly connections = new Map<
+    WsConnection,
+    { client: string | undefined; deviceId: string | undefined }
+  >()
 
-  constructor(private readonly hub: GatewayHubLike) {
-    this.hub.subscribe((envelope) => this.broadcast({ type: 'event', ...envelope }))
+  constructor(
+    subscribe: (
+      listener: (source: string | undefined, envelope: GatewayEnvelope) => void,
+    ) => () => void,
+  ) {
+    subscribe((source, envelope) => this.broadcast({ type: 'event', ...envelope }, source))
   }
 
-  add(conn: WsConnection): void {
-    this.connections.add(conn)
+  add(conn: WsConnection, client: string | undefined, deviceId?: string): void {
+    this.connections.set(conn, { client, deviceId })
     conn.onClose = () => this.connections.delete(conn)
   }
 
@@ -261,13 +288,23 @@ export class WsBroadcaster {
     return this.connections.size
   }
 
+  /** 撤销设备：关闭该设备的全部客户端连接（policy 关闭码 + 原因，移动端据此回配对页）。 */
+  closeDevice(deviceId: string): void {
+    for (const [conn, meta] of this.connections) {
+      if (meta.deviceId === deviceId) conn.close(WS_CLOSE.policy, 'device_revoked')
+    }
+  }
+
   closeAll(code: number = WS_CLOSE.goingAway, reason: string = 'server shutting down'): void {
-    for (const conn of this.connections) conn.close(code, reason)
+    for (const conn of this.connections.keys()) conn.close(code, reason)
     this.connections.clear()
   }
 
-  private broadcast(value: unknown): void {
+  private broadcast(value: unknown, source: string | undefined): void {
     const text = JSON.stringify(value)
-    for (const conn of this.connections) conn.send(text)
+    for (const [conn, meta] of this.connections) {
+      if (meta.client !== undefined && source !== undefined && meta.client !== source) continue
+      conn.send(text)
+    }
   }
 }

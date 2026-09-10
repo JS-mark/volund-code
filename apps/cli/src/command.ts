@@ -27,7 +27,6 @@ export const createCommand = (identity: AppIdentity) =>
       telemetry: leaf('telemetry', 'Inspect, export, or clear local telemetry'),
       trust: leaf('trust', 'List or revoke trusted directories'),
       doctor: leaf('doctor', 'Diagnose L1 dependencies'),
-      gateway: leaf('gateway', 'Serve the remote API gateway (OAuth2 + SSE + WebSocket)'),
       memory: leaf('memory', 'Manage, search, and maintain durable memory'),
       hook: leaf('hook', 'List builtin hooks'),
       skill: leaf('skill', 'Install, manage, and show prompt skills'),

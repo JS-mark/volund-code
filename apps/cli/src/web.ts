@@ -60,7 +60,12 @@ export function webAssetDir(): string | undefined {
 }
 
 /** W-06：模型候选 = 当前生效模型 + [models.aliases] 解析后的 provider/model 全限定 id。 */
-async function listModels(ports: VolundPorts, cwd: string): Promise<unknown> {
+export interface CliModelsView {
+  current?: string
+  options: { id: string; label: string }[]
+}
+
+export async function listModels(ports: VolundPorts, cwd: string): Promise<CliModelsView> {
   const status = (await ports.config?.status?.({ cwd })) as
     | { status?: readonly { label: string; value: string }[] }
     | undefined
@@ -91,7 +96,7 @@ async function listModels(ports: VolundPorts, cwd: string): Promise<unknown> {
         label: `${name} → ${target.model}`,
       })),
   ]
-  return { current, options }
+  return { ...(current ? { current } : {}), options }
 }
 
 function buildServerOptions(
@@ -164,6 +169,8 @@ function buildServerOptions(
           ? { scrollback: input.terminal.scrollback }
           : {}),
       }),
+      // REM-r1：远程控制 tab 数据面（remote-link uplink 的状态/配对/设备管理）。
+      ...(ports.remoteControl ? { remote: ports.remoteControl } : {}),
       ...(ports.permissionMode
         ? {
             permissionMode: {

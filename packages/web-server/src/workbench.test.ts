@@ -110,7 +110,8 @@ describe('terminal port (interactive shell)', () => {
     })
     session.write('echo wb-term-$((40+2))\n')
     // 交互 shell 流式输出：等到结果出现（pty 带回显，匹配具体输出行即可）。
-    await vi.waitFor(() => expect(buffer).toContain('wb-term-42'), { timeout: 8000 })
+    // pty spawn + 交互 zsh 启动在全量高并发下可能很慢，内外窗口同步放宽。
+    await vi.waitFor(() => expect(buffer).toContain('wb-term-42'), { timeout: 15_000 })
     const exited = new Promise<number | null>((resolveExit) => session.onExit(resolveExit))
     session.write('exit\n')
     await vi.waitFor(
@@ -121,10 +122,10 @@ describe('terminal port (interactive shell)', () => {
         ])
         expect(state).toBe('exited')
       },
-      { timeout: 8000 },
+      { timeout: 8_000 },
     )
     session.kill()
-  }, 20_000)
+  }, 30_000)
 
   it('runs in the workspace cwd', async () => {
     const root = await workspace()

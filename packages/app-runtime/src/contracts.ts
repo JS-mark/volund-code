@@ -94,12 +94,23 @@ export interface SessionCandidate {
   summary?: string
 }
 
+/** transcript 条目携带的图片引用（chip = text 里的占位 token；handle = AttachmentStore 引用）。 */
+export interface TranscriptAttachment {
+  chip: string
+  kind: 'image'
+  mime: string
+  /** 内容寻址落盘引用；path 引用的图片无 handle（字节不可回放）。 */
+  handle?: string
+}
+
 export interface TranscriptEntry {
   id: string
   role: 'assistant' | 'system' | 'user'
   text: string
   /** B7（r13-G5）：该 assistant 消息因 max_tokens 截断，UI 渲染续写提示 */
   truncated?: boolean
+  /** 消息里的图片附件（远程/移动客户端经 readAttachment 通路取字节回显）。 */
+  attachments?: readonly TranscriptAttachment[]
 }
 
 /**
@@ -143,6 +154,11 @@ export interface InteractiveSession<TStatusView = unknown> {
     bytes: Uint8Array,
     mime: string,
   ): Promise<import('@volund/shared').PasteAttachmentResult>
+  /**
+   * 附件字节回放（移动站 transcript 图片回显）：内容寻址 handle → 字节+mime；
+   * 会话不在场/handle 不存在时回 undefined（调用方按 404 处理）。
+   */
+  readAttachment?(handle: string): Promise<{ mime: string; bytes: Uint8Array } | undefined>
   submit(input: string, options?: SubmitOptions): Promise<void>
   end(): Promise<void>
   exitCode(): number

@@ -197,4 +197,18 @@ describe('SessionHub', () => {
       code: 'web_attachment_rejected',
     })
   })
+
+  it('readAttachment delegates to the session and tolerates absence', async () => {
+    const session = fakeSession()
+    const { hub } = hubWith(session)
+    // 无活动会话 → undefined（网关侧映射 404）
+    await expect(hub.readAttachment(`${'a'.repeat(64)}.png`)).resolves.toBeUndefined()
+    await hub.start({ cwd: '/tmp/hub' })
+    // 会话未实现 readAttachment → undefined
+    await expect(hub.readAttachment(`${'a'.repeat(64)}.png`)).resolves.toBeUndefined()
+    session.readAttachment = async () => ({ mime: 'image/png', bytes: new Uint8Array([1, 2]) })
+    const found = await hub.readAttachment(`${'a'.repeat(64)}.png`)
+    expect(found?.mime).toBe('image/png')
+    expect([...(found?.bytes ?? [])]).toEqual([1, 2])
+  })
 })

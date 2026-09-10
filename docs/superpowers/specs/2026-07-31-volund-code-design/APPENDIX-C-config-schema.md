@@ -55,6 +55,10 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[web.terminal]` | `shell` | string；工作台终端的 shell 覆盖（默认 `$SHELL` → `/bin/sh`；win32 `cmd.exe`） | §22 | allowed |
 | `[web.terminal]` | `font_size` | int，9–32，默认 `12`；工作台终端字号 | §22 | allowed |
 | `[web.terminal]` | `scrollback` | int，100–100000，默认 `2000`；终端滚动缓冲行数 | §22 | allowed |
+| `[remote]` | `enabled` | bool，默认 `false`；TUI 启动时自动向网关拨出远程控制 uplink | REM-r1 | allowed |
+| `[remote]` | `gateway_url` | string；公网网关基地址（如 `https://gw.example.com`） | REM-r1 | allowed |
+| `[remote]` | `client_id` | string；网关 OAuth 机器凭证 id（网关 clients.json 登记的条目） | REM-r1 | allowed |
+| `[remote]` | `client_secret` | string，16+；机器凭证 secret（远程控制 tab / CLI 写入用户级） | REM-r1 | **forbidden**（凭据只来自用户级，§8.3.1 同门） |
 | `[reflection]` | `enabled` | bool，默认 `true` | §21.3 | allowed |
 | `[reflection]` | `triggers.on_error` / `triggers.on_compact` | bool，默认 `true` / `false` | §21.3 | allowed |
 | `[reflection]` | `triggers.every_n_turns` | int，默认 `0`（关；>0 如 `5` 开启定期反思） | §21.3 | allowed |

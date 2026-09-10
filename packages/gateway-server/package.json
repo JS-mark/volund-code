@@ -2,6 +2,9 @@
   "name": "@volund/gateway-server",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "volund-gateway": "dist/bin.js"
+  },
   "files": [
     "dist"
   ],
@@ -14,6 +17,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node ../../scripts/build/rewrite-esm-specifiers.mjs dist",
+    "start": "node dist/bin.js",
     "test": "vitest run --exclude='dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

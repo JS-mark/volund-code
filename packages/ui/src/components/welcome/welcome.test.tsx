@@ -117,6 +117,36 @@ describe('welcome screen', () => {
     expect(output).not.toContain('seatbelt (full)')
   })
 
+  it('renders the remote uplink row only when the link is enabled (REM-r1)', async () => {
+    // 未启用（remote 缺省）：不渲染 remote 行。
+    const disabled = stripVTControlCharacters(
+      await renderWelcome({ columns: 120, rows: 30 }, fixture({ status: 'unknown' })),
+    )
+    expect(disabled).not.toContain('remote ')
+
+    // connecting：有状态无地址（网关 URL 要等拨号前解析配置才有）。
+    const connecting = stripVTControlCharacters(
+      await renderWelcome(
+        { columns: 120, rows: 30 },
+        { ...fixture({ status: 'unknown' }), remote: { state: 'connecting' } },
+      ),
+    )
+    expect(connecting).toContain('remote connecting')
+    expect(connecting).not.toContain('127.0.0.1:8788')
+
+    // online：状态 + 网关地址同行展示。
+    const online = stripVTControlCharacters(
+      await renderWelcome(
+        { columns: 120, rows: 30 },
+        {
+          ...fixture({ status: 'unknown' }),
+          remote: { state: 'online', url: 'http://127.0.0.1:8788' },
+        },
+      ),
+    )
+    expect(online).toContain('remote online http://127.0.0.1:8788')
+  })
+
   it('maps probe tri-states onto display labels and tones', () => {
     // 同目录多会话场景已随 Recent activity 移除；这里锁定三态映射，
     // 防止把 probing 误报成 loaded/unavailable。

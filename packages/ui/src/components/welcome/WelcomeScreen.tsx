@@ -73,6 +73,15 @@ export function WelcomeScreen({ state, terminalSize }: WelcomeScreenProps) {
                   <Text color={welcomeTheme.brandAccent}>{state.web.url}</Text>
                 </Text>
               )}
+              {state.remote !== null && (
+                <Text color="gray" wrap="truncate-end">
+                  {'remote '}
+                  <Text color={colorForTone(state.remote.tone)}>{state.remote.state}</Text>
+                  {state.remote.url !== null ? (
+                    <Text color={welcomeTheme.brandAccent}>{` ${state.remote.url}`}</Text>
+                  ) : null}
+                </Text>
+              )}
             </Box>
           </Box>
         </Box>

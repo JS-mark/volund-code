@@ -11,11 +11,13 @@
     "typecheck": "pnpm --dir ../.. docs:api && vitepress build"
   },
   "devDependencies": {
+    "mermaid": "^11.17.2",
     "three": "^0.185.1",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "5.9.3",
     "vitepress": "catalog:",
+    "vitepress-plugin-mermaid": "^2.0.17",
     "vue": "catalog:"
   }
 }

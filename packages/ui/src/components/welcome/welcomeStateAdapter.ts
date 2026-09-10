@@ -37,6 +37,14 @@ export function buildWelcomeScreenState(input: BuildWelcomeScreenStateInput): We
     agent: { mode: 'auto', status: 'ready', thinking: 'off' },
     native: nativeRows(data.native),
     web: { url: data.web?.url ?? null },
+    remote:
+      data.remote !== undefined
+        ? {
+            state: data.remote.state,
+            url: data.remote.url ?? null,
+            tone: data.remote.state === 'online' ? 'success' : 'warning',
+          }
+        : null,
   }
 }
 

@@ -2,14 +2,14 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { GatewayOAuthServer } from '@volund/gateway-server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { GatewayOAuthServer } from './oauth'
 import {
   createGatewayModelResolver,
-  resolveGatewayConfig,
   resolveGatewayCredentials,
-} from './gateway'
+  resolveRelayConfig,
+} from './relay-config'
 
 describe('createGatewayModelResolver', () => {
   const resolve = createGatewayModelResolver({
@@ -30,49 +30,37 @@ describe('createGatewayModelResolver', () => {
   })
 })
 
-describe('resolveGatewayConfig', () => {
+describe('resolveRelayConfig', () => {
   it('applies defaults', () => {
-    const config = resolveGatewayConfig({ args: {}, cwd: '/work', env: {} })
+    const config = resolveRelayConfig({ args: {}, env: {} })
     expect(config.host).toBe('0.0.0.0')
     expect(config.port).toBe(8788)
-    expect(config.permissionMode).toBe('auto')
-    expect(config.workspace).toBe('/work')
     expect(config.corsOrigins).toEqual([])
-    expect(config.defaultProvider).toBe('openai')
   })
 
   it('honours env overrides and --port precedence over GATEWAY_PORT', () => {
-    const config = resolveGatewayConfig({
+    const config = resolveRelayConfig({
       args: { port: '9999' },
-      cwd: '/work',
       env: {
         GATEWAY_PORT: '8787',
         GATEWAY_HOST: '127.0.0.1',
-        GATEWAY_PERMISSION_MODE: 'ask',
         GATEWAY_CORS_ORIGINS: 'https://a.example, https://b.example',
         GATEWAY_TOKEN_TTL_SECONDS: '60',
       },
     })
     expect(config.port).toBe(9999)
     expect(config.host).toBe('127.0.0.1')
-    expect(config.permissionMode).toBe('ask')
     expect(config.corsOrigins).toEqual(['https://a.example', 'https://b.example'])
     expect(config.tokenTtlSeconds).toBe(60)
   })
 
-  it('rejects an invalid permission mode', () => {
-    expect(() =>
-      resolveGatewayConfig({ args: {}, cwd: '/work', env: { GATEWAY_PERMISSION_MODE: 'yolo' } }),
-    ).toThrow(/GATEWAY_PERMISSION_MODE/)
-  })
-
   it('rejects out-of-range integers', () => {
-    expect(() =>
-      resolveGatewayConfig({ args: {}, cwd: '/work', env: { GATEWAY_PORT: '70000' } }),
-    ).toThrow(/invalid integer/)
-    expect(() =>
-      resolveGatewayConfig({ args: {}, cwd: '/work', env: { GATEWAY_RATE_LIMIT_RPM: 'abc' } }),
-    ).toThrow(/invalid integer/)
+    expect(() => resolveRelayConfig({ args: {}, env: { GATEWAY_PORT: '70000' } })).toThrow(
+      /invalid integer/,
+    )
+    expect(() => resolveRelayConfig({ args: {}, env: { GATEWAY_RATE_LIMIT_RPM: 'abc' } })).toThrow(
+      /invalid integer/,
+    )
   })
 })
 

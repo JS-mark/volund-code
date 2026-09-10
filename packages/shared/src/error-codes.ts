@@ -226,6 +226,7 @@ export const ErrorCodes = {
   webSchemaInvalid: 'web_schema_invalid', // §22.8：未知端点/非法 JSON 体
   webCapabilityUnavailable: 'web_capability_unavailable', // §22.3.4：能力未接线（诚实降级）
   webAttachmentRejected: 'web_attachment_rejected', // §22 W-05：附件类型/大小/魔数校验失败或无活动会话
+  webAttachmentNotFound: 'web_attachment_not_found', // §22 W-05：附件字节回放的 handle 不存在/已清理（404，packages/web-server/src/index.ts）
   webStateConflict: 'web_state_conflict', // §22 W-01/§22.9.2：嵌入式模式下会话所有权在 TUI，web 侧 start/resume 被拒
   webSessionGroupNotFound: 'web_session_group_not_found', // Web 侧栏会话分组：rename/delete/assign 指向的分组 id 不存在
   trustStoreUnavailable: 'trust_store_unavailable',
@@ -242,6 +243,12 @@ export const ErrorCodes = {
   gatewayUnsupportedContent: 'gateway_unsupported_content', // chat 多模态 part（400）
   gatewayUpstreamFailed: 'gateway_upstream_failed', // runner/装配侧失败（502）
   gatewayWsProtocolError: 'gateway_ws_protocol_error', // WS 帧非 JSON / 缺 type / 未知类型
+  gatewayUplinkOffline: 'gateway_uplink_offline', // REM-r1 relay：本机未拨出注册/隧道断开（503）
+  gatewayPairingInvalid: 'gateway_pairing_invalid', // REM-r1 配对码不存在/过期/已核销（400）
+  gatewayStaticMissing: 'gateway_static_missing', // REM-r1 移动站静态产物缺失（404）
+  gatewayAttachmentNotFound: 'gateway_attachment_not_found', // 附件 handle 不存在/已清理/hub 不支持读取（404）
+  remoteCwdInvalid: 'remote_cwd_invalid', // REM-r1 uplink RPC 的 cwd 不存在/逃逸本机工作区（400）
+  remoteHubFailed: 'remote_hub_failed', // REM-r1 本机侧 hub RPC 执行失败（经隧道回传网关）
 
   /* ── ui 域（主题 / 斜杠命令，packages/ui） ───────────────────────────── */
   slashCommandBuiltinReserved: 'slash_command_builtin_reserved',

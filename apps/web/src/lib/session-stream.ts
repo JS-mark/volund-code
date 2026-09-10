@@ -9,9 +9,21 @@ import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 export interface ChatImage {
   chip: string
-  mime: string
-  /** 本地乐观回显的预览（blob objectURL）；transcript 回放只有 chip 文本。 */
+  mime?: string
+  /** 本地乐观回显的预览（blob objectURL）；transcript 水合/跨端消息没有它。 */
   previewUrl?: string
+  /**
+   * AttachmentStore 内容寻址引用——无 previewUrl 时经
+   * GET /api/v1/sessions/active/attachments/:handle 取字节。
+   */
+  handle?: string
+}
+
+/** 回显图片的加载地址：本地预览优先；handle 引用走同源附件字节端点。 */
+export function chatImageSrc(image: ChatImage): string | undefined {
+  if (image.previewUrl) return image.previewUrl
+  if (image.handle) return `/api/v1/sessions/active/attachments/${encodeURIComponent(image.handle)}`
+  return undefined
 }
 
 export interface ChatMessage {
@@ -22,6 +34,11 @@ export interface ChatMessage {
   images?: ChatImage[]
   /** 本地乐观回显（未收口）：message.appended 到达后由真实消息替换。 */
   local?: boolean
+  /**
+   * 到达本页的时间（ms 纪元）：live 事件/乐观回显打点，用于时间分隔行。
+   * transcript 水合的历史消息没有时间戳（条目本就不带），不渲染分隔行。
+   */
+  at?: number
 }
 
 export interface ToolCard {
@@ -82,15 +99,43 @@ export type StreamAction =
   | { type: 'notice'; notice: string | undefined }
   | { type: 'reset' }
 
+/** 只取 text part——thinking part 也有 text 字段，混进来会把思考内容粘进正文。 */
 function textOfContent(content: unknown): string {
   if (!Array.isArray(content)) return ''
   return content
     .map((part) =>
-      typeof part === 'object' && part !== null && (part as { text?: unknown }).text
-        ? String((part as { text: unknown }).text)
+      typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'text'
+        ? String((part as { text?: unknown }).text ?? '')
         : '',
     )
     .join('')
+}
+
+/** [image: <digest8>.<ext>]——与 @volund/shared attachmentChipLabel 同规则的本地副本。 */
+function chipFromHandle(handle: string): string {
+  const dot = handle.lastIndexOf('.')
+  const digest = dot > 0 ? handle.slice(0, dot) : handle
+  const ext = dot > 0 ? handle.slice(dot + 1) : ''
+  return `[image: ${digest.slice(0, 8)}${ext ? `.${ext}` : ''}]`
+}
+
+/** message.appended content 的 image part → 回显图片（仅 handle 引用式可取字节）。 */
+function imagesOfContent(content: unknown): ChatImage[] {
+  if (!Array.isArray(content)) return []
+  const images: ChatImage[] = []
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue
+    const candidate = part as { type?: unknown; source?: unknown; mime?: unknown }
+    if (candidate.type !== 'image') continue
+    const source = candidate.source as { kind?: unknown; handle?: unknown } | undefined
+    if (source?.kind !== 'handle' || typeof source.handle !== 'string') continue
+    images.push({
+      chip: chipFromHandle(source.handle),
+      handle: source.handle,
+      ...(typeof candidate.mime === 'string' ? { mime: candidate.mime } : {}),
+    })
+  }
+  return images
 }
 
 function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
@@ -101,15 +146,29 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       const id = String(payload.messageId)
       const text = textOfContent(payload.content)
       const role = payload.role as ChatMessage['role']
-      // 真实 user 消息到达 = 乐观回显已收口：清掉 local 回声，避免双份。
+      const contentImages = imagesOfContent(payload.content)
+      // 无可见内容的消息（tool_use-only 的 assistant、tool_result 的 user）不产生
+      // 空气泡——工具活动由工具卡承担；已有同 id 流式气泡照常收口。
+      const exists = state.messages.some((message) => message.id === id)
+      if (!exists && !text && contentImages.length === 0) return state
+      // 真实 user 消息到达 = 乐观回显已收口：清掉 local 回声，但把最早一条回声带的
+      // 图片转交给确认消息（否则图片一闪即没）；无回声的消息（跨端/重放）从
+      // content 的 image part 取 handle 引用，经附件字节端点按需加载。
+      const echoImages =
+        role === 'user'
+          ? state.messages.find((message) => message.local && message.images?.length)?.images
+          : undefined
       const base =
         role === 'user' ? state.messages.filter((message) => !message.local) : state.messages
-      // 流式中已存在的同 id 流式消息：以持久化完整消息收口。
-      const messages = base.some((message) => message.id === id)
+      const images = echoImages?.length ? echoImages : contentImages
+      // 流式中已存在的同 id 流式消息：以持久化完整消息收口（保留到达时间）。
+      const messages = exists
         ? base.map((message) =>
-            message.id === id ? { ...message, text, streaming: false } : message,
+            message.id === id
+              ? { ...message, text, streaming: false, ...(images.length ? { images } : {}) }
+              : message,
           )
-        : [...base, { id, role, text }]
+        : [...base, { id, role, text, at: Date.now(), ...(images.length ? { images } : {}) }]
       return { ...state, messages }
     }
     case 'stream.delta': {
@@ -122,7 +181,10 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
               ? { ...message, text: message.text + fragment, streaming: true }
               : message,
           )
-        : [...state.messages, { id, role: 'assistant' as const, text: fragment, streaming: true }]
+        : [
+            ...state.messages,
+            { id, role: 'assistant' as const, text: fragment, streaming: true, at: Date.now() },
+          ]
       return { ...state, messages }
     }
     case 'stream.completed': {
@@ -171,9 +233,10 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       }
     }
     case 'error.raised': {
-      // runner 的错误载荷是 {code, context:{message?}}（附录 D）——message 在 context 里。
-      const context = payload.context as { message?: unknown } | undefined
-      const detail = context?.message ?? payload.message ?? ''
+      // runner 的错误载荷是 {code, context}（附录 D）：runner_error 的细节在
+      // context.message，stream_interrupted 的在 context.reason——两个键都要兜。
+      const context = payload.context as { message?: unknown; reason?: unknown } | undefined
+      const detail = context?.message ?? context?.reason ?? payload.message ?? ''
       return {
         ...state,
         notice: `错误 ${String(payload.code ?? '')}: ${String(detail)}`,
@@ -210,9 +273,34 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       // 本地回声一律丢弃——其真实副本要么已在快照里，要么会经 appended 到达。
       const messages: ChatMessage[] = []
       for (const entry of action.transcript) {
-        const item = entry as { id?: string; role?: string; text?: string }
-        if (item.id && item.role && item.text)
-          messages.push({ id: item.id, role: item.role as ChatMessage['role'], text: item.text })
+        const item = entry as {
+          id?: string
+          role?: string
+          text?: string
+          attachments?: readonly { chip?: string; kind?: string; mime?: string; handle?: string }[]
+        }
+        if (!item.id || !item.role || !item.text) continue
+        // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
+        // （path 引用）字节不可回放，保留 chip 文本兜底。
+        const attachments = (item.attachments ?? []).filter(
+          (attachment): attachment is { chip: string; mime?: string; handle: string } =>
+            attachment.kind === 'image' &&
+            typeof attachment.handle === 'string' &&
+            typeof attachment.chip === 'string',
+        )
+        let text = item.text
+        for (const attachment of attachments) text = text.split(attachment.chip).join(' ')
+        const images: ChatImage[] = attachments.map((attachment) => ({
+          chip: attachment.chip,
+          handle: attachment.handle,
+          ...(attachment.mime ? { mime: attachment.mime } : {}),
+        }))
+        messages.push({
+          id: item.id,
+          role: item.role as ChatMessage['role'],
+          text: text.replace(/[^\S\n]+/g, ' ').trim(),
+          ...(images.length ? { images } : {}),
+        })
       }
       const hydratedIds = new Set(messages.map((message) => message.id))
       const tail = state.messages.filter(
@@ -229,6 +317,7 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             id: `local-${Date.now()}`,
             role: 'user',
             text: action.text,
+            at: Date.now(),
             ...(action.images.length ? { images: action.images } : {}),
             local: true,
           },

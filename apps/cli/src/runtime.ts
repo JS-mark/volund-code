@@ -86,6 +86,7 @@ import { createHistoryPort } from './history'
 import { createMemoryTools } from './memory-tools'
 import { PermissionRuleStore } from './permissions-store'
 import type { VolundPorts } from './ports'
+import { createRemoteControlPort } from './remote'
 import type { AppIdentity } from './shared/app-identity'
 import { createSkillTool } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
@@ -1658,7 +1659,12 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
      * 幂等；单项失败不阻塞其他项（allSettled）。
      */
     async shutdown() {
-      await Promise.allSettled([localPlugins.deactivateAll(), mcpDomain.closeManager()])
+      await Promise.allSettled([
+        localPlugins.deactivateAll(),
+        mcpDomain.closeManager(),
+        // REM-r1：远程 uplink 是 ref 住事件循环的长驻 WS，一并收尾。
+        Promise.resolve(assembled.remoteControl?.close()),
+      ])
     },
   }
   // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）；
@@ -1668,5 +1674,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       webConsoleUrl = url
     },
   })
+  // REM-r1：远程控制端口（/uplink 反向拨出；远程控制 tab 数据面，
+  // [remote] enabled 时由 cli.ts 的 startup 自动拨出）。
+  assembled.remoteControl = createRemoteControlPort(assembled)
   return assembled
 }

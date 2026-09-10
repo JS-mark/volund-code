@@ -2343,7 +2343,9 @@ describe('status configuration adapter', () => {
           clearInterval(timer)
           stream.end()
         }
-      }, 25)
+        // 60ms 间隔：高负载下定时器与 socket flush 都有抖动，间隔留足才分得开
+        // （断言阈值 40ms 不变——正常展开 ~120ms，3 倍余量）。
+      }, 60)
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()

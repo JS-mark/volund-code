@@ -38,7 +38,10 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
       }),
     ])
     expect(state.turn).toBe('running')
-    expect(state.messages).toEqual([{ id: 'm1', role: 'assistant', text: '你好', streaming: true }])
+    // at 是到达打点（Date.now()），不参与内容断言。
+    expect(state.messages).toEqual([
+      { id: 'm1', role: 'assistant', text: '你好', streaming: true, at: expect.any(Number) },
+    ])
     const done = reduceChatState(
       state,
       envelope('core', { type: 'stream.completed', payload: { messageId: 'm1' } }),
@@ -173,5 +176,175 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     )
     expect(state.turn).toBe('idle')
     expect(state.notice).toBe('boom')
+  })
+
+  it('message.appended 只取 text part：thinking 不混进正文', () => {
+    const state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'a1',
+          role: 'assistant',
+          content: [
+            { type: 'thinking', text: '让我想想' },
+            { type: 'text', text: '# 标题' },
+          ],
+        },
+      }),
+    )
+    expect(state.messages[0]?.text).toBe('# 标题')
+  })
+
+  it('message.appended 跳过无可见内容的消息（tool_use / tool_result 空气泡）', () => {
+    let state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'a1',
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: {} }],
+        },
+      }),
+    )
+    state = reduceChatState(
+      state,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'u2',
+          role: 'user',
+          content: [
+            { type: 'tool_result', toolUseId: 'tu1', content: [{ type: 'text', text: 'ok' }] },
+          ],
+        },
+      }),
+    )
+    expect(state.messages).toHaveLength(0)
+  })
+
+  it('error.raised 兼读 context.reason（stream_interrupted 的细节在 reason 键）', () => {
+    const state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'error.raised',
+        payload: { code: 'stream_interrupted', context: { reason: 'read ECONNRESET' } },
+      }),
+    )
+    expect(state.notice).toBe('错误 stream_interrupted: read ECONNRESET')
+  })
+
+  it('message.appended 从 content 的 image part 取 handle 引用（跨端/重放消息回显）', () => {
+    const handle = `${'a'.repeat(64)}.png`
+    const state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'u1',
+          role: 'user',
+          content: [
+            { type: 'image', source: { kind: 'handle', handle }, mime: 'image/png' },
+            { type: 'text', text: '看这张图' },
+          ],
+        },
+      }),
+    )
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({
+      id: 'u1',
+      text: '看这张图',
+      images: [{ chip: '[image: aaaaaaaa.png]', handle, mime: 'image/png' }],
+    })
+  })
+
+  it('纯图片无文本的 user 消息不被空气泡守卫吞掉', () => {
+    const handle = `${'b'.repeat(64)}.webp`
+    const state = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'u1',
+          role: 'user',
+          content: [{ type: 'image', source: { kind: 'handle', handle }, mime: 'image/webp' }],
+        },
+      }),
+    )
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]?.images?.[0]?.handle).toBe(handle)
+  })
+
+  it('user 消息收口：本地回声的图片转交给确认消息（不闪没）', () => {
+    const echoed = reduceChatState(initialChatState, {
+      type: 'echo',
+      text: '看图',
+      images: [{ chip: '[image_1]', mime: 'image/png', previewUrl: 'blob:local-preview' }],
+    })
+    const state = reduceChatState(
+      echoed,
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'real-1',
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { kind: 'handle', handle: `${'c'.repeat(64)}.png` },
+              mime: 'image/png',
+            },
+            { type: 'text', text: '看图' },
+          ],
+        },
+      }),
+    )
+    expect(state.messages).toHaveLength(1)
+    // 回声图片（blob 预览）优先于 content 的 handle 引用——已加载的预览不闪烁；
+    // id 从 local-* 换成 real-1 即证明回声已被真实消息替换。
+    expect(state.messages[0]).toMatchObject({
+      id: 'real-1',
+      images: [{ chip: '[image_1]', previewUrl: 'blob:local-preview' }],
+    })
+  })
+
+  it('hydrate 携带 attachments：handle 在 → 渲染真图并剥掉 chip 占位文本', () => {
+    const handle = `${'d'.repeat(64)}.jpg`
+    const state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        {
+          id: 't1',
+          role: 'user',
+          text: '[image: dddddddd.jpg] 这是什么',
+          attachments: [
+            { chip: '[image: dddddddd.jpg]', kind: 'image', mime: 'image/jpeg', handle },
+          ],
+        },
+      ],
+    })
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({
+      id: 't1',
+      text: '这是什么',
+      images: [{ chip: '[image: dddddddd.jpg]', handle, mime: 'image/jpeg' }],
+    })
+  })
+
+  it('hydrate 的 path 引用附件（无 handle）保留 chip 文本兜底', () => {
+    const state = reduceChatState(initialChatState, {
+      type: 'hydrate',
+      transcript: [
+        {
+          id: 't1',
+          role: 'user',
+          text: '[image: photo.png] 看下',
+          attachments: [{ chip: '[image: photo.png]', kind: 'image', mime: 'image/png' }],
+        },
+      ],
+    })
+    expect(state.messages[0]?.text).toBe('[image: photo.png] 看下')
+    expect(state.messages[0]?.images).toBeUndefined()
   })
 })

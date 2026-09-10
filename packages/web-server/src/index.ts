@@ -32,6 +32,36 @@ export interface ChangesPortLike {
   previewUndo(sessionId: string): Promise<unknown>
   undoStep(sessionId: string): Promise<unknown>
 }
+
+/**
+ * REM-r1 远程控制端口（apps/cli 用 @volund/remote-link 装配；结构类型解耦）。
+ * start/stop 的持久化语义（写回 remote.enabled）在装配侧；配置读写走通用
+ * /api/v1/config（[remote] 段，client_secret 只写不读）。
+ */
+export interface RemoteControlPort {
+  status(): {
+    readonly state: 'off' | 'connecting' | 'online'
+    readonly gatewayUrl: string | undefined
+    readonly attempt: number
+    readonly lastError: string | undefined
+    readonly lastOnlineAt: number | undefined
+  }
+  start(): void
+  stop(): Promise<void>
+  createPairing(): Promise<{ code: string; url: string; expiresAt: number }>
+  listDevices(): Promise<
+    readonly { id: string; name: string; pairedAt: number; lastSeen: number }[]
+  >
+  revokeDevice(deviceId: string): Promise<boolean>
+}
+
+/** 远程控制渠道卡（一期只上移动站渠道；微信/企微占位待 R3 插件化）。 */
+export interface RemoteChannelView {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly available: boolean
+}
 import { SessionHub } from './session-hub'
 
 /** §22.8.2 之外的管理面宿主端口的最小结构面（由 apps/cli 用真实 VolundPorts 装配）。 */
@@ -98,6 +128,8 @@ export interface WebServerOptions {
   readonly workbench?: WorkbenchPort
   /** 工作台终端（交互式 shell over WebSocket）；缺失时前端隐藏终端入口。 */
   readonly terminal?: TerminalPort
+  /** REM-r1 远程控制（远程控制 tab 的数据面）；缺失时端点 503、前端隐藏 tab。 */
+  readonly remote?: RemoteControlPort
 }
 
 export interface WebServerHandle {
@@ -118,6 +150,28 @@ const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 /** 上传端点接受的图片 MIME（字节魔数由 AttachmentStore.stage 二次校验）。 */
 const ATTACHMENT_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const SSE_MAX_QUEUE = 1000
+
+/** REM-r1 远程控制渠道清单（一期只上移动站；微信/企微等 R3 走渠道插件）。 */
+const REMOTE_CHANNELS: readonly RemoteChannelView[] = [
+  {
+    id: 'mobile-web',
+    name: '移动端网站',
+    description: '手机浏览器经公网网关中转控制本机会话（配对码接入）',
+    available: true,
+  },
+  {
+    id: 'wechat',
+    name: '微信机器人',
+    description: '微信渠道插件（R3）',
+    available: false,
+  },
+  {
+    id: 'wecom',
+    name: '企微机器人',
+    description: '企业微信自建应用渠道（R3）',
+    available: false,
+  },
+]
 
 interface BrowserSession {
   readonly id: string
@@ -260,6 +314,14 @@ function redactConfigCredentials(config: Record<string, unknown>): {
       if (!/_api_key$/i.test(key) || typeof value !== 'string') continue
       ;(env as Record<string, unknown>)[key] = true
       redacted.push(`env.${key}`)
+    }
+  }
+  const remote = clone.remote
+  if (remote && typeof remote === 'object' && !Array.isArray(remote)) {
+    const section = remote as Record<string, unknown>
+    if (typeof section.client_secret === 'string') {
+      section.client_secret = true
+      redacted.push('remote.client_secret')
     }
   }
   return { config: clone, redacted }
@@ -414,6 +476,8 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             workbench: options.workbench !== undefined,
             // 工作台终端（交互式 shell over WS）：与 workbench 分开计能力。
             terminal: options.terminal !== undefined,
+            // REM-r1 远程控制 tab。
+            remote: options.remote !== undefined,
             // W-13：设置页全量 config（读合并视图 + 写/清用户级）。
             config:
               options.ports.config?.listMerged !== undefined &&
@@ -610,6 +674,75 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       options.permissionMode.set(mode)
       ok(res, { mode: options.permissionMode.current() })
+      return
+    }
+
+    // ── REM-r1 远程控制（tab 数据面：状态/渠道/设备/配对） ──────────────────
+    if (path === '/api/v1/remote' && req.method === 'GET') {
+      if (!options.remote) {
+        fail(res, 503, {
+          code: 'web_capability_unavailable',
+          message: 'remote control port is not wired',
+        })
+        return
+      }
+      ok(res, {
+        status: options.remote.status(),
+        channels: REMOTE_CHANNELS,
+        devices: await options.remote.listDevices().catch(() => []),
+      })
+      return
+    }
+    if (path === '/api/v1/remote/actions' && req.method === 'POST') {
+      if (!options.remote) {
+        fail(res, 503, {
+          code: 'web_capability_unavailable',
+          message: 'remote control port is not wired',
+        })
+        return
+      }
+      const body = (await readJsonBody(req)) as { type?: unknown; deviceId?: unknown }
+      switch (body.type) {
+        case 'start':
+          options.remote.start()
+          ok(res, { status: options.remote.status() })
+          return
+        case 'stop':
+          await options.remote.stop()
+          ok(res, { status: options.remote.status() })
+          return
+        case 'create-pairing': {
+          const linkState = options.remote.status()
+          if (linkState.state !== 'online') {
+            fail(res, 409, {
+              code: 'web_state_conflict',
+              message:
+                `远程控制未在线（当前状态：${linkState.state}）——先启动服务并等到「已连接」` +
+                (linkState.lastError ? `；最近错误：${linkState.lastError}` : ''),
+            })
+            return
+          }
+          try {
+            ok(res, { pairing: await options.remote.createPairing() })
+          } catch (cause) {
+            failFrom(res, cause)
+          }
+          return
+        }
+        case 'revoke-device': {
+          if (typeof body.deviceId !== 'string' || !body.deviceId) {
+            fail(res, 400, { code: 'web_schema_invalid', message: 'deviceId is required' })
+            return
+          }
+          ok(res, { revoked: await options.remote.revokeDevice(body.deviceId) })
+          return
+        }
+        default:
+          fail(res, 400, {
+            code: 'web_schema_invalid',
+            message: 'type must be start | stop | create-pairing | revoke-device',
+          })
+      }
       return
     }
 
@@ -977,6 +1110,30 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       } catch (cause) {
         failFrom(res, cause)
       }
+      return
+    }
+    // ── 附件字节回放（transcript 水合/SSE 收口后的图片回显：内容寻址 handle →
+    // AttachmentStore 字节）。与网关 GET /v1/attachments/:handle 同形状；GET 读
+    // 端点复用 browser session cookie 门（<img> 带不了自定义头）。──
+    const attachmentReadHandle =
+      /^\/api\/v1\/sessions\/active\/attachments\/([a-f0-9]{64}\.(?:png|jpg|gif|webp))$/.exec(
+        path,
+      )?.[1]
+    if (hub && attachmentReadHandle !== undefined && req.method === 'GET') {
+      const found = await hub.readAttachment(attachmentReadHandle)
+      if (!found) {
+        fail(res, 404, { code: 'web_attachment_not_found', message: 'attachment not found' })
+        return
+      }
+      const bytes = Buffer.from(found.bytes)
+      res.writeHead(200, {
+        ...SECURITY_HEADERS,
+        'Content-Type': found.mime,
+        // 内容寻址 handle → 字节不可变，长缓存安全（private：凭证是 cookie）。
+        'Cache-Control': 'private, max-age=31536000, immutable',
+        'Content-Length': bytes.byteLength,
+      })
+      res.end(bytes)
       return
     }
     if (hub && path === '/api/v1/permissions/decide' && req.method === 'POST') {

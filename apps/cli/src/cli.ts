@@ -25,7 +25,6 @@ import { CommandRegistry } from './app/command-registry'
 import { createCommand, renderGlobalUsage } from './command'
 import { createConfigCommand } from './commands/config'
 import { doctorCommand } from './commands/doctor'
-import { createGatewayCommand } from './commands/gateway'
 import { actionStyleCommands, commandUsage } from './commands/help'
 import { createHistoryCommand } from './commands/history'
 import { createMemoryCommand } from './commands/memory'
@@ -171,7 +170,6 @@ export async function runCli(
     doctorCommand,
     telemetryCommand,
     trustCommand,
-    createGatewayCommand(),
     createConfigCommand(io),
     createHistoryCommand(io),
     createStatusCommand({
@@ -924,6 +922,26 @@ export async function runCli(
           )
         }
       }
+      // REM-r1：[remote] enabled → 远程控制 uplink 自动拨出（失败进 notices 不阻塞 TUI）。
+      if (ports.remoteControl) {
+        try {
+          await ports.remoteControl.startup({ cwd })
+        } catch (cause) {
+          startupNotices.push(
+            `Remote control failed to start: ${cause instanceof Error ? cause.message : String(cause)}`,
+          )
+        }
+      }
+      // uplink 启动快照进欢迎屏（多半还是 connecting——online 后经 remoteStatus
+      // 订阅回填）；'off' 即未启用，不渲染 remote 行。
+      const remoteSnapshot = ((): WelcomePanelData['remote'] => {
+        const status = ports.remoteControl?.status()
+        if (!status || status.state === 'off') return undefined
+        return {
+          state: status.state,
+          ...(status.gatewayUrl ? { url: status.gatewayUrl } : {}),
+        }
+      })()
       // 模型展示对齐 §8.3 实际生效值：status 端口的 Model 行已按
       // options.model → preferences.model → provider.anthropic.model 收口。
       // picker/welcome 不再写死 defaultInteractiveModel（否则企业网关自定义模型时
@@ -948,16 +966,27 @@ export async function runCli(
         sessionId: interactive.id,
         trustLabel,
         ...(webConsole ? { webUrl: webConsole.url } : {}),
-        ...(configuredModel
+        ...(remoteSnapshot ? { remote: remoteSnapshot } : {}),
+        // Model 行与 picker 同源：会话钉住模型（resume 恢复）优先，否则回退全局配置。
+        ...(interactive.model
           ? {
               model: {
                 status: 'available' as const,
-                provider: 'anthropic',
-                model: configuredModel.replace(/^anthropic\//, ''),
-                source: 'config' as const,
+                provider: interactive.model.split('/')[0] ?? 'anthropic',
+                model: interactive.model.split('/').slice(1).join('/'),
+                source: 'session' as const,
               },
             }
-          : {}),
+          : configuredModel
+            ? {
+                model: {
+                  status: 'available' as const,
+                  provider: 'anthropic',
+                  model: configuredModel.replace(/^anthropic\//, ''),
+                  source: 'config' as const,
+                },
+              }
+            : {}),
       })
       const modelAliases: Record<string, { provider: string; model: string }> = {}
       try {
@@ -1075,6 +1104,18 @@ export async function runCli(
         sessionId: interactive.id,
         status: statusText('probing'),
         welcome,
+        ...(ports.remoteControl?.onState
+          ? {
+              remoteStatus: {
+                subscribe: (
+                  listener: (status: {
+                    state: 'off' | 'connecting' | 'online'
+                    gatewayUrl: string | undefined
+                  }) => void,
+                ) => ports.remoteControl!.onState!(listener),
+              },
+            }
+          : {}),
         statusPanel: resolvedStatusPanel ?? statusPanelFromWelcome(welcome),
         ...(ports.config.updatePreference
           ? {
@@ -1155,6 +1196,8 @@ async function buildWelcomePanelData(input: {
   trustLabel: string
   /** §22 W-01：嵌入式 Web 控制台地址（含 bearer token），存在即上欢迎屏。 */
   webUrl?: string
+  /** REM-r1：远程控制 uplink 启动快照（online 后的刷新走 remoteStatus 订阅回填）。 */
+  remote?: WelcomePanelData['remote']
   model?: WelcomeModelStatus & { status: 'available' }
 }): Promise<WelcomePanelData> {
   const config = await welcomeConfig(input.ports, input.cwd)
@@ -1166,6 +1209,7 @@ async function buildWelcomePanelData(input: {
     trustLabel: input.trustLabel,
     cwd: input.cwd,
     ...(input.webUrl ? { web: { url: input.webUrl } } : {}),
+    ...(input.remote ? { remote: input.remote } : {}),
     model: input.model ?? {
       status: 'available',
       provider: 'anthropic',

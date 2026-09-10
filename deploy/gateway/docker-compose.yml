@@ -1,10 +1,10 @@
-# docker compose 部署：volund 网关 + Caddy 终结 TLS（ai-gateway.nexo-ai.top）。
+# docker compose 部署：volund 网关 + Caddy 终结 TLS（gateway.ai-agentic.cc）。
 # 用法：
 #   cp .env.example .env   # 填入上游 provider 配置
 #   docker compose up -d --build
 #   docker compose logs gateway | grep -A3 'bootstrap client'   # 首次启动取客户端凭证
 #
-# DNS：ai-gateway.nexo-ai.top 的 A 记录指向本机；Caddy 自动签发/续期证书。
+# DNS：gateway.ai-agentic.cc 的 A 记录指向本机；Caddy 自动签发/续期证书。
 
 services:
   gateway:
@@ -14,7 +14,6 @@ services:
     env_file: .env
     volumes:
       - volund-home:/data
-      - ./workspace:/workspace
     restart: unless-stopped
     # 不直接暴露端口——只经 Caddy 反代（TLS + 域名收口）。
 

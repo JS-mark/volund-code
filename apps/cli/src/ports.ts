@@ -217,6 +217,36 @@ export interface VolundPorts {
     }): Promise<{ url: string; port: number; close(): Promise<void> } | undefined>
   }
   /**
+   * REM-r1 远程控制：本机向公网网关反向拨出（@volund/remote-link）。
+   * web 控制台「远程控制」tab 的数据面；[remote] enabled 时 startup 自动拨出。
+   */
+  remoteControl?: {
+    status(): {
+      state: 'off' | 'connecting' | 'online'
+      gatewayUrl: string | undefined
+      attempt: number
+      lastError: string | undefined
+      lastOnlineAt: number | undefined
+    }
+    /** uplink 状态订阅（TUI 欢迎屏 remote 行异步回填）。 */
+    onState?(
+      listener: (status: {
+        state: 'off' | 'connecting' | 'online'
+        gatewayUrl: string | undefined
+      }) => void,
+    ): () => void
+    start(): void
+    stop(): Promise<void>
+    createPairing(): Promise<{ code: string; url: string; expiresAt: number }>
+    listDevices(): Promise<
+      readonly { id: string; name: string; pairedAt: number; lastSeen: number }[]
+    >
+    revokeDevice(deviceId: string): Promise<boolean>
+    /** TUI 启动钩子（[remote] enabled → 自动拨出；cwd 为会话工作区根）。 */
+    startup(input: { cwd: string }): Promise<void>
+    close(): Promise<void>
+  }
+  /**
    * §22 W-07 多路审批：进程级共享权限请求队列（runtime 装配进权限链 prompt 源）。
    * TUI 与 Web 都订阅它——任一端决策，全端清卡。
    */

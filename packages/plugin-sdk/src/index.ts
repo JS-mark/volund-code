@@ -485,3 +485,43 @@ export interface VolundToolDefinition {
   handler(input: unknown): Promise<unknown>
 }
 export const defineTool = <T extends VolundToolDefinition>(tool: T): T => tool
+
+// ── 远程控制渠道契约（REM-r1 契约先行；R3 微信/企微等第三方渠道按此实现） ──────
+
+/** 渠道能力位：决定远程控制页展示哪些入口与移动端的交互面。 */
+export type ChannelCapability = 'chat' | 'approvals' | 'files'
+
+/** 渠道元信息（远程控制 tab 的渠道卡数据源）。 */
+export interface ChannelDescriptor {
+  /** 渠道 id（kebab-case，全仓唯一；内置保留前缀 `volund.`）。 */
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly capabilities: readonly ChannelCapability[]
+}
+
+/** 渠道运行时上下文：宿主注入会话桥与配置（R3 落地时随插件宿主一起接线）。 */
+export interface ChannelContext {
+  /** 渠道入站消息 → 本机会话 turn（复用单 runner 串行语义）。 */
+  readonly submitTurn: (input: { prompt: string; model?: string }) => Promise<'accepted'>
+  /** 订阅会话事件流（turn 输出/审批卡），渠道自行决定转发格式。 */
+  readonly subscribe: (listener: (envelope: unknown) => void) => () => void
+  /** 渠道私有配置（经远程控制页按渠道 schema 读写）。 */
+  readonly config: {
+    get<T = unknown>(key: string): T | undefined
+    set(key: string, value: unknown): Promise<void>
+  }
+  readonly log: { info(message: string): void; error(message: string, error?: unknown): void }
+}
+
+/**
+ * 远程控制渠道插件：把外部消息面（微信/企微/自定义 webhook…）桥进本机会话。
+ * 生命周期由宿主管理（远程控制页开启/停用）；一期仅内置 mobile-web 渠道，
+ * 本契约为第三方渠道的稳定面。
+ */
+export interface ChannelPlugin {
+  readonly descriptor: ChannelDescriptor
+  start(context: ChannelContext): void | Promise<void>
+  stop?(): void | Promise<void>
+}
+export const defineChannel = <T extends ChannelPlugin>(channel: T): T => channel

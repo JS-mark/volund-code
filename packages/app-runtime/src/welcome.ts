@@ -8,6 +8,8 @@ export interface WelcomePanelData {
   config: WelcomeConfigStatus
   /** §22 W-01：嵌入式 Web 控制台地址（无 token，进入即用）；未启动时缺省不渲染。 */
   web?: { url: string }
+  /** REM-r1：远程控制 uplink 状态；off（未启用）时缺省不渲染，online 时展示网关地址。 */
+  remote?: WelcomeRemoteStatus
   cwd: string
   history: WelcomeHistoryStatus
   mcp: WelcomeMcpStatus
@@ -26,6 +28,12 @@ export interface WelcomePanelData {
   skillsSummary?: string
   pluginsSummary?: string
   statusConfig?: import('./status-view').StatusPanelData['config']
+}
+
+export interface WelcomeRemoteStatus {
+  state: 'connecting' | 'online'
+  /** 网关地址（remote link online 上报的 gatewayUrl）；connecting 时可能尚未解析。 */
+  url?: string
 }
 
 export type WelcomeModelStatus =
