@@ -244,6 +244,15 @@ html:not(.dark) .volund-footer {
   text-wrap: balance;
 }
 
+/* zh hero：CJK 全角字框在 0.88 行高 + -0.07em 字距下双向碰撞，
+   10ch 限宽按西文字符计还会把短句折断；放宽行高字距并解除限宽。 */
+html[lang='zh-CN'] .hero-copy h1 {
+  max-width: none;
+  font-size: clamp(3.2rem, 6.4vw, 7rem);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+
 .hero-copy h1 span {
   color: transparent;
   -webkit-text-stroke: 1px rgba(237, 241, 233, 0.48);
