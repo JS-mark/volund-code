@@ -782,7 +782,10 @@ html[lang='zh-CN'] .hero-copy h1 {
   color: color-mix(in srgb, currentColor 70%, transparent);
 }
 
-/* CJK 全角字框在 0.92 行高下上下行相贴，中文 CTA 标题放宽行高。 */
+/* CJK 全角字框在 0.92 行高 + -0.065em 字距下上下行相贴、横向碰撞，
+   中文大标题统一放宽（hero 另有专属规则，基准值不同）。 */
+html[lang='zh-CN'] .section-intro h2,
+html[lang='zh-CN'] .ledger-heading h2,
 html[lang='zh-CN'] .closing-callout h2 {
   line-height: 1.08;
   letter-spacing: -0.02em;
