@@ -29,6 +29,15 @@ export default withMermaid(
     base: '/volund-code/',
     title: 'Volund CLI',
     description: 'The open, model-agnostic AI coding CLI',
+    vite: {
+      optimizeDeps: {
+        // mermaid 在客户端动态 import 且拖着 dayjs 等 CJS 依赖：启动即整体预
+        // 打包，避免懒发现触发的全量 reload 把 dayjs 以 /@fs 原始文件发给浏览器
+        // （UMD 无 ESM default 导出，直接 SyntaxError）。pnpm 严格布局下 dayjs
+        // 不是 docs 的直接依赖，只能借 mermaid 带进 bundle，不能单独 include。
+        include: ['mermaid'],
+      },
+    },
     appearance: true,
     cleanUrls: true,
     ignoreDeadLinks: [/^\.\/(?:\.\.\/)+(?:README|[^/]+\/src\/)/],
