@@ -2,6 +2,7 @@
 
 import {
   ArrowUpOutlined,
+  CheckOutlined,
   CloseOutlined,
   DownOutlined,
   FolderOutlined,
@@ -35,10 +36,11 @@ interface PendingImage {
 
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
 
-const PERMISSION_MODES = [
-  { id: 'ask', label: '询问' },
-  { id: 'auto', label: '自动' },
-  { id: 'full', label: '放行' },
+/** 三档权限模式：label/desc 全产品统一口径（SettingsPage 同步引用此处文案）。 */
+export const PERMISSION_MODES = [
+  { id: 'ask', label: '询问', desc: '每次操作都需确认' },
+  { id: 'auto', label: '自动', desc: '自动放行低风险操作，高风险仍确认' },
+  { id: 'full', label: '放行', desc: '不再询问任何操作（慎用）' },
 ] as const
 
 /** 时间分隔行：相邻消息间隔超过该阈值才再出一次（对齐 IM 惯例）。 */
@@ -106,7 +108,6 @@ export function ChatPanel({
   const chipSeqRef = useRef(0)
   const [models, setModels] = useState<ModelsView>()
   const [modelOverride, setModelOverride] = useState<string>()
-  const [permissionMode, setPermissionMode] = useState<string>()
   const [recentOpen, setRecentOpen] = useState(false)
 
   // 回合计时：turn.started 打点、idle 时结算出「已思考 · X 秒 · N 个步骤」。
@@ -158,7 +159,10 @@ export function ChatPanel({
     .slice(0, 8)
   const projectName = cwd.split('/').filter(Boolean).pop() ?? cwd
 
-  // W-06/§4.4：模型候选与权限模式（能力门控——未接线不渲染）。
+  // W-06/§4.4：模型候选与权限模式（能力门控——未接线不渲染）。权限档位的
+  // 唯一状态源是 stream.state.permissionMode：这里拉取写进 reducer，之后靠
+  // SSE permission.mode 帧保持同步（TUI /mode、他端选择器、g 授权都会推帧）；
+  // sessionId 进依赖——切会话后重建的权限链档位可能不同，必须重拉。
   useEffect(() => {
     if (capabilities.models === true)
       void api
@@ -168,9 +172,11 @@ export function ChatPanel({
     if (capabilities.permissionMode === true)
       void api
         .permissionMode()
-        .then((result) => setPermissionMode(result.mode))
-        .catch(() => setPermissionMode(undefined))
-  }, [api, capabilities.models, capabilities.permissionMode])
+        .then((result) => stream.setPermissionMode(result.mode))
+        .catch(() => {
+          // 拉取失败保持未知（选择器隐藏）；SSE 帧到达后仍会回填。
+        })
+  }, [api, capabilities.models, capabilities.permissionMode, sessionId, stream.setPermissionMode])
 
   // 会话切换：重置后按 transcript 水合（SSE 增量叠加其上）。
   // 注意：undefined → 新建id 是「首条消息自动建会话」路径——composer 里正在
@@ -550,14 +556,31 @@ export function ChatPanel({
             <PlusOutlined />
           </button>
         </Tooltip>
-        {permissionMode !== undefined && (
+        {chat.permissionMode !== undefined && (
           <Dropdown
             trigger={['click']}
             menu={{
-              items: PERMISSION_MODES.map((mode) => ({ key: mode.id, label: mode.label })),
-              selectedKeys: [permissionMode],
+              items: PERMISSION_MODES.map((mode) => ({
+                key: mode.id,
+                label: (
+                  <div className="perm-mode-item">
+                    <span
+                      className={`perm-mode-check${mode.id === chat.permissionMode ? ' on' : ''}`}
+                    >
+                      {mode.id === chat.permissionMode ? <CheckOutlined /> : null}
+                    </span>
+                    <span className="perm-mode-text">
+                      <span className="perm-mode-label">{mode.label}</span>
+                      <span className="perm-mode-desc">{mode.desc}</span>
+                    </span>
+                  </div>
+                ),
+              })),
+              selectedKeys: [chat.permissionMode],
               onClick: ({ key }) => {
-                void api.setPermissionMode(key).then((result) => setPermissionMode(result.mode))
+                void api
+                  .setPermissionMode(key)
+                  .then((result) => stream.setPermissionMode(result.mode))
               },
             }}
           >
@@ -567,7 +590,7 @@ export function ChatPanel({
               onClick={(e) => e.stopPropagation()}
             >
               <SafetyCertificateOutlined />
-              {PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? '询问'}
+              {PERMISSION_MODES.find((mode) => mode.id === chat.permissionMode)?.label ?? '询问'}
               <DownOutlined className="composer-caret" />
             </button>
           </Dropdown>

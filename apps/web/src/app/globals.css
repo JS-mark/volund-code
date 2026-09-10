@@ -456,6 +456,32 @@ body {
   font-size: 10px;
   opacity: 0.6;
 }
+/* 权限档位菜单项：主标签 + 灰色描述两行结构，选中项勾选标记占位对齐 */
+.perm-mode-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 224px;
+}
+.perm-mode-check {
+  flex: none;
+  width: 14px;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--ant-color-primary);
+}
+.perm-mode-text {
+  display: flex;
+  flex-direction: column;
+}
+.perm-mode-label {
+  line-height: 22px;
+}
+.perm-mode-desc {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ant-color-text-tertiary);
+}
 .composer-spin {
   margin: 0 4px;
   font-size: 14px;

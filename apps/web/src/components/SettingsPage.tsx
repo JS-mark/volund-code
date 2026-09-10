@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Bootstrap, ConfigView, ModelsView, WebApi } from '../lib/api'
 import { useThemeMode } from '../lib/theme'
+import { PERMISSION_MODES as PERMISSION_MODES_SOURCE } from './ChatPanel'
 
 /**
  * 设置页（§22 W-13）：覆盖附录 C 全部 config 段的行式表单。
@@ -72,11 +73,12 @@ interface Ctx {
   unset(key: string): Promise<void>
 }
 
-const PERMISSION_MODES = [
-  { value: 'ask', label: '询问', desc: '每次需要权限的操作都弹卡审批' },
-  { value: 'auto', label: '自动', desc: '低风险操作自动放行，高风险仍询问' },
-  { value: 'full', label: '放行', desc: '全部放行（慎用，等价 --yolo）' },
-] as const
+// 三档文案与 ChatPanel composer 下拉同源（PERMISSION_MODES），避免两处口径漂移。
+const PERMISSION_MODES = PERMISSION_MODES_SOURCE.map((mode) => ({
+  value: mode.id,
+  label: mode.label,
+  desc: mode.desc,
+}))
 
 const SECTIONS = [
   { key: 'connection', label: '连接状态' },
