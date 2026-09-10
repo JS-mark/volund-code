@@ -1,5 +1,16 @@
 # @volund/plugin-runtime
 
+## 0.1.1
+
+### Patch Changes
+
+- 7ad5a34: Temporarily contain legacy plugin install and activation until Catalog v2 and the verified capability ABI can reopen them safely. Production manager/runtime paths are deny-only, stale approvals are projected disabled without a state rewrite, plugin machine errors follow the two-event NDJSON contract, and the published package excludes all test authority and legacy host seams.
+- Updated dependencies [7e94e19]
+- Updated dependencies [e569469]
+  - @volund/native-bridge@0.2.0
+  - @volund/plugin-sdk@0.2.0
+  - @volund/provider-kit@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
