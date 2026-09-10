@@ -952,11 +952,15 @@ export async function runCli(
       const configuredModel = resolvedStatusPanel?.status.find(
         (row) => row.label === 'Model',
       )?.value
-      const effectiveModelId = configuredModel
-        ? configuredModel.startsWith('anthropic/')
-          ? configuredModel
-          : `anthropic/${configuredModel}`
-        : defaultInteractiveModel
+      // resume 恢复的会话钉住模型（/model 选择落盘的 provider/model id）优先于
+      // 全局配置生效值——picker 的 currentModelId 与会话实际使用的模型对齐。
+      const effectiveModelId =
+        interactive.model ??
+        (configuredModel
+          ? configuredModel.startsWith('anthropic/')
+            ? configuredModel
+            : `anthropic/${configuredModel}`
+          : defaultInteractiveModel)
       const welcome = await buildWelcomePanelData({
         cwd,
         dangerousPermissions: permissionsBypassed,
@@ -967,26 +971,16 @@ export async function runCli(
         trustLabel,
         ...(webConsole ? { webUrl: webConsole.url } : {}),
         ...(remoteSnapshot ? { remote: remoteSnapshot } : {}),
-        // Model 行与 picker 同源：会话钉住模型（resume 恢复）优先，否则回退全局配置。
-        ...(interactive.model
+        ...(configuredModel
           ? {
               model: {
                 status: 'available' as const,
-                provider: interactive.model.split('/')[0] ?? 'anthropic',
-                model: interactive.model.split('/').slice(1).join('/'),
-                source: 'session' as const,
+                provider: 'anthropic',
+                model: configuredModel.replace(/^anthropic\//, ''),
+                source: 'config' as const,
               },
             }
-          : configuredModel
-            ? {
-                model: {
-                  status: 'available' as const,
-                  provider: 'anthropic',
-                  model: configuredModel.replace(/^anthropic\//, ''),
-                  source: 'config' as const,
-                },
-              }
-            : {}),
+          : {}),
       })
       const modelAliases: Record<string, { provider: string; model: string }> = {}
       try {
@@ -1044,6 +1038,9 @@ export async function runCli(
         // §7.5.3：@ picker 的文件候选源。
         ...(interactive.listFiles ? { listFiles: () => interactive.listFiles!() } : {}),
         onSubmit: interactive.submit,
+        // /model 选择落盘：钉住会话级模型（session.model_changed 事件进 jsonl），
+        // resume 时由 replay 还原——模型选择不再只活在 TUI 内存里。
+        onModelSelect: (model) => ports.session.setModel?.(model),
         // [models.aliases] 进 picker：别名（如 vision → anthropic/mimo-v2.5）可当
         // 轮显式切换——贴图碰到不支持视觉的模型时用它切到视觉模型。
         modelPicker: buildModelPicker(effectiveModelId, configuredModel, modelAliases),
@@ -1069,6 +1066,8 @@ export async function runCli(
                 events: resumed.events,
                 id: resumed.id,
                 onExit: resumed.end,
+                // 会话钉住模型（resume 恢复）→ TUI picker/提交通道回填。
+                ...(resumed.model ? { model: resumed.model } : {}),
                 ...(resumed.interrupt ? { onInterrupt: () => resumed.interrupt!() } : {}),
                 ...(resumed.pasteClipboardAttachment
                   ? { onPasteAttachment: () => resumed.pasteClipboardAttachment!() }
@@ -1269,21 +1268,26 @@ function buildModelPicker(
       disabled: true,
     },
   ]
-  // 配置生效的模型（如企业网关的 weibo/glm-5.2） prepend 进候选，
-  // 让用户在 picker 里能切回配置值；与内置候选同 id 时不重复插入。
-  const bare = configuredModel?.replace(/^anthropic\//, '')
-  const extra =
-    configuredModel && !builtins.some((item) => item.id === currentModelId)
-      ? [
-          {
-            id: currentModelId,
-            provider: 'anthropic',
-            model: bare ?? configuredModel,
-            label: bare ?? configuredModel,
-            description: 'Configured via provider.anthropic.model',
-          },
-        ]
-      : []
+  // 生效模型（配置值或 resume 恢复的会话钉住值）prepend 进候选，让用户在 picker
+  // 里能切回；与内置候选同 id 时不重复插入。provider/model 从 id 自身解析（id 即
+  // 显式模型 id 形 provider/<model>，model 段可含网关路径，如 anthropic/weibo/glm-5.2）。
+  const bare = currentModelId.includes('/')
+    ? currentModelId.split('/').slice(1).join('/')
+    : currentModelId
+  const provider = currentModelId.includes('/') ? currentModelId.split('/')[0]! : 'anthropic'
+  const extra = !builtins.some((item) => item.id === currentModelId)
+    ? [
+        {
+          id: currentModelId,
+          provider,
+          model: bare,
+          label: bare,
+          description: configuredModel
+            ? 'Configured via provider.anthropic.model'
+            : 'Session model (restored on resume)',
+        },
+      ]
+    : []
   // [models.aliases]（§8.3）：别名进 picker（⭐ 无关，label 即别名），id 用解析后
   // 的 provider/model——选中走 /model 同一条显式模型覆盖通道。
   const aliasEntries = Object.entries(aliases)

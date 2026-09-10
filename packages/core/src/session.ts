@@ -31,6 +31,11 @@ export interface SessionState {
   toolRegistrySnapshot: string
   pendingInterrupt: boolean
   systemPromptSnapshot?: string
+  /**
+   * /model 钉住的会话级模型（provider/model 显式 id，随 session.model_changed 事件
+   * 落盘；resume 时由 replay 还原）。undefined = 未选择，turn 跟随全局配置解析。
+   */
+  model?: string
   /** Immutable lineage metadata. Child sessions never share parent messages or caches. */
   lineage: { depth: number; parentSessionId?: string; parentTurnId?: string; agentType?: string }
   resourceBudget?: {

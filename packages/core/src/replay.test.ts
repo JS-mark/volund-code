@@ -79,6 +79,31 @@ describe('replaySessionState', () => {
     expect(state.turns[1]).toMatchObject({ parentTurnId: 'p1', parentDepth: 1, agentType: 'coder' })
   })
 
+  it('restores the session-pinned model from session.model_changed (last one wins)', () => {
+    const events = [
+      line({ id: '1', type: 'session.started', payload: { cwd: '/repo' } }),
+      line({
+        id: '2',
+        type: 'session.model_changed',
+        payload: { model: 'anthropic/claude-sonnet-4-20250514' },
+      }),
+      line({ id: '3', type: 'turn.started', turnId: 't1', payload: { turnId: 't1' } }),
+      // /model 再次切换：按序重放，最后一条生效。
+      line({
+        id: '4',
+        type: 'session.model_changed',
+        payload: { model: 'anthropic/mimo-v2.5' },
+      }),
+    ]
+    const { state } = replaySessionState('s', events)
+    expect(state.model).toBe('anthropic/mimo-v2.5')
+  })
+
+  it('leaves state.model unset for sessions without a model_changed event', () => {
+    const { state } = replaySessionState('s', newShapeTurn())
+    expect(state.model).toBeUndefined()
+  })
+
   it('tolerates legacy shapes: skips what it cannot map and marks it', () => {
     const events: ReplayableEvent[] = [
       line({ id: '1', type: 'session.started', payload: { cwd: '/legacy' } }),

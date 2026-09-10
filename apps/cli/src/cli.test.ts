@@ -1057,6 +1057,55 @@ describe('runCli', () => {
       }),
     )
   })
+
+  it('prefers the resumed session model in the picker and wires onModelSelect to session persistence', async () => {
+    // resume 恢复的会话钉住模型（interactive.model）优先于全局配置与硬编码默认；
+    // /model 选择经 onModelSelect → ports.session.setModel 落盘（session.model_changed）。
+    const interactive = {
+      id: 'session-1',
+      events: new EventBus(),
+      model: 'anthropic/mimo-v2.5',
+      setPermissionPromptHandler: vi.fn(),
+      submit: vi.fn(async () => {}),
+      end: vi.fn(async () => {}),
+      exitCode: vi.fn(() => 0),
+    }
+    const setModel = vi.fn(async (_model: string) => {})
+    const render = vi.fn((_options: InteractiveAppOptions) => ({
+      clear: vi.fn(),
+      unmount: vi.fn(),
+      waitUntilExit: vi.fn(async () => {}),
+      waitUntilRenderFlush: vi.fn(async () => {}),
+    }))
+    const testPorts = ports({
+      session: {
+        startSession: vi.fn(async () => ({ id: 'legacy-session' })),
+        startInteractive: vi.fn(async () => interactive),
+        resume: vi.fn(async (id) => ({ id })),
+        setModel,
+        interrupt: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        configurePermissionInteraction: vi.fn(),
+        configureTerminalOutput: vi.fn(),
+      },
+      ui: { renderInteractiveApp: render },
+    })
+
+    const result = await runCli(['chat'], testPorts, {
+      isInteractiveTerminal: () => true,
+      readStdin: async () => '',
+    })
+
+    expect(result).toEqual({ exitCode: 0, stderr: '', stdout: '' })
+    const arg = render.mock.calls[0]?.[0] as InteractiveAppOptions
+    expect(arg.modelPicker?.currentModelId).toBe('anthropic/mimo-v2.5')
+    expect(arg.modelPicker?.models).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'anthropic/mimo-v2.5' })]),
+    )
+    await arg.onModelSelect?.('anthropic/claude-sonnet-4-20250514')
+    expect(setModel).toHaveBeenCalledWith('anthropic/claude-sonnet-4-20250514')
+  })
+
   it('does not register permission prompts in yolo TUI mode', async () => {
     const interactive = {
       id: 'session-1',

@@ -122,6 +122,11 @@ export interface InteractiveSession<TStatusView = unknown> {
   id: string
   events: import('@volund/core').EventBus
   cwd?: string
+  /**
+   * 会话级钉住模型（/model 选择的 provider/model 显式 id，随 session.model_changed
+   * 落盘；resume 时 replay 回填）。缺省 = 未钉住，turn 跟随全局配置解析。
+   */
+  model?: string
   transcript?: readonly TranscriptEntry[]
   getStatus?(): Promise<TStatusView>
   /** Interrupts the in-flight turn (esc in the TUI). Optional: esc stays inert without it. */

@@ -134,6 +134,7 @@ Turn = {
 | `router.switched`       | Router 切换 provider                      | ui / telemetry                                |
 | `error.raised`          | 任何异常                                  | ui / telemetry / hooks                        |
 | `session.resumed`       | storage.loadSession 恢复（§8.2 W10，冷启动不发，恢复时替代 session.started） | ui / telemetry / hooks   |
+| `session.model_changed` | /model 钉住会话级模型（provider/model 显式 id；resume 时 replay 还原，未显式指定模型的 turn 以其为 explicitModel） | ui / storage / telemetry |
 | `reflection.scheduled`  | 反思 trigger 命中并入队（§21.3/§21.5）       | ui / storage / telemetry                |
 | `reflection.started`    | reflector run 开始（§21.4）                  | ui / storage / telemetry                |
 | `reflection.completed`  | 反思输出校验通过并入库（§21.4/§21.6）        | ui / storage / telemetry                |

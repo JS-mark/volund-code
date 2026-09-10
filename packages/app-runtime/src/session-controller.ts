@@ -95,6 +95,8 @@ export interface SessionControllerOptions<TStatusView = unknown> {
 export class SessionController<TStatusView = unknown> extends Service {
   private runner: Runner | undefined
   private events: EventBus | undefined
+  /** 会话级钉住模型（/model 选择的 provider/model id）；activate 时从 replay 的 state 回填。 */
+  private sessionModel: string | undefined
   private readonly backgroundShells: BackgroundShells | undefined
   private output?: { json: boolean; write: (value: string) => void }
   private lastExitCode = 0
@@ -208,6 +210,9 @@ export class SessionController<TStatusView = unknown> extends Service {
       id: this.runner!.state.id,
       cwd: this.runner!.state.cwd,
       events: this.events!,
+      // 会话级钉住模型（/model 选择；resume 经 replay 回填）——TUI picker 回填与
+      // resume 换绑的展示源；缺省 = 跟随全局配置。
+      ...(this.sessionModel ? { model: this.sessionModel } : {}),
       get transcript() {
         return readTranscript()
       },
@@ -270,7 +275,12 @@ export class SessionController<TStatusView = unknown> extends Service {
     const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
     const tailTurns = 20
     const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
-    const entries = all.slice(from)
+    // 会话级模型事件（/model 钉住）不受尾部窗口限制：窗口前的 session.model_changed
+    // 一并回放（按序，最后一条生效），否则长会话的早期选择会在 resume 时丢失。
+    const entries = [
+      ...all.slice(0, from).filter((entry) => entry.type === 'session.model_changed'),
+      ...all.slice(from),
+    ]
     const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
     const skippedTurns = Math.max(
       0,
@@ -330,6 +340,22 @@ export class SessionController<TStatusView = unknown> extends Service {
     this.runner?.interrupt()
   }
 
+  /**
+   * /model 选择的会话级模型钉住 + 落盘：emit session.model_changed（SessionStore 随
+   * 总线持久化），resume 时由 replay 还原进 SessionState.model。之后未显式指定模型
+   * 的 turn 以该值为 explicitModel 生效（见 runTurnExclusive）。
+   */
+  async setModel(model: string): Promise<void> {
+    if (!this.runner || !this.events) return
+    this.sessionModel = model
+    await this.events.emit({
+      type: 'session.model_changed',
+      version: this.runner.state.version,
+      sessionId: this.runner.state.id,
+      payload: { model },
+    })
+  }
+
   async end(): Promise<void> {
     if (!this.runner || !this.events) return
     const sessionId = this.runner.state.id
@@ -346,6 +372,7 @@ export class SessionController<TStatusView = unknown> extends Service {
     this.options.onPermissionPromptHandler?.(undefined)
     this.runner = undefined
     this.events = undefined
+    this.sessionModel = undefined
   }
 
   /**
@@ -470,8 +497,10 @@ export class SessionController<TStatusView = unknown> extends Service {
       )
     const attachments = options?.attachments ?? []
     const input = attachments.length === 0 ? prompt : composeAttachmentInput(prompt, attachments)
+    // 当轮显式模型（/model 当轮覆盖）优先；缺省回落会话钉住值（resume 恢复的那条）。
+    const model = options?.model ?? this.sessionModel
     const flight = Promise.resolve().then(() =>
-      this.runner!.run(input, options?.model ? { explicitModel: options.model } : undefined),
+      this.runner!.run(input, model ? { explicitModel: model } : undefined),
     )
     this.turnFlight = flight
     try {
@@ -526,6 +555,8 @@ export class SessionController<TStatusView = unknown> extends Service {
     this.events = events
     this.runner = runner
     this.lastExitCode = lastExitCode
+    // resume 恢复会话钉住模型；冷启动 state.model 缺省 → undefined（跟随全局配置）。
+    this.sessionModel = state.model
     // 附录 D.2：冷启动 session.started {cwd}；恢复 session.resumed {tailTurns, skippedTurns}
     // 替代 session.started（W10）。
     await events.emit({

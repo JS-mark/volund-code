@@ -7,6 +7,7 @@ import { EVENT_SCHEMAS, eventEnvelopeFor } from './index'
 import { messageAppendedPayloadSchema } from './message-appended'
 import { routerSwitchedPayloadSchema } from './router-switched'
 import { sessionEndedPayloadSchema } from './session-ended'
+import { sessionModelChangedPayloadSchema } from './session-model_changed'
 import { sessionResumedPayloadSchema } from './session-resumed'
 import { sessionStartedPayloadSchema } from './session-started'
 import { shellBackgroundExitedPayloadSchema } from './shell-background_exited'
@@ -23,9 +24,9 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 describe('EVENT_SCHEMAS registry (附录 D.2)', () => {
-  it('registers exactly the 25 §2.3 event names', () => {
+  it('registers exactly the 26 §2.3 event names', () => {
     expect(Object.keys(EVENT_SCHEMAS).sort()).toEqual([...EVENT_NAMES].sort())
-    expect(EVENT_NAMES).toHaveLength(25)
+    expect(EVENT_NAMES).toHaveLength(26)
   })
 
   it('pairs every envelope type with its payload contract via eventEnvelopeFor', () => {
@@ -112,6 +113,14 @@ describe('per-event payload schemas', () => {
   it('session.resumed: tailTurns and skippedTurns both required (W10)', () => {
     expect(sessionResumedPayloadSchema.parse({ tailTurns: 20, skippedTurns: 3 })).toBeTruthy()
     expect(sessionResumedPayloadSchema.safeParse({ tailTurns: 20 }).success).toBe(false)
+  })
+
+  it('session.model_changed: model required (provider/model explicit id)', () => {
+    expect(sessionModelChangedPayloadSchema.parse({ model: 'anthropic/mimo-v2.5' })).toEqual({
+      model: 'anthropic/mimo-v2.5',
+    })
+    expect(sessionModelChangedPayloadSchema.safeParse({}).success).toBe(false)
+    expect(sessionModelChangedPayloadSchema.safeParse({ model: '' }).success).toBe(false)
   })
 
   it('turn.started: turnId required; parentTurnId/agentType optional', () => {
@@ -408,6 +417,7 @@ function payloadFixture(name: (typeof EVENT_NAMES)[number]): unknown {
     'session.started': { cwd: '/repo' },
     'session.ended': { reason: 'exit' },
     'session.resumed': { tailTurns: 20, skippedTurns: 0 },
+    'session.model_changed': { model: 'anthropic/claude-sonnet-4-20250514' },
     'turn.started': { turnId: 't1' },
     'turn.completed': { turnId: 't1', usage: { input: 1, output: 1 } },
     'turn.aborted': { turnId: 't1', reason: 'user_interrupt' },

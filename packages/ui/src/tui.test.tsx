@@ -1113,6 +1113,79 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('restores the session-pinned model on /resume and submits with it', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submit = vi.fn(async () => {})
+    const candidate = {
+      id: 'target-session',
+      cwd: '/target',
+      updatedAt: '2026-08-10T00:00:00Z',
+      title: 'Target work',
+    }
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        initialInput: '/resume',
+        modelPicker: {
+          currentModelId: 'anthropic/claude-sonnet-4-20250514',
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-20250514',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-20250514',
+              label: 'Claude Sonnet 4',
+            },
+            {
+              id: 'anthropic/mimo-v2.5',
+              provider: 'anthropic',
+              model: 'mimo-v2.5',
+              label: 'mimo-v2.5',
+            },
+          ],
+        },
+        resume: {
+          list: vi.fn(async () => [candidate]),
+          resume: vi.fn(async () => ({
+            cwd: candidate.cwd,
+            id: candidate.id,
+            // 会话钉住模型（session.model_changed 落盘，resume 恢复）。
+            model: 'anthropic/mimo-v2.5',
+            onExit: async () => {},
+            onSubmit: submit,
+            transcript: [{ id: 'old', role: 'user' as const, text: 'restored context' }],
+          })),
+        },
+      },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Resume session'))
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('restored context'))
+    stdin.write('after switch')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    // 恢复会话的钉住模型回填为当前选择：提交携带显式模型覆盖。
+    await vi.waitFor(() =>
+      expect(submit).toHaveBeenCalledWith(
+        'after switch',
+        expect.objectContaining({ model: 'anthropic/mimo-v2.5' }),
+      ),
+    )
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('runs /undo as single steps and surfaces all three prompt paths (r13-G4)', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()

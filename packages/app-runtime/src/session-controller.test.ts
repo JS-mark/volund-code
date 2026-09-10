@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { updateSession } from '@volund/core'
 import type { EventBus, Runner, SessionState } from '@volund/core'
+import { SessionStore } from '@volund/storage'
 import type { BackgroundShells } from '@volund/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -149,5 +150,69 @@ describe('SessionController', () => {
     await expect(controller.startSession({ cwd: process.cwd() })).rejects.toThrow(
       'Interactive chat requires a TTY or a prompt',
     )
+  })
+
+  it('pins the /model selection: persists session.model_changed and restores it on resume', async () => {
+    const sessionsDir = await sessionsRoot()
+    const hints: Array<{ explicitModel?: string } | undefined> = []
+    const factory: RunnerFactory = (state, events) => {
+      const base = fakeFactory()(state, events) as Runner
+      return {
+        ...base,
+        get state() {
+          return state
+        },
+        run: vi.fn(async (text: string, hint?: { explicitModel?: string }) => {
+          hints.push(hint)
+          return base.run(text)
+        }),
+      } as unknown as Runner
+    }
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: factory,
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    expect(session.model).toBeUndefined()
+
+    await controller.setModel('anthropic/mimo-v2.5')
+    // 钉住后：未显式指定模型的 submit 以钉住值为 explicitModel。
+    await session.submit('hello')
+    expect(hints.at(-1)?.explicitModel).toBe('anthropic/mimo-v2.5')
+    // 当轮显式覆盖优先于钉住值。
+    await session.submit('hi', { model: 'anthropic/claude-opus-4-20250514' })
+    expect(hints.at(-1)?.explicitModel).toBe('anthropic/claude-opus-4-20250514')
+    // 落盘：jsonl 里有且只有一条 session.model_changed。
+    const stored = await new SessionStore(join(sessionsDir, `${session.id}.jsonl`)).load()
+    expect(
+      stored
+        .filter((entry) => entry.type === 'session.model_changed')
+        .map((entry) => entry.payload),
+    ).toEqual([{ model: 'anthropic/mimo-v2.5' }])
+    await session.end()
+
+    // resume：replay 还原钉住模型 → facade 暴露 + submit 继续使用。
+    const resumed = await controller.resumeInteractive(session.id)
+    expect(resumed.model).toBe('anthropic/mimo-v2.5')
+    await resumed.submit('again')
+    expect(hints.at(-1)?.explicitModel).toBe('anthropic/mimo-v2.5')
+    await resumed.end()
+  })
+
+  it('restores the pinned model even when it was pinned outside the 20-turn replay window', async () => {
+    const sessionsDir = await sessionsRoot()
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: fakeFactory(),
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    await controller.setModel('anthropic/mimo-v2.5')
+    // 25 个 turn 把 model_changed 挤出尾部 20-turn 回放窗口。
+    for (let index = 0; index < 25; index += 1) await session.submit(`turn ${index}`)
+    await session.end()
+
+    const resumed = await controller.resumeInteractive(session.id)
+    expect(resumed.model).toBe('anthropic/mimo-v2.5')
+    await resumed.end()
   })
 })

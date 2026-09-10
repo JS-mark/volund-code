@@ -113,6 +113,12 @@ export function replaySessionState(
             target.cwd = payload.cwd as string
           })
         break
+      // 会话级模型（/model 钉住）：按序重放，最后一条生效；不参与 found 判定。
+      case 'session.model_changed':
+        draft = updateSession(draft, (target) => {
+          target.model = payload.model as string
+        })
+        break
       case 'turn.started':
         found = true
         draft = updateSession(draft, (target) => {

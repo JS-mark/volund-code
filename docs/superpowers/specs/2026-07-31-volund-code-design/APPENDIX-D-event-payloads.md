@@ -4,7 +4,7 @@
 
 # 附录 D · 事件 payload 字段表（r13-I8 新增）
 
-§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（25 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
+§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（26 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
 
 ## D.1 实现约定
 
@@ -13,13 +13,14 @@
 - **CI 强制**：§2.3 事件表新增行而无对应 schema 文件 → fail；schema 字段与本表 diff 非空 → fail。
 - 大 payload（附件二进制）不进事件，只传引用（§2.3 订阅原则）。
 
-## D.2 字段表（25 事件）
+## D.2 字段表（26 事件）
 
 | 事件 | payload 字段（★必选 / ?可选） | 备注 / 来源 |
 |---|---|---|
 | `session.started` | ★`cwd` ?`configHash` ?`volundVersion` | §8.2 样例 |
 | `session.ended` | ★`reason`（`exit` \| `signal` \| `error`） ?`exitCode` | 触发后台 shell 统一 kill（§4.3.1） |
 | `session.resumed` | ★`tailTurns` ★`skippedTurns` | W10；替代 session.started |
+| `session.model_changed` | ★`model`（provider/model 显式 id） | /model 钉住会话级模型；replay 还原进 SessionState.model（尾部回放窗口前的该事件一并回放，最后一条生效） |
 | `turn.started` | ★`turnId` ?`parentTurnId` ?`agentType` | subagent 冒泡保留原 event.id（§2.7） |
 | `turn.completed` | ★`turnId` ★`usage`（Usage） ?`stopReason` | |
 | `turn.aborted` | ★`turnId` ★`reason`（`user_interrupt` \| `error` \| `stream_interrupted`） | |

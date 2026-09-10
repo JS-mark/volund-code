@@ -13,6 +13,7 @@ import { reflectionSkippedPayloadSchema } from './reflection-skipped'
 import { reflectionStartedPayloadSchema } from './reflection-started'
 import { routerSwitchedPayloadSchema } from './router-switched'
 import { sessionEndedPayloadSchema } from './session-ended'
+import { sessionModelChangedPayloadSchema } from './session-model_changed'
 import { sessionResumedPayloadSchema } from './session-resumed'
 import { sessionStartedPayloadSchema } from './session-started'
 import { shellBackgroundExitedPayloadSchema } from './shell-background_exited'
@@ -29,13 +30,14 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 /**
- * 附录 D.2 二十五事件 → per-event payload schema 汇总（事件名 → schema）。
+ * 附录 D.2 二十六事件 → per-event payload schema 汇总（事件名 → schema）。
  * replay / §8.2 迁移 / --json 外部消费以本 map + eventEnvelopeFor 为稳定契约。
  */
 export const EVENT_SCHEMAS = {
   'session.started': sessionStartedPayloadSchema,
   'session.ended': sessionEndedPayloadSchema,
   'session.resumed': sessionResumedPayloadSchema,
+  'session.model_changed': sessionModelChangedPayloadSchema,
   'turn.started': turnStartedPayloadSchema,
   'turn.completed': turnCompletedPayloadSchema,
   'turn.aborted': turnAbortedPayloadSchema,
@@ -103,6 +105,10 @@ export { errorRaisedPayloadSchema, type ErrorRaisedPayload } from './error-raise
 export { messageAppendedPayloadSchema, type MessageAppendedPayload } from './message-appended'
 export { routerSwitchedPayloadSchema, type RouterSwitchedPayload } from './router-switched'
 export { sessionEndedPayloadSchema, type SessionEndedPayload } from './session-ended'
+export {
+  sessionModelChangedPayloadSchema,
+  type SessionModelChangedPayload,
+} from './session-model_changed'
 export { sessionResumedPayloadSchema, type SessionResumedPayload } from './session-resumed'
 export { sessionStartedPayloadSchema, type SessionStartedPayload } from './session-started'
 export {

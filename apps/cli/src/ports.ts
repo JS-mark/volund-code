@@ -73,6 +73,8 @@ export interface SessionPort {
   onActivate?(listener: (session: InteractiveSession) => void): () => void
   resume(id: string): Promise<{ id: string }>
   list?(): Promise<readonly SessionCandidate[]>
+  /** /model 选择落盘：钉住会话级模型（session.model_changed），resume 时恢复。 */
+  setModel?(model: string): Promise<void>
   interrupt(): Promise<void>
   end(): Promise<void>
   configureSecurity?(input: { skipPermissions: boolean }): void

@@ -133,6 +133,8 @@ export interface ResumedInteractiveSession {
   cwd: string
   events?: EventBus
   id: string
+  /** 会话钉住模型（/model 选择随 session.model_changed 落盘，resume 恢复）；缺省 = 跟随全局配置。 */
+  model?: string
   onExit(): Promise<void> | void
   /** esc-to-interrupt for the resumed session; omit to leave esc inert. */
   onInterrupt?(): Promise<void> | void
@@ -274,6 +276,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   // 仅当用户在 /model picker 里显式选择后才携带 model 覆盖提交；
   // 否则留 undefined，让 router 用 [provider.*] 配置解析模型（picker 展示值只是显示）。
   const [modelOverride, setModelOverride] = useState<string>()
+  // 会话切换（/resume 或 web 驱动激活）时回填模型状态：被恢复会话的钉住模型成为
+  // 当前选择；未钉住的会话清掉上一会话的覆盖，picker 回落全局配置展示值。
+  const syncSessionModel = (model: string | undefined) => {
+    const display = model ?? options.modelPicker?.currentModelId ?? ''
+    setCurrentModelId(display)
+    setActiveModelId(display)
+    setModelOverride(model)
+  }
   const [permissionRequests, setPermissionRequests] = useState(
     () => options.permissions?.requests() ?? [],
   )
@@ -327,6 +337,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     return options.sessionActivation?.subscribe((session) => {
       if (session.id === sessionIdRef.current) return
       setActiveSession(session)
+      syncSessionModel(session.model)
       setState((current) => ({
         ...current,
         sessionId: session.id,
@@ -1222,6 +1233,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               try {
                 const resumed = await options.resume!.resume(candidate)
                 setActiveSession(resumed)
+                syncSessionModel(resumed.model)
                 setResumeCandidates(undefined)
                 setResumeError(undefined)
                 setState((current) => ({
