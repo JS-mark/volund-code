@@ -3,8 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   applySessionEvent,
   createSessionView,
-  renderPrivacyDisclosure,
-  renderSandboxDisclosure,
   renderSecurityBanner,
   renderTelemetryPanel,
 } from './index'
@@ -19,23 +17,7 @@ describe('security disclosure', () => {
     expect(banner).toContain(text)
   })
 
-  it('discloses the probed tier and its limitations', () => {
-    const output = renderSandboxDisclosure({
-      tier: 'partial',
-      mechanism: 'landlock v1',
-      features: { filesystem: true, network: false },
-      degradationReasons: ['seccomp unavailable'],
-    })
-    expect(output).toContain('Sandbox: PARTIAL')
-    expect(output).toContain('seccomp unavailable')
-    expect(output).toContain('Network egress: unavailable')
-  })
-
-  it('states the local-only telemetry default', () => {
-    expect(renderPrivacyDisclosure()).toContain('does not send analytics anywhere by default')
-  })
-
-  it('never renders missing telemetry samples as passing', () => {
+  it('never renders missing telemetry samples as passing', async () => {
     const output = renderTelemetryPanel({
       samples: 0,
       corruptLines: 0,

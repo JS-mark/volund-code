@@ -1196,7 +1196,7 @@ describe('runCli', () => {
     })
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('Before we start:')
+    expect(result.stdout).not.toContain('Before we start:')
     expect(testPorts.session.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: process.cwd() }),
     )
@@ -1362,7 +1362,7 @@ describe('runCli', () => {
     })
     const result = await runCli(['--strict-sandbox'], testPorts)
     expect(result.exitCode).toBe(3)
-    expect(result.stdout).toContain('Sandbox: PARTIAL')
+    expect(result.stderr).toContain('Full sandbox required; detected partial.')
   })
 
   it('never enters a none-tier session without explicit confirmation', async () => {

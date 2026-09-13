@@ -4,8 +4,6 @@ import { createInterface } from 'node:readline/promises'
 import { ErrorCodes, productIdentity, sanitize, validateWorkspacePath } from '@volund/shared'
 import {
   PermissionPromptController,
-  renderPrivacyDisclosure,
-  renderSandboxDisclosure,
   renderSecurityBanner,
   statusPanelFromWelcome,
 } from '@volund/ui'
@@ -802,10 +800,6 @@ export async function runCli(
     Boolean(resumeSelection ? ports.session.resumeInteractive : ports.session.startInteractive)
   if (!shouldUseTui) {
     const probe = await probePromise
-    if (!jsonMode) {
-      stdout += `${renderPrivacyDisclosure()}\n`
-      stdout += `${renderSandboxDisclosure(probe)}\n`
-    }
     if (args.strictSandbox && probe.tier !== 'full') {
       const message = `Full sandbox required; detected ${probe.tier}.`
       return jsonMode

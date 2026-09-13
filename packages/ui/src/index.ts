@@ -1,7 +1,3 @@
-// renderSandboxDisclosure 的参数类型；权威定义在 @volund/app-runtime/status-view（P1-04a）。
-import type { SandboxDisclosure } from '@volund/app-runtime/status-view'
-import { productIdentity } from '@volund/shared'
-
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
 export * from './permission-display'
 export * from './components/welcome/index'
@@ -264,27 +260,6 @@ export function renderSecurityBanner(modes: readonly DangerousMode[], color: boo
   if (labels.length === 0) return ''
   const text = ` ${labels.join(' | ')} `
   return color ? `\u001B[41m\u001B[97m${text}\u001B[0m` : text
-}
-
-export function renderSandboxDisclosure(probe: SandboxDisclosure): string {
-  const limitations =
-    probe.degradationReasons.length === 0 ? 'none' : probe.degradationReasons.join('; ')
-  return [
-    `Sandbox: ${probe.tier.toUpperCase()}`,
-    `Mechanism: ${probe.mechanism}`,
-    `Filesystem isolation: ${probe.features.filesystem ? 'enforced' : 'unavailable'}`,
-    `Network egress: ${probe.features.network ? 'enforced' : 'unavailable'}`,
-    `Limitations: ${limitations}`,
-  ].join('\n')
-}
-
-export function renderPrivacyDisclosure(): string {
-  return [
-    'Before we start:',
-    `${productIdentity.shortName} saves session logs locally.`,
-    `${productIdentity.shortName} does not send analytics anywhere by default.`,
-    'Prompts and code are sent only through the provider you choose.',
-  ].join('\n')
 }
 
 export interface SessionView {
