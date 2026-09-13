@@ -19,75 +19,96 @@ interface DecisionOption {
   label: string
   /** 记忆范围说明：项目内文件路径落盘为 <repo>/** 模式；bash/net 按 command/origin 精确记忆。 */
   hint: string
+  /** 字母快捷键：旧肌肉记忆，始终生效但不进展示（展示位给数字编号）。 */
   quickKey: string
-  /** 次要选项：不进选项列表（快捷键仍直接生效），只在底部暗字提示。 */
+  /** 次要选项：不进焦点列表（数字/字母键仍直接生效），只在底部暗字提示。 */
   secondary?: boolean
 }
 
 /** Escaped-newline token produced by the injective permission formatter. */
 const NEWLINE_TOKEN = '\\u{000A}'
-const LABEL_WIDTH = 6
+/** spec gutter 中文标签的最大显示宽度（自定义 = 3 CJK = 6 列）。 */
+const GUTTER_LABEL_WIDTH = 6
+/** 主选项标签列的显示宽度（本会话内允许 = 6 CJK = 12 列）。 */
+const OPTION_LABEL_WIDTH = 12
 const MIN_INNER_WIDTH = 40
 const MAX_INNER_WIDTH = 96
 const MAX_SPEC_ROWS = 8
 
+/**
+ * 决策选项：声明顺序即数字编号（1..7），编号固定不随可见性变化——
+ * 「4 拒绝」在任何形态下都是 4，肌肉记忆不漂移。主选项进焦点列表（↑↓ 移动），
+ * 次要选项收进底部暗字行，数字/字母键都可直达。
+ */
 const DECISION_OPTIONS: readonly DecisionOption[] = [
   {
     color: 'green',
     id: 'allow-once',
-    hint: 'approve just this run',
-    label: 'Allow once',
+    hint: '仅本次运行',
+    label: '允许一次',
     quickKey: 'a',
   },
   {
     color: 'cyan',
     id: 'allow-session',
-    hint: 'this exact operation stays approved until the session ends',
-    label: 'For this session',
+    hint: '相同操作在本会话内不再询问',
+    label: '本会话内允许',
     quickKey: 's',
   },
   {
     color: 'blue',
     id: 'allow-project',
-    hint: 'remembered in .volund/permissions.toml; in-repo paths → <repo>/**',
-    label: 'For this project',
+    hint: '写入 .volund/permissions.toml；仓库内路径记为 <repo>/**',
+    label: '项目内记住',
     quickKey: 'p',
-    secondary: true,
+  },
+  {
+    color: 'red',
+    id: 'deny',
+    hint: '本次不执行',
+    label: '拒绝',
+    quickKey: 'd',
   },
   {
     color: 'magenta',
     id: 'allow-forever',
-    hint: 'remembered in ~/.volund/permissions.toml; in-project paths → <repo>/**',
-    label: 'Always',
+    hint: '写入全局 ~/.volund/permissions.toml',
+    label: '始终允许',
     quickKey: 'f',
     secondary: true,
   },
   {
     color: 'yellow',
     id: 'allow-all-session',
-    hint: 'stop asking for the rest of this session; deny rules still apply',
-    label: 'Full access (this session)',
+    hint: '本会话不再询问任何操作；deny 规则仍生效',
+    label: '全部放行（本会话）',
     quickKey: 'g',
+    secondary: true,
   },
-  { color: 'red', id: 'deny', hint: 'reject this run', label: 'Deny', quickKey: 'd' },
   {
     color: 'red',
     id: 'deny-forever',
-    hint: 'blacklist this exact operation globally',
-    label: 'Never ask again',
+    hint: '全局拉黑此操作',
+    label: '永不询问',
     quickKey: 'x',
     secondary: true,
   },
 ]
 
-const GROUP_CAPTIONS: ReadonlyArray<{ caption: string; match: RegExp }> = [
-  { caption: 'ALLOW', match: /^allow/ },
-  { caption: 'DENY', match: /^deny/ },
-]
+/** spec 能力行的中文 gutter 标签与风险配色（写/运行类用黄色提示副作用）。 */
+const SPEC_KIND_PRESENTATION: Record<string, { label: string; tone: string }> = {
+  read: { label: '读取', tone: 'cyan' },
+  write: { label: '写入', tone: 'yellow' },
+  run: { label: '运行', tone: 'yellow' },
+  net: { label: '网络', tone: 'cyan' },
+  env: { label: '环境', tone: 'magenta' },
+  custom: { label: '自定义', tone: 'gray' },
+}
 
 /** One human-readable capability line of the permission summary. */
 export interface SpecLine {
-  kind: string
+  label: string
+  tone: string
   value: string
 }
 
@@ -95,6 +116,7 @@ interface SpecRow {
   dim?: boolean
   gutter: string
   text: string
+  tone: string
 }
 
 function escapeText(value: string): string {
@@ -116,6 +138,35 @@ function stringArrayOf(
   return value as string[]
 }
 
+/** 按显示宽度对齐（CJK 双宽），padEnd 对中文会少算一半宽度。 */
+function padDisplay(text: string, width: number): string {
+  const measured = displayWidth(text)
+  return measured >= width ? text : text + ' '.repeat(width - measured)
+}
+
+/** 终端列宽：CJK/全角计 2 列，其余计 1（标签都是受控文案，无需完整 wcwidth 表）。 */
+function displayWidth(text: string): number {
+  let width = 0
+  for (const char of text) width += isWideCodePoint(char.codePointAt(0)!) ? 2 : 1
+  return width
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+  return (
+    codePoint >= 0x1100 &&
+    (codePoint <= 0x115f || // Hangul Jamo
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf) || // CJK 部首… Yi
+      (codePoint >= 0xa960 && codePoint <= 0xa97f) || // Hangul Jamo Extended-A
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) || // Hangul Syllables
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) || // CJK Compatibility Ideographs
+      (codePoint >= 0xfe30 && codePoint <= 0xfe4f) || // CJK Compatibility Forms
+      (codePoint >= 0xff00 && codePoint <= 0xff60) || // Fullwidth Forms
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x20000 && codePoint <= 0x2fffd) ||
+      (codePoint >= 0x30000 && codePoint <= 0x3fffd))
+  )
+}
+
 /**
  * Translates the structured permission spec into capability lines so prompts read
  * like prose instead of raw JSON. Each rendered string is escaped individually:
@@ -125,20 +176,23 @@ export function summarizeSpec(spec: unknown): readonly SpecLine[] {
   const record = asRecord(spec)
   if (!record) return []
   const lines: SpecLine[] = []
+  const push = (kind: string, value: string) => {
+    const presentation = SPEC_KIND_PRESENTATION[kind] ?? { label: kind, tone: 'gray' }
+    lines.push({ label: presentation.label, tone: presentation.tone, value })
+  }
   const fs = asRecord(record.fs)
   for (const key of ['read', 'write'] as const) {
     const paths = fs ? stringArrayOf(fs, key) : undefined
-    if (paths?.length) lines.push({ kind: key, value: paths.map(escapeText).join(', ') })
+    if (paths?.length) push(key, paths.map(escapeText).join(', '))
   }
   const bash = asRecord(record.bash)
-  if (bash && typeof bash.command === 'string')
-    lines.push({ kind: 'run', value: `$ ${escapeText(bash.command)}` })
+  if (bash && typeof bash.command === 'string') push('run', `$ ${escapeText(bash.command)}`)
   const net = asRecord(record.net)
   if (net && typeof net.method === 'string' && typeof net.url === 'string')
-    lines.push({ kind: 'net', value: `${net.method} ${escapeText(net.url)}` })
+    push('net', `${net.method} ${escapeText(net.url)}`)
   const env = asRecord(record.env)
   const envKeys = env ? stringArrayOf(env, 'read') : undefined
-  if (envKeys?.length) lines.push({ kind: 'env', value: envKeys.map(escapeText).join(', ') })
+  if (envKeys?.length) push('env', envKeys.map(escapeText).join(', '))
   const custom = asRecord(record.custom)
   if (custom) {
     for (const [key, value] of Object.entries(custom)) {
@@ -148,7 +202,7 @@ export function summarizeSpec(spec: unknown): readonly SpecLine[] {
       } catch {
         rendered = '[unserializable]'
       }
-      lines.push({ kind: 'custom', value: `${escapeText(key)} ${escapeText(rendered)}` })
+      push('custom', `${escapeText(key)} ${escapeText(rendered)}`)
     }
   }
   return lines
@@ -160,8 +214,8 @@ export function summarizeSpec(spec: unknown): readonly SpecLine[] {
  * into an unreadable block. Truncation is always labelled, never silent.
  */
 export function layoutSpecLine(line: SpecLine, innerWidth: number): SpecRow[] {
-  const valueWidth = Math.max(16, innerWidth - LABEL_WIDTH - 2)
-  const baseGutter = `${line.kind.padEnd(LABEL_WIDTH)} `
+  const valueWidth = Math.max(16, innerWidth - GUTTER_LABEL_WIDTH - 2)
+  const baseGutter = `${padDisplay(line.label, GUTTER_LABEL_WIDTH)} `
   // Blank source lines render as nothing at all so multi-line commands don't
   // burn display rows on separators.
   const fragments = line.value
@@ -170,25 +224,25 @@ export function layoutSpecLine(line: SpecLine, innerWidth: number): SpecRow[] {
   return fragments.map((fragment, index) => {
     if (index === 0)
       return fragment.length > valueWidth
-        ? { gutter: baseGutter, text: `${fragment.slice(0, valueWidth)}…` }
-        : { gutter: baseGutter, text: fragment }
-    const gutter = `${' '.repeat(LABEL_WIDTH)} │ `
+        ? { gutter: baseGutter, text: `${fragment.slice(0, valueWidth)}…`, tone: line.tone }
+        : { gutter: baseGutter, text: fragment, tone: line.tone }
+    const gutter = `${' '.repeat(GUTTER_LABEL_WIDTH)} │ `
     return fragment.length > valueWidth - 3
-      ? { gutter, text: `${fragment.slice(0, valueWidth - 3)}…` }
-      : { gutter, text: fragment }
+      ? { gutter, text: `${fragment.slice(0, valueWidth - 3)}…`, tone: line.tone }
+      : { gutter, text: fragment, tone: line.tone }
   })
 }
 
 function fallbackRow(text: string): SpecRow {
-  return { dim: true, gutter: `${''.padEnd(LABEL_WIDTH)} `, text }
+  return { dim: true, gutter: `${' '.repeat(GUTTER_LABEL_WIDTH)} `, text, tone: 'gray' }
 }
 
 /**
  * Multi-request permission prompt. Pending requests are shown as a tab strip
  * (`1:Bash`, `2:Write`, …); each tab carries its own option list. ←/→ or
- * tab/shift+tab switch requests, ↑/↓ + Enter pick an option, letter keys decide
- * immediately, and esc denies the focused request. Decided requests leave the
- * strip and focus advances to the next pending one.
+ * tab/shift+tab switch requests, ↑/↓ + Enter pick an option, number/letter keys
+ * decide immediately, and esc denies the focused request. Decided requests leave
+ * the strip and focus advances to the next pending one.
  */
 export function PermissionPromptStack({ controller, requests }: PermissionPromptStackProps) {
   const { stdout } = useStdout()
@@ -255,6 +309,8 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
   const hiddenRowCount = specRows.length - visibleRows.length
   const backgroundBash =
     (request.spec as { bash?: { background?: boolean } } | undefined)?.bash?.background === true
+  const approvable = request.display.approvable
+  const secondaryOptions = approvable ? DECISION_OPTIONS.filter((option) => option.secondary) : []
 
   return (
     <Box
@@ -267,7 +323,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
     >
       <Box marginTop={1}>
         <Text key="title" bold color="yellow">
-          ◆ Permission required
+          ◆ 权限请求
         </Text>
         {request.display.toolName.length > 0 ? (
           <Text key="tool" bold>
@@ -278,7 +334,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
         {backgroundBash ? (
           <Text key="bg" color="magentaBright">
             {' '}
-            · background
+            · 后台
           </Text>
         ) : null}
         {requests.length > 1 ? (
@@ -317,7 +373,7 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
       <Box flexDirection="column" marginTop={1}>
         {visibleRows.map((row, index) => (
           <Text {...(row.dim ? { color: 'gray' } : {})} key={`row:${index}`} wrap="truncate">
-            <Text color={row.dim ? 'gray' : 'cyanBright'} key="gutter">
+            <Text color={row.dim ? 'gray' : row.tone} key="gutter">
               {row.gutter}
             </Text>
             {row.text}
@@ -334,63 +390,48 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
       <Box flexDirection="column" marginTop={1} marginBottom={1}>
         {options.map((option, index) => {
           const focused = index === optionIndex
-          const previous = index > 0 ? options[index - 1] : undefined
-          const caption = GROUP_CAPTIONS.find(
-            (group) => group.match.test(option.id) && (!previous || !group.match.test(previous.id)),
-          )?.caption
+          const num = String(DECISION_OPTIONS.indexOf(option) + 1)
           return (
-            <Box key={option.id} flexDirection="column">
-              {caption ? (
-                <Text bold color="gray" key="caption">
-                  {caption}
+            <Text key={option.id} wrap="truncate">
+              {focused ? (
+                <Text bold color={option.color} key="ptr">
+                  {'> '}
                 </Text>
-              ) : null}
-              <Text key="opt" wrap="truncate">
-                {focused ? (
-                  <Text bold color={option.color} key="ptr">
-                    {'> '}
-                  </Text>
-                ) : (
-                  '  '
-                )}
-                <Text bold={focused} color={focused ? option.color : 'gray'} key="qkey">
-                  {option.quickKey}
-                </Text>
-                {focused ? (
-                  <Text bold color={option.color} key="lbl-focus">
-                    {'  '}
-                    {option.label}
-                  </Text>
-                ) : (
-                  <Text key="lbl-blur">
-                    {'  '}
-                    {option.label}
-                  </Text>
-                )}
-                <Text color="gray" key="hint">
-                  {'  ·  '}
-                  {option.hint}
-                </Text>
+              ) : (
+                '  '
+              )}
+              <Text bold={focused} color={focused ? option.color : 'gray'} key="num">
+                {num}
               </Text>
-            </Box>
+              {'  '}
+              <Text
+                bold={focused}
+                key="lbl"
+                {...(focused ? { color: option.color } : { color: 'white' })}
+              >
+                {padDisplay(option.label, OPTION_LABEL_WIDTH)}
+              </Text>
+              <Text color="gray" key="hint">
+                {'  '}
+                {option.hint}
+              </Text>
+            </Text>
           )
         })}
       </Box>
       <Box flexDirection="column" marginBottom={1}>
         <Text color="gray">
-          {'↑/↓ choose · enter confirm · keys decide now'}
-          {requests.length > 1 ? ' · ←/→ switch' : ''}
-          {' · esc deny'}
+          {approvable ? '↑↓ 选择 · enter 确认 · 数字/字母键直选' : 'enter 确认'}
+          {requests.length > 1 ? ' · ←/→ 切换请求' : ''}
+          {' · esc 拒绝'}
         </Text>
-        <Text color="gray" wrap="truncate">
-          {DECISION_OPTIONS.filter((option) => option.secondary)
-            .map((option) => `${option.quickKey} ${option.label}`)
-            .join(' · ')}
-          {' — keys work now'}
-        </Text>
-        <Text color="gray" wrap="truncate">
-          {'in-repo paths remembered as <repo>/**; new commands or sites still ask once'}
-        </Text>
+        {secondaryOptions.length > 0 ? (
+          <Text color="gray" wrap="truncate">
+            {secondaryOptions
+              .map((option) => `${DECISION_OPTIONS.indexOf(option) + 1} ${option.label}`)
+              .join(' · ')}
+          </Text>
+        ) : null}
       </Box>
     </Box>
   )
@@ -407,9 +448,10 @@ function quickDecision(
   input: string,
   request: InteractivePermissionRequest,
 ): InteractivePermissionDecisionKind | undefined {
-  // 'y'（yes 的肌肉记忆）按 allow-once 处理。
+  // 数字键 = 声明顺序编号；'y'（yes 的肌肉记忆）按 allow-once 处理。
+  const numbered = /^[1-9]$/.test(input) ? DECISION_OPTIONS[Number(input) - 1] : undefined
   const normalized = input === 'y' ? 'a' : input
-  const option = DECISION_OPTIONS.find((candidate) => candidate.quickKey === normalized)
+  const option = numbered ?? DECISION_OPTIONS.find((candidate) => candidate.quickKey === normalized)
   if (!option) return undefined
   if (!request.display.approvable && option.id !== 'deny') return undefined
   return option.id

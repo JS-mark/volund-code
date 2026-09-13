@@ -2710,7 +2710,7 @@ describe('renderInteractiveApp', () => {
 
     // Multiple pending requests render as a tab strip: one tab per request,
     // first tab focused with its (escaped) details shown.
-    expect(stdout.output).toContain('Permission required')
+    expect(stdout.output).toContain('权限请求')
     expect(stdout.output).toContain('1:Bash')
     expect(stdout.output).toContain('2:Write')
     expect(stdout.output).toContain('touch x\\u{202E}')
@@ -2750,15 +2750,14 @@ describe('renderInteractiveApp', () => {
 
     // Structured specs render as capability lines instead of raw JSON, with
     // quick keys intact.
-    expect(stdout.output).toContain('Permission required')
-    expect(stdout.output).toContain('write ')
+    expect(stdout.output).toContain('权限请求')
+    expect(stdout.output).toContain('写入')
     expect(stdout.output).toContain('out.md')
     expect(stdout.output).not.toContain('{"fs"')
-    expect(stdout.output).toContain('Allow once')
-    // 次要范围选项（project/always/never）收进底部暗字提示，快捷键仍直接生效
-    expect(stdout.output).toContain('p For this project · f Always · x Never ask again')
-    expect(stdout.output).toContain('Full access (this session)')
-    expect(stdout.output).toContain('in-repo paths remembered as <repo>/**')
+    expect(stdout.output).toContain('允许一次')
+    // 次要范围选项（always/full-access/never）收进底部暗字提示，数字键仍直接生效
+    expect(stdout.output).toContain('5 始终允许 · 6 全部放行（本会话） · 7 永不询问')
+    expect(stdout.output).toContain('路径记为 <repo>/**')
   })
 
   it('exposes all seven decision kinds and decides instantly via quick keys', async () => {
@@ -2797,17 +2796,15 @@ describe('renderInteractiveApp', () => {
 
     await app.waitUntilRenderFlush()
 
-    // Both decision groups with every scope are listed.
-    expect(stdout.output).toContain('ALLOW')
-    expect(stdout.output).toContain('DENY')
+    // 全部七种决策都可见：主列表 1-4 + 底部次要行 5-7。
     for (const label of [
-      'Allow once',
-      'For this session',
-      'For this project',
-      'Always',
-      'Full access (this session)',
-      'Deny',
-      'Never ask again',
+      '允许一次',
+      '本会话内允许',
+      '项目内记住',
+      '拒绝',
+      '始终允许',
+      '全部放行（本会话）',
+      '永不询问',
     ])
       expect(stdout.output).toContain(label)
 
@@ -2917,7 +2914,7 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('dist/out.js')
 
-    // ↑/↓ pick "Allow for this session", Enter confirms — and only this tab's
+    // ↑/↓ pick "本会话内允许", Enter confirms — and only this tab's
     // request settles; the other stays pending.
     stdin.write('\u001B[B')
     await app.waitUntilRenderFlush()
@@ -2929,6 +2926,49 @@ describe('renderInteractiveApp', () => {
     stdin.write('\u001B')
     await expect(first).resolves.toEqual({ kind: 'deny' })
     expect(permissions.requests()).toEqual([])
+
+    await app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('decides instantly via number keys', async () => {
+    const permissions = new PermissionPromptController()
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const first = permissions.request({
+      display: { approvable: true, spec: '{"bash":{"command":"make build"}}', toolName: 'Bash' },
+      attempt: 1,
+      id: 'permission-num-1',
+      input: { command: 'make build' },
+      spec: { bash: { command: 'make build' } },
+      toolName: 'Bash',
+    })
+    const second = permissions.request({
+      display: { approvable: true, spec: '{"bash":{"command":"make lint"}}', toolName: 'Bash' },
+      attempt: 1,
+      id: 'permission-num-2',
+      input: { command: 'make lint' },
+      spec: { bash: { command: 'make lint' } },
+      toolName: 'Bash',
+    })
+    const app = renderInteractiveApp(
+      { cwd: '/repo', permissions },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    // 2 = 本会话内允许；队列前进后 4 = 拒绝。
+    stdin.write('2')
+    await expect(first).resolves.toEqual({ kind: 'allow-session' })
+    await app.waitUntilRenderFlush()
+    stdin.write('4')
+    await expect(second).resolves.toEqual({ kind: 'deny' })
 
     await app.unmount()
     await app.waitUntilExit()
@@ -2967,7 +3007,7 @@ describe('renderInteractiveApp', () => {
 
     await app.waitUntilRenderFlush()
     expect(stdout.output).toContain('[sensitive permission details hidden - deny only]')
-    expect(stdout.output).not.toContain('Allow once')
+    expect(stdout.output).not.toContain('允许一次')
     stdin.write('a')
     await app.waitUntilRenderFlush()
     expect(settled).toBe(false)
