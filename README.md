@@ -93,7 +93,7 @@ The workspace package version is currently `0.0.0`; it is not a published releas
 ### Start your first session
 
 ```bash
-node apps/cli/dist/volund.js chat
+node apps/cli/dist/volund.js
 ```
 
 On first use in a directory, Volund asks you to trust the canonical workspace path before initializing the runtime. Choose Anthropic during onboarding and enter the credential only in Volund's masked prompt, or authenticate explicitly:
@@ -111,20 +111,21 @@ Interactive chat is the default when stdin and stdout are terminals:
 
 ```bash
 node apps/cli/dist/volund.js
-node apps/cli/dist/volund.js chat
 ```
 
 Force the line-mode fallback:
 
 ```bash
-node apps/cli/dist/volund.js chat --no-tui
+node apps/cli/dist/volund.js --no-tui
 ```
 
 Run a one-shot prompt and emit NDJSON without ANSI frames:
 
 ```bash
-node apps/cli/dist/volund.js chat "summarize this repository" --json
+node apps/cli/dist/volund.js "summarize this repository" --json
 ```
+
+`volund chat ...` remains an accepted alias that behaves exactly like the bare command.
 
 Inspect runtime state or manage a previous session:
 

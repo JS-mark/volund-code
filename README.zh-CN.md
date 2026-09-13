@@ -92,7 +92,7 @@ node apps/cli/dist/volund.js --help
 ### 开始第一次会话
 
 ```bash
-node apps/cli/dist/volund.js chat
+node apps/cli/dist/volund.js
 ```
 
 第一次在某个目录运行时，Volund 会先显示解析后的真实目录并询问信任范围，然后才初始化运行时。首次引导中可选择 Anthropic，并只在 Volund 的掩码输入框中填写凭据；也可以单独登录并运行严格诊断：
@@ -110,20 +110,21 @@ node apps/cli/dist/volund.js doctor --strict
 
 ```bash
 node apps/cli/dist/volund.js
-node apps/cli/dist/volund.js chat
 ```
 
 强制使用纯行模式：
 
 ```bash
-node apps/cli/dist/volund.js chat --no-tui
+node apps/cli/dist/volund.js --no-tui
 ```
 
 执行一次提示词并输出不含 ANSI 界面的 NDJSON：
 
 ```bash
-node apps/cli/dist/volund.js chat "概括这个代码仓库" --json
+node apps/cli/dist/volund.js "概括这个代码仓库" --json
 ```
+
+`volund chat ...` 仍是等价的别名写法，行为与裸调用完全一致。
 
 查看运行状态，或管理之前的会话：
 

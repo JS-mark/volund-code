@@ -15,7 +15,7 @@ Headless and JSON runs fail with `directory_untrusted` instead of waiting for in
 
 Use `volund trust list` (or `--json`) to inspect user-level rules. Revoke one canonical rule with `volund trust revoke <path>`, or clear all rules with `volund trust revoke --all`. Rules live in `~/.volund/trusted-directories.json`, never in the project repository.
 
-Run `volund` or `volund chat` in a repository. With an interactive terminal and
+Run `volund` in a repository. With an interactive terminal and
 no prompt argument, Volund starts the Ink TUI and shows a `> ` input line. Before
 Volund writes configuration, onboarding explains the local-only telemetry default
 and the detected Sandbox Tier.
@@ -27,13 +27,13 @@ and the detected Sandbox Tier.
 
 Use `volund doctor --strict` before a real task. A degraded sandbox exits with code 3. `--dangerously-no-sandbox` requires an explicit risk confirmation and should not be used for release acceptance.
 
-For local checks, `volund chat --no-tui` forces the line-mode fallback, while
-`volund chat "prompt" --json` emits NDJSON for automation and does not start the
+For local checks, `volund --no-tui` forces the line-mode fallback, while
+`volund "prompt" --json` emits NDJSON for automation and does not start the
 TUI.
 
 # First interactive screen
 
-After directory trust is resolved, interactive `volund chat` opens a terminal status screen before
+After directory trust is resolved, interactive `volund` opens a terminal status screen before
 the first prompt. It reports the effective model, authentication availability, canonical workspace,
 trust scope, sandbox tier, permission mode, session, and context budget. Unknown runtime values are
 shown as `unknown` or `not configured`; Volund never infers a successful security or auth state.

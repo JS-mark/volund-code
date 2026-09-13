@@ -13,7 +13,7 @@ export const createCommand = (identity: AppIdentity) =>
       description: productIdentity.description,
     },
     subCommands: {
-      chat: leaf('chat', 'Start an interactive chat'),
+      chat: leaf('chat', 'Alias of the default interactive session'),
       resume: leaf('resume', 'Resume a saved session'),
       restore: leaf('restore', 'Restore files changed by a saved session'),
       login: leaf('login', 'Configure provider credentials'),

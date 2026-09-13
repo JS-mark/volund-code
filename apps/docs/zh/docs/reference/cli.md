@@ -8,7 +8,7 @@
 
 | 命令                          | 用途                                                                       |
 | ----------------------------- | -------------------------------------------------------------------------- |
-| `volund` / `volund chat`      | 启动交互式或单次编程会话。                                                 |
+| `volund [prompt]`             | 启动交互式或单次编程会话（`chat` 为等价别名）。                            |
 | `volund login <provider>`     | 验证并安全保存 provider 凭据。                                             |
 | `volund logout <provider>`    | 删除已保存的 provider 凭据。                                               |
 | `volund config <action>`      | 查看与编辑配置（`list`/`get`/`set`/`unset`/`path`/`edit`）。               |

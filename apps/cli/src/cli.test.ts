@@ -360,7 +360,6 @@ describe('runCli', () => {
       ['config'],
       ['history'],
       ['version'],
-      ['unknown'],
     ]
     const results = await Promise.all(commands.map((args) => runCli(args, testPorts)))
     expect(results).toHaveLength(commands.length)
@@ -698,6 +697,16 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0)
     expect(testPorts.session.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: nested, prompt: 'hello' }),
+    )
+  })
+
+  it('treats a non-command first positional as the default prompt (no chat)', async () => {
+    const testPorts = ports()
+    const result = await runCli(['你好，总结一下这个仓库'], testPorts)
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).not.toContain('integration port')
+    expect(testPorts.session.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: '你好，总结一下这个仓库' }),
     )
   })
 

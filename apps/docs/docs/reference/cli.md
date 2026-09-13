@@ -8,7 +8,7 @@
 volund trust list [--json]
 volund trust revoke <path>
 volund trust revoke --all
-volund chat --cwd <path> --trust-workspace "prompt"
+volund --cwd <path> --trust-workspace "prompt"
 ```
 
 `--trust-workspace` is the scriptable opt-in for non-interactive runs. It persists an exact canonical-path rule; it never grants a parent or subtree scope.
@@ -19,7 +19,7 @@ volund chat --cwd <path> --trust-workspace "prompt"
 
 | Command                       | Purpose                                                                                       |
 | ----------------------------- | --------------------------------------------------------------------------------------------- |
-| `volund` / `volund chat`      | Start an interactive or one-shot coding session.                                              |
+| `volund [prompt]`             | Start an interactive or one-shot coding session (`chat` is an accepted alias).                |
 | `volund login <provider>`     | Verify, then securely store a provider credential.                                            |
 | `volund logout <provider>`    | Remove a stored provider credential.                                                          |
 | `volund config <action>`      | Inspect and edit configuration (`list`/`get`/`set`/`unset`/`path`/`edit`).                    |

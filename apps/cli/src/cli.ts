@@ -142,7 +142,10 @@ export async function runCli(
   if (rawArgs[0] === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v'))
     return { exitCode: 0, stdout: `${ports.identity.version}\n`, stderr: '' }
   const args = parseArgs(rawArgs, argsDefinition) as ParsedCliArgs
-  const subcommand = args._[0]
+  const firstPositional = args._[0]
+  // Only these names dispatch as subcommands; any other first positional is
+  // the prompt of the default session (`volund "summarize this repo"`).
+  const subcommand = reservedCommandNames.has(firstPositional) ? firstPositional : undefined
   let stdout = ''
   let stderr = ''
   const jsonMode = Boolean(args.json)
@@ -1490,6 +1493,8 @@ const chatGlobalFlags = new Set([
   '--trust-workspace',
   '--yolo',
 ])
+/** `plugins` is the pre-rename alias kept out of the help-topic table. */
+const reservedCommandNames: ReadonlySet<string> = new Set([...Object.keys(commandUsage), 'plugins'])
 const valueFlags = new Set(['--cwd', '--namespace', '--since', '--to'])
 
 function firstUnsupportedGlobalFlag(rawArgs: string[]): string | undefined {

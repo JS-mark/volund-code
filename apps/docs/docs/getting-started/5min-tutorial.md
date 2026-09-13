@@ -3,10 +3,10 @@
 Start with a small, reviewable repository task:
 
 ```sh
-volund chat "Read the failing test, make the smallest fix, run that test, and show me the diff."
+volund "Read the failing test, make the smallest fix, run that test, and show me the diff."
 ```
 
-Passing a prompt runs a one-shot chat turn. Running `volund chat` without a
+Passing a prompt runs a one-shot chat turn. Running `volund` without a
 prompt in a TTY starts the Ink TUI for an interactive session with input history,
 slash commands, streaming output, and permission prompts. Volund reads context,
 proposes permission-gated actions, streams provider output, and records the

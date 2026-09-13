@@ -4,9 +4,10 @@ import { memoryUsage } from './memory'
 
 const commandName = productIdentity.commandName
 
-const chatUsage = `Usage: ${commandName} [chat] [prompt...]
+const chatUsage = `Usage: ${commandName} [prompt...]
 
 Start an interactive session (TTY) or run a single prompt.
+\`${commandName} chat ...\` is an accepted alias for the bare command.
 
 Options:
   --cwd <path>                       Override the working directory
