@@ -1347,6 +1347,43 @@ describe('renderInteractiveApp', () => {
     expect(submitted).toEqual(['/model'])
   })
 
+  it('recovers Enter from a canonical-mode line batch (text glued with trailing newline)', async () => {
+    // 回归（pty 启动竞态）：raw mode 生效前按下的键被内核行缓冲成 "text\n" 单块
+    // 交付；ink 只对 backspace 拆包（\r/\n 为粘贴语义留在文本块里），Enter 被粘进
+    // 文本永远不到达——InputBox 须把「多字节 + 尾换行」块拆成 文本+提交 重放。
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const submitted: string[] = []
+    const input = render(
+      createElement(InputBox, {
+        onSubmit: (value) => {
+          submitted.push(value)
+        },
+      }),
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await input.waitUntilRenderFlush()
+    stdin.write('hello world\n')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual(['hello world'])
+
+    // 无尾换行的多行文本（非 bracketed-paste 终端的跨行粘贴）保持插入，不拆不提交。
+    stdin.write('line1\nline2')
+    await input.waitUntilRenderFlush()
+    expect(submitted).toEqual(['hello world'])
+    expect(stdout.output).toContain('line1')
+
+    input.unmount()
+    await input.waitUntilExit()
+  })
+
   it('scrolls the suggestion window so commands beyond the first 10 stay reachable', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()

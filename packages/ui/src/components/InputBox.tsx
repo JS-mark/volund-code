@@ -241,6 +241,26 @@ export function InputBox({
       value: current.value.slice(0, current.cursor) + text + current.value.slice(current.cursor),
     }))
   }
+  /** 提交指定文本（Enter 分支与 canonical 合包重放共用）：清空输入行并展开 chip。 */
+  const submitValue = (submitted: string) => {
+    if (!submitted.trim()) return
+    // 只有仍在文本里的 chip 才随提交展开；同一附件重复粘贴（内容寻址，
+    // chip 相同）按 handle/path 去重，避免给 provider 发重复图片。
+    const active = chips.filter((chip) => submitted.includes(chip.chip))
+    const seen = new Set<string>()
+    const attachments = active.filter((chip) => {
+      const key = chip.handle ?? chip.path ?? chip.chip
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    setHistoryIndex(null)
+    setDraftBeforeHistory('')
+    setSlashSuggestionIndex(0)
+    setInput({ cursor: 0, value: '' })
+    setChips([])
+    void onSubmit?.(submitted, attachments)
+  }
   const insertChip = (info: StagedAttachmentInfo) => {
     // chip 文本归输入框所有：剪贴板图片（无路径的匿名 blob）按粘贴顺序编号
     // （[Image #1]、[Image #2]…）；路径附件（拖拽/Finder 拷贝）带 basename。
@@ -465,26 +485,22 @@ export function InputBox({
         })
         return
       }
+      // canonical 行缓冲合包兜底：raw mode 生效前（启动竞态/两个 ink 实例交接间隙）
+      // 按下的键被内核按行交付成 "text\n" 单块；ink 的输入分包器只对 backspace 拆包
+      // （\r/\n 为粘贴语义刻意留在文本块里），Enter 因此被粘进文本永远不到达。
+      // bracketed paste 走 usePaste 独立通道不进 useInput，所以这里出现的「多字节 +
+      // 尾部换行」块就是行缓冲合包：前缀并入当前输入行，尾部换行还原为提交。
+      // （中间的换行——如跨行粘贴无 bracketed 支持时——保持原样插入文本，不拆。）
+      if (keyInput.length > 1 && /[\r\n]$/.test(keyInput)) {
+        const merged =
+          value.slice(0, cursor) + keyInput.replace(/[\r\n]+$/, '') + value.slice(cursor)
+        submitValue(merged)
+        return
+      }
       if (key.return || keyInput === '\r' || keyInput === '\n') {
         const selectedSuggestion = suggestions[slashSuggestionIndex]
         const submitted = selectedSuggestion ? `/${selectedSuggestion.name}` : value
-        if (!submitted.trim()) return
-        // 只有仍在文本里的 chip 才随提交展开；同一附件重复粘贴（内容寻址，
-        // chip 相同）按 handle/path 去重，避免给 provider 发重复图片。
-        const active = chips.filter((chip) => submitted.includes(chip.chip))
-        const seen = new Set<string>()
-        const attachments = active.filter((chip) => {
-          const key = chip.handle ?? chip.path ?? chip.chip
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-        setHistoryIndex(null)
-        setDraftBeforeHistory('')
-        setSlashSuggestionIndex(0)
-        setInput({ cursor: 0, value: '' })
-        setChips([])
-        void onSubmit?.(submitted, attachments)
+        submitValue(submitted)
         return
       }
       if (key.backspace) {
