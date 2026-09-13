@@ -471,6 +471,128 @@ html[lang='zh-CN'] .hero-copy h1 {
   color: var(--volund-accent);
 }
 
+/* Hero terminal mirrors the real TUI: mint ❯ shell invocation, cyan ⏺ assistant
+   rows, dimmed ◆ activity rows, and the round-bordered permission card. */
+.term-shell-line,
+.term-agent,
+.term-act {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.term-shell-line {
+  color: #edf1e9;
+}
+
+.term-shell-prompt {
+  color: #2bbd9b;
+  font-weight: 700;
+  width: 1.2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.term-agent {
+  color: #edf1e9;
+  font-weight: 700;
+}
+
+.term-agent-wrap {
+  padding-left: 1.75rem;
+  color: #edf1e9;
+}
+
+.term-act {
+  color: #929b95;
+  opacity: 0.78;
+}
+
+.term-mk {
+  flex-shrink: 0;
+  width: 1.2rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.mk-user {
+  color: #2bbd9b;
+}
+
+.mk-agent {
+  color: #55d7b9;
+}
+
+.permission-card {
+  margin: 0.7rem 0 0.7rem 1.75rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid #4a554f;
+  border-radius: 0.55rem;
+  background: rgba(13, 17, 16, 0.6);
+}
+
+.permission-card p {
+  margin: 0.15rem 0;
+}
+
+.perm-title {
+  color: #e0b25b;
+  font-weight: 700;
+}
+
+.perm-title span {
+  color: #edf1e9;
+}
+
+.perm-spec em {
+  color: #e0b25b;
+  font-style: normal;
+}
+
+.perm-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.25rem;
+  color: #c5cdc8;
+}
+
+.perm-opt.focused {
+  color: #2bbd9b;
+  font-weight: 700;
+  background: rgba(43, 189, 155, 0.09);
+}
+
+.perm-opt.focused ~ .perm-opt .perm-lbl {
+  color: #edf1e9;
+}
+
+.perm-opt i {
+  width: 0.8rem;
+  font-style: normal;
+}
+
+.perm-opt b {
+  opacity: 0.85;
+}
+
+.perm-lbl {
+  display: inline-block;
+  min-width: 8.5rem;
+}
+
+.perm-hint {
+  color: #747e78;
+  font-size: 0.9em;
+}
+
+.perm-foot {
+  color: #747e78;
+  font-size: 0.88em;
+  margin-top: 0.3rem;
+}
+
 .term-system {
   display: flex;
   justify-content: space-between;
@@ -557,6 +679,65 @@ html[lang='zh-CN'] .hero-copy h1 {
 .signal-strip span,
 .feature-index {
   color: #58605b;
+}
+
+.promo-section {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 2.5rem 7rem;
+  padding: clamp(5rem, 9vw, 9rem) var(--page-pad);
+  border-bottom: 1px solid var(--volund-line);
+}
+
+.promo-copy {
+  align-self: end;
+  max-width: 34rem;
+}
+
+.promo-copy p {
+  color: #929c96;
+  font-size: clamp(1rem, 1.4vw, 1.18rem);
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+
+.promo-frame {
+  --volund-accent: #2bbd9b;
+  --volund-accent-strong: #55d7b9;
+  grid-column: 1 / -1;
+  width: min(100%, 72rem);
+  margin: 2rem auto 0;
+  overflow: hidden;
+  border: 1px solid rgba(217, 228, 218, 0.2);
+  border-radius: 0.55rem;
+  background: #0a0e0d;
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.42);
+}
+
+.promo-frame .terminal-bar {
+  border-bottom-color: rgba(217, 228, 218, 0.14);
+}
+
+.promo-frame video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0a0d0d;
+}
+
+.promo-length {
+  justify-self: end;
+  color: var(--volund-accent);
+  letter-spacing: 0.18em;
+}
+
+html:not(.dark) .promo-frame {
+  border-color: rgba(20, 31, 25, 0.22);
+  box-shadow: 0 2rem 4rem rgba(20, 31, 25, 0.16);
+}
+
+html:not(.dark) .promo-copy p {
+  color: #4e5952;
 }
 
 .control-section {
@@ -919,6 +1100,7 @@ html[lang='zh-CN'] .closing-callout h2 {
     border-bottom: 1px solid var(--volund-line);
   }
 
+  .promo-section,
   .control-section,
   .feature-ledger,
   .closing-callout {
@@ -1081,4 +1263,8 @@ html[lang='zh-CN'] .closing-callout h2 {
 .volund-scene.scene-ready .orbital-ring {
   opacity: 0;
   transition: opacity 600ms ease;
+}
+
+.perm-spec span {
+  color: #747e78;
 }

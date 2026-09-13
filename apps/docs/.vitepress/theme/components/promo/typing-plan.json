@@ -1,0 +1,18 @@
+{
+  "zh": {
+    "cmd1": "volund \"修复那个失败的测试\"",
+    "cmd1Start": 6.0,
+    "cmd1Cps": 16,
+    "cmd2": "提交这次修改",
+    "cmd2Start": 18.4,
+    "cmd2Cps": 6
+  },
+  "en": {
+    "cmd1": "volund \"fix the failing test\"",
+    "cmd1Start": 6.0,
+    "cmd1Cps": 13,
+    "cmd2": "commit this fix",
+    "cmd2Start": 18.4,
+    "cmd2Cps": 10
+  }
+}

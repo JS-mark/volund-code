@@ -2,11 +2,17 @@
 import { withBase } from 'vitepress'
 import { computed } from 'vue'
 
+import PromoPlayer from './PromoPlayer.vue'
 import VolundScene from './VolundScene.vue'
+import { COPY } from './promo/copy'
+import plan from './promo/typing-plan.json'
 
 const props = defineProps({ locale: { type: String, default: 'en' } })
 const isZh = computed(() => props.locale === 'zh')
 const localizedPath = (path) => withBase(`${isZh.value ? '/zh' : ''}${path}`)
+/* Hero terminal mirrors the real TUI transcript (promo copy is the source of truth). */
+const heroTerm = computed(() => COPY[isZh.value ? 'zh' : 'en'].term)
+const heroCmd = computed(() => plan[isZh.value ? 'zh' : 'en'].cmd1)
 
 const copy = {
   en: {
@@ -17,6 +23,10 @@ const copy = {
     docs: 'Read the docs',
     source: 'View source',
     preRelease: 'pre-release',
+    videoLabel: 'PROMO REEL',
+    videoTitle: 'Volund in 66 seconds.',
+    videoNote:
+      'From task to permission approval, patch, and green tests — one take, sound on.',
     principles: ['Any model', 'Local context', 'Explicit permissions', 'Rust sandbox'],
     controlLabel: 'THE CONTROL PLANE',
     controlTitle: 'One agent.\nNo black box.',
@@ -108,6 +118,9 @@ const copy = {
     docs: '阅读文档',
     source: '查看源码',
     preRelease: '预发布',
+    videoLabel: '宣传视频',
+    videoTitle: '一分钟，看懂 Volund。',
+    videoNote: '从下达任务到权限审批、补丁落地、测试通过 —— 66 秒一镜到底，建议开启声音。',
     principles: ['任意模型', '本地上下文', '显式权限', 'Rust 沙箱'],
     controlLabel: '控制平面',
     controlTitle: '一个智能体。\n没有黑箱。',
@@ -218,24 +231,48 @@ const footerHref = (href) => (href.startsWith('/docs') ? localizedPath(href) : h
             <span class="terminal-tier">TIER / FULL</span>
           </div>
           <div class="terminal-body">
-            <p>
-              <span class="term-muted">14:08:31</span>
-              <span class="term-accent">volund</span> analyze the failing test
-            </p>
-            <p class="term-system">◆ Reading repository context <span>12 files</span></p>
-            <p class="term-system">◆ Provider selected <span>anthropic / claude</span></p>
-            <p class="term-spacer"></p>
-            <p><span class="term-accent">→</span> I found the regression in the stream decoder.</p>
-            <p>The final UTF-8 boundary is flushed before the abort state.</p>
-            <div class="permission-row">
-              <div><small>PERMISSION REQUEST</small><strong>write · src/stream.ts</strong></div>
-              <span>review</span>
+            <p class="term-shell-line"><span class="term-shell-prompt">❯</span> {{ heroCmd }}</p>
+            <p class="term-agent"><span class="term-mk mk-agent">⏺</span> {{ heroTerm.assistant1 }}</p>
+            <p class="term-agent-wrap">{{ heroTerm.assistant2 }}</p>
+            <p class="term-act">◆ {{ heroTerm.readDone }}<span> · 1.1s</span></p>
+            <p class="term-act">◆ {{ heroTerm.editDone }}<span> · +8 −3</span></p>
+            <div class="permission-card">
+              <p class="perm-title">{{ heroTerm.permTitle }} <span>· {{ heroTerm.permTool }}</span></p>
+              <p class="perm-spec"><em>{{ heroTerm.permSpecGutter }}</em>{{ heroTerm.permFile }}<span>{{ heroTerm.permSpecSuffix }}</span></p>
+              <p class="perm-opt focused">
+                <i>&gt;</i><b>1</b><span class="perm-lbl">{{ heroTerm.permOptions[0].label }}</span>
+                <span class="perm-hint">{{ heroTerm.permOptions[0].hint }}</span>
+              </p>
+              <p class="perm-opt">
+                <i>&nbsp;</i><b>2</b><span class="perm-lbl">{{ heroTerm.permOptions[1].label }}</span>
+                <span class="perm-hint">{{ heroTerm.permOptions[1].hint }}</span>
+              </p>
+              <p class="perm-foot">{{ heroTerm.permFooter }}</p>
             </div>
-            <p class="term-system">◆ Patch applied <span>+8 −3</span></p>
-            <p class="term-system">◆ Tests passed <span>5 / 5</span></p>
+            <p class="term-act">◆ {{ heroTerm.testDone }}<span> · 5/5 ✓</span></p>
             <p class="terminal-cursor"><span class="term-accent">›</span> <i></i></p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="promo-section" aria-labelledby="promo-title">
+      <div class="section-intro">
+        <span class="eyebrow">{{ t.videoLabel }}</span>
+        <h2 id="promo-title">{{ t.videoTitle }}</h2>
+      </div>
+      <div class="promo-copy">
+        <p>{{ t.videoNote }}</p>
+      </div>
+      <div class="promo-frame">
+        <div class="terminal-bar">
+          <div class="terminal-controls" aria-hidden="true"><i></i><i></i><i></i></div>
+          <span>volund · promo</span>
+          <span class="promo-length">66s</span>
+        </div>
+        <ClientOnly>
+          <PromoPlayer :locale="isZh ? 'zh' : 'en'" />
+        </ClientOnly>
       </div>
     </section>
 

@@ -8,10 +8,14 @@
     "dev": "vitepress dev",
     "preview": "vitepress preview",
     "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
-    "typecheck": "pnpm --dir ../.. docs:api && vitepress build"
+    "typecheck": "pnpm --dir ../.. docs:api && vitepress build",
+    "promo:audio": "node scripts/promo/gen-audio.mjs",
+    "promo:render": "node scripts/promo/capture.mjs",
+    "promo:assets": "node scripts/promo/gen-assets.mjs"
   },
   "devDependencies": {
     "mermaid": "^11.17.2",
+    "playwright-core": "^1.63.0",
     "three": "^0.185.1",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.12.0",
