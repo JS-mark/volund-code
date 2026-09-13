@@ -13,6 +13,7 @@ import { Box, Text, useApp, useStdout } from 'ink'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { activityTarget, buildTimeline, completeActivity, type ActivityItem } from './activity'
 import { InputBox } from './components/InputBox'
 import { ListPicker } from './components/ListPicker'
 import { McpPanel } from './components/McpPanel'
@@ -240,6 +241,8 @@ export interface InteractiveAppOptions {
 }
 
 export interface InteractiveAppState {
+  /** 工具活动行（◆ 正在读取 …）：tool.requested 创建、tool.completed 定稿。 */
+  activities: ActivityItem[]
   pendingAssistantText: string
   sessionId: string
   status: string
@@ -252,6 +255,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const { stdout } = useStdout()
   const terminalSize = useTerminalSize(stdout)
   const [state, setState] = useState<InteractiveAppState>(() => ({
+    activities: [],
     pendingAssistantText: '',
     sessionId: options.sessionId ?? 'new',
     status: options.status ?? 'ready',
@@ -626,7 +630,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setSkillsPanelOpen(false)
           setMcpPanelOpen(false)
           setSubagentsPanelOpen(false)
-          setState((current) => ({ ...current, transcript: [], pendingAssistantText: '' }))
+          setState((current) => ({
+            ...current,
+            transcript: [],
+            activities: [],
+            pendingAssistantText: '',
+          }))
         },
       },
       options.undo
@@ -901,6 +910,12 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     ]
   }, [state.pendingAssistantText, state.transcript])
 
+  // 消息与工具活动（◆ 正在读取 …）按事件 id 归并成一条时间线渲染。
+  const timeline = useMemo(
+    () => buildTimeline(transcript, state.activities),
+    [transcript, state.activities],
+  )
+
   const commandInput = (
     <InputBox
       disabled={
@@ -1114,7 +1129,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
       ) : (
         <>
           <TopBar cwd={activeCwd} sessionId={state.sessionId} />
-          <ScrollableTranscript entries={transcript} />
+          <ScrollableTranscript items={timeline} {...(activeCwd ? { cwd: activeCwd } : {})} />
           {options.permissions ? (
             <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
           ) : null}
@@ -1240,6 +1255,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
                   ...current,
                   sessionId: resumed.id,
                   transcript: [...(resumed.transcript ?? [])],
+                  // 持久化 transcript 只含消息（不含活动行）；旧会话的活动不带到新视图。
+                  activities: [],
                   pendingAssistantText: '',
                   status: 'session resumed',
                   statusLevel: 'muted',
@@ -1545,6 +1562,23 @@ export function applyInteractiveEvent(
     return { ...state, status: 'permission required', statusLevel: 'warning' }
   }
 
+  // ◆ 活动行：tool.requested（★input，先于权限判定）创建条目——权限弹窗挂起时
+  // 用户也能看到模型想做什么；tool.completed 按 toolUseId 定稿耗时/成败。
+  if (event.type === 'tool.requested') {
+    const toolUseId = payloadField(event.payload, 'toolUseId')
+    if (!toolUseId) return state
+    const toolName = payloadField(event.payload, 'tool') || 'tool'
+    const target = activityTarget(toolName, payloadRecord(event.payload)?.input)
+    const activity: ActivityItem = {
+      id: event.id,
+      toolUseId,
+      tool: toolName,
+      status: 'running',
+      ...(target ? { target } : {}),
+    }
+    return { ...state, activities: [...state.activities, activity] }
+  }
+
   if (event.type === 'tool.started') {
     const toolName = payloadField(event.payload, 'tool') || 'tool'
     return { ...state, status: `running ${toolName}`, statusLevel: 'active' }
@@ -1552,7 +1586,20 @@ export function applyInteractiveEvent(
 
   if (event.type === 'tool.completed') {
     const toolName = payloadField(event.payload, 'tool') || 'tool'
-    return { ...state, status: `${toolName} completed`, statusLevel: 'muted' }
+    const toolUseId = payloadField(event.payload, 'toolUseId')
+    const payload = payloadRecord(event.payload)
+    const activities = toolUseId
+      ? completeActivity(state.activities, toolUseId, {
+          isError: payload?.isError === true,
+          ...(payload?.blocked === true ? { blocked: true } : {}),
+          ...(typeof payload?.durationMs === 'number' ? { durationMs: payload.durationMs } : {}),
+          ...(typeof payload?.linesAdded === 'number' ? { linesAdded: payload.linesAdded } : {}),
+          ...(typeof payload?.linesRemoved === 'number'
+            ? { linesRemoved: payload.linesRemoved }
+            : {}),
+        })
+      : state.activities
+    return { ...state, status: `${toolName} completed`, statusLevel: 'muted', activities }
   }
 
   if (event.type === 'context.compacted') {
@@ -1582,6 +1629,13 @@ function payloadField(payload: CoreEvent['payload'], key: string): string | unde
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined
   const value = (payload as Record<string, unknown>)[key]
   return typeof value === 'string' ? value : undefined
+}
+
+/** 对象形态 payload 的原始读取（tool.requested 的 ★input 等结构化字段用）。 */
+function payloadRecord(payload: CoreEvent['payload']): Record<string, unknown> | undefined {
+  return payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : undefined
 }
 
 /** error.raised 的 ?context.message（附录 D.2）：仅接受字符串，其余形态不展示。 */

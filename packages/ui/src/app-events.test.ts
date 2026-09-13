@@ -5,6 +5,7 @@ import type { InteractiveAppState } from './app'
 import { applyInteractiveEvent } from './app'
 
 const baseState: InteractiveAppState = {
+  activities: [],
   pendingAssistantText: '',
   sessionId: 's',
   status: 'ready',
@@ -87,5 +88,76 @@ describe('applyInteractiveEvent error visibility', () => {
     )
     expect(state.status).toBe('runner_error')
     expect(state.statusLevel).toBe('error')
+  })
+})
+
+describe('applyInteractiveEvent tool activities', () => {
+  it('creates a running activity on tool.requested with a sanitized display target', () => {
+    const state = applyInteractiveEvent(
+      baseState,
+      event('tool.requested', {
+        toolUseId: 'tu-1',
+        tool: 'Read',
+        input: { path: '/repo/src/app.tsx' },
+      }),
+    )
+    expect(state.activities).toHaveLength(1)
+    expect(state.activities[0]).toMatchObject({
+      toolUseId: 'tu-1',
+      tool: 'Read',
+      target: '/repo/src/app.tsx',
+      status: 'running',
+    })
+    // 状态行语义不变：running 仍由 tool.started 呈现
+    expect(state.status).toBe('ready')
+  })
+
+  it('finalizes the activity on tool.completed with duration and line changes', () => {
+    let state = applyInteractiveEvent(
+      baseState,
+      event('tool.requested', {
+        toolUseId: 'tu-2',
+        tool: 'Edit',
+        input: { path: '/repo/a.ts', old_string: 'x', new_string: 'y' },
+      }),
+    )
+    state = applyInteractiveEvent(
+      state,
+      event('tool.completed', {
+        toolUseId: 'tu-2',
+        tool: 'Edit',
+        isError: false,
+        durationMs: 320,
+        linesAdded: 2,
+        linesRemoved: 1,
+      }),
+    )
+    expect(state.activities[0]).toMatchObject({
+      status: 'done',
+      durationMs: 320,
+      linesAdded: 2,
+      linesRemoved: 1,
+    })
+    expect(state.status).toBe('Edit completed')
+  })
+
+  it('marks failed and hook-blocked tools as error', () => {
+    let state = applyInteractiveEvent(
+      baseState,
+      event('tool.requested', { toolUseId: 'tu-3', tool: 'Bash', input: { command: 'rm -rf /' } }),
+    )
+    state = applyInteractiveEvent(
+      state,
+      event('tool.completed', { toolUseId: 'tu-3', tool: 'Bash', isError: true, blocked: true, blockedBy: 'hook' }),
+    )
+    expect(state.activities[0]).toMatchObject({ status: 'error', blocked: true })
+  })
+
+  it('ignores tool.completed for unknown toolUseId', () => {
+    const state = applyInteractiveEvent(
+      baseState,
+      event('tool.completed', { toolUseId: 'nope', tool: 'Read', isError: false }),
+    )
+    expect(state.activities).toHaveLength(0)
   })
 })

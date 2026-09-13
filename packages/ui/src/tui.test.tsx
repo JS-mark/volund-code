@@ -710,6 +710,68 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('renders ◆ tool activity lines from tool.requested/tool.completed', async () => {
+    const events = new EventBus()
+    const stdout = new MemoryWriteStream()
+    const app = renderInteractiveApp(
+      {
+        cwd: '/repo',
+        events,
+        sessionId: 'session-activity',
+        status: 'ready',
+      },
+      {
+        debug: true,
+        interactive: false,
+        patchConsole: false,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    await events.emit({
+      payload: { toolUseId: 'tu-1', tool: 'Read', input: { path: '/repo/src/app.tsx' } },
+      sessionId: 'session-activity',
+      type: 'tool.requested',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('◆')
+    expect(stdout.output).toContain('正在读取')
+    // cwd 前缀相对化：/repo/src/app.tsx → src/app.tsx
+    expect(stdout.output).toContain('src/app.tsx')
+
+    await events.emit({
+      payload: { toolUseId: 'tu-1', tool: 'Read', isError: false, durationMs: 320 },
+      sessionId: 'session-activity',
+      type: 'tool.completed',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('已读取')
+    expect(stdout.output).toContain('0.3s')
+
+    await events.emit({
+      payload: { toolUseId: 'tu-2', tool: 'Bash', input: { command: 'rm -rf /tmp/x' } },
+      sessionId: 'session-activity',
+      type: 'tool.requested',
+      version: 1,
+    })
+    await events.emit({
+      payload: { toolUseId: 'tu-2', tool: 'Bash', isError: true, durationMs: 12 },
+      sessionId: 'session-activity',
+      type: 'tool.completed',
+      version: 1,
+    })
+    await app.waitUntilRenderFlush()
+    expect(stdout.output).toContain('运行失败')
+    expect(stdout.output).toContain('$ rm -rf /tmp/x')
+
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('§7.5.2: /paste attaches the clipboard image into the input line without keybindings', async () => {
     const events = new EventBus()
     const stdout = new MemoryWriteStream()
@@ -2465,9 +2527,15 @@ describe('renderInteractiveApp', () => {
     const stdin = new MemoryReadStream()
     const transcript = render(
       createElement(ScrollableTranscript, {
-        entries: [
-          { id: 'u1', role: 'user' as const, text: 'fix the flaky test' },
-          { id: 'a1', role: 'assistant' as const, text: 'looking at the spec now' },
+        items: [
+          {
+            kind: 'message' as const,
+            entry: { id: 'u1', role: 'user' as const, text: 'fix the flaky test' },
+          },
+          {
+            kind: 'message' as const,
+            entry: { id: 'a1', role: 'assistant' as const, text: 'looking at the spec now' },
+          },
         ],
       }),
       {
