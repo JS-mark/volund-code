@@ -84,8 +84,11 @@ describe('resolveGatewayCredentials', () => {
     // 文件权限与落盘内容
     const clientsFile = join(home, 'gateway', 'clients.json')
     const keyFile = join(home, 'gateway', 'token-key')
-    expect((await stat(clientsFile)).mode & 0o777).toBe(0o600)
-    expect((await stat(keyFile)).mode & 0o777).toBe(0o600)
+    // Windows 的 chmod 只支持只读位，创建模式的 0600 在 NTFS 上不可观测
+    if (process.platform !== 'win32') {
+      expect((await stat(clientsFile)).mode & 0o777).toBe(0o600)
+      expect((await stat(keyFile)).mode & 0o777).toBe(0o600)
+    }
 
     // 落盘只有哈希，明文只出现在 generated（一次性打印）里
     const onDisk = await readFile(clientsFile, 'utf8')
