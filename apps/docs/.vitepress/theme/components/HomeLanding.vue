@@ -2,10 +2,10 @@
 import { withBase } from 'vitepress'
 import { computed } from 'vue'
 
-import PromoPlayer from './PromoPlayer.vue'
-import VolundScene from './VolundScene.vue'
 import { COPY } from './promo/copy'
 import plan from './promo/typing-plan.json'
+import PromoPlayer from './PromoPlayer.vue'
+import VolundScene from './VolundScene.vue'
 
 const props = defineProps({ locale: { type: String, default: 'en' } })
 const isZh = computed(() => props.locale === 'zh')
@@ -25,8 +25,7 @@ const copy = {
     preRelease: 'pre-release',
     videoLabel: 'PROMO REEL',
     videoTitle: 'Volund in 66 seconds.',
-    videoNote:
-      'From task to permission approval, patch, and green tests — one take, sound on.',
+    videoNote: 'From task to permission approval, patch, and green tests — one take, sound on.',
     principles: ['Any model', 'Local context', 'Explicit permissions', 'Rust sandbox'],
     controlLabel: 'THE CONTROL PLANE',
     controlTitle: 'One agent.\nNo black box.',
@@ -232,19 +231,27 @@ const footerHref = (href) => (href.startsWith('/docs') ? localizedPath(href) : h
           </div>
           <div class="terminal-body">
             <p class="term-shell-line"><span class="term-shell-prompt">❯</span> {{ heroCmd }}</p>
-            <p class="term-agent"><span class="term-mk mk-agent">⏺</span> {{ heroTerm.assistant1 }}</p>
+            <p class="term-agent">
+              <span class="term-mk mk-agent">⏺</span> {{ heroTerm.assistant1 }}
+            </p>
             <p class="term-agent-wrap">{{ heroTerm.assistant2 }}</p>
             <p class="term-act">◆ {{ heroTerm.readDone }}<span> · 1.1s</span></p>
             <p class="term-act">◆ {{ heroTerm.editDone }}<span> · +8 −3</span></p>
             <div class="permission-card">
-              <p class="perm-title">{{ heroTerm.permTitle }} <span>· {{ heroTerm.permTool }}</span></p>
-              <p class="perm-spec"><em>{{ heroTerm.permSpecGutter }}</em>{{ heroTerm.permFile }}<span>{{ heroTerm.permSpecSuffix }}</span></p>
+              <p class="perm-title">
+                {{ heroTerm.permTitle }} <span>· {{ heroTerm.permTool }}</span>
+              </p>
+              <p class="perm-spec">
+                <em>{{ heroTerm.permSpecGutter }}</em
+                >{{ heroTerm.permFile }}<span>{{ heroTerm.permSpecSuffix }}</span>
+              </p>
               <p class="perm-opt focused">
                 <i>&gt;</i><b>1</b><span class="perm-lbl">{{ heroTerm.permOptions[0].label }}</span>
                 <span class="perm-hint">{{ heroTerm.permOptions[0].hint }}</span>
               </p>
               <p class="perm-opt">
-                <i>&nbsp;</i><b>2</b><span class="perm-lbl">{{ heroTerm.permOptions[1].label }}</span>
+                <i>&nbsp;</i><b>2</b
+                ><span class="perm-lbl">{{ heroTerm.permOptions[1].label }}</span>
                 <span class="perm-hint">{{ heroTerm.permOptions[1].hint }}</span>
               </p>
               <p class="perm-foot">{{ heroTerm.permFooter }}</p>

@@ -73,7 +73,10 @@ export const COPY: Record<Locale, PromoCopy> = {
     },
     controlEyebrow: '控制平面',
     controlTitle: ['一个智能体。', '没有黑箱。'],
-    controlSub: ['模型负责提出方案，权限层负责决策，沙箱负责隔离。', '每一步都清晰呈现在你的终端中。'],
+    controlSub: [
+      '模型负责提出方案，权限层负责决策，沙箱负责隔离。',
+      '每一步都清晰呈现在你的终端中。',
+    ],
     rail: [
       ['你', '任务意图'],
       ['VOLUND', '上下文 + 循环'],
@@ -142,7 +145,10 @@ export const COPY: Record<Locale, PromoCopy> = {
     featEyebrow: 'BUILT FOR THE TERMINAL',
     featTitle: ['The parts that matter', 'are yours.'],
     features: [
-      ['Provider-neutral', 'Route through a stable contract. Change the model, keep your workflow.'],
+      [
+        'Provider-neutral',
+        'Route through a stable contract. Change the model, keep your workflow.',
+      ],
       ['Permission-first', 'Writes, commands, and network access ask before they happen.'],
       ['Local by default', 'Sessions and diagnostics stay on your machine unless you opt in.'],
       ['Open end to end', 'TypeScript orchestration, a Rust safety core. Read, audit, extend.'],
@@ -151,8 +157,14 @@ export const COPY: Record<Locale, PromoCopy> = {
     ecoTitle: ['One kernel.', 'Works everywhere.'],
     strips: [
       ['Web console', 'A full workbench in the browser — chat, code, terminal, approvals.'],
-      ['Remote gateway', 'Reverse tunnel plus a pairing code: watch progress and approve from your phone.'],
-      ['Plugins · Skills · MCP', 'A composable runtime — namespaced plugins, skills, and MCP servers.'],
+      [
+        'Remote gateway',
+        'Reverse tunnel plus a pairing code: watch progress and approve from your phone.',
+      ],
+      [
+        'Plugins · Skills · MCP',
+        'A composable runtime — namespaced plugins, skills, and MCP servers.',
+      ],
     ],
     ctaClaim: ['Your repo.', 'Your rules.'],
     badges: ['Open source · Apache-2.0', 'Node ≥ 20.19', 'Telemetry stays local'],

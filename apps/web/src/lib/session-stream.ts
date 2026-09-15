@@ -411,7 +411,10 @@ export function useSessionStream(enabled: boolean, sessionId: string | undefined
       (notice: string | undefined) => dispatch({ type: 'notice', notice }),
       [],
     ),
-    setPermissionMode: useCallback((mode: string) => dispatch({ type: 'permission-mode', mode }), []),
+    setPermissionMode: useCallback(
+      (mode: string) => dispatch({ type: 'permission-mode', mode }),
+      [],
+    ),
     reset: useCallback(() => dispatch({ type: 'reset' }), []),
   }
 }

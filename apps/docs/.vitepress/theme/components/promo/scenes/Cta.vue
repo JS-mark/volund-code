@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { C, FONT_MONO } from '../theme'
-import { easeOut, sceneOpacity, seg } from '../helpers'
-import { INSTALL, SCENES } from '../timing'
+
 import type { PromoCopy } from '../copy'
+import { easeOut, sceneOpacity, seg } from '../helpers'
+import { C, FONT_MONO } from '../theme'
+import { INSTALL, SCENES } from '../timing'
 
 const props = defineProps<{ t: number; copy: PromoCopy }>()
 
@@ -32,10 +33,7 @@ const cursorOn = computed(
         <rect width="64" height="64" rx="8" fill="#0d1512" />
         <path fill="#2bbd9b" d="M10 7H54V13H60V40H54V46H37V59H27V46H10V40H4V13H10Z" />
         <rect x="14" y="17" width="36" height="19" fill="#0d1512" />
-        <path
-          fill="#2bbd9b"
-          d="M18 20H22V23H25V26H28V29H25V32H22V35H18V32H21V29H24V26H21V23H18Z"
-        />
+        <path fill="#2bbd9b" d="M18 20H22V23H25V26H28V29H25V32H22V35H18V32H21V29H24V26H21V23H18Z" />
         <rect x="34" y="32" width="10" height="3" fill="#2bbd9b" />
       </svg>
       <span class="wm">VOLUND CLI</span>

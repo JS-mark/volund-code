@@ -5,14 +5,15 @@
    fullscreen and exposes window.volundPromoRender(t) so the offline capture
    script can drive frames deterministically. */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import Promo from './promo/Promo.vue'
-import { DURATION_S } from './promo/timing'
+
+import audioEn from '../assets/promo/audio-en.m4a'
 /* Hashed asset imports: when assets are regenerated the URL changes, so
    browsers can never serve a stale poster/audio from cache. */
 import audioZh from '../assets/promo/audio-zh.m4a'
-import audioEn from '../assets/promo/audio-en.m4a'
-import posterZh from '../assets/promo/volund-promo-zh-poster.jpg'
 import posterEn from '../assets/promo/volund-promo-en-poster.jpg'
+import posterZh from '../assets/promo/volund-promo-zh-poster.jpg'
+import Promo from './promo/Promo.vue'
+import { DURATION_S } from './promo/timing'
 
 const props = defineProps<{ locale: 'zh' | 'en' }>()
 

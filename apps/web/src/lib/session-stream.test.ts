@@ -127,10 +127,7 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
 
   it('session.attached 重挂会话时保留进程级权限档位（选择器不闪没）', () => {
     const seeded = reduceChatState(initialChatState, { type: 'permission-mode', mode: 'auto' })
-    const state = reduceChatState(
-      seeded,
-      envelope('view', { type: 'session.attached', id: 's2' }),
-    )
+    const state = reduceChatState(seeded, envelope('view', { type: 'session.attached', id: 's2' }))
     expect(state.messages).toHaveLength(0)
     expect(state.permissionMode).toBe('auto')
   })

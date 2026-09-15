@@ -1,3 +1,4 @@
+import type { TranscriptEntry } from '@volund/app-runtime'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -8,7 +9,6 @@ import {
   formatActivityDuration,
   type ActivityItem,
 } from './activity'
-import type { TranscriptEntry } from '@volund/app-runtime'
 
 describe('activityTarget', () => {
   it('extracts the per-tool display target', () => {
@@ -83,7 +83,10 @@ describe('buildTimeline', () => {
 
   it('interleaves messages and activities by event id (uuidv7 ≈ chronological)', () => {
     const items = buildTimeline(
-      [message('0192c8f4-0000-7000-8000-000000000001'), message('0192c8f4-0000-7000-8000-000000000003')],
+      [
+        message('0192c8f4-0000-7000-8000-000000000001'),
+        message('0192c8f4-0000-7000-8000-000000000003'),
+      ],
       [activity('0192c8f4-0000-7000-8000-000000000002')],
     )
     expect(items.map((item) => (item.kind === 'message' ? item.entry.id : item.item.id))).toEqual([
@@ -95,7 +98,11 @@ describe('buildTimeline', () => {
 
   it('pins notices first and the pending stream last', () => {
     const items = buildTimeline(
-      [message('notice-0'), message('0192c8f4-0000-7000-8000-000000000001'), message('pending-assistant')],
+      [
+        message('notice-0'),
+        message('0192c8f4-0000-7000-8000-000000000001'),
+        message('pending-assistant'),
+      ],
       [activity('0192c8f4-0000-7000-8000-000000000002')],
     )
     expect(items.map((item) => (item.kind === 'message' ? item.entry.id : item.item.id))).toEqual([

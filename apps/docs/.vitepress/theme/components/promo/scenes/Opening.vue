@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { C, FONT_MONO } from '../theme'
-import { easeOut, sceneOpacity, seg } from '../helpers'
-import { SCENES } from '../timing'
+
 import type { PromoCopy } from '../copy'
+import { easeOut, sceneOpacity, seg } from '../helpers'
+import { C, FONT_MONO } from '../theme'
+import { SCENES } from '../timing'
 
 const props = defineProps<{ t: number; copy: PromoCopy }>()
 

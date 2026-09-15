@@ -8,11 +8,30 @@ const DUR = 66
 const N = SR * DUR
 
 const NOTE = {
-  A1: 55, F1: 43.65, C2: 65.41, G1: 49,
-  A2: 110, C3: 130.81, E3: 164.81, F2: 87.31, G2: 98, B2: 123.47, D3: 146.83,
-  A3: 220, C4: 261.63, E4: 329.63, F3: 174.61, G3b: 196, B3: 246.94, D4: 293.66,
-  A4: 440, C5: 523.25, E5: 659.25, A5: 880,
-  F4: 349.23, G4: 392,
+  A1: 55,
+  F1: 43.65,
+  C2: 65.41,
+  G1: 49,
+  A2: 110,
+  C3: 130.81,
+  E3: 164.81,
+  F2: 87.31,
+  G2: 98,
+  B2: 123.47,
+  D3: 146.83,
+  A3: 220,
+  C4: 261.63,
+  E4: 329.63,
+  F3: 174.61,
+  G3b: 196,
+  B3: 246.94,
+  D4: 293.66,
+  A4: 440,
+  C5: 523.25,
+  E5: 659.25,
+  A5: 880,
+  F4: 349.23,
+  G4: 392,
 }
 
 const CHORDS = [
@@ -25,7 +44,17 @@ const CHORDS = [
 const INSTALL = { text: 'npm install --global @volund/cli', start: 59.9, cps: 22 }
 
 function makeTrack(L, R, locale) {
-  const addSine = (t0, t1, freq, gain, pan = 0.5, attack = 0.02, release = 0.08, vibDepth = 0, vibRate = 5) => {
+  const addSine = (
+    t0,
+    t1,
+    freq,
+    gain,
+    pan = 0.5,
+    attack = 0.02,
+    release = 0.08,
+    vibDepth = 0,
+    vibRate = 5,
+  ) => {
     const i0 = Math.max(0, Math.floor(t0 * SR))
     const i1 = Math.min(N, Math.floor(t1 * SR))
     const gL = Math.cos((pan * Math.PI) / 2) * gain
@@ -87,12 +116,23 @@ function makeTrack(L, R, locale) {
       const g = 0.028 * Math.min(Math.min(1, (at - 11) / 3), Math.min(1, (58 - at) / 3))
       if (g <= 0) continue
       const seq = [0, 2, 1, 3, 2, 0, 3, 1]
-      addSine(at, at + (beat / 4) * 0.95, NOTE[ch.arp[seq[s % seq.length]]], g, 0.3 + 0.4 * ((s % 4) / 3), 0.005, 0.09)
+      addSine(
+        at,
+        at + (beat / 4) * 0.95,
+        NOTE[ch.arp[seq[s % seq.length]]],
+        g,
+        0.3 + 0.4 * ((s % 4) / 3),
+        0.005,
+        0.09,
+      )
     }
   }
 
   /* keystroke ticks from the shared typing plan */
-  const planPath = new URL('../../.vitepress/theme/components/promo/typing-plan.json', import.meta.url)
+  const planPath = new URL(
+    '../../.vitepress/theme/components/promo/typing-plan.json',
+    import.meta.url,
+  )
   const p = JSON.parse(fs.readFileSync(planPath))[locale]
   for (let i = 0; i < p.cmd1.length; i++) addTick(p.cmd1Start + i / p.cmd1Cps, 0.035)
   for (let i = 0; i < p.cmd2.length; i++) addTick(p.cmd2Start + i / p.cmd2Cps, 0.03)
@@ -117,11 +157,19 @@ function writeWav(path, L, R) {
     R[i] = Math.tanh(R[i] * 1.4) * 0.85 * fade
   }
   const buf = Buffer.alloc(44 + N * 4)
-  buf.write('RIFF', 0); buf.writeUInt32LE(36 + N * 4, 4); buf.write('WAVE', 8)
-  buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20)
-  buf.writeUInt16LE(2, 22); buf.writeUInt32LE(SR, 24); buf.writeUInt32LE(SR * 4, 28)
-  buf.writeUInt16LE(4, 32); buf.writeUInt16LE(16, 34)
-  buf.write('data', 36); buf.writeUInt32LE(N * 4, 40)
+  buf.write('RIFF', 0)
+  buf.writeUInt32LE(36 + N * 4, 4)
+  buf.write('WAVE', 8)
+  buf.write('fmt ', 12)
+  buf.writeUInt32LE(16, 16)
+  buf.writeUInt16LE(1, 20)
+  buf.writeUInt16LE(2, 22)
+  buf.writeUInt32LE(SR, 24)
+  buf.writeUInt32LE(SR * 4, 28)
+  buf.writeUInt16LE(4, 32)
+  buf.writeUInt16LE(16, 34)
+  buf.write('data', 36)
+  buf.writeUInt32LE(N * 4, 40)
   for (let i = 0; i < N; i++) {
     buf.writeInt16LE((Math.max(-1, Math.min(1, L[i])) * 32767) | 0, 44 + i * 4)
     buf.writeInt16LE((Math.max(-1, Math.min(1, R[i])) * 32767) | 0, 44 + i * 4 + 2)

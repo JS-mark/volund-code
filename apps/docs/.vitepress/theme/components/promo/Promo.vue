@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { C, FONT_SANS } from './theme'
+
 import { COPY, type Locale } from './copy'
+import ControlPlane from './scenes/ControlPlane.vue'
+import Cta from './scenes/Cta.vue'
+import Ecosystem from './scenes/Ecosystem.vue'
+import Features from './scenes/Features.vue'
 import Opening from './scenes/Opening.vue'
 import TerminalScene from './scenes/TerminalScene.vue'
-import ControlPlane from './scenes/ControlPlane.vue'
-import Features from './scenes/Features.vue'
-import Ecosystem from './scenes/Ecosystem.vue'
-import Cta from './scenes/Cta.vue'
+import { C, FONT_SANS } from './theme'
 
 const props = defineProps<{ t: number; locale: Locale }>()
 const copy = computed(() => COPY[props.locale])

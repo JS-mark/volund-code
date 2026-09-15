@@ -9,14 +9,14 @@
 
 ## 场景
 
-| 时间 | 场景 | 组件 |
-|------|------|------|
-| 0–5s | 开场：像素锤子 logo 组装 + 品牌字标 | `scenes/Opening.vue` |
-| 5–27s | 终端演示：任务 → 权限审批 → 补丁 → 测试 → 提交 | `scenes/TerminalScene.vue` |
-| 27–36s | 控制平面架构：你 → VOLUND → 路由器 → 沙箱 | `scenes/ControlPlane.vue` |
-| 36–48s | 四大特性 | `scenes/Features.vue` |
-| 48–58s | 生态：Web 控制台 / 远程网关 / 插件·Skills·MCP | `scenes/Ecosystem.vue` |
-| 58–66s | CTA：安装命令 + GitHub | `scenes/Cta.vue` |
+| 时间   | 场景                                           | 组件                       |
+| ------ | ---------------------------------------------- | -------------------------- |
+| 0–5s   | 开场：像素锤子 logo 组装 + 品牌字标            | `scenes/Opening.vue`       |
+| 5–27s  | 终端演示：任务 → 权限审批 → 补丁 → 测试 → 提交 | `scenes/TerminalScene.vue` |
+| 27–36s | 控制平面架构：你 → VOLUND → 路由器 → 沙箱      | `scenes/ControlPlane.vue`  |
+| 36–48s | 四大特性                                       | `scenes/Features.vue`      |
+| 48–58s | 生态：Web 控制台 / 远程网关 / 插件·Skills·MCP  | `scenes/Ecosystem.vue`     |
+| 58–66s | CTA：安装命令 + GitHub                         | `scenes/Cta.vue`           |
 
 ## 常用命令（apps/docs 下）
 

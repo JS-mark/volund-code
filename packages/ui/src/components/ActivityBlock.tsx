@@ -15,7 +15,8 @@ export interface ActivityBlockProps {
  */
 export function ActivityBlock({ item, cwd }: ActivityBlockProps) {
   const verbs = activityVerbs(item.tool)
-  const verb = item.status === 'running' ? verbs.running : item.status === 'error' ? verbs.error : verbs.done
+  const verb =
+    item.status === 'running' ? verbs.running : item.status === 'error' ? verbs.error : verbs.done
   const target = item.target && cwd ? relativize(item.target, cwd) : item.target
   const suffix = activitySuffix(item)
   const dim = item.status === 'done'

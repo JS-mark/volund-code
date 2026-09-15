@@ -148,7 +148,13 @@ describe('applyInteractiveEvent tool activities', () => {
     )
     state = applyInteractiveEvent(
       state,
-      event('tool.completed', { toolUseId: 'tu-3', tool: 'Bash', isError: true, blocked: true, blockedBy: 'hook' }),
+      event('tool.completed', {
+        toolUseId: 'tu-3',
+        tool: 'Bash',
+        isError: true,
+        blocked: true,
+        blockedBy: 'hook',
+      }),
     )
     expect(state.activities[0]).toMatchObject({ status: 'error', blocked: true })
   })

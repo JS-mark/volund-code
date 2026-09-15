@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { FONT_MONO } from '../theme'
-import { easeOut, sceneOpacity, seg } from '../helpers'
-import { SCENES, TERM } from '../timing'
+
 import type { Locale, PromoCopy } from '../copy'
+import { easeOut, sceneOpacity, seg } from '../helpers'
+import { FONT_MONO } from '../theme'
+import { SCENES, TERM } from '../timing'
 import plan from '../typing-plan.json'
 
 const props = defineProps<{ t: number; locale: Locale; copy: PromoCopy }>()
@@ -108,11 +109,15 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
         <!-- activity: ◆ rows, dim once done -->
         <div class="row act" :style="rowIn(8.9)">
           <span class="mk" :style="{ color: K.gray }">◆</span>
-          <span :style="{ color: K.gray }">{{ copy.term.readDone }}<span class="sfx"> · 1.1s</span></span>
+          <span :style="{ color: K.gray }"
+            >{{ copy.term.readDone }}<span class="sfx"> · 1.1s</span></span
+          >
         </div>
         <div class="row act" :style="rowIn(11.8)">
           <span class="mk" :style="{ color: K.gray }">◆</span>
-          <span :style="{ color: K.gray }">{{ copy.term.editDone }}<span class="sfx"> · +8 −3 · 0.6s</span></span>
+          <span :style="{ color: K.gray }"
+            >{{ copy.term.editDone }}<span class="sfx"> · +8 −3 · 0.6s</span></span
+          >
         </div>
 
         <!-- permission card mirroring PermissionPromptStack -->
@@ -132,7 +137,9 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
             class="opt"
             :style="optStyle(i)"
           >
-            <span class="ptr" :style="{ color: i === focusedIdx ? K[opt.color] : 'transparent' }">&gt;</span>
+            <span class="ptr" :style="{ color: i === focusedIdx ? K[opt.color] : 'transparent' }"
+              >&gt;</span
+            >
             <span class="num">{{ i + 1 }}</span>
             <span class="lbl">{{ opt.label }}</span>
             <span class="hint" :style="{ color: K.gray }">{{ opt.hint }}</span>
@@ -155,7 +162,9 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
 
         <div class="row act" :style="rowIn(16.2)">
           <span class="mk" :style="{ color: K.gray }">◆</span>
-          <span :style="{ color: K.gray }">{{ copy.term.testDone }}<span class="sfx"> · 5/5 ✓ · 1.8s</span></span>
+          <span :style="{ color: K.gray }"
+            >{{ copy.term.testDone }}<span class="sfx"> · 5/5 ✓ · 1.8s</span></span
+          >
         </div>
         <div class="row" :style="rowIn(17.2)">
           <span class="mk" :style="{ color: K.cyan }">⏺</span>
@@ -175,7 +184,9 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
         </div>
         <div class="row act" :style="rowIn(21.0)">
           <span class="mk" :style="{ color: K.gray }">◆</span>
-          <span :style="{ color: K.gray }">{{ copy.term.commitDone }}<span class="sfx"> · a3f9c21 · 0.9s</span></span>
+          <span :style="{ color: K.gray }"
+            >{{ copy.term.commitDone }}<span class="sfx"> · a3f9c21 · 0.9s</span></span
+          >
         </div>
       </div>
     </div>

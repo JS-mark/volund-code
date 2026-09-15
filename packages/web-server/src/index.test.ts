@@ -210,7 +210,10 @@ describe('web-server gateway', () => {
     })
     const { base, headers } = await authed(url)
     const controller = new AbortController()
-    const res = await fetch(`${base}api/v1/events`, { headers: { Cookie: headers.Cookie }, signal: controller.signal })
+    const res = await fetch(`${base}api/v1/events`, {
+      headers: { Cookie: headers.Cookie },
+      signal: controller.signal,
+    })
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ''

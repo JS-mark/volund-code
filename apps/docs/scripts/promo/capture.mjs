@@ -8,6 +8,7 @@ import { execFileSync, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
+
 import { chromium } from 'playwright-core'
 
 const docsRoot = new URL('../..', import.meta.url).pathname
@@ -62,7 +63,9 @@ const browser = await chromium.launch({
 const render = async (page, t) => {
   await page.evaluate((tt) => window.volundPromoRender(tt), t)
   /* let Vue flush + paint */
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await page.evaluate(
+    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  )
 }
 
 try {
@@ -96,7 +99,10 @@ try {
       await render(page, f / FPS)
       await canvas.screenshot({ path: path.join(framesDir, String(f).padStart(5, '0') + '.png') })
       if (f % 300 === 0)
-        console.log(locale, `frame ${f}/${total} (${(f / ((Date.now() - started) / 1000)).toFixed(1)} fps)`)
+        console.log(
+          locale,
+          `frame ${f}/${total} (${(f / ((Date.now() - started) / 1000)).toFixed(1)} fps)`,
+        )
     }
     await page.close()
 
