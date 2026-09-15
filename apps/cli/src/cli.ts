@@ -143,7 +143,10 @@ export async function runCli(
   const firstPositional = args._[0]
   // Only these names dispatch as subcommands; any other first positional is
   // the prompt of the default session (`volund "summarize this repo"`).
-  const subcommand = reservedCommandNames.has(firstPositional) ? firstPositional : undefined
+  const subcommand =
+    firstPositional !== undefined && reservedCommandNames.has(firstPositional)
+      ? firstPositional
+      : undefined
   let stdout = ''
   let stderr = ''
   const jsonMode = Boolean(args.json)
