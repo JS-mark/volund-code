@@ -14,6 +14,13 @@ const runChangesetStatus = (cwd, outputPath) =>
     encoding: 'utf8',
   })
 
+const changesetFrontmatterPackages = (contents) => {
+  const frontmatter = contents.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
+  return [...frontmatter.matchAll(/^['"]?([^'":]+)['"]?:\s+(?:major|minor|patch)$/gm)].map(
+    ([, packageName]) => packageName,
+  )
+}
+
 void test('Changesets never mix ignored and publishable packages', async () => {
   const changesetDirectory = new URL('../.changeset/', import.meta.url)
   const { ignore } = JSON.parse(await readFile(new URL('config.json', changesetDirectory), 'utf8'))
@@ -22,10 +29,7 @@ void test('Changesets never mix ignored and publishable packages', async () => {
 
   for (const file of changesetFiles) {
     const contents = await readFile(new URL(file, changesetDirectory), 'utf8')
-    const frontmatter = contents.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
-    const packages = [
-      ...frontmatter.matchAll(/^['"]?([^'":]+)['"]?:\s+(?:major|minor|patch)$/gm),
-    ].map(([, packageName]) => packageName)
+    const packages = changesetFrontmatterPackages(contents)
     const hasIgnoredPackage = packages.some((packageName) => ignoredPackages.has(packageName))
     const hasPublishablePackage = packages.some((packageName) => !ignoredPackages.has(packageName))
 
@@ -43,11 +47,33 @@ void test('Changesets builds the release plan and rejects deleted workspace pack
   const worktreePath = join(temporaryDirectory, 'invalid-worktree')
 
   try {
+    // The plan is empty right after a release consumes every changeset (or when
+    // the only pending ones target ignored packages), so the non-empty
+    // assertion only applies while publishable changesets exist.
+    const changesetDirectory = new URL('../.changeset/', import.meta.url)
+    const { ignore } = JSON.parse(
+      await readFile(new URL('config.json', changesetDirectory), 'utf8'),
+    )
+    const ignoredPackages = new Set(ignore)
+    const hasPendingChangesets = (
+      await Promise.all(
+        (
+          await readdir(changesetDirectory)
+        )
+          .filter((file) => file.endsWith('.md'))
+          .map(async (file) => {
+            const contents = await readFile(new URL(file, changesetDirectory), 'utf8')
+            const packages = changesetFrontmatterPackages(contents)
+            return packages.some((packageName) => !ignoredPackages.has(packageName))
+          }),
+      )
+    ).some(Boolean)
+
     const validStatus = runChangesetStatus(root, validPlanPath)
     assert.equal(validStatus.status, 0, validStatus.stderr)
 
     const plan = JSON.parse(await readFile(validPlanPath, 'utf8'))
-    assert.ok(plan.releases.length > 0)
+    if (hasPendingChangesets) assert.ok(plan.releases.length > 0)
     assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-fs-')))
     assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-sandbox-')))
     assert.ok(plan.releases.every(({ name }) => !name.startsWith('@volund/native-search-')))
