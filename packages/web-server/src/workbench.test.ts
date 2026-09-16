@@ -108,12 +108,13 @@ describe('terminal port (interactive shell)', () => {
     session.onData((data) => {
       buffer += data
     })
-    session.write('echo wb-term-$((40+2))\n')
+    // cmd 管道输入需 \r 行结尾，且不支持 POSIX 算术展开。
+    session.write(process.platform === 'win32' ? 'echo wb-term-42\r' : 'echo wb-term-$((40+2))\n')
     // 交互 shell 流式输出：等到结果出现（pty 带回显，匹配具体输出行即可）。
     // pty spawn + 交互 zsh 启动在全量高并发下可能很慢，内外窗口同步放宽。
     await vi.waitFor(() => expect(buffer).toContain('wb-term-42'), { timeout: 15_000 })
     const exited = new Promise<number | null>((resolveExit) => session.onExit(resolveExit))
-    session.write('exit\n')
+    session.write(process.platform === 'win32' ? 'exit\r' : 'exit\n')
     await vi.waitFor(
       async () => {
         const state = await Promise.race([
@@ -217,16 +218,26 @@ describe('terminal port (interactive shell)', () => {
 
   it('honors configured shell and exposes settings', async () => {
     const root = await workspace()
-    const port = createTerminalPort(root, { shell: '/bin/sh', fontSize: 14, scrollback: 500 })
-    expect(port.settings).toEqual({ shell: '/bin/sh', fontSize: 14, scrollback: 500 })
+    // win32 忽略 shell 配置，实际生效 cmd.exe（terminal.ts 的固定退化路径）。
+    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
+    const port = createTerminalPort(root, { shell, fontSize: 14, scrollback: 500 })
+    expect(port.settings).toEqual({ shell, fontSize: 14, scrollback: 500 })
     const session = port.spawnShell()
     let buffer = ''
     session.onData((data) => {
       buffer += data
     })
-    session.write('echo shell-is-$0\n')
-    // /bin/sh 自身回显 $0 = sh（zsh 会是 zsh）。
-    await vi.waitFor(() => expect(buffer).toMatch(/shell-is-(.*\/)?sh/), { timeout: 8000 })
+    // POSIX：/bin/sh 回显 $0 = sh（zsh 会是 zsh）；cmd 固定回显明文。
+    session.write(process.platform === 'win32' ? 'echo shell-is-cmd\r' : 'echo shell-is-$0\n')
+    await vi.waitFor(
+      () =>
+        expect(buffer).toMatch(
+          process.platform === 'win32' ? /shell-is-cmd/ : /shell-is-(.*\/)?sh/,
+        ),
+      {
+        timeout: 8000,
+      },
+    )
     session.kill()
   }, 20_000)
 })
@@ -415,9 +426,17 @@ describe('terminal websocket route', () => {
           buf = buf.subarray(offset + length)
         }
       })
-      // 等 shell 提示符就绪再发命令（pty 回显 '$ '）。
-      await vi.waitFor(() => expect(received).toContain('$'), { timeout: 8000 })
-      socket.write(wsTextFrame(JSON.stringify({ type: 'in', data: 'echo ws-term-ok\n' })))
+      // 等 shell 提示符就绪再发命令（POSIX 回显 '$ '，cmd 回显 'C:\...>'）。
+      const prompt = process.platform === 'win32' ? '>' : '$'
+      await vi.waitFor(() => expect(received).toContain(prompt), { timeout: 8000 })
+      socket.write(
+        wsTextFrame(
+          JSON.stringify({
+            type: 'in',
+            data: process.platform === 'win32' ? 'echo ws-term-ok\r' : 'echo ws-term-ok\n',
+          }),
+        ),
+      )
       await vi.waitFor(() => expect(received).toContain('ws-term-ok'), { timeout: 8000 })
       socket.write(wsTextFrame(JSON.stringify({ type: 'in', data: 'exit\n' })))
       await vi.waitFor(() => expect(received).toContain('"type":"exit"'), { timeout: 8000 })
