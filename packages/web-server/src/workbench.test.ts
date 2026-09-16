@@ -108,13 +108,13 @@ describe('terminal port (interactive shell)', () => {
     session.onData((data) => {
       buffer += data
     })
-    // cmd 管道输入需 \r 行结尾，且不支持 POSIX 算术展开。
-    session.write(process.platform === 'win32' ? 'echo wb-term-42\r' : 'echo wb-term-$((40+2))\n')
+    // cmd 管道输入需 CRLF 行结尾，且不支持 POSIX 算术展开。
+    session.write(process.platform === 'win32' ? 'echo wb-term-42\r\n' : 'echo wb-term-$((40+2))\n')
     // 交互 shell 流式输出：等到结果出现（pty 带回显，匹配具体输出行即可）。
     // pty spawn + 交互 zsh 启动在全量高并发下可能很慢，内外窗口同步放宽。
     await vi.waitFor(() => expect(buffer).toContain('wb-term-42'), { timeout: 15_000 })
     const exited = new Promise<number | null>((resolveExit) => session.onExit(resolveExit))
-    session.write(process.platform === 'win32' ? 'exit\r' : 'exit\n')
+    session.write(process.platform === 'win32' ? 'exit\r\n' : 'exit\n')
     await vi.waitFor(
       async () => {
         const state = await Promise.race([
@@ -135,7 +135,7 @@ describe('terminal port (interactive shell)', () => {
     session.onData((data) => {
       buffer += data
     })
-    session.write(process.platform === 'win32' ? 'cd\r' : 'pwd\n')
+    session.write(process.platform === 'win32' ? 'cd\r\n' : 'pwd\n')
     await vi.waitFor(() => expect(buffer.toLowerCase()).toContain('volund-workbench-test'), {
       timeout: 8000,
     })
@@ -228,7 +228,7 @@ describe('terminal port (interactive shell)', () => {
       buffer += data
     })
     // POSIX：/bin/sh 回显 $0 = sh（zsh 会是 zsh）；cmd 固定回显明文。
-    session.write(process.platform === 'win32' ? 'echo shell-is-cmd\r' : 'echo shell-is-$0\n')
+    session.write(process.platform === 'win32' ? 'echo shell-is-cmd\r\n' : 'echo shell-is-$0\n')
     await vi.waitFor(
       () =>
         expect(buffer).toMatch(
@@ -433,12 +433,19 @@ describe('terminal websocket route', () => {
         wsTextFrame(
           JSON.stringify({
             type: 'in',
-            data: process.platform === 'win32' ? 'echo ws-term-ok\r' : 'echo ws-term-ok\n',
+            data: process.platform === 'win32' ? 'echo ws-term-ok\r\n' : 'echo ws-term-ok\n',
           }),
         ),
       )
       await vi.waitFor(() => expect(received).toContain('ws-term-ok'), { timeout: 8000 })
-      socket.write(wsTextFrame(JSON.stringify({ type: 'in', data: 'exit\n' })))
+      socket.write(
+        wsTextFrame(
+          JSON.stringify({
+            type: 'in',
+            data: process.platform === 'win32' ? 'exit\r\n' : 'exit\n',
+          }),
+        ),
+      )
       await vi.waitFor(() => expect(received).toContain('"type":"exit"'), { timeout: 8000 })
     } finally {
       socket.destroy()
