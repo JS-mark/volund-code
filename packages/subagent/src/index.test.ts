@@ -388,7 +388,7 @@ describe('SubagentDispatcher', () => {
       promptDigest: prompt,
       ctxIn: Math.ceil(prompt.length / 4),
     })
-    // budget = 合并后生效预算（input 维覆盖 default）；toolCallMax 不在附录 D 契约内。
+    // budget = 生效预算（§2.7bis.2 逐维收紧：input 维 ≤ default 维才生效）；toolCallMax 不在附录 D 契约内。
     expect(dispatched.payload.budget).toEqual({
       tokenMax: 10_000,
       costUSDMax: 0.5,
@@ -505,6 +505,123 @@ describe('SubagentDispatcher', () => {
       code: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED',
     })
     expect(seen).toEqual([])
+  })
+})
+
+describe('SubagentDispatcher budget arbitration (SAG-04 §2.7bis.2 R-G1 逐维只能收紧)', () => {
+  const fullDefault = {
+    tokenMax: 50_000,
+    costUSDMax: 0.5,
+    timeMsMax: 60_000,
+    toolCallMax: 20,
+  }
+  const dispatcherWith = (
+    defaultBudget: typeof fullDefault | Partial<typeof fullDefault> | undefined,
+    capture?: { budget?: unknown },
+  ) =>
+    new SubagentDispatcher({
+      ...(defaultBudget ? { defaultBudget } : {}),
+      runnerFactory: (state) => {
+        if (capture) capture.budget = state.resourceBudget
+        return fakeRunner(async () => state)
+      },
+    })
+
+  it('rejects raising a dimension above the default ceiling (G1: costUSDMax: 1000)', async () => {
+    const seen: string[] = []
+    const p = parent()
+    p.events.subscribe((event) => {
+      seen.push(event.type)
+    })
+    let spawned = 0
+    const dispatcher = new SubagentDispatcher({
+      defaultBudget: fullDefault,
+      runnerFactory: (state) => {
+        spawned += 1
+        return fakeRunner(async () => state)
+      },
+    })
+    const attempt = dispatcher.dispatch(p, {
+      prompt: 'blow the budget',
+      budget: { costUSDMax: 1000 },
+    })
+    await expect(attempt).rejects.toMatchObject({
+      name: 'VolundNormalizedError',
+      category: 'invalid_request',
+      code: 'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT',
+      retryable: false,
+    })
+    // 拒绝信息指明越界维度与两值，并带「只能在 default 内收紧」的模型可读指引。
+    await expect(attempt).rejects.toThrow(
+      /budget\.costUSDMax 1000 exceeds the default ceiling 0\.5.*only tighten within the default/s,
+    )
+    // 拒绝发生在派发前：无 runner、无注册表行、无 subagent.* 事件。
+    expect(spawned).toBe(0)
+    expect(dispatcher.list()).toEqual([])
+    expect(seen.filter((type) => type.startsWith('subagent.'))).toEqual([])
+  })
+
+  it('rejects a raise on any single dimension even when others tighten', async () => {
+    const dispatcher = dispatcherWith(fullDefault)
+    await expect(
+      dispatcher.dispatch(parent(), {
+        prompt: 'mixed',
+        budget: { tokenMax: 1_000, timeMsMax: 120_000 },
+      }),
+    ).rejects.toMatchObject({ code: 'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT' })
+  })
+
+  it('applies the same tighten-only rule to the retiring toolCallMax dimension (SAG-36)', async () => {
+    const dispatcher = dispatcherWith(fullDefault)
+    await expect(
+      dispatcher.dispatch(parent(), { prompt: 'raise', budget: { toolCallMax: 21 } }),
+    ).rejects.toMatchObject({
+      code: 'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT',
+      message: expect.stringContaining('budget.toolCallMax 21 exceeds the default ceiling 20'),
+    })
+  })
+
+  it('passes per-dimension tightening and hands the merged budget to the child session', async () => {
+    const capture: { budget?: unknown } = {}
+    const dispatcher = dispatcherWith(fullDefault, capture)
+    const result = await dispatcher.dispatch(parent(), {
+      prompt: 'tighten',
+      budget: { tokenMax: 10_000, timeMsMax: 30_000 },
+    })
+    expect(result.status).toBe('completed')
+    // 收紧维取 input 值，未传维继承 default；边界（等于 default）也算收紧。
+    expect(capture.budget).toEqual({
+      tokenMax: 10_000,
+      costUSDMax: 0.5,
+      timeMsMax: 30_000,
+      toolCallMax: 20,
+    })
+    expect(dispatcher.list()[0]?.budget).toEqual(capture.budget)
+    const atCeiling = dispatcherWith(fullDefault)
+    await expect(
+      atCeiling.dispatch(parent(), { prompt: 'at ceiling', budget: { costUSDMax: 0.5 } }),
+    ).resolves.toMatchObject({ status: 'completed' })
+  })
+
+  it('allows any value on a dimension the default leaves unset (no ceiling to exceed)', async () => {
+    const capture: { budget?: unknown } = {}
+    const dispatcher = dispatcherWith({ tokenMax: 50_000 }, capture)
+    await expect(
+      dispatcher.dispatch(parent(), { prompt: 'unbounded default', budget: { costUSDMax: 1000 } }),
+    ).resolves.toMatchObject({ status: 'completed' })
+    expect(capture.budget).toEqual({ tokenMax: 50_000, costUSDMax: 1000 })
+  })
+
+  it('inherits the default for omitted dimensions and stays unbounded when no default exists', async () => {
+    const capture: { budget?: unknown } = {}
+    const dispatcher = dispatcherWith({ tokenMax: 50_000, costUSDMax: 0.5 }, capture)
+    await dispatcher.dispatch(parent(), { prompt: 'inherit' })
+    expect(capture.budget).toEqual({ tokenMax: 50_000, costUSDMax: 0.5 })
+
+    const unbounded: { budget?: unknown } = {}
+    const noDefault = dispatcherWith(undefined, unbounded)
+    await noDefault.dispatch(parent(), { prompt: 'free' })
+    expect(unbounded.budget).toEqual({})
   })
 })
 
