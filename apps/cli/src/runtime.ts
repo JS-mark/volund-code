@@ -61,7 +61,13 @@ import {
 import type { RouterPolicy } from '@volund/router'
 import { sanitize, type JsonValue } from '@volund/shared'
 import { SkillsRuntime, defaultSkillSources } from '@volund/skills-runtime'
-import { AttachmentStore, BackupStore, EvolutionStore, PromptLoader } from '@volund/storage'
+import {
+  AttachmentStore,
+  BackupStore,
+  EvolutionStore,
+  PromptLoader,
+  SessionStore,
+} from '@volund/storage'
 import { AgentDefinitionRegistry, SubagentDispatcher, untrustedAgentBody } from '@volund/subagent'
 import { LocalTelemetrySink, Telemetry, TelemetryLogger, TelemetryStore } from '@volund/telemetry'
 import type { NativeBridge } from '@volund/tool-kit'
@@ -678,6 +684,21 @@ export interface ProductionOptions {
   model?: string
 }
 
+/**
+ * SAG-03 §2.7bis.4：config reload 整体替换 dispatcher 时保留运行史——
+ * 有活跃运行不替换（原行为）；无活跃运行时新建实例并继承旧注册表历史，
+ * 不再清史（旧行为：替换即丢全部已 settle 行）。
+ */
+export function rebuildDispatcherOnConfigReload(
+  current: SubagentDispatcher,
+  build: () => SubagentDispatcher,
+): SubagentDispatcher {
+  if (current.activeCount !== 0) return current
+  const next = build()
+  next.inheritRuns(current)
+  return next
+}
+
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
@@ -812,7 +833,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         }
         if (Object.keys(limits).length > 0) {
           configSubagentLimits = limits
-          if (dispatcher && dispatcher.activeCount === 0) dispatcher = buildDispatcher()
+          // SAG-03：reload 不再清运行史（无活跃运行时替换并继承旧注册表）。
+          if (dispatcher) dispatcher = rebuildDispatcherOnConfigReload(dispatcher, buildDispatcher)
         }
       }
       const models = config.models
@@ -1571,6 +1593,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     terminal: { isInteractive: isInteractiveTerminal, promptLine: promptLineMaybe },
   })
   const session = appKernel.sessions as SessionController<StatusViewModel>
+  // SAG-03 §2.7bis.4：会话激活（新建 / resume）后从父会话 JSONL 重放重建 dispatcher
+  // 运行注册表——独立全扫（不经 resume replay 的尾部 20-turn 窗口；subagent.* 是会话级
+  // 运行史事件，窗口语义不适用）。每会话每进程一次；live 条目优先，dispatched 无
+  // settled → interrupted 合成标记（crash 残留行）。读取失败不影响会话激活。
+  const rebuiltRegistries = new Set<string>()
+  session.onActivate((active) => {
+    if (rebuiltRegistries.has(active.id)) return
+    rebuiltRegistries.add(active.id)
+    void new SessionStore(join(home, 'sessions', `${active.id}.jsonl`))
+      .load()
+      .then((stored) => dispatcher.rebuildFromJournal(stored))
+      .catch(() => {})
+  })
   // P1-04e：auth/config/native 三域装配（app-runtime 工厂；凭据交互输入与
   // verify 网络调用经 options 注入，行为等价）。
   const authDomain = createAuthDomain({

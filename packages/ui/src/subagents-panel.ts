@@ -4,7 +4,17 @@
  * 运行是进程本地的——本面板就是 REPL 内的管理面，不设跨进程 CLI 等价物。
  */
 
-export type SubagentPanelStatus = 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+export type SubagentPanelStatus =
+  | 'running'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+  /**
+   * SAG-03 §2.7bis.4：crash 合成标记（重放重建时 dispatched 无 settled）。
+   * 注册表状态直通面板，非 settled 事件枚举。
+   */
+  | 'interrupted'
 
 export interface SubagentPanelEntry {
   readonly sessionId: string
@@ -42,6 +52,8 @@ export function subagentPanelStatusGlyph(status: SubagentPanelStatus): string {
       return '✘'
     case 'cancelled':
       return '○'
+    case 'interrupted':
+      return '◌'
   }
 }
 

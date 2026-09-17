@@ -172,6 +172,33 @@ describe('subagents list command view', () => {
     expect(view.entries[0]!.status).toBe('failed')
     expect(view.entries[0]!.detail).toContain('provider 429')
   })
+
+  it('carries the interrupted replay marker through to rows (SAG-03)', async () => {
+    const view = subagentListCommandView([entry({ status: 'interrupted' })])
+    expect(view.entries[0]!.status).toBe('interrupted')
+    expect(view.entries[0]!.detail).toContain('interrupted')
+
+    const stdout = new MemoryWriteStream()
+    const { controller } = fakeController([entry({ status: 'interrupted' })])
+    const app = render(
+      <SubagentsPanel
+        controller={controller}
+        terminalColumns={120}
+        terminalRows={30}
+        onNotice={() => {}}
+        onClose={() => {}}
+      />,
+      {
+        debug: true,
+        patchConsole: false,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: new MemoryReadStream() as unknown as NodeJS.ReadStream,
+      },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(stdout.output).toContain('◌')
+    app.unmount()
+  })
 })
 
 describe('subagentDuration', () => {

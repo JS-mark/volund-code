@@ -31,6 +31,7 @@ import type { Runner, SessionState } from '@volund/core'
 import type { PermissionRequest } from '@volund/permission'
 import { SkillsRuntime } from '@volund/skills-runtime'
 import { DefaultMemoryService, LocalMemoryRepository } from '@volund/storage'
+import { SubagentDispatcher } from '@volund/subagent'
 import type { ToolContext } from '@volund/tool-kit'
 import { BashTool } from '@volund/tools'
 import type { InteractivePermissionRequest } from '@volund/ui'
@@ -49,6 +50,7 @@ import {
   FileInputHistoryStore,
   expandEnvValue,
   languagePromptFragment,
+  rebuildDispatcherOnConfigReload,
   resolveModelAlias,
   loadProductionContextTuning,
   readEffectiveEnv,
@@ -3621,5 +3623,55 @@ describe('[subagent] limits and [models.aliases] from user config', () => {
     expect(resolveModelAlias('oai', aliases)).toEqual({ mismatch: 'openai' })
     expect(resolveModelAlias('unknown', aliases)).toBeUndefined()
     expect(resolveModelAlias('fast', {})).toBeUndefined()
+  })
+
+  it('SAG-03：config reload 替换 dispatcher 保留运行史（无活跃运行才替换）', async () => {
+    const runnerFactory = (state: SessionState) =>
+      ({ run: async () => state, interrupt: () => {} }) as unknown as Runner
+    const dispatchParent = () => ({
+      state: createSession({
+        id: 'reload-parent',
+        cwd: '/workspace',
+        maxTokens: 100,
+        toolRegistrySnapshot: 'tools',
+      }),
+      events: new EventBus(),
+      turnId: 'turn-1',
+      signal: new AbortController().signal,
+    })
+    const current = new SubagentDispatcher({ runnerFactory })
+    await current.dispatch(dispatchParent(), { prompt: 'settled before reload' })
+    expect(current.list()[0]).toMatchObject({ status: 'completed' })
+
+    const next = rebuildDispatcherOnConfigReload(
+      current,
+      () => new SubagentDispatcher({ runnerFactory, maxConcurrency: 7 }),
+    )
+    expect(next).not.toBe(current)
+    // 替换后历史保留（旧行为：buildDispatcher() 直接替换即清史）。
+    expect(next.list().map((entry) => entry.prompt)).toEqual(['settled before reload'])
+
+    // 有活跃运行时不替换（原行为保留）——当前注册表不动。
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => (release = resolve))
+    const busy = new SubagentDispatcher({
+      runnerFactory: (state) =>
+        ({
+          run: async () => {
+            await pending
+            return state
+          },
+          interrupt: () => {},
+        }) as unknown as Runner,
+    })
+    const inFlight = busy.dispatch(dispatchParent(), { prompt: 'still running' })
+    await vi.waitFor(() => expect(busy.activeCount).toBe(1))
+    const kept = rebuildDispatcherOnConfigReload(
+      busy,
+      () => new SubagentDispatcher({ runnerFactory }),
+    )
+    expect(kept).toBe(busy)
+    release()
+    await inFlight
   })
 })

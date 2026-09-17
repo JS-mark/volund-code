@@ -1,8 +1,9 @@
 import { createSession, EventBus, type Runner, type SessionState } from '@volund/core'
+import { eventEnvelopeFor, type JsonValue } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AgentDefinitionRegistry } from './agent-registry'
-import { SubagentDispatcher } from './index'
+import { SubagentDispatcher, type SubagentJournalEvent } from './index'
 
 const parent = (depth = 0, signal = new AbortController().signal) => ({
   state: createSession({
@@ -20,6 +21,43 @@ const parent = (depth = 0, signal = new AbortController().signal) => ({
 function fakeRunner(run: Runner['run']): Runner {
   return { run, interrupt: vi.fn() } as unknown as Runner
 }
+
+/** SAG-03 重放重建测试的 JSONL 行构造（附录 D.2 payload 形状）。 */
+const journalEvent = (
+  type: string,
+  at: string,
+  payload: Record<string, JsonValue>,
+): SubagentJournalEvent => ({
+  type,
+  sessionId: 'parent-1',
+  at,
+  payload,
+})
+const dispatchedRow = (sessionId: string, at: string, promptDigest = 'digest line') =>
+  journalEvent('subagent.dispatched', at, {
+    sessionId,
+    parentSessionId: 'parent-1',
+    parentTurnId: 'turn-1',
+    depth: 1,
+    isolationTier: 0,
+    fork: false,
+    budget: { tokenMax: 200_000 },
+    promptDigest,
+    ctxIn: 100,
+  })
+const settledRow = (
+  sessionId: string,
+  at: string,
+  status: 'completed' | 'failed' | 'cancelled' = 'completed',
+) =>
+  journalEvent('subagent.settled', at, {
+    sessionId,
+    status,
+    usage: { input: 500, output: 120, costUSD: 0.02 },
+    ctxOut: 30,
+    toolCalls: 3,
+    durationMs: 4000,
+  })
 
 describe('SubagentDispatcher', () => {
   it('creates an isolated child and bubbles envelope-tagged events with the original id (D.3)', async () => {
@@ -295,5 +333,302 @@ describe('SubagentDispatcher', () => {
     await dispatcher.dispatch(parent(), { prompt: 'two' })
     await dispatcher.dispatch(parent(), { prompt: 'three' })
     expect(dispatcher.list().map((entry) => entry.prompt)).toEqual(['three', 'two'])
+  })
+
+  it('emits subagent.dispatched and subagent.settled on the parent bus (§2.7bis.4 / 附录 D.2)', async () => {
+    const seen: Array<{ type: string; event: unknown }> = []
+    const p = parent()
+    p.events.subscribe((event) => {
+      if (event.type.startsWith('subagent.')) seen.push({ type: event.type, event })
+    })
+    const prompt = 'inspect the lock pipeline and report findings'
+    const dispatcher = new SubagentDispatcher({
+      defaultBudget: { tokenMax: 50_000, costUSDMax: 0.5, timeMsMax: 60_000, toolCallMax: 20 },
+      runnerFactory: (state) =>
+        fakeRunner(
+          async () =>
+            ({
+              ...state,
+              cumulativeUsage: { input: 100, output: 40, costUSD: 0.01 },
+              messages: [
+                {
+                  id: 'm',
+                  role: 'assistant',
+                  createdAt: 1,
+                  content: [
+                    { type: 'tool_use', toolUseId: 't1', name: 'Read', input: {} },
+                    { type: 'text', text: 'done result' },
+                  ],
+                },
+              ],
+            }) as unknown as SessionState,
+        ),
+    })
+    const result = await dispatcher.dispatch(p, {
+      prompt,
+      agentType: 'explore',
+      budget: { tokenMax: 10_000 },
+    })
+    expect(result.status).toBe('completed')
+    expect(seen.map((item) => item.type)).toEqual(['subagent.dispatched', 'subagent.settled'])
+
+    // payload 契约过 eventEnvelopeFor 校验（附录 D.1 envelope + D.2 payload）。
+    const dispatched = eventEnvelopeFor('subagent.dispatched').parse(seen[0]!.event)
+    // envelope 归属父会话（落父 JSONL）；payload.sessionId 才是子。
+    expect(dispatched.sessionId).toBe(p.state.id)
+    expect(dispatched.turnId).toBe('parent-turn')
+    expect(dispatched.payload).toMatchObject({
+      sessionId: result.sessionId,
+      parentSessionId: p.state.id,
+      parentTurnId: 'parent-turn',
+      agentType: 'explore',
+      depth: 1,
+      isolationTier: 0,
+      fork: false,
+      promptDigest: prompt,
+      ctxIn: Math.ceil(prompt.length / 4),
+    })
+    // budget = 合并后生效预算（input 维覆盖 default）；toolCallMax 不在附录 D 契约内。
+    expect(dispatched.payload.budget).toEqual({
+      tokenMax: 10_000,
+      costUSDMax: 0.5,
+      timeMsMax: 60_000,
+    })
+    expect(dispatched.payload).not.toHaveProperty('writePaths')
+
+    const settled = eventEnvelopeFor('subagent.settled').parse(seen[1]!.event)
+    expect(settled.sessionId).toBe(p.state.id)
+    expect(settled.payload).toMatchObject({
+      sessionId: result.sessionId,
+      status: 'completed',
+      usage: { input: 100, output: 40, costUSD: 0.01 },
+      ctxOut: Math.ceil('done result'.length / 4),
+      toolCalls: 1,
+    })
+    expect(settled.payload.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('emits settled with failed status and zero usage when the runner throws', async () => {
+    const seen: Array<{ type: string; event: unknown }> = []
+    const p = parent()
+    p.events.subscribe((event) => {
+      if (event.type === 'subagent.settled') seen.push({ type: event.type, event })
+    })
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: () =>
+        fakeRunner(async () => {
+          throw new Error('provider 429')
+        }),
+    })
+    await dispatcher.dispatch(p, { prompt: 'boom' })
+    const settled = eventEnvelopeFor('subagent.settled').parse(seen[0]!.event)
+    expect(settled.payload).toMatchObject({
+      status: 'failed',
+      usage: { input: 0, output: 0 },
+      ctxOut: 0,
+      toolCalls: 0,
+      detail: 'provider 429',
+    })
+  })
+
+  it('emits settled cancelled when the parent aborts mid-run', async () => {
+    const seen: Array<{ type: string; event: unknown }> = []
+    const controller = new AbortController()
+    const p = parent(0, controller.signal)
+    p.events.subscribe((event) => {
+      if (event.type === 'subagent.settled') seen.push({ type: event.type, event })
+    })
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => (release = resolve))
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) =>
+        fakeRunner(async () => {
+          await pending
+          return state
+        }),
+    })
+    const result = dispatcher.dispatch(p, { prompt: 'wait' })
+    await vi.waitFor(() => expect(dispatcher.activeCount).toBe(1))
+    controller.abort()
+    release()
+    await expect(result).resolves.toMatchObject({ status: 'cancelled' })
+    const settled = eventEnvelopeFor('subagent.settled').parse(seen[0]!.event)
+    expect(settled.payload.status).toBe('cancelled')
+  })
+
+  it('maps partial (budget exhausted) to settled completed with detail (附录 D 枚举无 partial)', async () => {
+    const seen: Array<{ type: string; event: unknown }> = []
+    const p = parent()
+    p.events.subscribe((event) => {
+      if (event.type === 'subagent.settled') seen.push({ type: event.type, event })
+    })
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) =>
+        fakeRunner(
+          async () =>
+            ({
+              ...state,
+              turns: [{ status: 'aborted' }],
+              messages: [
+                {
+                  id: 'm',
+                  role: 'assistant',
+                  createdAt: 1,
+                  content: [{ type: 'text', text: 'half way' }],
+                },
+              ],
+            }) as unknown as SessionState,
+        ),
+    })
+    await expect(dispatcher.dispatch(p, { prompt: 'long' })).resolves.toMatchObject({
+      status: 'partial',
+    })
+    const settled = eventEnvelopeFor('subagent.settled').parse(seen[0]!.event)
+    expect(settled.payload.status).toBe('completed')
+    expect(settled.payload.detail).toBe('budget exhausted, partial result')
+    // ctxOut 按实际回传文本（含 partial 后缀行）估算。
+    expect(settled.payload.ctxOut).toBe(
+      Math.ceil('half way\n[budget exhausted, partial result]'.length / 4),
+    )
+  })
+
+  it('does not emit subagent events when dispatch is rejected before start', async () => {
+    const seen: string[] = []
+    const p = parent(3)
+    p.events.subscribe((event) => {
+      seen.push(event.type)
+    })
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    await expect(dispatcher.dispatch(p, { prompt: 'no' })).rejects.toMatchObject({
+      code: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED',
+    })
+    expect(seen).toEqual([])
+  })
+})
+
+describe('SubagentDispatcher registry rebuild (SAG-03 §2.7bis.4)', () => {
+  it('replays settled pairs into historical entries', () => {
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    const restored = dispatcher.rebuildFromJournal([
+      dispatchedRow('child-1', '2026-09-17T08:00:00.000Z', 'inspect the locks'),
+      settledRow('child-1', '2026-09-17T08:01:00.000Z'),
+    ])
+    expect(restored).toBe(1)
+    expect(dispatcher.list()[0]).toMatchObject({
+      sessionId: 'child-1',
+      parentSessionId: 'parent-1',
+      depth: 1,
+      status: 'completed',
+      startedAt: Date.parse('2026-09-17T08:00:00.000Z'),
+      endedAt: Date.parse('2026-09-17T08:01:00.000Z'),
+      promptPreview: 'inspect the locks',
+      usage: { input: 500, output: 120, costUSD: 0.02 },
+      toolCalls: 3,
+      budget: { tokenMax: 200_000 },
+    })
+  })
+
+  it('marks dispatched-without-settled as interrupted (crash 合成标记，不发事件)', () => {
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    const restored = dispatcher.rebuildFromJournal([
+      dispatchedRow('child-zombie', '2026-09-17T07:00:00.000Z'),
+      dispatchedRow('child-ok', '2026-09-17T07:10:00.000Z'),
+      settledRow('child-ok', '2026-09-17T07:11:00.000Z', 'failed'),
+    ])
+    expect(restored).toBe(2)
+    const zombie = dispatcher.list().find((entry) => entry.sessionId === 'child-zombie')!
+    expect(zombie.status).toBe('interrupted')
+    expect(zombie.endedAt).toBeUndefined()
+    expect(zombie.usage).toBeUndefined()
+    expect(dispatcher.list().find((entry) => entry.sessionId === 'child-ok')!.status).toBe('failed')
+  })
+
+  it('ignores settled without a matching dispatched and malformed rows', () => {
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    const restored = dispatcher.rebuildFromJournal([
+      settledRow('orphan', '2026-09-17T07:00:00.000Z'),
+      journalEvent('subagent.dispatched', '2026-09-17T07:01:00.000Z', { sessionId: 42 }),
+      journalEvent('turn.started', '2026-09-17T07:02:00.000Z', { turnId: 't' }),
+    ])
+    expect(restored).toBe(0)
+    expect(dispatcher.list()).toEqual([])
+  })
+
+  it('keeps live in-memory entries authoritative over journal rows (live 优先)', async () => {
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory: (state) =>
+        fakeRunner(
+          async () =>
+            ({
+              ...state,
+              messages: [
+                {
+                  id: 'm',
+                  role: 'assistant',
+                  createdAt: 1,
+                  content: [{ type: 'text', text: 'x' }],
+                },
+              ],
+            }) as unknown as SessionState,
+        ),
+    })
+    const result = await dispatcher.dispatch(parent(), { prompt: 'live run' })
+    const restored = dispatcher.rebuildFromJournal([
+      dispatchedRow(result.sessionId, '2026-09-17T06:00:00.000Z', 'stale journal row'),
+      settledRow(result.sessionId, '2026-09-17T06:01:00.000Z', 'failed'),
+    ])
+    expect(restored).toBe(0)
+    const live = dispatcher.list().find((entry) => entry.sessionId === result.sessionId)!
+    expect(live.status).toBe('completed')
+    expect(live.prompt).toBe('live run')
+  })
+
+  it('inserts replayed entries in startedAt order and caps at the history limit', async () => {
+    const dispatcher = new SubagentDispatcher({
+      runHistoryLimit: 3,
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    dispatcher.rebuildFromJournal([
+      dispatchedRow('child-old', '2026-09-17T05:00:00.000Z', 'old digest'),
+      settledRow('child-old', '2026-09-17T05:01:00.000Z'),
+      dispatchedRow('child-mid', '2026-09-17T06:00:00.000Z', 'mid digest'),
+      settledRow('child-mid', '2026-09-17T06:01:00.000Z'),
+    ])
+    await dispatcher.dispatch(parent(), { prompt: 'newest live' })
+    await dispatcher.dispatch(parent(), { prompt: 'even newer live' })
+    // limit=3：最旧的 child-old 被淘汰；list() 新者在前、时间序保持。
+    // 重放行的 prompt 是 JSONL 里的 promptDigest（≤80 字符，无完整 prompt 可还原）。
+    expect(dispatcher.list().map((entry) => entry.prompt)).toEqual([
+      'even newer live',
+      'newest live',
+      'mid digest',
+    ])
+  })
+
+  it('inheritRuns retains settled history across dispatcher replacement (reload 保史)', async () => {
+    const previous = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    await previous.dispatch(parent(), { prompt: 'settled before reload' })
+    const next = new SubagentDispatcher({
+      runnerFactory: (state) => fakeRunner(async () => state),
+    })
+    expect(next.list()).toEqual([])
+    expect(next.inheritRuns(previous)).toBe(1)
+    expect(next.list()[0]).toMatchObject({ status: 'completed', prompt: 'settled before reload' })
+    // 去重：同 sessionId 不重复接管；重复 inherit 幂等。
+    expect(next.inheritRuns(previous)).toBe(0)
+    expect(next.list()).toHaveLength(1)
+    // 接管是浅拷贝——改新实例条目不回染旧注册表。
+    next.list()[0]!.detail = 'mutated'
+    expect(previous.list()[0]!.detail).toBeUndefined()
   })
 })
