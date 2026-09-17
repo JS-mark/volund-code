@@ -30,6 +30,26 @@ export interface ToolCard {
   toolUseId: string
   tool: string
   status: 'running' | 'done' | 'error'
+  /**
+   * Task 卡：派发时所在父 turn 的 id（CoreEvent.turnId）——子代理冒泡事件按
+   * parentTurnId 归属到本卡（§2.7bis.5 U3 折叠行的连接键）。
+   */
+  turnId?: string
+  /** Task 卡：tool.requested input 的展示摘要（agentType / prompt 首行）。 */
+  task?: { agentType?: string; prompt?: string }
+}
+
+/**
+ * 一个 Task 派发下的子代理活动聚合（key = 父 turnId，即冒泡事件的 parentTurnId）。
+ * 只从冒泡 tool.* 事件累积——子代理的消息/流式/turn 事件不进主聊天流。
+ */
+export interface SubagentActivity {
+  /** 子代理已启动的工具调用数（冒泡 tool.started 计数）。 */
+  toolCalls: number
+  /** 仍在运行的子代理工具数（started − completed，下界 0）。 */
+  running: number
+  /** 最近启动的子代理工具名（折叠行的「当前工具」）。 */
+  lastTool?: string
 }
 
 export interface PermissionCard {
@@ -41,6 +61,8 @@ export interface PermissionCard {
 export interface ChatState {
   messages: ChatMessage[]
   tools: ToolCard[]
+  /** 子代理活动聚合（key = 父 turnId）——Task 折叠行的数据源（§2.7bis.5 U3）。 */
+  subagents: Record<string, SubagentActivity>
   turn: 'idle' | 'running'
   permission: PermissionCard | undefined
   notice: string | undefined
@@ -49,6 +71,7 @@ export interface ChatState {
 export const initialChatState: ChatState = {
   messages: [],
   tools: [],
+  subagents: {},
   turn: 'idle',
   permission: undefined,
   notice: undefined,
@@ -57,8 +80,19 @@ export const initialChatState: ChatState = {
 /** 本机离线提示文案（machine.online 到达时按文案匹配清除，不误清其他提示）。 */
 export const MACHINE_OFFLINE_NOTICE = '本机离线：桌面端隧道已断开，恢复后自动重连'
 
+/** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */
+export interface EnvelopeEvent {
+  type: string
+  payload?: Record<string, unknown>
+  /** CoreEvent 的 turnId——Task 卡与冒泡事件的归属键（tool.requested/started 携带）。 */
+  turnId?: string
+  /** 子代理冒泡 tag：EventBus.forward 打上，两字段同时出现。 */
+  parentTurnId?: string
+  parentDepth?: number
+}
+
 export type StreamAction =
-  | { type: 'envelope'; envelope: { kind: string; sessionId?: string; event: unknown } }
+  | { type: 'envelope'; envelope: { kind: string; sessionId?: string; event: EnvelopeEvent } }
   | { type: 'hydrate'; transcript: readonly unknown[] }
   | { type: 'echo'; text: string; images?: readonly ChatMessageImage[] }
   | { type: 'notice'; notice: string | undefined }
@@ -115,12 +149,54 @@ function imagesOfContent(content: unknown): ChatMessageImage[] {
   return images
 }
 
-type Event = { type?: unknown; payload?: Record<string, unknown> }
+type Event = {
+  type?: unknown
+  payload?: Record<string, unknown>
+  turnId?: unknown
+  parentTurnId?: unknown
+  parentDepth?: unknown
+}
 
 /** turn 终态/被取代时，把还卡在 streaming 的消息收口（否则 spinner 永久转）。 */
 function finalizeStreaming(messages: ChatMessage[]): ChatMessage[] {
   if (!messages.some((message) => message.streaming)) return messages
   return messages.map((message) => (message.streaming ? { ...message, streaming: false } : message))
+}
+
+/**
+ * §2.7bis.5 U3 / 附录 D.3：子代理冒泡事件的归约——不碰消息流/工具列表/turn 状态
+ * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行的数据源）。
+ * 归属键 = parentTurnId（父 turnId，与 Task 卡 tool.started 的 event.turnId 相同）。
+ */
+function reduceBubbledEvent(state: ChatState, event: Event): ChatState {
+  const parentTurnId = typeof event.parentTurnId === 'string' ? event.parentTurnId : undefined
+  if (!parentTurnId) return state
+  const payload = event.payload ?? {}
+  switch (event.type) {
+    case 'tool.started': {
+      const current = state.subagents[parentTurnId] ?? { toolCalls: 0, running: 0 }
+      const activity: SubagentActivity = {
+        ...current,
+        toolCalls: current.toolCalls + 1,
+        running: current.running + 1,
+        lastTool: typeof payload.tool === 'string' ? payload.tool : '',
+      }
+      return { ...state, subagents: { ...state.subagents, [parentTurnId]: activity } }
+    }
+    case 'tool.completed': {
+      const current = state.subagents[parentTurnId]
+      if (!current) return state
+      return {
+        ...state,
+        subagents: {
+          ...state.subagents,
+          [parentTurnId]: { ...current, running: Math.max(0, current.running - 1) },
+        },
+      }
+    }
+    default:
+      return state
+  }
 }
 
 function reduceEnvelope(
@@ -133,6 +209,11 @@ function reduceEnvelope(
   const event = envelope.event as Event
   if (!event || typeof event.type !== 'string') return state
   const payload = event.payload ?? {}
+  // §2.7bis.5 U3：子代理冒泡事件（附录 D.3 tag）不进主聊天流——stream.delta 不再
+  // 混成无标注的 assistant 气泡，tool.* 不再平铺进工具 chip 列表，turn.* 不再拨动
+  // 主会话的 turn 状态；tool.* 聚合到对应 Task 卡的折叠行。主会话事件无 tag，不受影响。
+  if ('parentTurnId' in event || (typeof event.parentDepth === 'number' && event.parentDepth > 0))
+    return reduceBubbledEvent(state, event)
   switch (event.type) {
     case 'message.appended': {
       const id = String(payload.messageId)
@@ -222,14 +303,66 @@ function reduceEnvelope(
         return { ...state, turn: 'idle', messages, notice: state.notice ?? '本轮流式中断' }
       return { ...state, turn: 'idle', messages, notice: '本轮已中断' }
     }
-    case 'tool.started':
+    case 'tool.requested': {
+      // 只摘 Task 的 input 摘要（agentType / prompt 首行）供折叠行展示；其他工具
+      // 的 requested 帧不产生卡片（卡片由 tool.started 建立，保持既有时序语义）。
+      if (payload.tool !== 'Task') return state
+      const input: unknown = payload.input
+      const record = input !== null && typeof input === 'object' ? input : undefined
+      const agentType =
+        record && 'agentType' in record && typeof record.agentType === 'string'
+          ? record.agentType
+          : undefined
+      const prompt =
+        record && 'prompt' in record && typeof record.prompt === 'string'
+          ? record.prompt
+          : undefined
+      const task: ToolCard['task'] = {
+        ...(agentType ? { agentType } : {}),
+        ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
+      }
+      const exists = state.tools.some((tool) => tool.toolUseId === payload.toolUseId)
+      if (exists)
+        return {
+          ...state,
+          tools: state.tools.map((tool) =>
+            tool.toolUseId === payload.toolUseId ? { ...tool, task } : tool,
+          ),
+        }
       return {
         ...state,
         tools: [
-          ...state.tools.filter((tool) => tool.toolUseId !== payload.toolUseId),
-          { toolUseId: String(payload.toolUseId), tool: String(payload.tool), status: 'running' },
+          ...state.tools,
+          { toolUseId: String(payload.toolUseId), tool: 'Task', status: 'running', task },
         ],
       }
+    }
+    case 'tool.started': {
+      // turnId 只在 Task 卡上是归属键，但顺手全记——数据来自 CoreEvent 顶层，零成本。
+      const turnId = typeof event.turnId === 'string' ? event.turnId : undefined
+      const exists = state.tools.some((tool) => tool.toolUseId === payload.toolUseId)
+      if (exists)
+        return {
+          ...state,
+          tools: state.tools.map((tool) =>
+            tool.toolUseId === payload.toolUseId
+              ? { ...tool, status: 'running', ...(turnId ? { turnId } : {}) }
+              : tool,
+          ),
+        }
+      return {
+        ...state,
+        tools: [
+          ...state.tools,
+          {
+            toolUseId: String(payload.toolUseId),
+            tool: String(payload.tool),
+            status: 'running',
+            ...(turnId ? { turnId } : {}),
+          },
+        ],
+      }
+    }
     case 'tool.completed': {
       const id = String(payload.toolUseId)
       const failed = payload.isError === true
