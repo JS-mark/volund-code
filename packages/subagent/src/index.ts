@@ -1,4 +1,10 @@
-import { createSession, EventBus, type Runner, type SessionState } from '@volund/core'
+import {
+  createSession,
+  EventBus,
+  lineageRootSessionId,
+  type Runner,
+  type SessionState,
+} from '@volund/core'
 import type { Message } from '@volund/provider-kit'
 import {
   VolundNormalizedError,
@@ -403,6 +409,10 @@ export class SubagentDispatcher {
         depth,
         parentSessionId: parent.state.id,
         parentTurnId: parent.turnId,
+        // SAG-06 (spec §2.7bis.3 U1): the child archives backups under the
+        // lineage ROOT, not itself — nested grandchildren converge on the same
+        // root because the parent forwards its own rootSessionId unchanged.
+        rootSessionId: lineageRootSessionId(parent.state),
         ...(input.agentType ? { agentType: input.agentType } : {}),
       },
       resourceBudget: budget,

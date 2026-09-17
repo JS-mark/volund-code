@@ -375,6 +375,12 @@ export interface UndoPreview {
   paths: string[]
   warnings: UndoStepWarning[]
   stepCreatedAt?: string
+  /**
+   * SAG-06 (spec §7.11): count of not-yet-consumed backup batches, INCLUDING
+   * the previewed next one — the "remaining batches" the /undo UI surfaces.
+   * 0 whenever undoable is false.
+   */
+  remainingBatches: number
 }
 
 export interface RestoreResult {
@@ -623,11 +629,13 @@ export class BackupStore {
     validateSessionId(sessionId)
     const manifest = await this.readManifest(sessionId)
     if (!manifest || manifest.records.length === 0)
-      return { undoable: false, reason: 'no_backup', paths: [], warnings: [] }
-    const step = undoStepsOf(manifest.records).find((records) =>
+      return { undoable: false, reason: 'no_backup', paths: [], warnings: [], remainingBatches: 0 }
+    const remaining = undoStepsOf(manifest.records).filter((records) =>
       records.every((record) => !record.consumedAt),
     )
-    if (!step) return { undoable: false, reason: 'no_backup', paths: [], warnings: [] }
+    const step = remaining[0]
+    if (!step)
+      return { undoable: false, reason: 'no_backup', paths: [], warnings: [], remainingBatches: 0 }
     const paths = [...new Set(step.map((record) => record.path))].toSorted()
     const warnings: UndoStepWarning[] = []
     for (const record of step) {
@@ -652,6 +660,7 @@ export class BackupStore {
       undoable: true,
       paths,
       warnings,
+      remainingBatches: remaining.length,
       ...(stepCreatedAt ? { stepCreatedAt } : {}),
     }
   }

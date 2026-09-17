@@ -171,7 +171,7 @@ export function diffLineCounts(
 }
 
 async function mutateFiles(
-  sessionId: string,
+  session: { id: string; rootSessionId?: string },
   updates: Array<{
     path: string
     content: string
@@ -188,12 +188,18 @@ async function mutateFiles(
 ): Promise<void> {
   const releases: Array<() => Promise<void>> = []
   const paths = [...new Set(updates.map((update) => update.path))].toSorted()
+  // SAG-06 (spec §2.7bis.3 U1): backups archive under the LINEAGE ROOT session
+  // so `/undo` on the root session covers the whole session tree (parent + all
+  // subagents). The .volundlock owner tag stays the ACTUAL session id — the
+  // lock-table view (§3.5) reads holders from lock files and must see which
+  // subagent holds a path.
+  const backupSessionId = session.rootSessionId ?? session.id
   let transaction: FileMutationTransaction | undefined
   try {
-    for (const path of paths) releases.push(await acquireMutationLock(path, sessionId))
+    for (const path of paths) releases.push(await acquireMutationLock(path, session.id))
     for (const update of updates) await update.guard?.()
     transaction = backups
-      ? await backups.prepare(sessionId, paths)
+      ? await backups.prepare(backupSessionId, paths)
       : await prepareEphemeralTransaction(paths)
     for (const update of updates)
       if (update.expect && !sameSnapshot(update.expect, await snapshotOf(update.path)))
@@ -393,7 +399,7 @@ export class WriteTool implements Tool<WriteInput> {
         if (expected === undefined) throw new Error(notReadInSessionError(p))
         if (current.hash !== expected) throw new Error(changedSinceReadError(p))
       }
-      await mutateFiles(c.session.id, [{ path: p, content: i.content, guard }], this.backups)
+      await mutateFiles(c.session, [{ path: p, content: i.content, guard }], this.backups)
       // A successful write makes this session the author of the on-disk content.
       recordSessionRead(c.session.id, p, contentHash(i.content))
       return result(
@@ -448,7 +454,7 @@ export class EditTool implements Tool<EditInput> {
       const next = i.replace_all
         ? old.split(i.old_string).join(i.new_string)
         : old.replace(i.old_string, i.new_string)
-      await mutateFiles(c.session.id, [{ path: p, content: next, expect: before }], this.backups)
+      await mutateFiles(c.session, [{ path: p, content: next, expect: before }], this.backups)
       // The session authored the on-disk content — keep its read record current.
       recordSessionRead(c.session.id, p, contentHash(next))
       return result('File edited', {
@@ -520,7 +526,7 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         }
         updates.push({ path, content, expect: before })
       }
-      await mutateFiles(context.session.id, updates, this.backups)
+      await mutateFiles(context.session, updates, this.backups)
       for (const update of updates)
         recordSessionRead(context.session.id, update.path, contentHash(update.content))
       let linesAdded = 0

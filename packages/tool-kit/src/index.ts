@@ -6,6 +6,12 @@ export interface SessionSnapshot {
   id: string
   cwd: string
   turnId: string
+  /**
+   * SAG-06 (spec §2.7bis.3 U1): lineage ROOT session id — file backups/undo
+   * archive under the root session's manifest so `/undo` on the root covers the
+   * whole session tree. Absent = the session is its own root (top-level).
+   */
+  rootSessionId?: string
 }
 export interface NativeBridge {
   /**

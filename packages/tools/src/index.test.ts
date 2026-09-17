@@ -8,10 +8,12 @@ import type { ToolResult } from '@volund/tool-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  EditTool,
   MultiEditTool,
   ReadTool,
   TaskTool,
   ToolExecutor,
+  WriteTool,
   builtinTools,
   truncateToolResult,
   type FileBackupPort,
@@ -213,5 +215,89 @@ describe('Task tool untrusted wrapping', () => {
   it('description advertises the untrusted wrapping', () => {
     const tool = taskWith(async () => ({ sessionId: 'c', status: 'completed', text: '' }))
     expect(tool.description).toContain('<untrusted')
+  })
+})
+
+/** Captures the sessionId handed to the backup port per prepare() call. */
+function capturingBackups() {
+  const calls: Array<{ sessionId: string; paths: string[] }> = []
+  const backups: FileBackupPort = {
+    async prepare(sessionId, paths) {
+      calls.push({ sessionId, paths: [...paths] })
+      return { async commit() {}, async rollback() {} }
+    },
+  }
+  return { backups, calls }
+}
+function rootedContext(cwd: string, id: string, rootSessionId?: string) {
+  return {
+    ...context(cwd),
+    session: { id, cwd, turnId: 'turn-1', ...(rootSessionId ? { rootSessionId } : {}) },
+  }
+}
+
+describe('backup lineage rooting (SAG-06, spec §2.7bis.3 U1)', () => {
+  it('Write/Edit/MultiEdit archive backups under the lineage ROOT, not the subagent session', async () => {
+    const cwd = await fixture()
+    await writeFile(resolve(cwd, 'a.txt'), 'alpha')
+    const { backups, calls } = capturingBackups()
+    const child = rootedContext(cwd, 'child-session', 'root-session')
+
+    const write = await new WriteTool(backups).invoke({ path: 'new.txt', content: 'fresh' }, child)
+    expect(write.isError).toBeUndefined()
+    const edit = await new EditTool(backups).invoke(
+      { path: 'a.txt', old_string: 'alpha', new_string: 'beta' },
+      child,
+    )
+    expect(edit.isError).toBeUndefined()
+    const multi = await new MultiEditTool(backups).invoke(
+      { edits: [{ path: 'a.txt', old_string: 'beta', new_string: 'gamma' }] },
+      child,
+    )
+    expect(multi.isError).toBeUndefined()
+    // 三次工具执行 = 三个 batch，全部落根会话；子会话 id 永不出现在备份归属上。
+    expect(calls).toHaveLength(3)
+    for (const call of calls) expect(call.sessionId).toBe('root-session')
+  })
+
+  it('falls back to the session id when no rootSessionId is present (top-level session)', async () => {
+    const cwd = await fixture()
+    const { backups, calls } = capturingBackups()
+    const result = await new WriteTool(backups).invoke(
+      { path: 'solo.txt', content: 'x' },
+      rootedContext(cwd, 'top-session'),
+    )
+    expect(result.isError).toBeUndefined()
+    expect(calls.map((call) => call.sessionId)).toEqual(['top-session'])
+  })
+
+  it('SAG-05 guard semantics are unchanged: read-tracking still keys on the ACTUAL session', async () => {
+    const cwd = await fixture()
+    await writeFile(resolve(cwd, 'existing.txt'), 'foreign')
+    const { backups, calls } = capturingBackups()
+    // 子代理会话未读过该文件 → 覆写仍按 changed-since-read 拒（rootSessionId 不豁免）。
+    const denied = await new WriteTool(backups).invoke(
+      { path: 'existing.txt', content: 'mine' },
+      rootedContext(cwd, 'child-session', 'root-session'),
+    )
+    expect(denied.isError).toBe(true)
+    expect(calls).toHaveLength(0) // 拒在备份前
+    // 子会话 Read 后 Write 放行——读记录按实际会话 id，不归根。
+    await new ReadTool().invoke(
+      { path: 'existing.txt' },
+      rootedContext(cwd, 'child-session', 'root-session'),
+    )
+    const allowed = await new WriteTool(backups).invoke(
+      { path: 'existing.txt', content: 'mine' },
+      rootedContext(cwd, 'child-session', 'root-session'),
+    )
+    expect(allowed.isError).toBeUndefined()
+    expect(calls.map((call) => call.sessionId)).toEqual(['root-session'])
+    // 根会话未读过：根会话自己的覆写仍被拒（读记录没有串会话）。
+    const rootDenied = await new WriteTool().invoke(
+      { path: 'existing.txt', content: 'root overwrite' },
+      rootedContext(cwd, 'root-session'),
+    )
+    expect(rootDenied.isError).toBe(true)
   })
 })

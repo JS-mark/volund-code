@@ -1,4 +1,10 @@
-import { createSession, EventBus, type Runner, type SessionState } from '@volund/core'
+import {
+  createSession,
+  EventBus,
+  lineageRootSessionId,
+  type Runner,
+  type SessionState,
+} from '@volund/core'
 import { eventEnvelopeFor, type JsonValue } from '@volund/shared'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -114,6 +120,51 @@ describe('SubagentDispatcher', () => {
     expect(bubbled).toMatchObject({ parentDepth: 1, payload: { turnId: 'child-turn' } })
     expect(seen.some((event) => event.id === `original:${bubbled!.id}`)).toBe(true)
     expect(JSON.stringify(seen)).not.toContain('childPayload')
+  })
+
+  it('threads the lineage root session id into the child (SAG-06, spec §2.7bis.3 U1)', async () => {
+    let childState: ReturnType<typeof createSession> | undefined
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory(state) {
+        childState = state
+        return fakeRunner(async () => state)
+      },
+    })
+    const p = parent()
+    await dispatcher.dispatch(p, { prompt: 'work' })
+    // 顶层父（自身即根）→ 子的 rootSessionId = 父会话 id。
+    expect(lineageRootSessionId(p.state)).toBe(p.state.id)
+    expect(childState?.lineage.rootSessionId).toBe(p.state.id)
+    expect(lineageRootSessionId(childState!)).toBe(p.state.id)
+  })
+
+  it('a nested subagent (grandchild) converges on the SAME root, not its parent', async () => {
+    let grandchildState: ReturnType<typeof createSession> | undefined
+    const dispatcher = new SubagentDispatcher({
+      runnerFactory(state) {
+        grandchildState = state
+        return fakeRunner(async () => state)
+      },
+    })
+    // 父本身是子代理（depth 1，根是 root-0）——孙代理必须仍归 root-0。
+    const mid = {
+      state: createSession({
+        id: 'mid-1',
+        cwd: '/workspace',
+        maxTokens: 100,
+        toolRegistrySnapshot: 'tools',
+        lineage: { depth: 1, parentSessionId: 'root-0', rootSessionId: 'root-0' },
+      }),
+      events: new EventBus(),
+      turnId: 'mid-turn',
+      signal: new AbortController().signal,
+    }
+    await dispatcher.dispatch(mid, { prompt: 'nested' })
+    expect(grandchildState?.lineage).toMatchObject({
+      depth: 2,
+      parentSessionId: 'mid-1',
+      rootSessionId: 'root-0',
+    })
   })
 
   it('allows depths one through three and rejects depth four', async () => {

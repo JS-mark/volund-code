@@ -1307,6 +1307,88 @@ describe('renderInteractiveApp', () => {
     await app.waitUntilExit()
   })
 
+  it('shows the remaining-batch preview after each /undo (SAG-06, spec §7.11)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const outcomes: Array<import('./app').UndoStepOutcome> = [
+      { undone: true, paths: ['/repo/c.txt'], warnings: [] },
+      { undone: true, paths: ['/repo/b.txt'], warnings: [] },
+    ]
+    const previews: Array<import('./app').UndoPreviewOutcome> = [
+      // 撤掉 C 后还剩 2 个 batch（B、A），下一 batch 是子代理改的 B。
+      { undoable: true, paths: ['/repo/b.txt'], remainingBatches: 2 },
+      // 撤掉 B 后还剩 1 个（A）。
+      { undoable: true, paths: ['/repo/a.txt'], remainingBatches: 1 },
+    ]
+    let nextUndo = 0
+    let nextPreview = 0
+    const undo = {
+      undoStep: async () => outcomes[nextUndo++]!,
+      previewUndo: async () => previews[nextPreview++]!,
+    }
+    const app = renderInteractiveApp(
+      { cwd: '/repo', initialInput: '/undo', sessionId: 'root-session', undo },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    // 终端折行会把整句切开——断言折行安全的短片段。
+    await vi.waitFor(() => expect(stdout.output).toContain('2 undoable batch(es) left'))
+    expect(stdout.output).toContain('next /undo reverts: /repo/b.txt')
+
+    stdin.write('/undo')
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('1 undoable batch(es) left'))
+    expect(stdout.output).toContain('next /undo reverts: /repo/a.txt')
+
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
+  it('reports when the undo backlog is exhausted after the last batch (SAG-06, spec §7.11)', async () => {
+    const stdout = new MemoryWriteStream()
+    const stdin = new MemoryReadStream()
+    const undo = {
+      undoStep: async (): Promise<import('./app').UndoStepOutcome> => ({
+        undone: true,
+        paths: ['/repo/a.txt'],
+        warnings: [],
+      }),
+      previewUndo: async (): Promise<import('./app').UndoPreviewOutcome> => ({
+        undoable: false,
+        paths: [],
+        remainingBatches: 0,
+      }),
+    }
+    const app = renderInteractiveApp(
+      { cwd: '/repo', initialInput: '/undo', sessionId: 'root-session', undo },
+      {
+        debug: true,
+        interactive: true,
+        patchConsole: false,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+      },
+    )
+
+    await app.waitUntilRenderFlush()
+    stdin.write('\r')
+    await vi.waitFor(() =>
+      expect(stdout.output).toContain('no undoable batches left in this session tree'),
+    )
+
+    app.unmount()
+    await app.waitUntilExit()
+  })
+
   it('switches slash command suggestions with arrow keys', async () => {
     const stdout = new MemoryWriteStream()
     const stdin = new MemoryReadStream()
