@@ -110,6 +110,8 @@ export function mapAllowedTools(
  * 独立成模块：bundle 压缩器对「模块尾部函数声明 + 早处调用」会产出标识符
  * 冲突（createSkillTool 与其他顶层绑定撞名，minified 产物启动即崩）。
  */
+/** Skill 工具注册名——agent 定义白名单校验全集（§2.7.1 G3）等静态枚举场景复用。 */
+export const SKILL_TOOL_NAME = 'Skill'
 export function createSkillTool(options: {
   skills: Pick<SkillsRuntime, 'modelInvocableNames' | 'readInvocation'>
   /** allowed-tools → 回合级放行；缺省时 skill 照常调用只是不免批。 */
@@ -118,7 +120,7 @@ export function createSkillTool(options: {
 }): Tool {
   const skills = options.skills
   return {
-    name: 'Skill',
+    name: SKILL_TOOL_NAME,
     description: "Load an installed skill's instructions into the conversation by name",
     readonly: true,
     parallelSafe: true,

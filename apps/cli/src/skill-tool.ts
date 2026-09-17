@@ -5,5 +5,6 @@ export {
   createSkillTool,
   mapAllowedTools,
   MAX_SKILL_STACK,
+  SKILL_TOOL_NAME,
   splitSkillStack,
 } from '@volund/app-runtime'
