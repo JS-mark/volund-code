@@ -28,10 +28,10 @@ config key 分散于 §2 / §3 / §4 / §5 / §8 / §8b / §14 各章——**本
 | `[runner]` | `top_level_budget` | bool，默认 `false`（r13-D1）；⚠️ 占位：schema 收录但实现未消费 | §2.7 | allowed |
 | `[subagent]` | `max_depth` | int，默认 3（用户级 config 可覆盖） | §2.7 | allowed |
 | `[subagent]` | `max_concurrent` | int，默认 8（SAG D-a；超限 FIFO 排队不是拒绝，§2.7bis.2；用户级 config 可覆盖） | §2.7 / §2.7bis | allowed |
-| `[subagent]` | `queue_timeout_ms` | int，默认 600000（10 分钟；排队超时 → `error_subagent_queue_timeout`，§2.7bis.2） | §2.7bis | allowed |
+| `[subagent]` | `queue_timeout_ms` | int，默认 600000（10 分钟；排队超时 → `error_subagent_queue_timeout`，§2.7bis.2）；⚠️ 占位：schema 收录但实现未消费（SAG-23 落地） | §2.7bis | allowed |
 | `[subagent]` | `default_budget` | `{ costUSDMax, tokenMax, timeMsMax }`（默认 $1 / 200k / 10min；用户级 config 可逐字段覆盖；Task 入参 budget 逐维只能收紧） | §2.7 / §2.7bis | allowed |
-| `[subagent]` | `session_budget` | `{ costUSDMax, tokenMax }`（默认关；会话聚合超限 = 拒新 + 停运行中后台代理 + 类型化终态，§2.7bis.2） | §2.7bis | allowed |
-| `[subagent]` | `auto_isolation` | bool，默认 `false`（SAG D-b opt-in；开后后台代理动文件前自动进 worktree，§2.7bis.2 Tier 1） | §2.7bis | allowed |
+| `[subagent]` | `session_budget` | `{ costUSDMax, tokenMax }`（默认关；会话聚合超限 = 拒新 + 停运行中后台代理 + 类型化终态，§2.7bis.2）；⚠️ 占位：schema 收录但实现未消费（SAG-34 落地） | §2.7bis | allowed |
+| `[subagent]` | `auto_isolation` | bool，默认 `false`（SAG D-b opt-in；开后后台代理动文件前自动进 worktree，§2.7bis.2 Tier 1）；⚠️ 占位：schema 收录但实现未消费（SAG-32 落地） | §2.7bis | allowed |
 | `[tools]` | `windows_shell` | string?（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `pass_through_env` | string[]，默认 `[]`（r13-I11） | §4.3.1 | allowed |
 | `[tools]` | `ignore_dirs` | string[]，默认 `[".git","node_modules","target","dist"]`（r13-D1）；⚠️ 占位：schema 收录但实现未消费 | §4.3.3 | allowed |

@@ -40,6 +40,10 @@ export const configKeyRegistry = {
   'subagent.max_depth': 'allowed',
   'subagent.max_concurrent': 'allowed',
   'subagent.default_budget': 'allowed',
+  // SAG §2.7bis（schema 收录先行；消费随 SAG-23/32/34 落地）
+  'subagent.queue_timeout_ms': 'allowed',
+  'subagent.session_budget': 'allowed',
+  'subagent.auto_isolation': 'allowed',
   'tools.windows_shell': 'allowed',
   'tools.pass_through_env': 'allowed',
   'tools.ignore_dirs': 'allowed',
@@ -190,6 +194,15 @@ export const ConfigSchema = z.strictObject({
           timeMsMax: z.number().optional(),
         })
         .optional(),
+      // SAG §2.7bis：schema 收录先行，消费随排队（SAG-23）/会话预算（SAG-34）/worktree 自动隔离（SAG-32）落地
+      queue_timeout_ms: z.number().int().optional(),
+      session_budget: z
+        .strictObject({
+          costUSDMax: z.number().optional(),
+          tokenMax: z.number().optional(),
+        })
+        .optional(),
+      auto_isolation: z.boolean().optional(),
     })
     .optional(),
   tools: z
