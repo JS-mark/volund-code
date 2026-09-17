@@ -38,7 +38,12 @@ import {
 import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { SlidingWindowPolicy } from '@volund/context'
-import { builtinPromptFragment, DefaultPromptComposer, Runner } from '@volund/core'
+import {
+  builtinPromptFragment,
+  DefaultPromptComposer,
+  lineageRootSessionId,
+  Runner,
+} from '@volund/core'
 import type { RunnerToolPort } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
 import { execSandbox, probeSandbox } from '@volund/native-bridge'
@@ -1468,7 +1473,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     const executor = permissionChain.bindExecutor(
       (signal) => ({
         abortSignal: signal,
-        session: { id: state.id, cwd: state.cwd, turnId: runner.state.activeTurn ?? '' },
+        // SAG-06 (spec §2.7bis.3 U1): rootSessionId 让子代理会话的文件备份归档到
+        // lineage 根会话 manifest——/undo 与 Web changes 视图在根会话上覆盖全树。
+        session: {
+          id: state.id,
+          cwd: state.cwd,
+          turnId: runner.state.activeTurn ?? '',
+          rootSessionId: lineageRootSessionId(state),
+        },
         native,
         logger,
         ui: { requestInput: promptLine },
@@ -1641,7 +1653,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           slashCommandRegistry: slashCommands,
           // r13-G4 (spec 08-session-config.md §8.6.2): `/undo` single-step tool
           // rollback backed by the session backup store.
-          undo: { undoStep: (sessionId) => backups.undoStep(sessionId) },
+          // SAG-06 (spec §7.11): previewUndo 驱动 /undo 后的剩余 batch 预览。
+          undo: {
+            undoStep: (sessionId) => backups.undoStep(sessionId),
+            previewUndo: (sessionId) => backups.previewUndoStep(sessionId),
+          },
           // SKILLS-MCPS-r1：/skills 与 /mcp 面板控制器（经应用级内核面板收集器）
           skills: appKernel.ui.panel<SkillsPanelController>('skills'),
           mcp: appKernel.ui.panel<McpPanelController>('mcp'),

@@ -118,13 +118,29 @@ export interface UndoStepOutcome {
 }
 
 /**
+ * SAG-06 (spec §7.11): read-only preview of the remaining undo backlog on the
+ * lineage-root manifest — fetched after a successful /undo so the transcript
+ * can say how many batches are left and what the next one touches.
+ */
+export interface UndoPreviewOutcome {
+  undoable: boolean
+  paths: readonly string[]
+  /** Not-yet-consumed batches including the previewed next one; 0 = exhausted. */
+  remainingBatches?: number
+}
+
+/**
  * r13-G4 (spec 08-session-config.md §8.6.2): single-step `/undo` adapter.
  * The implementation picks the most recent not-yet-consumed backup batch for
  * the session — read-only tools are skipped naturally and Bash changes are out
- * of scope because Bash produces no backups.
+ * of scope because Bash produces no backups. SAG-06 (spec §2.7bis.3 U1): the
+ * session id here is the lineage ROOT session — subagent backups archive under
+ * it, so one manifest covers the whole session tree and each call still pops
+ * exactly one batch in global reverse order.
  */
 export interface UndoController {
   undoStep(sessionId: string): Promise<UndoStepOutcome>
+  previewUndo?(sessionId: string): Promise<UndoPreviewOutcome>
 }
 
 /** Exact StatusLine message required when no undoable backup exists. */
@@ -646,7 +662,8 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             run: async () => {
               setShowWelcome(false)
               setStatusPanelOpen(false)
-              const outcome = await options.undo!.undoStep(activeSession?.id ?? state.sessionId)
+              const undoSessionId = activeSession?.id ?? state.sessionId
+              const outcome = await options.undo!.undoStep(undoSessionId)
               if (!outcome.undone) {
                 appendSystemMessage(setState, UNDO_NOTHING_MESSAGE)
                 setState((current) => ({
@@ -656,7 +673,16 @@ export function InteractiveApp(options: InteractiveAppOptions) {
                 }))
                 return
               }
-              appendSystemMessage(setState, undoTranscriptMessage(outcome))
+              // SAG-06 (spec §7.11): after each single-step undo, surface the
+              // remaining-batch preview (count + what the next batch touches).
+              // Best-effort — a preview failure never breaks the undo report.
+              let preview: UndoPreviewOutcome | undefined
+              try {
+                preview = await options.undo!.previewUndo?.(undoSessionId)
+              } catch {
+                preview = undefined
+              }
+              appendSystemMessage(setState, undoTranscriptMessage(outcome, preview))
               setState((current) => ({
                 ...current,
                 status: outcome.warnings.length
@@ -1397,9 +1423,12 @@ function unavailableSlashCommand(name: string, description: string, order: numbe
 /**
  * Transcript lines for a completed single-step undo. Warnings never block the
  * restore (spec 08-session-config.md §8.6.2), so the user is told afterwards
- * that manual changes may have been overwritten.
+ * that manual changes may have been overwritten. SAG-06 (spec §7.11): when the
+ * controller offers a preview, the message ends with the remaining-batch count
+ * and what the next /undo would revert (the manifest is the lineage root's, so
+ * remaining batches may be subagent-made).
  */
-function undoTranscriptMessage(outcome: UndoStepOutcome): string {
+function undoTranscriptMessage(outcome: UndoStepOutcome, preview?: UndoPreviewOutcome): string {
   const lines = outcome.paths.map((path) => `restored ${path}`)
   for (const warning of outcome.warnings)
     lines.push(
@@ -1407,6 +1436,16 @@ function undoTranscriptMessage(outcome: UndoStepOutcome): string {
         ? `warning: backup file missing for ${warning.path}; file left unchanged`
         : `warning: ${warning.path} was modified after the backup (mtime > backup time); restored anyway and may have overwritten manual changes`,
     )
+  if (preview) {
+    if (preview.undoable) {
+      const remaining = preview.remainingBatches ?? 1
+      // 两行分开：单行过长会被终端折行切断（快照/断言都以整行为单位）。
+      lines.push(`${remaining} undoable batch(es) left in this session tree`)
+      lines.push(`next /undo reverts: ${preview.paths.join(', ') || '(unknown paths)'}`)
+    } else {
+      lines.push('no undoable batches left in this session tree')
+    }
+  }
   return [`undo: restored ${outcome.paths.length} file(s) to their pre-tool state`, ...lines].join(
     '\n',
   )

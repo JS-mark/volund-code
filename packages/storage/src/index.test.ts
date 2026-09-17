@@ -164,11 +164,14 @@ describe('BackupStore', () => {
     expect(byPath.get(created)).toMatchObject({ created: true, batches: 1 })
 
     // 预览返回最新批次（modified+created），不消费——重复预览结果稳定。
+    // SAG-06 (§7.11)：remainingBatches = 未消费 batch 总数（含预览的这批）。
     const preview = await store.previewUndoStep('session-w08')
     expect(preview.undoable).toBe(true)
     expect(preview.paths).toEqual([created, modified].toSorted())
+    expect(preview.remainingBatches).toBe(2)
     const again = await store.previewUndoStep('session-w08')
     expect(again.paths).toEqual(preview.paths)
+    expect(again.remainingBatches).toBe(2)
     expect((await store.changes('session-w08')).paths.map((row) => row.allConsumed)).toEqual([
       false,
       false,
@@ -179,12 +182,20 @@ describe('BackupStore', () => {
     expect(undone.undone).toBe(true)
     await expect(readFile(created, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await readFile(modified, 'utf8')).toBe('v1')
-    // 第一批（modified v0→v1）未被消费：仍可继续撤销。
-    expect((await store.previewUndoStep('session-w08')).undoable).toBe(true)
+    // 第一批（modified v0→v1）未被消费：仍可继续撤销，剩余计数随消费递减。
+    const afterOne = await store.previewUndoStep('session-w08')
+    expect(afterOne.undoable).toBe(true)
+    expect(afterOne.remainingBatches).toBe(1)
     const consumedChanges = await store.changes('session-w08')
     const rows = new Map(consumedChanges.paths.map((row) => [row.path, row]))
     expect(rows.get(created)?.allConsumed).toBe(true)
     expect(rows.get(modified)?.allConsumed).toBe(false)
+
+    // 全部消费后：undoable=false 且 remainingBatches=0。
+    await store.undoStep('session-w08')
+    const drained = await store.previewUndoStep('session-w08')
+    expect(drained.undoable).toBe(false)
+    expect(drained.remainingBatches).toBe(0)
   })
 
   it('rolls back new and existing files when a mutation is interrupted', async () => {
