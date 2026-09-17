@@ -412,6 +412,199 @@ describe('web-server gateway', () => {
       'web_schema_invalid',
     )
   }, 15_000)
+
+  it('changes diff endpoint serves the per-file session diff (W-08+)', async () => {
+    const fakeSession = {
+      id: 'sess-diff',
+      cwd: '/tmp/web-server-test',
+      events: { subscribe: () => () => {} },
+      transcript: [],
+      setPermissionPromptHandler() {},
+      async submit() {},
+      async end() {},
+    }
+    const { SessionHub } = await import('./session-hub')
+    const { PermissionPromptController } = await import('@volund/app-runtime')
+    const sessionHub = new SessionHub({
+      permissions: new PermissionPromptController(),
+      session: {
+        async startInteractive() {
+          return fakeSession as never
+        },
+        async interrupt() {},
+        async end() {},
+      },
+    })
+    const { url } = await start({
+      sessionHub,
+      changes: {
+        async list() {
+          return { paths: [], missing: false }
+        },
+        async previewUndo() {
+          return { undoable: false, paths: [], warnings: [] }
+        },
+        async undoStep() {
+          return { undone: false, paths: [], warnings: [] }
+        },
+        async fileDiff(sessionId: string, path: string) {
+          return {
+            path,
+            tracked: sessionId === 'sess-diff',
+            created: false,
+            beforeAvailable: true,
+            deleted: false,
+            diff: `--- ${path}\n+++ ${path}\n@@ -1 +1 @@\n-old\n+new`,
+            linesAdded: 1,
+            linesRemoved: 1,
+          }
+        },
+      },
+    })
+    const { base, cookie, csrfToken } = await authed(url)
+    await fetch(`${base}api/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cwd: '/tmp/web-server-test' }),
+    })
+
+    // 命中 → 200 + diff 载荷
+    const hit = await fetch(
+      `${base}api/v1/sessions/active/changes/diff?path=${encodeURIComponent('/tmp/web-server-test/a.ts')}`,
+      { headers: { Cookie: cookie } },
+    )
+    expect(hit.status).toBe(200)
+    const body = (await hit.json()) as { data: { tracked: boolean; linesAdded: number } }
+    expect(body.data.tracked).toBe(true)
+    expect(body.data.linesAdded).toBe(1)
+
+    // 缺 path 参数 → 400
+    const noPath = await fetch(`${base}api/v1/sessions/active/changes/diff`, {
+      headers: { Cookie: cookie },
+    })
+    expect(noPath.status).toBe(400)
+
+    // 匿名 → 401
+    const anonymous = await fetch(
+      `${base}api/v1/sessions/active/changes/diff?path=${encodeURIComponent('/tmp/a.ts')}`,
+    )
+    expect(anonymous.status).toBe(401)
+  })
+
+  it('changes per-file undo preview + execute (W-08+)', async () => {
+    const fakeSession = {
+      id: 'sess-undo-path',
+      cwd: '/tmp/web-server-test',
+      events: { subscribe: () => () => {} },
+      transcript: [],
+      setPermissionPromptHandler() {},
+      async submit() {},
+      async end() {},
+    }
+    const { SessionHub } = await import('./session-hub')
+    const { PermissionPromptController } = await import('@volund/app-runtime')
+    const sessionHub = new SessionHub({
+      permissions: new PermissionPromptController(),
+      session: {
+        async startInteractive() {
+          return fakeSession as never
+        },
+        async interrupt() {},
+        async end() {},
+      },
+    })
+    const calls: string[] = []
+    const { url } = await start({
+      sessionHub,
+      changes: {
+        async list() {
+          return { paths: [], missing: false }
+        },
+        async previewUndo() {
+          return { undoable: false, paths: [], warnings: [] }
+        },
+        async undoStep() {
+          return { undone: false, paths: [], warnings: [] }
+        },
+        async fileDiff(_id: string, path: string) {
+          return {
+            path,
+            tracked: true,
+            created: false,
+            beforeAvailable: true,
+            deleted: false,
+            diff: '',
+            linesAdded: 0,
+            linesRemoved: 0,
+          }
+        },
+        async previewUndoPath(_id: string, path: string) {
+          calls.push(`preview:${path}`)
+          return { undoable: true, paths: [path], warnings: [] }
+        },
+        async undoPath(_id: string, path: string) {
+          calls.push(`undo:${path}`)
+          return { undone: true, paths: [path], warnings: [] }
+        },
+      },
+    })
+    const { base, cookie, csrfToken } = await authed(url)
+    await fetch(`${base}api/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cwd: '/tmp/web-server-test' }),
+    })
+
+    // 预览 → 携带 path，命中 previewUndoPath。
+    const preview = await fetch(
+      `${base}api/v1/sessions/active/changes/undo/preview?path=${encodeURIComponent('/tmp/web-server-test/a.ts')}`,
+      { headers: { Cookie: cookie } },
+    )
+    expect(preview.status).toBe(200)
+    expect(((await preview.json()) as { data: { undoable: boolean } }).data.undoable).toBe(true)
+
+    // 执行 → POST body 带 path，命中 undoPath。
+    const executed = await fetch(`${base}api/v1/sessions/active/changes/undo`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ path: '/tmp/web-server-test/a.ts' }),
+    })
+    expect(executed.status).toBe(200)
+    expect(((await executed.json()) as { data: { undone: boolean } }).data.undone).toBe(true)
+    expect(calls).toEqual(['preview:/tmp/web-server-test/a.ts', 'undo:/tmp/web-server-test/a.ts'])
+
+    // 预览缺 path → 400；执行缺 body.path → 400。
+    const previewNoPath = await fetch(`${base}api/v1/sessions/active/changes/undo/preview`, {
+      headers: { Cookie: cookie },
+    })
+    expect(previewNoPath.status).toBe(400)
+    const executeNoPath = await fetch(`${base}api/v1/sessions/active/changes/undo`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(base).origin,
+        'X-Volund-Csrf': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    })
+    expect(executeNoPath.status).toBe(400)
+  })
 })
 
 describe('web-server session groups', () => {

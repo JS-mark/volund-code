@@ -314,6 +314,45 @@ export class WebApi {
       await fetch('/api/v1/sessions/active/undo', { method: 'POST', headers: this.headers() }),
     )
   }
+  /** W-08+：单文件会话净效果 diff（首备份 before → 当前盘面内容）。 */
+  async changesDiff(path: string): Promise<{
+    path: string
+    tracked: boolean
+    created: boolean
+    beforeAvailable: boolean
+    deleted: boolean
+    diff: string
+    linesAdded: number
+    linesRemoved: number
+  }> {
+    return parseResponse(
+      await fetch(`/api/v1/sessions/active/changes/diff?path=${encodeURIComponent(path)}`),
+    )
+  }
+  /** W-08+：按路径撤销最新批次（preview → confirm → execute）。 */
+  async changesUndoPreview(path: string): Promise<{
+    undoable: boolean
+    reason?: string
+    paths: string[]
+    warnings: { path: string; kind: string }[]
+  }> {
+    return parseResponse(
+      await fetch(`/api/v1/sessions/active/changes/undo/preview?path=${encodeURIComponent(path)}`),
+    )
+  }
+  async changesUndo(path: string): Promise<{
+    undone: boolean
+    paths: string[]
+    warnings: { path: string; kind: string }[]
+  }> {
+    return parseResponse(
+      await fetch(`/api/v1/sessions/active/changes/undo`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ path }),
+      }),
+    )
+  }
   async decidePermission(requestId: string, kind: string): Promise<void> {
     await parseResponse(
       await fetch('/api/v1/permissions/decide', {

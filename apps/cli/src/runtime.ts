@@ -1697,6 +1697,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           mcp: appKernel.ui.panel<McpPanelController>('mcp'),
           // SUBAGENTS-UI-r1：/subagents 运行管理面板（dispatcher 运行注册表）
           subagents: appKernel.ui.panel<SubagentsPanelController>('subagents'),
+          // W-08 对齐：/changes 会话变更面板（BackupStore 背书；含面板内按路径撤销）
+          changes: {
+            list: (sessionId) => backups.changes(sessionId),
+            fileDiff: (sessionId, path) => backups.fileDiff(sessionId, path),
+            previewUndo: (sessionId, path) => backups.previewUndoPath(sessionId, path),
+            undoPath: (sessionId, path) => backups.undoPath(sessionId, path),
+          },
           ...input,
         }),
       renderDirectoryTrustPrompt,
@@ -1723,6 +1730,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     restore: { restore: (sessionId, restoreOptions) => backups.restore(sessionId, restoreOptions) },
     changes: {
       list: (sessionId) => backups.changes(sessionId),
+      fileDiff: (sessionId, path) => backups.fileDiff(sessionId, path),
       previewUndo: (sessionId) => backups.previewUndoStep(sessionId),
       undoStep: (sessionId) => backups.undoStep(sessionId),
     },

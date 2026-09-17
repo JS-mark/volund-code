@@ -20,7 +20,7 @@ import { createInterface } from 'node:readline'
 
 import type { CoreEvent, EventBus, PromptComposer } from '@volund/core'
 import type { PermissionDecision, PermissionRequest } from '@volund/permission'
-import { sanitize, type JsonValue } from '@volund/shared'
+import { sanitize, unifiedDiff, formatUnifiedDiff, type JsonValue } from '@volund/shared'
 
 import type { MemoryRecordAttachment } from './memory-runtime'
 export * from './evolution-store'
@@ -368,6 +368,28 @@ export interface SessionChanges {
   missing: boolean
 }
 
+/** W-08+：单文件会话净效果 diff（首备份 before → 当前盘面内容）。 */
+export interface SessionFileDiff {
+  path: string
+  /** 无该路径的备份记录（不开放的任意路径读取一律落到这里）。 */
+  tracked: boolean
+  /** 会话开始时文件不存在。 */
+  created: boolean
+  /** before 快照对象缺失（被 GC/手工删除）：diff 退化为整文件新增。 */
+  beforeAvailable: boolean
+  /** 当前盘面上文件已不存在（会话内删除）。 */
+  deleted: boolean
+  /**
+   * W-08「大 diff 虚拟化」：任一端（备份快照或当前文件）超过上限时不做
+   * 全量 diff，只给计数语义；diff 字段此时为空串，调用方渲染截断提示。
+   */
+  truncated?: boolean
+  /** unified diff 文本；无净变化或 truncated 时为空串。 */
+  diff: string
+  linesAdded: number
+  linesRemoved: number
+}
+
 /** W-08：undo 预览（不执行、不消费）。 */
 export interface UndoPreview {
   undoable: boolean
@@ -528,6 +550,22 @@ export class BackupStore {
     }
   }
   /**
+   * W-08+：撤销「指定路径」的最新未消费批次。若该批次含其他文件（MultiEdit
+   * 一次原子提交多个文件），整批一起撤销——批次是原子语义，不拆；调用方
+   * 应经 previewUndoStep/变更面板提示该批次还涉及哪些路径。
+   */
+  async undoPath(sessionId: string, path: string): Promise<UndoStepResult> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest || manifest.records.length === 0)
+      return { undone: false, reason: 'no_backup', paths: [], warnings: [] }
+    const step = undoStepsOf(manifest.records)
+      .filter((records) => records.every((record) => !record.consumedAt))
+      .find((records) => records.some((record) => record.path === path))
+    if (!step) return { undone: false, reason: 'no_backup', paths: [], warnings: [] }
+    return this.consumeUndoStep(sessionId, step)
+  }
+  /**
    * r13-G4 (spec 08-session-config.md §8.6.2): `/undo` selection rules.
    * The undo target is the most recent not-yet-consumed backup batch — one
    * side-effecting tool execution — selected by backup entry order (manifest is
@@ -546,6 +584,12 @@ export class BackupStore {
       records.every((record) => !record.consumedAt),
     )
     if (!step) return { undone: false, reason: 'no_backup', paths: [], warnings: [] }
+    return this.consumeUndoStep(sessionId, step)
+  }
+  /**
+   * 消费一个批次：快照恢复 + 落 manifest（undoStep 与 undoPath 的公共实现）。
+   */
+  private async consumeUndoStep(sessionId: string, step: BackupRecord[]): Promise<UndoStepResult> {
     const paths = [...new Set(step.map((record) => record.path))].toSorted()
     const warnings: UndoStepWarning[] = []
     const releases: Array<() => Promise<void>> = []
@@ -622,6 +666,87 @@ export class BackupStore {
     return { paths, missing: false }
   }
   /**
+   * W-08+：单文件会话净效果 diff——首个备份的 before 快照 vs 当前盘面内容。
+   * created（会话新建）/deleted（会话内删除）由两端是否存在推导；path 必须与
+   * 备份记录精确匹配（等价于白名单），不开放任意路径读取。
+   */
+  async fileDiff(sessionId: string, path: string): Promise<SessionFileDiff> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    const records = (manifest?.records ?? []).filter((record) => record.path === path)
+    if (records.length === 0)
+      return {
+        path,
+        tracked: false,
+        created: false,
+        beforeAvailable: true,
+        deleted: false,
+        truncated: false,
+        diff: '',
+        linesAdded: 0,
+        linesRemoved: 0,
+      }
+    const sorted = [...records].toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const first = sorted[0]!
+    // W-08「大 diff 虚拟化」：任一端超过上限不读全文——diff 成本与文件大小
+    // 成正比，超限路径只给计数语义（truncated），调用方渲染截断提示。
+    let before = ''
+    let beforeAvailable = true
+    if (first.existed) {
+      if (first.backupPath) {
+        try {
+          const info = await stat(first.backupPath)
+          if (info.size > MAX_FILE_DIFF_BYTES)
+            return truncatedResult(path, first, true, await targetDeleted(path))
+          before = await readFile(first.backupPath, 'utf8')
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          beforeAvailable = false
+        }
+      } else beforeAvailable = false
+    }
+    let after = ''
+    let deleted = false
+    try {
+      const info = await stat(path)
+      if (info.size > MAX_FILE_DIFF_BYTES)
+        return truncatedResult(path, first, beforeAvailable, false)
+      after = await readFile(path, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      deleted = true
+    }
+    const { hunks, linesAdded, linesRemoved } = unifiedDiff(before, after)
+    return {
+      path,
+      tracked: true,
+      created: !first.existed,
+      beforeAvailable,
+      deleted,
+      truncated: false,
+      diff: formatUnifiedDiff(path, hunks),
+      linesAdded,
+      linesRemoved,
+    }
+  }
+  /**
+   * W-08+：预览「指定路径」的下一个可撤销批次（同 undoPath 的选择规则），
+   * 不消费、不改盘。批次涉及多个文件时 paths 会全部列出。
+   */
+  async previewUndoPath(sessionId: string, path: string): Promise<UndoPreview> {
+    validateSessionId(sessionId)
+    const manifest = await this.readManifest(sessionId)
+    if (!manifest || manifest.records.length === 0)
+      return { undoable: false, reason: 'no_backup', paths: [], warnings: [], remainingBatches: 0 }
+    const remaining = undoStepsOf(manifest.records).filter((records) =>
+      records.every((record) => !record.consumedAt),
+    )
+    const step = remaining.find((records) => records.some((record) => record.path === path))
+    if (!step)
+      return { undoable: false, reason: 'no_backup', paths: [], warnings: [], remainingBatches: 0 }
+    return previewStep(step, remaining.length)
+  }
+  /**
    * W-08 undo 预览（§8.6.2 / §22：destructive 动作先 preview 再确认）：
    * 返回下一批可撤销批次的路径与警告，不执行、不消费。
    */
@@ -636,33 +761,7 @@ export class BackupStore {
     const step = remaining[0]
     if (!step)
       return { undoable: false, reason: 'no_backup', paths: [], warnings: [], remainingBatches: 0 }
-    const paths = [...new Set(step.map((record) => record.path))].toSorted()
-    const warnings: UndoStepWarning[] = []
-    for (const record of step) {
-      if (!record.existed || !record.backupPath) continue
-      try {
-        await stat(record.backupPath)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-          warnings.push({ path: record.path, kind: 'backup_missing' })
-        continue
-      }
-      try {
-        const currentHash = await sourceHash(record.path)
-        if (currentHash !== record.afterHash && currentHash !== record.beforeHash)
-          warnings.push({ path: record.path, kind: 'target_modified' })
-      } catch {
-        // 备份后目标已消失：恢复会重建它，无需警告。
-      }
-    }
-    const stepCreatedAt = step[0]?.createdAt
-    return {
-      undoable: true,
-      paths,
-      warnings,
-      remainingBatches: remaining.length,
-      ...(stepCreatedAt ? { stepCreatedAt } : {}),
-    }
+    return previewStep(step, remaining.length)
   }
   private async markConsumed(sessionId: string, step: readonly BackupRecord[]): Promise<void> {
     const consumedAt = new Date(this.now()).toISOString()
@@ -785,6 +884,76 @@ export class BackupStore {
 
 function validateSessionId(sessionId: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('Invalid session id')
+}
+
+/** W-08「大 diff 虚拟化」：单端超过 4MB 不做全量 diff（备份对象可能未压缩）。 */
+const MAX_FILE_DIFF_BYTES = 4 * 1024 * 1024
+
+function truncatedResult(
+  path: string,
+  first: BackupRecord,
+  beforeAvailable: boolean,
+  deleted: boolean,
+): SessionFileDiff {
+  return {
+    path,
+    tracked: true,
+    created: !first.existed,
+    beforeAvailable,
+    deleted,
+    truncated: true,
+    diff: '',
+    linesAdded: 0,
+    linesRemoved: 0,
+  }
+}
+
+/** 盘面文件是否已不存在（ENOENT → true；其他错误按「存在」保守处理）。 */
+async function targetDeleted(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+}
+
+/**
+ * 预览一个已选批次的 undo（previewUndoStep/previewUndoPath 共用）——
+ * 校验快照可用性与外部修改，不执行、不消费。remainingBatches 由调用方
+ * 以未消费 batch 总数传入（SAG-06 §7.11：含被预览的这批）。
+ */
+async function previewStep(
+  step: readonly BackupRecord[],
+  remainingBatches: number,
+): Promise<UndoPreview> {
+  const paths = [...new Set(step.map((record) => record.path))].toSorted()
+  const warnings: UndoStepWarning[] = []
+  for (const record of step) {
+    if (!record.existed || !record.backupPath) continue
+    try {
+      await stat(record.backupPath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        warnings.push({ path: record.path, kind: 'backup_missing' })
+      continue
+    }
+    try {
+      const currentHash = await sourceHash(record.path)
+      if (currentHash !== record.afterHash && currentHash !== record.beforeHash)
+        warnings.push({ path: record.path, kind: 'target_modified' })
+    } catch {
+      // 备份后目标已消失：恢复会重建它，无需警告。
+    }
+  }
+  const stepCreatedAt = step[0]?.createdAt
+  return {
+    undoable: true,
+    paths,
+    warnings,
+    remainingBatches,
+    ...(stepCreatedAt ? { stepCreatedAt } : {}),
+  }
 }
 
 /**

@@ -1,16 +1,19 @@
 import { Box, Text, useInput, useStdout } from 'ink'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type {
   InteractivePermissionDecisionKind,
   InteractivePermissionRequest,
   PermissionPromptController,
 } from '../permission'
+import { permissionDiffPreview } from '../permission-diff'
 import { formatPermissionTextForDisplay } from '../permission-display'
 
 export interface PermissionPromptStackProps {
   controller: PermissionPromptController
   requests: readonly InteractivePermissionRequest[]
+  /** 会话 cwd：Edit/Write 的审批时点探测（文件是否已变/是否覆盖现有文件）。 */
+  cwd?: string
 }
 
 interface DecisionOption {
@@ -244,7 +247,7 @@ function fallbackRow(text: string): SpecRow {
  * decide immediately, and esc denies the focused request. Decided requests leave
  * the strip and focus advances to the next pending one.
  */
-export function PermissionPromptStack({ controller, requests }: PermissionPromptStackProps) {
+export function PermissionPromptStack({ controller, requests, cwd }: PermissionPromptStackProps) {
   const { stdout } = useStdout()
   const [activeIndex, setActiveIndex] = useState(0)
   const [optionIndex, setOptionIndex] = useState(0)
@@ -296,12 +299,21 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
     { isActive: Boolean(request) },
   )
 
-  if (!request) return null
-
+  // 写操作 diff 预览（Edit/MultiEdit/Write）：审批前看到具体要改什么。
+  // hooks 顺序必须在早退 return 之前稳定——diff 按 request id memo，同一请求
+  // 多次 render 不重复读盘/算 diff；无请求时返回空数组（hooks 仍要执行）。
   const innerWidth = Math.max(
     MIN_INNER_WIDTH,
     Math.min((stdout?.columns ?? 80) - 6, MAX_INNER_WIDTH),
   )
+  const diffRows = useMemo(
+    () =>
+      request ? permissionDiffPreview(request.toolName, request.input, innerWidth - 2, cwd) : [],
+    [request?.id, request?.toolName, request?.input, innerWidth, cwd],
+  )
+
+  if (!request) return null
+
   const specRows = request.display.approvable
     ? summarizeSpec(request.spec).flatMap((line) => layoutSpecLine(line, innerWidth))
     : [fallbackRow(request.display.spec)]
@@ -395,6 +407,24 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
           </Text>
         ) : null}
       </Box>
+      {diffRows.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="gray">变更预览</Text>
+          {diffRows.map((row, index) => (
+            <Text key={`diff:${index}`} wrap="truncate">
+              <Text
+                color={row.tone === 'add' ? 'green' : row.tone === 'del' ? 'red' : 'gray'}
+                key="marker"
+              >
+                {row.tone === 'add' ? '+ ' : row.tone === 'del' ? '- ' : '  '}
+              </Text>
+              <Text {...(row.tone === 'meta' ? { color: 'gray' } : {})} key="body">
+                {row.text}
+              </Text>
+            </Text>
+          ))}
+        </Box>
+      ) : null}
       <Box flexDirection="column" marginTop={1} marginBottom={1}>
         {options.map((option, index) => {
           const focused = index === optionIndex

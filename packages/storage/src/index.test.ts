@@ -198,6 +198,118 @@ describe('BackupStore', () => {
     expect(drained.remainingBatches).toBe(0)
   })
 
+  it('diffs a session file against its first backup (net effect)', async () => {
+    const dir = await temp(),
+      modified = resolve(dir, 'modified.txt'),
+      created = resolve(dir, 'created.txt'),
+      gone = resolve(dir, 'gone.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    // modified：v0 → v1 → v2，净效果 diff = v0 vs v2。
+    await writeFile(modified, 'v0\n')
+    const first = await store.prepare('session-diff', [modified])
+    await writeFile(modified, 'v1\n')
+    await first.commit()
+    const second = await store.prepare('session-diff', [modified])
+    await writeFile(modified, 'v2\n')
+    await second.commit()
+
+    const modifiedDiff = await store.fileDiff('session-diff', modified)
+    expect(modifiedDiff).toMatchObject({
+      tracked: true,
+      created: false,
+      beforeAvailable: true,
+      deleted: false,
+      linesAdded: 1,
+      linesRemoved: 1,
+    })
+    expect(modifiedDiff.diff.split('\n')).toEqual([
+      `--- ${modified}`,
+      `+++ ${modified}`,
+      '@@ -1 +1 @@',
+      '-v0',
+      '+v2',
+    ])
+
+    // created：会话新建 → 整文件为新增行。
+    const third = await store.prepare('session-diff', [created])
+    await writeFile(created, 'brand\nnew\n')
+    await third.commit()
+    const createdDiff = await store.fileDiff('session-diff', created)
+    expect(createdDiff).toMatchObject({ tracked: true, created: true, linesAdded: 2 })
+    expect(createdDiff.diff).toContain('+brand')
+
+    // 会话内删除：文件先存在并被备份，之后从盘上消失 → 全部为删除行。
+    await writeFile(gone, 'temporary\n')
+    const fourth = await store.prepare('session-diff', [gone])
+    await fourth.commit()
+    await rm(gone)
+    const deletedDiff = await store.fileDiff('session-diff', gone)
+    expect(deletedDiff).toMatchObject({ deleted: true, linesRemoved: 1 })
+    expect(deletedDiff.diff).toContain('-temporary')
+
+    // 未跟踪路径：不读盘、不抛错，tracked=false。
+    const untracked = await store.fileDiff('session-diff', resolve(dir, 'elsewhere.txt'))
+    expect(untracked).toMatchObject({ tracked: false, diff: '', truncated: false })
+
+    // W-08 大 diff 虚拟化：当前文件超过 4MB 上限 → truncated，不读全文。
+    const big = resolve(dir, 'big.txt')
+    const fifth = await store.prepare('session-diff', [big])
+    await writeFile(big, 'x'.repeat(4 * 1024 * 1024 + 1))
+    await fifth.commit()
+    const bigDiff = await store.fileDiff('session-diff', big)
+    expect(bigDiff).toMatchObject({ tracked: true, truncated: true, diff: '' })
+    await rm(big)
+
+    // 逐步撤销（v2→v1→v0 + created/gone/big 批次）后净效果为空 diff。
+    await store.undoStep('session-diff')
+    await store.undoStep('session-diff')
+    await store.undoStep('session-diff')
+    await store.undoStep('session-diff')
+    await store.undoStep('session-diff')
+    const afterUndo = await store.fileDiff('session-diff', modified)
+    expect(afterUndo.diff).toBe('')
+    expect(afterUndo.linesAdded).toBe(0)
+  })
+
+  it('undoes only the batch touching the given path (undoPath)', async () => {
+    const dir = await temp(),
+      a = resolve(dir, 'a.txt'),
+      b = resolve(dir, 'b.txt'),
+      store = new BackupStore(resolve(dir, 'backups'))
+    await writeFile(a, 'a0')
+    await writeFile(b, 'b0')
+    // 批次 1：改 a（a0→a1）。
+    const batch1 = await store.prepare('session-undo-path', [a])
+    await writeFile(a, 'a1')
+    await batch1.commit()
+    // 批次 2：同时改 a 和 b（a1→a2、b0→b1）——MultiEdit 语义的原子批次。
+    const batch2 = await store.prepare('session-undo-path', [a, b])
+    await writeFile(a, 'a2')
+    await writeFile(b, 'b1')
+    await batch2.commit()
+
+    // 按 b 撤销：命中批次 2（最新未消费），整批一起回滚（a、b 都回来）。
+    const preview = await store.previewUndoPath('session-undo-path', b)
+    expect(preview.undoable).toBe(true)
+    expect(preview.paths).toEqual([a, b].toSorted())
+
+    const undone = await store.undoPath('session-undo-path', b)
+    expect(undone.undone).toBe(true)
+    expect(undone.paths).toEqual([a, b].toSorted())
+    expect(await readFile(a, 'utf8')).toBe('a1')
+    expect(await readFile(b, 'utf8')).toBe('b0')
+
+    // 批次 2 已消费；按 a 再撤销命中批次 1（a1→a0）。
+    const again = await store.undoPath('session-undo-path', a)
+    expect(again.undone).toBe(true)
+    expect(await readFile(a, 'utf8')).toBe('a0')
+
+    // 全部消费后无可撤销批次。
+    expect((await store.undoPath('session-undo-path', a)).undone).toBe(false)
+    expect((await store.undoPath('session-undo-path', b)).undone).toBe(false)
+    expect((await store.undoPath('session-undo-path', a)).reason).toBe('no_backup')
+  })
+
   it('rolls back new and existing files when a mutation is interrupted', async () => {
     const dir = await temp(),
       existing = resolve(dir, 'existing.txt'),

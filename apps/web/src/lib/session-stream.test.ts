@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChatState } from './session-stream'
-import { initialChatState, reduceChatState } from './session-stream'
+import { initialChatState, reduceChatState, toolTargetLabel } from './session-stream'
 
 /** 构造信封：view 事件的字段（request/message）与 type 平级——与 SessionHub 的实际发射形状一致。 */
 function envelope(
@@ -133,6 +133,55 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
       }),
     )
     expect(main.permission?.lineage).toBeUndefined()
+  })
+
+  it('tool.requested 落目标列，started 不冲掉，completed 合并 +n −m', () => {
+    const requested = reduceChatState(
+      initialChatState,
+      envelope('core', {
+        type: 'tool.requested',
+        payload: { toolUseId: 'tu-1', tool: 'Edit', input: { path: 'src/a.ts' } },
+      }),
+    )
+    expect(requested.tools[0]).toMatchObject({
+      tool: 'Edit',
+      target: 'src/a.ts',
+      status: 'running',
+    })
+    const started = reduceChatState(
+      requested,
+      envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 'tu-1', tool: 'Edit' },
+      }),
+    )
+    expect(started.tools[0]).toMatchObject({ target: 'src/a.ts', status: 'running' })
+    const completed = reduceChatState(
+      started,
+      envelope('core', {
+        type: 'tool.completed',
+        payload: {
+          toolUseId: 'tu-1',
+          tool: 'Edit',
+          isError: false,
+          linesAdded: 3,
+          linesRemoved: 1,
+        },
+      }),
+    )
+    expect(completed.tools[0]).toMatchObject({ status: 'done', linesAdded: 3, linesRemoved: 1 })
+  })
+
+  it('toolTargetLabel：取辨识度最高的参数并压成单行', () => {
+    expect(toolTargetLabel('Bash', { command: 'pnpm test' })).toBe('$ pnpm test')
+    expect(toolTargetLabel('Read', { path: 'a/b.ts' })).toBe('a/b.ts')
+    expect(toolTargetLabel('Grep', { pattern: 'foo' })).toBe('foo')
+    expect(toolTargetLabel('unknown.Tool', { file_path: 'x' })).toBe('x')
+    // 正文参数绝不成为目标；无候选键时省略。
+    expect(toolTargetLabel('Edit', { old_string: 'secret', new_string: 's' })).toBeUndefined()
+    expect(toolTargetLabel('Read', 'not-an-object')).toBeUndefined()
+    // 超长截断。
+    expect(toolTargetLabel('Read', { path: 'x'.repeat(100) })?.length).toBe(72)
   })
 
   it('permission.mode 帧更新档位：非法值忽略，本地动作同写一处', () => {

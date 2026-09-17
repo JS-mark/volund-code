@@ -14,6 +14,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { activityTarget, buildTimeline, completeActivity, type ActivityItem } from './activity'
+import type { ChangesPanelController } from './changes-panel'
+import { ChangesPanel } from './components/ChangesPanel'
 import { InputBox } from './components/InputBox'
 import { ListPicker } from './components/ListPicker'
 import { McpPanel } from './components/McpPanel'
@@ -187,6 +189,8 @@ export interface InteractiveAppOptions {
   mcp?: McpPanelController
   /** SUBAGENTS-UI-r1：/subagents 运行管理面板控制器（apps/cli 原生装配）。 */
   subagents?: SubagentsPanelController
+  /** W-08 对齐：/changes 会话变更面板控制器（BackupStore 背书）。 */
+  changes?: ChangesPanelController
   modelPicker?: ModelPickerState
   noColor?: boolean
   /**
@@ -289,6 +293,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
   const [skillsPanelOpen, setSkillsPanelOpen] = useState(false)
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false)
   const [subagentsPanelOpen, setSubagentsPanelOpen] = useState(false)
+  const [changesPanelOpen, setChangesPanelOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [statusPanelOpen, setStatusPanelOpen] = useState(false)
   const [currentModelId, setCurrentModelId] = useState(options.modelPicker?.currentModelId ?? '')
@@ -327,6 +332,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     skillsPanelOpen ||
     mcpPanelOpen ||
     subagentsPanelOpen ||
+    changesPanelOpen ||
     modelPickerOpen ||
     commandListView !== undefined
   const [registryCommands, setRegistryCommands] = useState(
@@ -646,6 +652,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           setSkillsPanelOpen(false)
           setMcpPanelOpen(false)
           setSubagentsPanelOpen(false)
+          setChangesPanelOpen(false)
           setState((current) => ({
             ...current,
             transcript: [],
@@ -724,6 +731,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
               setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
               setResumeCandidates(undefined)
               setMemoryOpen(true)
               setState((current) => ({
@@ -806,6 +814,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
               setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
               if (args[0] === 'list') return skillsListCommandView(await options.skills!.list())
               setSkillsPanelOpen(true)
               setState((current) => ({
@@ -829,6 +838,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
               setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
               if (args[0] === 'list') return mcpListCommandView(await options.mcp!.list())
               setMcpPanelOpen(true)
               setState((current) => ({
@@ -852,6 +862,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
               setSkillsPanelOpen(false)
               setMcpPanelOpen(false)
               setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
               if (args[0] === 'list')
                 return subagentListCommandView(await options.subagents!.list())
               setSubagentsPanelOpen(true)
@@ -908,6 +919,30 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             'Attach the clipboard image or file to the input box',
             140,
           ),
+      // W-08 对齐：会话文件变更总览（列表 + 单文件净效果 diff）；撤销仍走 /undo。
+      options.changes
+        ? {
+            name: 'changes',
+            order: 150,
+            description: 'Browse session file changes with diffs',
+            run: () => {
+              setShowWelcome(false)
+              setModelPickerOpen(false)
+              setStatusPanelOpen(false)
+              setMemoryOpen(false)
+              setSkillsPanelOpen(false)
+              setMcpPanelOpen(false)
+              setSubagentsPanelOpen(false)
+              setChangesPanelOpen(false)
+              setChangesPanelOpen(true)
+              setState((current) => ({
+                ...current,
+                status: 'changes',
+                statusLevel: 'muted',
+              }))
+            },
+          }
+        : unavailableSlashCommand('changes', 'Browse session file changes with diffs', 150),
     ]
     return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
   }, [
@@ -918,6 +953,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     options.modelPicker,
     options.skills,
     options.mcp,
+    options.changes,
     activeOnExit,
     options.resume,
     options.slashCommands,
@@ -950,6 +986,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
         skillsPanelOpen ||
         mcpPanelOpen ||
         subagentsPanelOpen ||
+        changesPanelOpen ||
         modelPickerOpen ||
         resumeCandidates !== undefined ||
         commandListView !== undefined ||
@@ -1145,7 +1182,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           {/* §7.5.2：Ctrl+V 剪贴板授权弹窗可能发生在首次提交之前（welcome 仍
               可见）——welcome 分支同样挂载弹窗，否则请求挂着却无处决策。 */}
           {options.permissions ? (
-            <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
+            <PermissionPromptStack
+              controller={options.permissions}
+              requests={permissionRequests}
+              {...(activeCwd ? { cwd: activeCwd } : {})}
+            />
           ) : null}
           <WelcomeScreen state={welcomeState} terminalSize={terminalSize} />
           <Box marginTop={1} paddingX={1}>
@@ -1157,7 +1198,11 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           <TopBar cwd={activeCwd} sessionId={state.sessionId} />
           <ScrollableTranscript items={timeline} {...(activeCwd ? { cwd: activeCwd } : {})} />
           {options.permissions ? (
-            <PermissionPromptStack controller={options.permissions} requests={permissionRequests} />
+            <PermissionPromptStack
+              controller={options.permissions}
+              requests={permissionRequests}
+              {...(activeCwd ? { cwd: activeCwd } : {})}
+            />
           ) : null}
           {turnStatus}
           {queuedInputs.length > 0 ? (
@@ -1257,6 +1302,20 @@ export function InteractiveApp(options: InteractiveAppOptions) {
           onClose={() => {
             setSubagentsPanelOpen(false)
             setState((current) => ({ ...current, status: 'subagents closed' }))
+          }}
+        />
+      ) : null}
+      {changesPanelOpen && options.changes ? (
+        <ChangesPanel
+          controller={options.changes}
+          cwd={activeCwd}
+          sessionId={activeSession?.id ?? state.sessionId}
+          terminalColumns={terminalSize.columns}
+          terminalRows={terminalSize.rows}
+          onNotice={(text) => appendSystemMessage(setState, text)}
+          onClose={() => {
+            setChangesPanelOpen(false)
+            setState((current) => ({ ...current, status: 'changes closed' }))
           }}
         />
       ) : null}

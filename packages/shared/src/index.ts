@@ -33,6 +33,7 @@ export {
 export * from './agent-schema'
 export * from './attachments'
 export * from './config-schema'
+export * from './diff'
 export * from './error-codes'
 export * from './errors'
 export * from './events'

@@ -10,7 +10,7 @@ import type {
   MemoryService,
   MemoryTransferService,
 } from '@volund/storage'
-import type { SessionChanges, UndoPreview, UndoStepResult } from '@volund/storage'
+import type { SessionChanges, SessionFileDiff, UndoPreview, UndoStepResult } from '@volund/storage'
 import type { TelemetryHealth, TelemetrySummary } from '@volund/telemetry'
 import type {
   InteractiveAppHandle,
@@ -209,6 +209,8 @@ export interface VolundPorts {
     list(sessionId: string): Promise<SessionChanges>
     previewUndo(sessionId: string): Promise<UndoPreview>
     undoStep(sessionId: string): Promise<UndoStepResult>
+    /** W-08+：单文件会话净效果 diff（Web 变更面板与 TUI /changes 共用）。 */
+    fileDiff(sessionId: string, path: string): Promise<SessionFileDiff>
   }
   /** §22 W-01：Web 控制台随 TUI 静默自启（无独立 web 子命令）。 */
   web?: {

@@ -1,5 +1,6 @@
 export type SandboxTier = 'full' | 'none' | 'partial' | 'weak'
 export * from './permission-display'
+export * from './permission-diff'
 export * from './components/welcome/index'
 export const THEME_SCHEMA_VERSION = 1 as const
 export const THEME_TOKEN_NAMES = [
@@ -187,6 +188,7 @@ export * from './memory-panel'
 export * from './skills-panel'
 export * from './mcp-panel'
 export * from './subagents-panel'
+export * from './changes-panel'
 // §7.5.2 附件粘贴的类型面（定义在 shared，UI/CLI/宿主三方共用）
 export type { PasteAttachmentResult, SubmitAttachment, SubmitAttachmentKind } from '@volund/shared'
 export type {

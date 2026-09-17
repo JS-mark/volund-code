@@ -758,6 +758,14 @@ export function ChatPanel({
                 >
                   <span className={`tool-dot ${tool.status}`} />
                   <span className="tool-name">{row.name}</span>
+                  {tool.tool !== 'Task' && tool.target ? (
+                    <span className="tool-target">{tool.target}</span>
+                  ) : null}
+                  {tool.status === 'done' && (tool.linesAdded || tool.linesRemoved) ? (
+                    <span className="tool-delta">
+                      +{tool.linesAdded ?? 0} −{tool.linesRemoved ?? 0}
+                    </span>
+                  ) : null}
                   <span className="tool-status">{row.status}</span>
                 </div>
               )

@@ -31,6 +31,11 @@ export interface ChangesPortLike {
   list(sessionId: string): Promise<unknown>
   previewUndo(sessionId: string): Promise<unknown>
   undoStep(sessionId: string): Promise<unknown>
+  /** W-08+：单文件会话净效果 diff（首备份 before → 当前盘面内容）。 */
+  fileDiff?(sessionId: string, path: string): Promise<unknown>
+  /** W-08+：按路径预览/执行撤销（批次含多文件时整批）。 */
+  previewUndoPath?(sessionId: string, path: string): Promise<unknown>
+  undoPath?(sessionId: string, path: string): Promise<unknown>
 }
 
 /**
@@ -1050,6 +1055,89 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       try {
         const changes = (await options.changes.list(activeId)) as Record<string, unknown>
         ok(res, { sessionId: activeId, ...changes })
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/changes/diff' &&
+      req.method === 'GET'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      const target = url.searchParams.get('path')
+      if (!target) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'missing query parameter: path' })
+        return
+      }
+      if (!options.changes.fileDiff) {
+        fail(res, 501, { code: 'web_state_conflict', message: 'file diff is not available' })
+        return
+      }
+      try {
+        ok(res, await options.changes.fileDiff(activeId, target))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/changes/undo/preview' &&
+      req.method === 'GET'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      const target = url.searchParams.get('path')
+      if (!target) {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'missing query parameter: path' })
+        return
+      }
+      if (!options.changes.previewUndoPath) {
+        fail(res, 501, { code: 'web_state_conflict', message: 'per-file undo is not available' })
+        return
+      }
+      try {
+        ok(res, await options.changes.previewUndoPath(activeId, target))
+      } catch (cause) {
+        failFrom(res, cause)
+      }
+      return
+    }
+    if (
+      options.changes &&
+      hub &&
+      path === '/api/v1/sessions/active/changes/undo' &&
+      req.method === 'POST'
+    ) {
+      const activeId = hub.active?.id
+      if (!activeId) {
+        fail(res, 409, { code: 'web_session_invalid', message: 'no active session' })
+        return
+      }
+      const body = (await readJsonBody(req).catch(() => undefined)) as
+        | { path?: unknown }
+        | undefined
+      if (typeof body?.path !== 'string' || body.path === '') {
+        fail(res, 400, { code: 'web_schema_invalid', message: 'missing body field: path' })
+        return
+      }
+      if (!options.changes.undoPath) {
+        fail(res, 501, { code: 'web_state_conflict', message: 'per-file undo is not available' })
+        return
+      }
+      try {
+        ok(res, await options.changes.undoPath(activeId, body.path))
       } catch (cause) {
         failFrom(res, cause)
       }

@@ -52,6 +52,10 @@ export interface ToolCard {
   turnId?: string
   /** Task 卡：tool.requested input 的展示摘要（agentType / prompt 首行）。 */
   task?: { agentType?: string; prompt?: string }
+  /** tool.requested 的 input 提取的单行目标（路径/命令…）；无目标时省略。 */
+  target?: string
+  linesAdded?: number
+  linesRemoved?: number
 }
 
 /**
@@ -165,6 +169,50 @@ function chipFromHandle(handle: string): string {
   const digest = dot > 0 ? handle.slice(0, dot) : handle
   const ext = dot > 0 ? handle.slice(dot + 1) : ''
   return `[image: ${digest.slice(0, 8)}${ext ? `.${ext}` : ''}]`
+}
+
+/** 各工具最具辨识度的参数名（与 @volund/ui activityTarget 同一选择规则）。 */
+const TOOL_TARGET_KEYS: Record<string, string> = {
+  Read: 'path',
+  Write: 'path',
+  Edit: 'path',
+  MultiEdit: 'path',
+  Bash: 'command',
+  Glob: 'pattern',
+  Grep: 'pattern',
+  WebFetch: 'url',
+  WebSearch: 'query',
+  ShellOutput: 'shellId',
+  KillShell: 'shellId',
+  Task: 'agentType',
+}
+const FALLBACK_TARGET_KEYS = ['path', 'file_path', 'command', 'pattern', 'url', 'query'] as const
+const TARGET_MAX = 72
+
+/**
+ * tool.requested 的 input → 单行展示目标（tool row 的 path/command 列）。
+ * input 是模型产出：剥控制字符、压空白、截断；绝不取 content/old_string 等正文参数。
+ */
+export function toolTargetLabel(tool: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const record = input as Record<string, unknown>
+  const pick = (key: string): string | undefined => {
+    const value = record[key]
+    return typeof value === 'string' && value.trim() ? value : undefined
+  }
+  const raw =
+    (TOOL_TARGET_KEYS[tool] ? pick(TOOL_TARGET_KEYS[tool]) : undefined) ??
+    FALLBACK_TARGET_KEYS.map(pick).find((value) => value !== undefined)
+  if (!raw) return undefined
+  // 控制字符与换行压成单行（React 文本节点本身无注入面，这里只为可读性）。
+  const oneLine = raw
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .split(/\s+/)
+    .join(' ')
+    .trim()
+  if (!oneLine) return undefined
+  const prefixed = tool === 'Bash' ? `$ ${oneLine}` : oneLine
+  return prefixed.length > TARGET_MAX ? `${prefixed.slice(0, TARGET_MAX - 1)}…` : prefixed
 }
 
 /** message.appended content 的 image part → 回显图片（仅 handle 引用式可取字节）。 */
@@ -304,9 +352,25 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       return { ...state, turn: 'idle', notice: '本轮已中断' }
     }
     case 'tool.requested': {
-      // 只摘 Task 的 input 摘要（agentType / prompt 首行）供折叠行展示；其他工具
-      // 的 requested 帧不产生卡片（卡片由 tool.started 建立，保持既有时序语义）。
-      if (payload.tool !== 'Task') return state
+      // 附录 D.2：input 携带工具参数——requested 帧建卡并提取单行目标（started 帧
+      // 不带 input，对齐 TUI 活动行「先于权限判定建条目」的时序）；Task 卡同时摘
+      // agentType / prompt 首行摘要（§2.7bis.5 U3 折叠行）。
+      const id = String(payload.toolUseId)
+      const tool = String(payload.tool)
+      const target = toolTargetLabel(tool, payload.input)
+      if (tool !== 'Task')
+        return {
+          ...state,
+          tools: [
+            ...state.tools.filter((card) => card.toolUseId !== id),
+            {
+              toolUseId: id,
+              tool,
+              status: 'running' as const,
+              ...(target === undefined ? {} : { target }),
+            },
+          ],
+        }
       const input: unknown = payload.input
       const record = input !== null && typeof input === 'object' ? input : undefined
       const agentType =
@@ -321,31 +385,41 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         ...(agentType ? { agentType } : {}),
         ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
       }
-      const exists = state.tools.some((tool) => tool.toolUseId === payload.toolUseId)
+      const exists = state.tools.some((card) => card.toolUseId === id)
       if (exists)
         return {
           ...state,
-          tools: state.tools.map((tool) =>
-            tool.toolUseId === payload.toolUseId ? { ...tool, task } : tool,
+          tools: state.tools.map((card) =>
+            card.toolUseId === id
+              ? { ...card, task, ...(target === undefined ? {} : { target }) }
+              : card,
           ),
         }
       return {
         ...state,
         tools: [
           ...state.tools,
-          { toolUseId: String(payload.toolUseId), tool: 'Task', status: 'running', task },
+          {
+            toolUseId: id,
+            tool: 'Task',
+            status: 'running',
+            task,
+            ...(target === undefined ? {} : { target }),
+          },
         ],
       }
     }
     case 'tool.started': {
       // turnId 只在 Task 卡上是归属键，但顺手全记——数据来自 CoreEvent 顶层，零成本。
+      // requested 阶段已建的卡（target/task）经 spread 保留，仅拨状态。
       const turnId = typeof event.turnId === 'string' ? event.turnId : undefined
-      const exists = state.tools.some((tool) => tool.toolUseId === payload.toolUseId)
+      const id = String(payload.toolUseId)
+      const exists = state.tools.some((tool) => tool.toolUseId === id)
       if (exists)
         return {
           ...state,
           tools: state.tools.map((tool) =>
-            tool.toolUseId === payload.toolUseId
+            tool.toolUseId === id
               ? { ...tool, status: 'running', ...(turnId ? { turnId } : {}) }
               : tool,
           ),
@@ -355,7 +429,7 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         tools: [
           ...state.tools,
           {
-            toolUseId: String(payload.toolUseId),
+            toolUseId: id,
             tool: String(payload.tool),
             status: 'running',
             ...(turnId ? { turnId } : {}),
@@ -366,10 +440,20 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
     case 'tool.completed': {
       const id = String(payload.toolUseId)
       const failed = payload.isError === true
+      const linesAdded = typeof payload.linesAdded === 'number' ? payload.linesAdded : undefined
+      const linesRemoved =
+        typeof payload.linesRemoved === 'number' ? payload.linesRemoved : undefined
       return {
         ...state,
         tools: state.tools.map((tool) =>
-          tool.toolUseId === id ? { ...tool, status: failed ? 'error' : 'done' } : tool,
+          tool.toolUseId === id
+            ? {
+                ...tool,
+                status: failed ? 'error' : 'done',
+                ...(linesAdded === undefined ? {} : { linesAdded }),
+                ...(linesRemoved === undefined ? {} : { linesRemoved }),
+              }
+            : tool,
         ),
       }
     }
