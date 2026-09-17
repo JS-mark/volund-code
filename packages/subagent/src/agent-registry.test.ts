@@ -130,3 +130,163 @@ describe('untrustedAgentBody (§6.5.0a)', () => {
     )
   })
 })
+
+describe('AgentDefinitionRegistry tools whitelist (§2.7.1 G3 超父集拒绝)', () => {
+  const cleanups: Array<() => Promise<void>> = []
+  afterEach(async () => {
+    while (cleanups.length) await cleanups.pop()!()
+  })
+
+  // 父工具注册表全集：内置 + 插件工具（plugin:<名>:<工具>，设计 §7.2）。
+  const PARENT_TOOLS = ['Read', 'Grep', 'Glob', 'Edit', 'Bash', 'Task', 'plugin:demo:lint']
+
+  function agentFile(name: string, tools?: string): string {
+    return `---\nname: ${name}\ndescription: ${name} body\n${tools ?? ''}---\nBody of ${name}.`
+  }
+
+  function makeRegistry(
+    ws: { home: string; cwd: string },
+    warnings: string[],
+    parentToolNames?: string[],
+  ): AgentDefinitionRegistry {
+    return new AgentDefinitionRegistry({
+      volundHome: ws.home,
+      cwd: ws.cwd,
+      ...(parentToolNames ? { parentToolNames: () => parentToolNames } : {}),
+      onWarning: (message) => warnings.push(message),
+    })
+  }
+
+  it('rejects a definition whose tools exceed the parent registry, naming the out-of-bounds tools', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'evil.md'),
+      agentFile('evil', 'tools: [Read, Nuke, rmrf]\n'),
+    )
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'good.md'),
+      agentFile('good', 'tools: [Read, Grep]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.list().map((entry) => entry.definition.name)).toEqual(['good'])
+    expect(warnings).toHaveLength(1)
+    expect(warnings.join('\n')).toContain('evil.md')
+    expect(warnings.join('\n')).toContain('agent tools exceed parent registry: Nuke, rmrf')
+  })
+
+  it('accepts a definition whose tools are a subset of the parent registry', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'reader.md'),
+      agentFile('reader', 'tools: [Read, Grep, Glob]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('reader')?.definition.tools).toEqual(['Read', 'Grep', 'Glob'])
+    expect(warnings).toEqual([])
+  })
+
+  it('accepts plugin tool names (plugin:<name>:<tool>) present in the parent registry', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.home, 'agents', 'linter.md'),
+      agentFile('linter', 'tools: [Read, plugin:demo:lint]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('linter')?.definition.tools).toEqual(['Read', 'plugin:demo:lint'])
+    expect(warnings).toEqual([])
+  })
+
+  it('rejects plugin tool names that are not in the parent registry', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'phantom.md'),
+      agentFile('phantom', 'tools: [plugin:demo:exfiltrate]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('phantom')).toBeUndefined()
+    expect(warnings.join('\n')).toContain(
+      'agent tools exceed parent registry: plugin:demo:exfiltrate',
+    )
+  })
+
+  it('accepts a definition without a tools field', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(join(ws.cwd, '.volund', 'agents', 'plain.md'), agentFile('plain'))
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('plain')?.definition.tools).toBeUndefined()
+    expect(warnings).toEqual([])
+  })
+
+  it('validates user-scope (trusted) definitions with the same rules', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.home, 'agents', 'overreach.md'),
+      agentFile('overreach', 'tools: [Read, Win32API]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('overreach')).toBeUndefined()
+    expect(warnings.join('\n')).toContain('agent tools exceed parent registry: Win32API')
+  })
+
+  it('exempts MCP tool names (mcp__<server>__<tool>) from load-time existence checks', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'gh.md'),
+      agentFile('gh', 'tools: [Read, mcp__github__create_issue]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings, PARENT_TOOLS)
+
+    registry.discover()
+
+    expect(registry.get('gh')?.definition.tools).toEqual(['Read', 'mcp__github__create_issue'])
+    expect(warnings).toEqual([])
+  })
+
+  it('skips validation entirely when no parent tool set is provided', async () => {
+    const ws = await makeWorkspace()
+    cleanups.push(ws.cleanup)
+    await writeFile(
+      join(ws.cwd, '.volund', 'agents', 'anything.md'),
+      agentFile('anything', 'tools: [Whatever, Goes]\n'),
+    )
+    const warnings: string[] = []
+    const registry = makeRegistry(ws, warnings)
+
+    registry.discover()
+
+    expect(registry.get('anything')?.definition.tools).toEqual(['Whatever', 'Goes'])
+    expect(warnings).toEqual([])
+  })
+})

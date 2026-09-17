@@ -88,7 +88,7 @@ import { PermissionRuleStore } from './permissions-store'
 import type { VolundPorts } from './ports'
 import { createRemoteControlPort } from './remote'
 import type { AppIdentity } from './shared/app-identity'
-import { createSkillTool } from './skill-tool'
+import { createSkillTool, SKILL_TOOL_NAME } from './skill-tool'
 import { DirectoryTrustStore } from './trust'
 import { createWebPort } from './web'
 
@@ -918,17 +918,47 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   let webConsoleUrl: string | undefined
   let streamToStdout = true
   let dispatcher: SubagentDispatcher
+  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 SessionController
+  // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
+  const background = new BackgroundShells()
+  // §2.7.1（r13-G3）：白名单校验全集 = 父工具注册表全集——内置域（按
+  // [plugins] builtin_disabled 门控，与下方 createRunner 注册面同源）+ 全部
+  // 已装载插件工具（plugin:<名>:<工具>，设计 §7.2）。MCP 工具连接期懒装载，
+  // 不进全集（registry 侧豁免 mcp__<server>__<tool> 名字，执行侧过滤兜底）。
+  // dispatcher 在函数调用期已赋值（discover 移到 buildDispatcher 之后）。
+  function collectParentToolNames(): string[] {
+    const names = new Set<string>()
+    for (const domain of builtinToolDomains({
+      backups,
+      background,
+      task: {
+        dispatcher,
+        parent: () => {
+          throw new Error('dispatch parent handle is only available during a parent turn')
+        },
+      },
+    })) {
+      if (builtinToolsDisabled.has(domain.id)) continue
+      for (const tool of domain.tools) names.add(tool.name)
+    }
+    if (!builtinToolsDisabled.has('volund.orchestration')) {
+      for (const tool of createMemoryTools(memory)) names.add(tool.name)
+      names.add(SKILL_TOOL_NAME)
+    }
+    for (const loaded of loadedPluginEntries) {
+      if (!loaded.handle) continue
+      for (const tool of loaded.handle.tools) names.add(tool.name)
+    }
+    return [...names]
+  }
   // §2.7.1（r13-G3）：自定义 agent 定义两层装载（<home>/agents 与
   // <cwd>/.volund/agents，项目级同名覆盖全局）；失败文件跳过仅告警。
   const agentRegistry = new AgentDefinitionRegistry({
     volundHome: home,
     cwd: process.cwd(),
+    parentToolNames: collectParentToolNames,
     onWarning: (message) => logger.warn(message),
   })
-  agentRegistry.discover()
-  // r13-G2：后台 shell 注册表（跨 session 共享一个实例；事件在 SessionController
-  // activate() 里挂到当前 session 的 EventBus，session.ended 统一 kill）
-  const background = new BackgroundShells()
   const createRunner: RunnerFactory = async (state, events, agent) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -1520,6 +1550,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
     })
   dispatcher = buildDispatcher()
+  // §2.7.1（G3）：discover 放在 dispatcher 装配之后——白名单校验全集里的 Task
+  // 工具锚定 dispatcher 实例，此时 collectParentToolNames 才是完整父注册表全集。
+  // 同步执行，先于任何会话创建（Task inputSchema 的 agentType 枚举依赖扫描结果）。
+  agentRegistry.discover()
   // P1-03（§22.7.1）：会话控制器 = 应用级内核的 Cordis service（行为等价于原
   // RuntimeSessionPort；新增 turn mutex，终端接缝经 options.terminal 注入）。
   // cordis 的 Context 增强只能声明非泛型形态，这里按实际装配取回类型化实例。
