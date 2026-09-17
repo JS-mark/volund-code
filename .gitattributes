@@ -1,1 +1,3 @@
 *.ndjson text eol=lf
+packages/capability-contract/fixtures/**/*.bin -text
+packages/capability-contract/fixtures/**/*.ndjson text eol=lf
