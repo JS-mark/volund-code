@@ -228,6 +228,7 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 
 - 所有权限请求由真实 PermissionManager 创建；Web 不从 tool input 自行推导 PermissionSpec。
 - 卡片展示 tool、经过 SafeDisplay/脱敏的目标、风险、sandbox tier、来源 session/subagent、scope 选项。
+- **★ SAG（§2.7bis.5 U4）**：`permission.request` view 帧补 `lineage: { sessionId, agentType?, parentTurnId }`；审批卡加「子代理 · \<agentType\>」徽标——主代理请求无徽标；Mobile 经 gateway 盲转天然透传同字段同徽标。
 - 决策：allow once/session/project/forever、deny、deny forever；不适用的 scope 不渲染。
 - 多请求全局串行或按既有 manager 队列规则处理；MCP fatigue 合并和限速遵守 §11.3.9。
 - 标签页关闭、断线或 session 结束不能隐式 allow；stale decision 返回 `409 permission_resolved`。
@@ -242,6 +243,7 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 - Bash 显示命令的 SafeDisplay、cwd、exit code、截断状态和输出摘要；完整输出按需读取且有大小上限。
 - `/changes` 只基于 Volund 记录的 tool effect/backup，不把所有 working tree 修改归因给当前 session。
 - Undo 遵守 §8.6.2 选点和并发保护；先 preview，再确认执行。
+- **★ SAG（§2.7bis.3 U1/U2）**：workbench 编辑器写路径（writeText/writeBytes）复用 agent 工具同一 mutation 管线（锁 + CAS + 备份 + undo，§4.3.4），禁止裸 writeFile；写入 sessionId = `hub.active?.id`（与本页 changes/undo 端点同源），无活动会话时保存拒绝并提示。备份归 lineage 根会话 manifest（父 + 全部子代理 + worktree apply 同一棵），`/undo` 按全局逆序逐 batch 撤销——本页 changes 视图与 TUI `/undo` 双向覆盖全树。
 
 **验收**：用户预先存在的 dirty changes 不被误归因或覆盖；大 diff 虚拟化；undo 冲突 fail closed。
 
@@ -260,8 +262,9 @@ app-runtime ─ Runner / EventBus / SessionStore / PermissionManager
 - 不创建 CodeBuddy 式持久群组/频道模型；Volund 的权威语义仍是 §2.7 subagent。
 - 可从 parent activity interrupt child；权限请求明确标出 child 来源但由相同安全策略决策。
 - event 冒泡保留原 `event.id` 和 parent tags，Web 去重不能重新生成 id。
+- **★ SAG（§2.7bis.5）**：聊天 reducer 必须读 envelope `parentTurnId`/`parentDepth`，`parentDepth > 0 → 过滤出主聊天流**（对齐 TUI 冒泡过滤），Task 工具行折叠为一行（prompt 摘要 + ctx%）；**SubagentsPage** = 实时运行表（`GET /api/v1/subagents`，dispatcher 运行注册表导出到 web-server + SSE 增量）+ 详情抽屉 + 取消 + 锁表分区（§2.7bis.3 两源拼接）+ 页头聚合（runs N · $X.XX，数据源 `subagent.settled`）；子代理 settled → toast 通知。
 
-**验收**：child 事件不会双显；预算耗尽/取消可追溯；parent 结束能清理 child。
+**验收**：child 事件不会双显；子代理流式文本/工具行不混入主聊天流（reducer 单测）；预算耗尽/取消可追溯；parent 结束能清理 child；dispatch → SSE 增量 → cancel 全链 e2e。
 
 ### W-11 Memory
 

@@ -4,7 +4,7 @@
 
 # 附录 D · 事件 payload 字段表（r13-I8 新增）
 
-§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（26 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
+§2.3 事件表定义了时机与订阅者，本附录补 **per-event payload 契约**（28 种事件）。replay、§8.2 迁移、`--json` 外部消费都以本表为稳定契约——实现不得自创 payload 形状（delta 塞整 chunk、快照自创字段均违规）。
 
 ## D.1 实现约定
 
@@ -13,7 +13,7 @@
 - **CI 强制**：§2.3 事件表新增行而无对应 schema 文件 → fail；schema 字段与本表 diff 非空 → fail。
 - 大 payload（附件二进制）不进事件，只传引用（§2.3 订阅原则）。
 
-## D.2 字段表（26 事件）
+## D.2 字段表（28 事件）
 
 | 事件 | payload 字段（★必选 / ?可选） | 备注 / 来源 |
 |---|---|---|
@@ -34,6 +34,8 @@
 | `tool.completed` | ★`toolUseId` ★`tool` ★`isError` ?`durationMs` ?`linesAdded` ?`linesRemoved` ?`blocked` ?`blockedBy`（`hook`） | hooks(PostToolUse) 触发点；行级变更量供 /status Usage 聚合 |
 | `shell.background_started` | ★`shellId` ★`command` ★`cwd` | r13-G2 新增 |
 | `shell.background_exited` | ★`shellId` ★`exitCode` ?`reason`（`exit` \| `killed` \| `session_ended`） ?`droppedBytes` | r13-G2 新增；droppedBytes = 环形缓冲丢弃量 |
+| `subagent.dispatched` | ★`sessionId` ★`parentSessionId` ★`parentTurnId` ?`agentType` ★`depth` ★`isolationTier`（`0`\|`1`\|`2`） ★`fork` ?`writePaths` ★`budget` ★`promptDigest` ★`ctxIn` | §2.7bis（SAG-01）；发父总线非冒泡；fork/handoff 注入量计 ctxIn |
+| `subagent.settled` | ★`sessionId` ★`status`（`completed` \| `failed` \| `cancelled`） ★`usage`（Usage） ★`ctxOut` ★`toolCalls` ★`durationMs` ?`conflicts` ?`detail` | §2.7bis；账本唯一数据源；`interrupted` 由重放合成、非本事件 status |
 | `context.compacted` | ★`before` ★`after`（token 数） ?`strategy` ?`removedMessageIds` | |
 | `router.switched` | ★`from` ?`to` ★`reason` | |
 | `error.raised` | ★`code`（附录 B） ?`category` ?`context`（Record） | code 必须来自错误码 registry |
