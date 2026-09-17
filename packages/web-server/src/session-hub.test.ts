@@ -112,6 +112,49 @@ describe('SessionHub', () => {
     expect(seen).toContainEqual({ type: 'permission.resolved' })
   })
 
+  it('permission.request projection carries subagent lineage; main-agent requests omit it（§2.7bis.5 U4 / §22 W-07）', async () => {
+    const session = fakeSession()
+    const { hub, permissions } = hubWith(session)
+    await hub.start({ cwd: '/tmp/hub' })
+    const seen: unknown[] = []
+    hub.subscribe((envelope) => seen.push(envelope.event))
+
+    // 子代理请求：lineage 透传进 view 帧（gateway 盲转给 Mobile 的同一份投影）。
+    const subagent = permissions.request({
+      ...permissionRequest,
+      id: 'perm-sub',
+      lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen).toContainEqual({
+      type: 'permission.request',
+      request: {
+        id: 'perm-sub',
+        attempt: 1,
+        display: permissionRequest.display,
+        lineage: { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' },
+      },
+    })
+    permissions.decide('perm-sub', { kind: 'deny' })
+    await expect(subagent).resolves.toEqual({ kind: 'deny' })
+
+    // 主代理请求：投影面无 lineage 键（三端卡面无徽标的回归面）。
+    const main = permissions.request({ ...permissionRequest, id: 'perm-main' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const frame = seen
+      .filter(
+        (event): event is { type: string; request: Record<string, unknown> } =>
+          typeof event === 'object' &&
+          event !== null &&
+          (event as { type?: unknown }).type === 'permission.request',
+      )
+      .find((event) => event.request.id === 'perm-main')
+    expect(frame).toBeDefined()
+    expect(frame && 'lineage' in frame.request).toBe(false)
+    permissions.decide('perm-main', { kind: 'deny' })
+    await expect(main).resolves.toEqual({ kind: 'deny' })
+  })
+
   it('close on an owned session ends it; queued requests stay decidable by other surfaces', async () => {
     let ended = false
     const session = fakeSession({

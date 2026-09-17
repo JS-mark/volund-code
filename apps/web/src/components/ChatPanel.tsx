@@ -23,6 +23,7 @@ import { chatImageSrc, useSessionStream } from '../lib/session-stream'
 import { BrandMark } from './BrandMark'
 import { ChangesPanel } from './ChangesPanel'
 import { Markdown } from './Markdown'
+import { PermissionLineageBadge } from './PermissionLineageBadge'
 import { NewChatIcon, WorkbenchIcon } from './WorkbenchPanel'
 
 /** composer 里待提交的图片：先本地预览（objectURL），上传完成得 handle 才可发送。 */
@@ -751,6 +752,7 @@ export function ChatPanel({
                 <Typography.Text strong>
                   权限请求：{chat.permission.display.toolName}
                 </Typography.Text>
+                <PermissionLineageBadge lineage={chat.permission.lineage} />
                 <pre className="perm-spec">{chat.permission.display.spec}</pre>
                 <div className="perm-actions">
                   {chat.permission.display.approvable ? (

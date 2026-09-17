@@ -19,6 +19,18 @@ export interface InteractivePermissionDecision {
   kind: InteractivePermissionDecisionKind
 }
 
+/**
+ * 审批归属血统（§2.7bis.5 U4）：发起权限请求的会话是子代理时携带，
+ * 主代理（lineage.depth === 0）请求省略本字段——三端审批卡据此渲染
+ * 「子代理 · <agentType>」徽标，主代理卡面无徽标。
+ */
+export interface PermissionRequestLineage {
+  /** 发起请求的子代理会话 id（与请求经路的根会话 envelope.sessionId 不同）。 */
+  sessionId: string
+  agentType?: string
+  parentTurnId?: string
+}
+
 export interface InteractivePermissionRequest {
   display: {
     approvable: boolean
@@ -30,6 +42,8 @@ export interface InteractivePermissionRequest {
   input: unknown
   spec: unknown
   toolName: string
+  /** 子代理来源（§2.7bis.5 U4）；主代理请求省略。 */
+  lineage?: PermissionRequestLineage
 }
 
 export type PermissionPromptListener = (requests: readonly InteractivePermissionRequest[]) => void

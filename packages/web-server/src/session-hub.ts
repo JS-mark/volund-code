@@ -17,6 +17,7 @@ import type {
   InteractivePermissionDecision,
   InteractiveSession,
   PermissionPromptController,
+  PermissionRequestLineage,
 } from '@volund/app-runtime'
 import type { StagedAttachmentInfo, SubmitAttachment } from '@volund/shared'
 
@@ -46,6 +47,11 @@ export interface WebPermissionRequest {
   id: string
   attempt: number
   display: { approvable: boolean; spec: string; toolName: string }
+  /**
+   * §2.7bis.5 U4 / §22 W-07 审批归属：子代理会话的请求携带血统
+   * （主代理省略）；gateway 盲转透传给 Mobile，三端卡面同语义徽标。
+   */
+  lineage?: PermissionRequestLineage
 }
 
 export interface SessionHubPorts {
@@ -84,7 +90,12 @@ export class SessionHub {
         this.lastPermissionId = first.id
         this.emit('view', {
           type: 'permission.request',
-          request: { id: first.id, attempt: first.attempt, display: first.display },
+          request: {
+            id: first.id,
+            attempt: first.attempt,
+            display: first.display,
+            ...(first.lineage ? { lineage: first.lineage } : {}),
+          },
         })
       } else if (this.lastPermissionId !== undefined) {
         this.lastPermissionId = undefined
