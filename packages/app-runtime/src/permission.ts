@@ -30,6 +30,7 @@ import type {
   InteractivePermissionDecision,
   InteractivePermissionRequest,
   PermissionInteractionMode,
+  PermissionRequestLineage,
 } from './contracts'
 import {
   formatPermissionTextForDisplay,
@@ -386,6 +387,8 @@ export async function requestPermission(input: {
   terminalIsInteractive?: () => boolean
   /** Deterministic line-input seam; production uses promptLineMaybe. */
   linePermissionPrompt?: (question: string) => Promise<string | undefined>
+  /** §2.7bis.5 U4 审批归属：子代理会话的请求携带；主代理省略（卡面无徽标）。 */
+  lineage?: PermissionRequestLineage
   version: number
 }): Promise<PermissionDecision> {
   const id = uuidv7()
@@ -407,6 +410,7 @@ export async function requestPermission(input: {
     input: approvalInput.value,
     spec: approvalSpec.value,
     toolName: approvalToolName.value,
+    ...(input.lineage ? { lineage: input.lineage } : {}),
   })
   // 附录 D.2 tool.permission_asked：{toolUseId, tool, spec}——toolUseId 优先用真实
   // tool_use id（ToolExecutor 透传），非模型路径回退本次弹窗请求 id。
@@ -507,6 +511,20 @@ export function createProductionToolPermissionChain(
         : {}),
     },
   )
+  // §2.7bis.5 U4 审批归属：子代理会话（lineage.depth > 0）的权限请求携带血统，
+  // 三端审批卡据此渲染「子代理 · <agentType>」徽标；主代理省略（无徽标回归面）。
+  const requestLineage: PermissionRequestLineage | undefined =
+    options.state.lineage.depth > 0
+      ? Object.freeze({
+          sessionId: options.state.id,
+          ...(options.state.lineage.agentType
+            ? { agentType: options.state.lineage.agentType }
+            : {}),
+          ...(options.state.lineage.parentTurnId
+            ? { parentTurnId: options.state.lineage.parentTurnId }
+            : {}),
+        })
+      : undefined
   permissions.setPromptHandler(async (request) => {
     const decision = await requestPermission({
       events: options.events,
@@ -519,6 +537,7 @@ export function createProductionToolPermissionChain(
       ...(options.linePermissionPrompt
         ? { linePermissionPrompt: options.linePermissionPrompt }
         : {}),
+      ...(requestLineage ? { lineage: requestLineage } : {}),
       version: options.state.version,
     })
     if (options.state.lineage.depth === 0) return decision

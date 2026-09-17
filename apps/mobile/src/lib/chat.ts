@@ -32,10 +32,22 @@ export interface ToolCard {
   status: 'running' | 'done' | 'error'
 }
 
+/**
+ * §2.7bis.5 U4 审批归属：发起权限请求的会话是子代理时携带（主代理省略）。
+ * 经 gateway 盲转透传（与 Web 控制台同字段）；卡面据此渲染「子代理 · <agentType>」徽标。
+ */
+export interface PermissionLineage {
+  sessionId: string
+  agentType?: string
+  parentTurnId?: string
+}
+
 export interface PermissionCard {
   id: string
   attempt: number
   display: { approvable: boolean; spec: string; toolName: string }
+  /** 子代理来源（§2.7bis.5 U4）；主代理请求省略——无徽标回归面。 */
+  lineage?: PermissionLineage
 }
 
 export interface ChatState {

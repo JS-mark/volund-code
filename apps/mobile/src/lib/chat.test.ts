@@ -190,6 +190,35 @@ describe('mobile chat reducer', () => {
     expect(state.messages[0]?.images).toBeUndefined()
   })
 
+  it('permission.request 的 lineage 经 gateway 盲转透传进卡面状态；主代理请求无 lineage（§2.7bis.5 U4）', () => {
+    const lineage = { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' }
+    let state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'permission.request',
+        request: {
+          id: 'p-sub',
+          attempt: 1,
+          display: { approvable: true, spec: 'bash', toolName: 'Bash' },
+          lineage,
+        },
+      }),
+    })
+    expect(state.permission?.lineage).toEqual(lineage)
+    state = reduceChatState(initialChatState, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'permission.request',
+        request: {
+          id: 'p-main',
+          attempt: 1,
+          display: { approvable: true, spec: 'bash', toolName: 'Bash' },
+        },
+      }),
+    })
+    expect(state.permission?.lineage).toBeUndefined()
+  })
+
   it('shows an offline notice on machine.offline and clears only it on machine.online', () => {
     let state = initialChatState
     state = reduceChatState(state, {

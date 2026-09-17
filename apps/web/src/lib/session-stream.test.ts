@@ -106,6 +106,35 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(resolved.permission).toBeUndefined()
   })
 
+  it('permission.request 的 lineage 透传进卡面状态；主代理请求无 lineage（§2.7bis.5 U4）', () => {
+    const lineage = { sessionId: 'sub-1', agentType: 'explore', parentTurnId: 'turn-9' }
+    const requested = reduceChatState(
+      initialChatState,
+      envelope('view', {
+        type: 'permission.request',
+        request: {
+          id: 'p-sub',
+          attempt: 1,
+          display: { approvable: true, spec: 'bash', toolName: 'Bash' },
+          lineage,
+        },
+      }),
+    )
+    expect(requested.permission?.lineage).toEqual(lineage)
+    const main = reduceChatState(
+      initialChatState,
+      envelope('view', {
+        type: 'permission.request',
+        request: {
+          id: 'p-main',
+          attempt: 1,
+          display: { approvable: true, spec: 'bash', toolName: 'Bash' },
+        },
+      }),
+    )
+    expect(main.permission?.lineage).toBeUndefined()
+  })
+
   it('permission.mode 帧更新档位：非法值忽略，本地动作同写一处', () => {
     // 回归：composer 档位曾只挂载拉取一次，TUI /mode / g 授权后 UI 脱钩。
     const seeded = reduceChatState(initialChatState, { type: 'permission-mode', mode: 'ask' })

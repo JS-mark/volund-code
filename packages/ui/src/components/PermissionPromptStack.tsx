@@ -344,6 +344,14 @@ export function PermissionPromptStack({ controller, requests }: PermissionPrompt
           </Text>
         ) : null}
       </Box>
+      {request.lineage ? (
+        <Box marginTop={1}>
+          <Text bold color="magenta">
+            {'◈ 子代理'}
+            {request.lineage.agentType ? ` · ${escapeText(request.lineage.agentType)}` : ''}
+          </Text>
+        </Box>
+      ) : null}
       {requests.length > 1 ? (
         <Box marginTop={1}>
           {visibleTabs(requests, activeIndex).map((entry) => {

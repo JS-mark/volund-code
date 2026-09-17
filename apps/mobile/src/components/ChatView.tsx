@@ -20,6 +20,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { ChatMessage, ChatMessageImage, ChatState } from '../lib/chat'
 import type { StagedAttachment } from '../lib/gateway'
+import { PermissionLineageBadge } from './PermissionLineageBadge'
 
 /** 输入区接受的图片 MIME（与网关 /v1/attachments 白名单一致）。 */
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
@@ -317,7 +318,12 @@ export function ChatView({
           <Alert
             type="warning"
             showIcon
-            title={`权限请求：${state.permission.display.toolName}`}
+            title={
+              <Space size={4}>
+                {`权限请求：${state.permission.display.toolName}`}
+                <PermissionLineageBadge lineage={state.permission.lineage} />
+              </Space>
+            }
             description={state.permission.display.spec}
             action={
               <Space orientation="vertical">
