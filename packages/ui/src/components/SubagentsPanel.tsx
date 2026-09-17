@@ -26,6 +26,7 @@ const STATUS_COLOR: Record<SubagentPanelEntry['status'], string | undefined> = {
   partial: 'yellow',
   failed: 'red',
   cancelled: 'gray',
+  interrupted: 'red',
 }
 
 /**
