@@ -84,6 +84,8 @@ export const MACHINE_OFFLINE_NOTICE = '本机离线：桌面端隧道已断开�
 export interface EnvelopeEvent {
   type: string
   payload?: Record<string, unknown>
+  /** view 帧（kind='view'）的权限请求面——`permission.request` 携带（§2.7bis.5 U4：lineage 经此盲转透传）。 */
+  request?: PermissionCard
   /** CoreEvent 的 turnId——Task 卡与冒泡事件的归属键（tool.requested/started 携带）。 */
   turnId?: string
   /** 子代理冒泡 tag：EventBus.forward 打上，两字段同时出现。 */
