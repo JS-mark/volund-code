@@ -19,6 +19,11 @@ export interface SubagentBudget {
   timeMsMax?: number
   toolCallMax?: number
 }
+/**
+ * §2.7bis.2 预算仲裁的校验维度全集。toolCallMax 是待退役维（SAG-36 统退），
+ * 退役前同受「逐维只能收紧」约束。
+ */
+const BUDGET_DIMENSIONS = ['tokenMax', 'costUSDMax', 'timeMsMax', 'toolCallMax'] as const
 export interface DispatchParent {
   state: SessionState
   events: EventBus
@@ -155,11 +160,47 @@ export class SubagentDispatcher {
   #touchRuns(): void {
     this.options.onRunsChange?.()
   }
+  /**
+   * §2.7bis.2 预算仲裁（R-G1）：input.budget **逐维只能收紧**——每个已传维度必须
+   * ≤ defaultBudget 对应维，超限类型化拒绝（G1：Task input 由模型生成，spread
+   * 覆盖合并等于让模型自抬上限，不得沿用）。default 未设的维度，input 传任意值
+   * 都算收紧（从无到有），放行；未传的维继承 default。
+   * 返回逐维 min 合成结果（校验通过后 input 维必为 min，无需再取 min 运算）。
+   */
+  #resolveBudget(input: SubagentBudget | undefined): SubagentBudget {
+    const defaults = this.options.defaultBudget
+    if (input && defaults) {
+      for (const dimension of BUDGET_DIMENSIONS) {
+        const requested = input[dimension]
+        const ceiling = defaults[dimension]
+        if (requested !== undefined && ceiling !== undefined && requested > ceiling) {
+          throw new VolundNormalizedError({
+            category: 'invalid_request',
+            code: 'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT',
+            message:
+              `Subagent budget.${dimension} ${requested} exceeds the default ceiling ${ceiling}; ` +
+              `budget can only tighten within the default (each dimension must be ≤ the default). ` +
+              `Lower the value or omit the dimension to inherit the default.`,
+            retryable: false,
+            source: { kind: 'core' },
+          })
+        }
+      }
+    }
+    if (!input) return { ...defaults }
+    const merged: SubagentBudget = {}
+    for (const dimension of BUDGET_DIMENSIONS) {
+      const value = input[dimension] ?? defaults?.[dimension]
+      if (value !== undefined) merged[dimension] = value
+    }
+    return merged
+  }
   #beginRun(
     sessionId: string,
     parentSessionId: string,
     input: DispatchInput,
     depth: number,
+    budget: SubagentBudget,
   ): SubagentRunEntry {
     const entry: SubagentRunEntry = {
       sessionId,
@@ -170,9 +211,7 @@ export class SubagentDispatcher {
       startedAt: Date.now(),
       promptPreview: promptDigestOf(input.prompt),
       prompt: input.prompt.length > 2000 ? `${input.prompt.slice(0, 1999)}…` : input.prompt,
-      ...(input.budget || this.options.defaultBudget
-        ? { budget: { ...this.options.defaultBudget, ...input.budget } }
-        : {}),
+      ...(input.budget || this.options.defaultBudget ? { budget } : {}),
     }
     this.#runs.push(entry)
     const limit = this.options.runHistoryLimit ?? 100
@@ -345,6 +384,9 @@ export class SubagentDispatcher {
     // （core 单测/旧调用路径维持原行为——agentType 仅作 lineage 标签）。
     const agent =
       input.agentType && this.options.agents ? this.#resolveAgentType(input.agentType) : undefined
+    // §2.7bis.2 预算仲裁（R-G1）：逐维只能收紧，超限类型化拒绝；合成预算供
+    // createSession / 注册表行 / dispatched 事件三处共用（同一生效值）。
+    const budget = this.#resolveBudget(input.budget)
     if (parent.signal.aborted) return { sessionId: '', status: 'cancelled', text: '' }
     const events = new EventBus()
     // 附录 D.3 / r13-D1：冒泡保留原 event.id 与 payload，只在 envelope 加
@@ -363,12 +405,12 @@ export class SubagentDispatcher {
         parentTurnId: parent.turnId,
         ...(input.agentType ? { agentType: input.agentType } : {}),
       },
-      resourceBudget: { ...this.options.defaultBudget, ...input.budget },
+      resourceBudget: budget,
     })
     const runner = await this.options.runnerFactory(state, events, agent)
     this.#active.add(runner)
     this.#activeBySession.set(state.id, runner)
-    const entry = this.#beginRun(state.id, parent.state.id, input, depth)
+    const entry = this.#beginRun(state.id, parent.state.id, input, depth, budget)
     // §2.7bis.4 / 附录 D.2：发父总线落父 JSONL（非冒泡——D.3 tag 不加），
     // envelope 归属父会话（sessionId/turnId 取父），payload.sessionId 是子。
     await parent.events.emit({
@@ -385,7 +427,7 @@ export class SubagentDispatcher {
         // SAG-20/批次 4 前占位：Tier 0 共享树、非 fork；writePaths 缺省省略。
         isolationTier: 0,
         fork: false,
-        budget: eventBudgetOf({ ...this.options.defaultBudget, ...input.budget }),
+        budget: eventBudgetOf(budget),
         promptDigest: entry.promptPreview,
         // v1 估算（字符数/4）；fork/handoff 落地后快照注入量也计此（§2.7bis.1 ledger）。
         ctxIn: estimateTokens(input.prompt),
@@ -488,7 +530,7 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 /**
- * dispatched 事件的 budget 位 = 合并后生效预算（default ⊕ input）。
+ * dispatched 事件的 budget 位 = 生效预算（§2.7bis.2 逐维收紧合成，见 #resolveBudget）。
  * 附录 D.2 schema 只登记 tokenMax/costUSDMax/timeMsMax 三维（toolCallMax 不在契约内），
  * 且维度值以正数登记——非正维度不进事件（0/负预算是无意义配置，不伪造账本）。
  */

@@ -44,4 +44,11 @@ describe('error code registry', () => {
     expect(isErrorCode(42)).toBe(false)
     expect(isErrorCode(undefined)).toBe(false)
   })
+
+  it('registers the SAG-04 budget arbitration rejection code (§2.7bis.2 逐维收紧)', () => {
+    expect(ErrorCodes.volundSubagentBudgetExceedsDefault).toBe(
+      'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT',
+    )
+    expect(isErrorCode('VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT')).toBe(true)
+  })
 })

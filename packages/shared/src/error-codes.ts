@@ -264,6 +264,7 @@ export const ErrorCodes = {
   volundMethodNotFound: 'VOLUND_METHOD_NOT_FOUND',
   volundProtocolInvalid: 'VOLUND_PROTOCOL_INVALID',
   volundResourceExhausted: 'VOLUND_RESOURCE_EXHAUSTED',
+  volundSubagentBudgetExceedsDefault: 'VOLUND_SUBAGENT_BUDGET_EXCEEDS_DEFAULT', // §2.7bis.2 预算仲裁（SubagentDispatcher.dispatch 逐维收紧校验实参）
   volundSubagentConcurrencyExceeded: 'VOLUND_SUBAGENT_CONCURRENCY_EXCEEDED', // resourceError() 实参
   volundSubagentDepthExceeded: 'VOLUND_SUBAGENT_DEPTH_EXCEEDED', // resourceError() 实参
   volundSubagentFailed: 'VOLUND_SUBAGENT_FAILED',
