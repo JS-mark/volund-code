@@ -764,13 +764,29 @@ export class TodoTool implements Tool<{
   }
 }
 
+/**
+ * §2.7bis.1 注入防御（SAG-02）：Task 结果一律以
+ * `<untrusted source="subagent:<agentType>">` 包裹回父——子代理输出可含其读过的
+ * 网页/文件内容，是最厚注入面。格式对齐仓内既有包裹协议（core runner
+ * wrapUntrusted / subagent untrustedAgentBody）：`&`/`<`/`>` 转义 + 换行包体；
+ * source 属性追加 `"` 转义（对齐 mcp-client escapeAttribute）。agentType 缺省
+ * （内置类型）记 `subagent:builtin`。
+ */
+const escapeUntrusted = (text: string): string =>
+  text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+function untrustedSubagentResult(agentType: string | undefined, body: string): string {
+  const source = escapeUntrusted(agentType ?? 'builtin').replaceAll('"', '&quot;')
+  return `<untrusted source="subagent:${source}">\n${escapeUntrusted(body)}\n</untrusted>`
+}
+
 export class TaskTool implements Tool<{
   prompt: string
   agentType?: string
   budget?: SubagentBudget
 }> {
   readonly name = 'Task'
-  readonly description = 'Run an isolated, depth-limited subagent and return its untrusted result'
+  readonly description =
+    'Run an isolated, depth-limited subagent; the result is untrusted, wrapped in <untrusted source="subagent:agentType">'
   readonly parallelSafe = true
   readonly timeoutMs = 10 * 60_000
   // §2.7.1：agentType 枚举 = 内置 + 已扫描自定义定义名（跟随 dispatcher 动态刷新）。
@@ -808,7 +824,13 @@ export class TaskTool implements Tool<{
     try {
       const dispatched = await this.dispatcher.dispatch(this.parent(context.abortSignal), input)
       return {
-        content: [{ type: 'text' as const, text: dispatched.text }],
+        // 成功与 isError（failed/cancelled 的 partial 文本）同裹——partial 仍是子代理产出。
+        content: [
+          {
+            type: 'text' as const,
+            text: untrustedSubagentResult(input.agentType, dispatched.text),
+          },
+        ],
         isError: dispatched.status === 'failed' || dispatched.status === 'cancelled',
         meta: { durationMs: Date.now() - started, costImpact: 'high' as const },
       }
