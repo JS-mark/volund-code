@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -146,7 +146,7 @@ describe('Edit contract (spec §4.3.2, r13-J3)', () => {
     expect(await readFile(target, 'utf8')).toBe('after')
   })
 
-  it('mtime+size gate: rejects when the file changed size since read', async () => {
+  it('content-hash gate: rejects when the file changed size since read', async () => {
     const cwd = await fixture()
     const target = resolve(cwd, 'stale-size.txt')
     await writeFile(target, 'version-one')
@@ -174,7 +174,31 @@ describe('Edit contract (spec §4.3.2, r13-J3)', () => {
     expect(await readFile(target, 'utf8')).toBe('version-one')
   })
 
-  it('mtime+size gate: rejects when only mtime changed since read', async () => {
+  it('content-hash gate: rejects a same-size, same-mtime content change (SAG-05 blind spot)', async () => {
+    // SAG-05 (spec §4.3.4): snapshots upgraded mtime+size → content hash, so a
+    // foreign rewrite with identical size AND identical mtime is now caught.
+    const cwd = await fixture()
+    const target = resolve(cwd, 'stale-samesize.txt')
+    await writeFile(target, 'version-one')
+    const original = await stat(target)
+    const backups: FileBackupPort = {
+      async prepare() {
+        // same length as 'version-one' (11 chars), different content, mtime restored
+        await writeFile(target, 'version-TWO')
+        await utimes(target, original.atime, original.mtime)
+        return { commit: async () => {}, rollback: async () => {} }
+      },
+    }
+    const result = await new EditTool(backups).invoke(
+      { path: 'stale-samesize.txt', old_string: 'version-one', new_string: 'edited' },
+      context(cwd),
+    )
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('changed since read')
+    expect(await readFile(target, 'utf8')).toBe('version-TWO')
+  })
+
+  it('content-hash gate: an mtime-only bump is not a change (SAG-05)', async () => {
     const cwd = await fixture()
     const target = resolve(cwd, 'stale-mtime.txt')
     await writeFile(target, 'version-one')
@@ -189,9 +213,8 @@ describe('Edit contract (spec §4.3.2, r13-J3)', () => {
       { path: 'stale-mtime.txt', old_string: 'version-one', new_string: 'edited' },
       context(cwd),
     )
-    expect(result.isError).toBe(true)
-    expect(textOf(result)).toContain('changed since read')
-    expect(await readFile(target, 'utf8')).toBe('version-one')
+    expect(result.isError).toBeUndefined()
+    expect(await readFile(target, 'utf8')).toBe('edited')
   })
 
   it('post-write gate: rolls the edit back when a concurrent writer lands after our write', async () => {

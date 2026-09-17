@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   open,
   lstat,
@@ -92,16 +92,48 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   }
 }
 
+/**
+ * SAG-05 (spec §4.3.4, design §3.2 step 2): content hash used for snapshots,
+ * read-tracking and Write's `expect` — sha256 truncated to 16 hex chars
+ * (node:crypto is the repo's existing hash dependency). Strings are hashed as
+ * their UTF-8 encoding, matching what atomicWrite puts on disk.
+ */
+export function contentHash(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
 interface FileSnapshot {
-  mtimeMs: number
-  size: number
+  hash: string
 }
 async function snapshotOf(path: string): Promise<FileSnapshot> {
-  const info = await stat(path)
-  return { mtimeMs: info.mtimeMs, size: info.size }
+  return { hash: contentHash(await readFile(path)) }
 }
 function sameSnapshot(a: FileSnapshot, b: FileSnapshot): boolean {
-  return a.mtimeMs === b.mtimeMs && a.size === b.size
+  return a.hash === b.hash
+}
+
+/**
+ * SAG-05 (spec §4.3.4, design §3.1): session-scoped read-tracking —
+ * (sessionId, path) → full-file content hash at read time. Feeds Write's
+ * lost-update gate (default `expect`) and the no-prior-read overwrite rule.
+ * In-memory only (v1 accepted); a FIFO session cap bounds long-lived processes.
+ */
+const MAX_TRACKED_SESSIONS = 1024
+const sessionReadHashes = new Map<string, Map<string, string>>()
+export function recordSessionRead(sessionId: string, path: string, hash: string): void {
+  let tracked = sessionReadHashes.get(sessionId)
+  if (!tracked) {
+    tracked = new Map()
+    sessionReadHashes.set(sessionId, tracked)
+    if (sessionReadHashes.size > MAX_TRACKED_SESSIONS) {
+      const oldest = sessionReadHashes.keys().next().value
+      if (oldest !== undefined) sessionReadHashes.delete(oldest)
+    }
+  }
+  tracked.set(path, hash)
+}
+export function sessionReadHash(sessionId: string, path: string): string | undefined {
+  return sessionReadHashes.get(sessionId)?.get(path)
 }
 const notFoundError = (path: string) =>
   `old_string not found in ${path} (file may have changed; re-Read)`
@@ -110,7 +142,9 @@ const ambiguousMatchError = (path: string, count: number) =>
 const noOpEditError = (path: string) =>
   `new_string equals old_string in ${path}; refusing no-op edit`
 const changedSinceReadError = (path: string) =>
-  `file ${path} changed since read (mtime or size mismatch); re-Read and retry`
+  `file ${path} changed since read [changed-since-read]; re-Read and retry`
+const notReadInSessionError = (path: string) =>
+  `file ${path} exists but was not read in this session [changed-since-read]; Read it first, or pass force: true to overwrite anyway`
 const changedAfterWriteError = (path: string) =>
   `file ${path} changed after write (concurrent modification); edit rolled back, re-Read`
 
@@ -138,7 +172,18 @@ export function diffLineCounts(
 
 async function mutateFiles(
   sessionId: string,
-  updates: Array<{ path: string; content: string; expect?: FileSnapshot }>,
+  updates: Array<{
+    path: string
+    content: string
+    expect?: FileSnapshot
+    /**
+     * SAG-05 (spec §4.3.4): admission gate evaluated AFTER the mutation locks
+     * are held and before backups/writes — Write's expect/no-prior-read rule
+     * must be decided under the lock so two agents racing to create the same
+     * path serialize and the loser sees an existing file with no read record.
+     */
+    guard?: () => Promise<void>
+  }>,
   backups?: FileBackupPort,
 ): Promise<void> {
   const releases: Array<() => Promise<void>> = []
@@ -146,6 +191,7 @@ async function mutateFiles(
   let transaction: FileMutationTransaction | undefined
   try {
     for (const path of paths) releases.push(await acquireMutationLock(path, sessionId))
+    for (const update of updates) await update.guard?.()
     transaction = backups
       ? await backups.prepare(sessionId, paths)
       : await prepareEphemeralTransaction(paths)
@@ -154,7 +200,7 @@ async function mutateFiles(
         throw new Error(changedSinceReadError(update.path))
     for (const update of updates) await atomicWrite(update.path, update.content)
     for (const update of updates)
-      if ((await snapshotOf(update.path)).size !== Buffer.byteLength(update.content))
+      if ((await snapshotOf(update.path)).hash !== contentHash(update.content))
         throw new Error(changedAfterWriteError(update.path))
     await transaction?.commit()
   } catch (error) {
@@ -199,10 +245,40 @@ async function lockConflictMessage(lockPath: string): Promise<string> {
   return `file locked by another volund session${pid ? ` (pid ${pid})` : ''}, retry later`
 }
 
+/**
+ * SAG-05 (spec §4.3.4, design §3.2 step 4): a `.volundlock` is reaped only when
+ * BOTH conditions hold — the recorded holder pid is dead (ESRCH; EPERM counts
+ * as alive) and the lock is older than this threshold. A live pid is never
+ * preempted, and an unparseable lock file is left alone (conservative).
+ */
+const MUTATION_LOCK_REAP_AGE_MS = 60_000
+
+/** Removes the lock file when it is provably stale; returns true when removed. */
+async function reapStaleMutationLock(lockPath: string): Promise<boolean> {
+  const holder = await readFile(lockPath, 'utf8').catch(() => undefined)
+  if (holder === undefined) return false
+  const pidText = /^\s*(\d+)/.exec(holder)?.[1]
+  const pid = pidText ? Number(pidText) : Number.NaN
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return false // holder alive — never preempt a live process
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false
+  }
+  const ageMs = await stat(lockPath)
+    .then((info) => Date.now() - info.mtimeMs)
+    .catch(() => Number.NaN)
+  if (!Number.isFinite(ageMs) || ageMs < MUTATION_LOCK_REAP_AGE_MS) return false
+  await rm(lockPath, { force: true })
+  return true
+}
+
 async function acquireMutationLock(path: string, sessionId: string): Promise<() => Promise<void>> {
   const lockPath = `${path}.volundlock`
-  let lastError: unknown
-  for (let attempt = 0; attempt < 4; attempt++) {
+  let attempt = 0
+  let reapsLeft = 2
+  for (;;) {
     try {
       const handle = await open(lockPath, 'wx', 0o600)
       await handle.writeFile(`${process.pid} ${sessionId}\n`)
@@ -211,13 +287,17 @@ async function acquireMutationLock(path: string, sessionId: string): Promise<() 
         await rm(lockPath, { force: true })
       }
     } catch (error) {
-      lastError = error
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      // Stale-lock reaping (SAG-05): retry immediately without burning an attempt.
+      if (reapsLeft > 0 && (await reapStaleMutationLock(lockPath))) {
+        reapsLeft--
+        continue
+      }
       if (attempt === 3) throw new Error(await lockConflictMessage(lockPath), { cause: error })
+      attempt++
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
     }
   }
-  throw new Error(await lockConflictMessage(lockPath), { cause: lastError })
 }
 
 export class ReadTool implements Tool<{ path: string; offset?: number; limit?: number }> {
@@ -242,32 +322,52 @@ export class ReadTool implements Tool<{ path: string; offset?: number; limit?: n
   ): Promise<ToolResult> {
     const started = Date.now()
     try {
-      const text = await readFile(pathInCwd(ctx.session.cwd, input.path), 'utf8')
+      const resolved = pathInCwd(ctx.session.cwd, input.path)
+      const bytes = await readFile(resolved)
+      // SAG-05 (spec §4.3.4): record the FULL-file hash at read time — partial
+      // reads (offset/limit) still track the whole file, since Write's
+      // lost-update gate compares against the on-disk whole.
+      recordSessionRead(ctx.session.id, resolved, contentHash(bytes))
+      const text = bytes.toString('utf8')
       const lines = text
         .split('\n')
         .slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 2000))
       return result(lines.join('\n'), {
         durationMs: Date.now() - started,
-        bytesRead: Buffer.byteLength(text),
+        bytesRead: bytes.length,
       })
     } catch (e) {
       return failure(e, started)
     }
   }
 }
-export class WriteTool implements Tool<{ path: string; content: string }> {
+export interface WriteInput {
+  path: string
+  content: string
+  /** SAG-05 (spec §4.3.4): last-read content hash this write is based on. */
+  expect?: string
+  /** SAG-05 (spec §4.3.4): skip the lost-update gate (flagged in the result). */
+  force?: boolean
+}
+export class WriteTool implements Tool<WriteInput> {
   constructor(readonly backups?: FileBackupPort) {}
   readonly name = 'Write'
-  readonly description = 'Create or overwrite a file'
-  readonly inputSchema = objectSchema({ path: stringProp, content: { type: 'string' } }, [
-    'path',
-    'content',
-  ])
+  readonly description =
+    'Create or overwrite a file (overwriting an existing path requires a prior Read in this session)'
+  readonly inputSchema = objectSchema(
+    {
+      path: stringProp,
+      content: { type: 'string' },
+      expect: { type: 'string' },
+      force: { type: 'boolean' },
+    },
+    ['path', 'content'],
+  )
   readonly sandboxRequired = true
   permissionSpec(i: { path: string }): PermissionSpec {
     return { fs: { write: [i.path] } }
   }
-  async invoke(i: { path: string; content: string }, c: ToolContext) {
+  async invoke(i: WriteInput, c: ToolContext) {
     const s = Date.now()
     try {
       const p = await safeMutationPath(c.session.cwd, i.path)
@@ -277,13 +377,34 @@ export class WriteTool implements Tool<{ path: string; content: string }> {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
-      await mutateFiles(c.session.id, [{ path: p, content: i.content }], this.backups)
-      return result('File written', {
-        durationMs: Date.now() - s,
-        bytesWritten: Buffer.byteLength(i.content),
-        filesTouched: [p],
-        ...diffLineCounts(before, i.content),
-      })
+      // SAG-05 (spec §4.3.4, design §3.2 step 5): the overwrite gate runs under
+      // the mutation lock — two agents racing to create the same path serialize,
+      // and the loser then sees an existing path with no read record → rejected.
+      const guard = async () => {
+        if (i.force === true) return
+        let current: FileSnapshot
+        try {
+          current = await snapshotOf(p)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return // new file — allowed
+          throw error
+        }
+        const expected = i.expect ?? sessionReadHash(c.session.id, p)
+        if (expected === undefined) throw new Error(notReadInSessionError(p))
+        if (current.hash !== expected) throw new Error(changedSinceReadError(p))
+      }
+      await mutateFiles(c.session.id, [{ path: p, content: i.content, guard }], this.backups)
+      // A successful write makes this session the author of the on-disk content.
+      recordSessionRead(c.session.id, p, contentHash(i.content))
+      return result(
+        i.force === true ? 'File written (force: lost-update protection bypassed)' : 'File written',
+        {
+          durationMs: Date.now() - s,
+          bytesWritten: Buffer.byteLength(i.content),
+          filesTouched: [p],
+          ...diffLineCounts(before, i.content),
+        },
+      )
     } catch (e) {
       return failure(e, s)
     }
@@ -317,8 +438,9 @@ export class EditTool implements Tool<EditInput> {
     try {
       if (i.new_string === i.old_string) throw new Error(noOpEditError(i.path))
       const p = await safeMutationPath(c.session.cwd, i.path),
-        before = await snapshotOf(p),
-        old = await readFile(p, 'utf8')
+        oldBytes = await readFile(p),
+        before: FileSnapshot = { hash: contentHash(oldBytes) },
+        old = oldBytes.toString('utf8')
       if (!sameSnapshot(before, await snapshotOf(p))) throw new Error(changedSinceReadError(p))
       const count = old.split(i.old_string).length - 1
       if (count === 0) throw new Error(notFoundError(p))
@@ -327,6 +449,8 @@ export class EditTool implements Tool<EditInput> {
         ? old.split(i.old_string).join(i.new_string)
         : old.replace(i.old_string, i.new_string)
       await mutateFiles(c.session.id, [{ path: p, content: next, expect: before }], this.backups)
+      // The session authored the on-disk content — keep its read record current.
+      recordSessionRead(c.session.id, p, contentHash(next))
       return result('File edited', {
         durationMs: Date.now() - s,
         bytesWritten: Buffer.byteLength(next),
@@ -379,8 +503,9 @@ export class MultiEditTool implements Tool<MultiEditInput> {
       const updates: Array<{ path: string; content: string; expect: FileSnapshot }> = []
       const beforeContents = new Map<string, string>()
       for (const [path, edits] of grouped) {
-        const before = await snapshotOf(path)
-        let content = await readFile(path, 'utf8')
+        const beforeBytes = await readFile(path)
+        const before: FileSnapshot = { hash: contentHash(beforeBytes) }
+        let content = beforeBytes.toString('utf8')
         if (!sameSnapshot(before, await snapshotOf(path)))
           throw new Error(changedSinceReadError(path))
         beforeContents.set(path, content)
@@ -396,6 +521,8 @@ export class MultiEditTool implements Tool<MultiEditInput> {
         updates.push({ path, content, expect: before })
       }
       await mutateFiles(context.session.id, updates, this.backups)
+      for (const update of updates)
+        recordSessionRead(context.session.id, update.path, contentHash(update.content))
       let linesAdded = 0
       let linesRemoved = 0
       for (const update of updates) {
