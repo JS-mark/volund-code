@@ -18,7 +18,7 @@ import { Alert, Button, Dropdown, Popover, Tooltip, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ModelsView, SessionSummary, StagedAttachment, WebApi } from '../lib/api'
-import type { ChatImage, ChatMessage } from '../lib/session-stream'
+import type { ChatImage, ChatMessage, SubagentActivity, ToolCard } from '../lib/session-stream'
 import { chatImageSrc, useSessionStream } from '../lib/session-stream'
 import { BrandMark } from './BrandMark'
 import { ChangesPanel } from './ChangesPanel'
@@ -46,6 +46,26 @@ export const PERMISSION_MODES = [
 
 /** 时间分隔行：相邻消息间隔超过该阈值才再出一次（对齐 IM 惯例）。 */
 const TIME_GAP_MS = 5 * 60_000
+
+/**
+ * §2.7bis.5 U3 Task 折叠行：Task 卡聚合成一行（🤖 agentType · 状态 · 当前工具/调用数），
+ * 子代理工具行不平铺（冒泡事件已在 reducer 过滤，这里只做展示投影）。
+ */
+function toolRowText(
+  tool: ToolCard,
+  subagents: Record<string, SubagentActivity>,
+): { name: string; status: string } {
+  const base = tool.status === 'running' ? '运行中…' : tool.status === 'error' ? '失败' : '完成'
+  if (tool.tool !== 'Task') return { name: tool.tool, status: base }
+  const name = `🤖 ${tool.task?.agentType ?? 'subagent'}`
+  const activity = tool.turnId ? subagents[tool.turnId] : undefined
+  if (!activity) return { name, status: base }
+  if (tool.status === 'running' && activity.lastTool)
+    return { name, status: `${base} · ${activity.lastTool}` }
+  if (tool.status !== 'running' && activity.toolCalls > 0)
+    return { name, status: `${base} · ${activity.toolCalls} 次工具调用` }
+  return { name, status: base }
+}
 
 const formatHHMM = (at: number): string => {
   const date = new Date(at)
@@ -728,19 +748,20 @@ export function ChatPanel({
           >
             <div className="chat-disclaimer">回答由 AI 生成，仅供参考</div>
             {chat.messages.map(renderMessage)}
-            {chat.tools.map((tool) => (
-              <div key={tool.toolUseId} className="tool-row">
-                <span className={`tool-dot ${tool.status}`} />
-                <span className="tool-name">{tool.tool}</span>
-                <span className="tool-status">
-                  {tool.status === 'running'
-                    ? '运行中…'
-                    : tool.status === 'error'
-                      ? '失败'
-                      : '完成'}
-                </span>
-              </div>
-            ))}
+            {chat.tools.map((tool) => {
+              const row = toolRowText(tool, chat.subagents)
+              return (
+                <div
+                  key={tool.toolUseId}
+                  className="tool-row"
+                  title={tool.tool === 'Task' ? tool.task?.prompt : undefined}
+                >
+                  <span className={`tool-dot ${tool.status}`} />
+                  <span className="tool-name">{row.name}</span>
+                  <span className="tool-status">{row.status}</span>
+                </div>
+              )
+            })}
             {running && !streamingReply && (
               <div className="think-row">
                 <LoadingOutlined />

@@ -268,7 +268,15 @@ export interface WsEnvelope {
   cursor?: string
   kind: 'core' | 'view' | 'control'
   sessionId?: string
-  event: { type: string; payload?: Record<string, unknown> }
+  event: {
+    type: string
+    payload?: Record<string, unknown>
+    /** CoreEvent 的 turnId——Task 卡与冒泡事件的归属键。 */
+    turnId?: string
+    /** 附录 D.3 子代理冒泡 tag（§2.7bis.5 U3）：EventBus.forward 打上，两字段同时出现。 */
+    parentTurnId?: string
+    parentDepth?: number
+  }
 }
 
 export interface WsHello {

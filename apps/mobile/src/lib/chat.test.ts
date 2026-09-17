@@ -1,9 +1,10 @@
 /** 聊天 reducer：thinking/text 双流、message.appended 收口、水合合并。 */
 import { describe, expect, it } from 'vitest'
 
+import type { EnvelopeEvent } from './chat'
 import { initialChatState, reduceChatState } from './chat'
 
-const envelope = (kind: string, event: unknown, sessionId = 's1') => ({
+const envelope = (kind: string, event: EnvelopeEvent, sessionId = 's1') => ({
   kind,
   sessionId,
   event,
@@ -439,5 +440,161 @@ describe('mobile chat reducer', () => {
       }),
     })
     expect(state.notice).toBe('错误 stream_interrupted: read ECONNRESET')
+  })
+
+  // §2.7bis.5 U3：子代理冒泡事件（附录 D.3 parentTurnId/parentDepth tag）不混进
+  // 主聊天流，只聚合进 Task 折叠行；主会话事件（无 tag）不受影响。
+  describe('U3 子代理冒泡过滤与 Task 折叠行聚合', () => {
+    it('filters bubbled stream/message/turn events out of the main chat flow', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', { type: 'turn.started', payload: { turnId: 't1' } }),
+      })
+      const before = state
+      // 子代理流式文本 / 持久化消息 / turn 终态——全部不得进主聊天流。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'stream.delta',
+          payload: { messageId: 'sub-m1', kind: 'text', fragment: '子代理正文' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'sub-m1',
+            role: 'assistant',
+            content: [{ type: 'text', text: '子代理正文' }],
+          },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'turn.completed',
+          payload: { turnId: 'sub-turn' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      expect(state.messages).toHaveLength(0)
+      // 子代理 turn.completed 不得把主会话 turn 拨回 idle。
+      expect(state.turn).toBe('running')
+      // 无聚合载体的冒泡事件原样返回（state 引用不变）。
+      expect(state).toBe(before)
+    })
+
+    it('aggregates bubbled tool events onto the Task card instead of flat tool chips', () => {
+      let state = initialChatState
+      // 父会话 Task 派发：requested 带 input（agentType），started 带 event.turnId。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.requested',
+          payload: {
+            toolUseId: 'task-1',
+            tool: 'Task',
+            input: { agentType: 'explore', prompt: '查一下事件链路' },
+          },
+          turnId: 't1',
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'task-1', tool: 'Task' },
+          turnId: 't1',
+        }),
+      })
+      // 子代理工具活动冒泡：parentTurnId 归属到 Task 卡，自身不进 tools 列表。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'sub-tu1', tool: 'bash' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'sub-tu2', tool: 'grep' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 'sub-tu1', isError: false },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      // 平铺面只有 Task 一张卡；子代理的 bash/grep 不进 tools。
+      expect(state.tools).toHaveLength(1)
+      expect(state.tools[0]).toMatchObject({
+        toolUseId: 'task-1',
+        tool: 'Task',
+        status: 'running',
+        turnId: 't1',
+        task: { agentType: 'explore', prompt: '查一下事件链路' },
+      })
+      // 折叠行聚合：2 次调用、1 个仍在跑、当前工具 = 最近启动的 grep。
+      expect(state.subagents['t1']).toEqual({ toolCalls: 2, running: 1, lastTool: 'grep' })
+      // Task 自己 completed → 卡收口，聚合保留（折叠行展示「完成 · N 次调用」）。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 'task-1', isError: false },
+        }),
+      })
+      expect(state.tools[0]?.status).toBe('done')
+      expect(state.subagents['t1']?.toolCalls).toBe(2)
+    })
+
+    it('keeps main-session events (no parent tags) unaffected', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'stream.delta',
+          payload: { messageId: 'm1', kind: 'text', fragment: '主会话' },
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'tu1', tool: 'bash' },
+          turnId: 't1',
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 'tu1', isError: false },
+        }),
+      })
+      expect(state.messages).toHaveLength(1)
+      expect(state.messages[0]).toMatchObject({ id: 'm1', text: '主会话' })
+      expect(state.tools).toEqual([
+        { toolUseId: 'tu1', tool: 'bash', status: 'done', turnId: 't1' },
+      ])
+      expect(state.subagents).toEqual({})
+    })
   })
 })

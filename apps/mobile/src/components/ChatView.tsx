@@ -18,7 +18,13 @@ import Markdown from 'react-markdown'
 import { Virtuoso } from 'react-virtuoso'
 import remarkGfm from 'remark-gfm'
 
-import type { ChatMessage, ChatMessageImage, ChatState } from '../lib/chat'
+import type {
+  ChatMessage,
+  ChatMessageImage,
+  ChatState,
+  SubagentActivity,
+  ToolCard,
+} from '../lib/chat'
 import type { StagedAttachment } from '../lib/gateway'
 import { PermissionLineageBadge } from './PermissionLineageBadge'
 
@@ -36,6 +42,21 @@ export interface PendingImage extends ChatMessageImage {
 /** 提交时传给父级的图片（staged 必在——uploading/error 已被 send 拦住）。 */
 export interface SubmitImage extends ChatMessageImage {
   staged: StagedAttachment
+}
+
+/**
+ * §2.7bis.5 U3 Task 折叠 chip：Task 卡聚合成一行（🤖 agentType · 当前工具/调用数），
+ * 子代理工具 chip 不平铺（冒泡事件已在 reducer 过滤，这里只做展示投影）。
+ */
+function toolChipLabel(tool: ToolCard, subagents: Record<string, SubagentActivity>): string {
+  if (tool.tool !== 'Task') return tool.tool
+  const name = `🤖 ${tool.task?.agentType ?? 'subagent'}`
+  const activity = tool.turnId ? subagents[tool.turnId] : undefined
+  if (!activity) return name
+  if (tool.status === 'running' && activity.lastTool) return `${name} · ${activity.lastTool}`
+  if (tool.status !== 'running' && activity.toolCalls > 0)
+    return `${name} · ${activity.toolCalls} 次调用`
+  return name
 }
 
 /** 单条消息：memo 隔离——reducer 不可变更新下旧消息对象身份不变，流式期间不重渲染。 */
@@ -291,7 +312,7 @@ export function ChatView({
             {state.tools.slice(-4).map((tool) => (
               <span key={tool.toolUseId} className="tool-chip">
                 <ToolOutlined style={{ fontSize: 11 }} />
-                {tool.tool}
+                {toolChipLabel(tool, state.subagents)}
                 {tool.status === 'running' ? (
                   <Badge status="processing" />
                 ) : tool.status === 'error' ? (
