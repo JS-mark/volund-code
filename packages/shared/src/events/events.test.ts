@@ -15,6 +15,8 @@ import { shellBackgroundStartedPayloadSchema } from './shell-background_started'
 import { streamCompletedPayloadSchema } from './stream-completed'
 import { streamDeltaPayloadSchema } from './stream-delta'
 import { streamStartedPayloadSchema } from './stream-started'
+import { subagentDispatchedPayloadSchema } from './subagent-dispatched'
+import { subagentSettledPayloadSchema } from './subagent-settled'
 import { toolCompletedPayloadSchema } from './tool-completed'
 import { toolPermissionAskedPayloadSchema } from './tool-permission_asked'
 import { toolRequestedPayloadSchema } from './tool-requested'
@@ -24,9 +26,9 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 describe('EVENT_SCHEMAS registry (附录 D.2)', () => {
-  it('registers exactly the 26 §2.3 event names', () => {
+  it('registers exactly the 28 §2.3 event names', () => {
     expect(Object.keys(EVENT_SCHEMAS).sort()).toEqual([...EVENT_NAMES].sort())
-    expect(EVENT_NAMES).toHaveLength(26)
+    expect(EVENT_NAMES).toHaveLength(28)
   })
 
   it('pairs every envelope type with its payload contract via eventEnvelopeFor', () => {
@@ -356,6 +358,62 @@ describe('per-event payload schemas', () => {
     ).toBe(false)
   })
 
+  it('subagent.dispatched / subagent.settled (§2.7bis, SAG-01)', () => {
+    expect(
+      subagentDispatchedPayloadSchema.parse({
+        sessionId: 'child-1',
+        parentSessionId: 'parent-1',
+        parentTurnId: 'turn-1',
+        agentType: 'explore',
+        depth: 1,
+        isolationTier: 0,
+        fork: false,
+        budget: { tokenMax: 200_000, costUSDMax: 1 },
+        promptDigest: 'inspect the lock pipeline',
+        ctxIn: 1_800,
+      }),
+    ).toBeTruthy()
+    // depth 从 1 起（0=顶层 Runner，不会成为 dispatched 主体）。
+    expect(
+      subagentDispatchedPayloadSchema.safeParse({
+        sessionId: 'child-1',
+        parentSessionId: 'parent-1',
+        parentTurnId: 'turn-1',
+        depth: 0,
+        isolationTier: 0,
+        fork: false,
+        budget: {},
+        promptDigest: 'x',
+        ctxIn: 0,
+      }).success,
+    ).toBe(false)
+    expect(
+      subagentSettledPayloadSchema.parse({
+        sessionId: 'child-1',
+        status: 'completed',
+        usage: { input: 10_000, output: 2_000, costUSD: 0.05 },
+        ctxOut: 900,
+        toolCalls: 7,
+        durationMs: 34_000,
+        conflicts: 1,
+      }),
+    ).toBeTruthy()
+    // interrupted 是重放重建的合成标记，不是 settled status。
+    expect(
+      subagentSettledPayloadSchema.safeParse({
+        sessionId: 'child-1',
+        status: 'interrupted',
+        usage: { input: 1, output: 1 },
+        ctxOut: 0,
+        toolCalls: 0,
+        durationMs: 0,
+      }).success,
+    ).toBe(false)
+    expect(
+      subagentSettledPayloadSchema.safeParse({ sessionId: 'child-1', status: 'completed' }).success,
+    ).toBe(false)
+  })
+
   it('context.compacted: before/after token counts required', () => {
     expect(
       contextCompactedPayloadSchema.parse({
@@ -431,6 +489,25 @@ function payloadFixture(name: (typeof EVENT_NAMES)[number]): unknown {
     'tool.completed': { toolUseId: 'tu1', tool: 'bash', isError: false },
     'shell.background_started': { shellId: 'sh1', command: 'watch', cwd: '/repo' },
     'shell.background_exited': { shellId: 'sh1', exitCode: 0 },
+    'subagent.dispatched': {
+      sessionId: 'child-1',
+      parentSessionId: 'parent-1',
+      parentTurnId: 'turn-1',
+      depth: 1,
+      isolationTier: 0,
+      fork: false,
+      budget: {},
+      promptDigest: 'digest',
+      ctxIn: 0,
+    },
+    'subagent.settled': {
+      sessionId: 'child-1',
+      status: 'completed',
+      usage: { input: 1, output: 1 },
+      ctxOut: 0,
+      toolCalls: 0,
+      durationMs: 1,
+    },
     'context.compacted': { before: 10, after: 5 },
     'router.switched': { from: 'openai', reason: 'error' },
     'error.raised': { code: 'unknown' },

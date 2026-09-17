@@ -130,6 +130,8 @@ Turn = {
 | `tool.completed`        | 工具完成（含错误）                          | ui / storage / telemetry / hooks(PostToolUse) |
 | `shell.background_started` | Bash `runInBackground:true` 创建后台 shell（r13-G2） | ui / telemetry                       |
 | `shell.background_exited`  | 后台 shell 结束（正常/被 kill/超限）        | ui / telemetry                                |
+| `subagent.dispatched` | Task 派发子代理（§2.7bis，SAG；发父总线落父 JSONL，非冒泡） | ui / storage / telemetry / hooks |
+| `subagent.settled`    | 子代理终态（completed/failed/cancelled；usage/ctxOut/conflicts） | ui / storage / telemetry / hooks |
 | `context.compacted`     | 上下文压缩发生                            | ui / telemetry                                |
 | `router.switched`       | Router 切换 provider                      | ui / telemetry                                |
 | `error.raised`          | 任何异常                                  | ui / telemetry / hooks                        |
@@ -371,7 +373,7 @@ subagent.dispatch:
 **关键决策**：
 
 - 嵌套硬上限**默认 3 层**（可配置），防止 agent 递归失控。
-- **★ r13-D1：同 turn Task 并发上限默认 4**（config `[subagent] max_concurrent = 4`）。同一 turn 内模型并行发出多个 Task tool_use 时，超出上限的排队执行（不是拒绝）；达到嵌套上限的深层的 Task 直接 isError 返回。
+- **★ r13-D1：同 turn Task 并发上限默认 8**（config `[subagent] max_concurrent`，SAG D-a 拍板档）。同一 turn 内模型并行发出多个 Task tool_use 时，超出上限的排队执行（不是拒绝）——排队语义、pending 态与排队超时契约见 §2.7bis.2 仲裁面；达到嵌套上限的深层的 Task 直接 isError 返回。
 - Subagent **不能** import 父 messages / permissionCache（隔离）。
 - Subagent 事件走同一 EventBus 加 tag（**保留原 event.id**，见上），UI 折叠渲染 ("🤖 Subagent 正在执行...")。
 - Budget（token / cost / time）用完强制 abort。
@@ -416,6 +418,149 @@ maxTurns: 10                # 可选；等价于该 agent 的 maxToolLoopsPerTur
 - **权限**：自定义 agent 同样受 W8 降级 + tools 白名单约束；其 Task 调用在父 turn 的并发上限（默认 4）内。
 - 里程碑：**L3**（随 subagent/Task 一起交付）。
 - 强制点：shared 单测（frontmatter zod 用例：合法/缺 name/非法字符/tools 超父集拒绝）；core 单测（项目级覆盖全局同名；untrusted 包裹生效）。
+
+### 2.7bis 多 Agent 协同与上下文管控（SAG，2026-09-17 冻结）
+
+> 蓝本：[2026-09-13-subagent-context-coordination-design.md](../../plans/2026-09-13-subagent-context-coordination-design.md)（r2/r2b 合并设计）。本节只钉契约；设计权衡与业界对照以蓝本为准。落地批次与编号见 [2026-09-17-subagent-coordination-execution.md](../../plans/2026-09-17-subagent-coordination-execution.md)。
+> 原则：最小动词集（dispatch / inject / cancel）；上下文管控 = **三口一门**（下行交接 / 子内部 / 上行回传 / 聚合账本）；多 agent 协同 = **四面**（结构 / 通信 / 编排 / 仲裁）。
+
+#### 2.7bis.1 上下文管控（三口一门）
+
+**下行交接（ingress）**。子代理基线载荷（"fresh but not empty"）：自有 system prompt（agent 正文，project 级包 `<untrusted>`）+ 项目 AGENT.md + 工具定义 + 已激活插件的 prompt fragments；**不含**父历史/工具结果/权限缓存。三种交接模式：
+
+| 模式 | 契约 | 适用 |
+|---|---|---|
+| **A · fresh + prompt**（缺省） | Task `prompt` 自包含（路径/约束/完成标准）——提示词纪律，非用户决策 | 探索、检索、独立小任务 |
+| **B · fork** | `fork: true`：父 transcript **冻结快照深拷贝**（`structuredClone` 语义；浅拷贝共享引用会被父压缩/redaction 追溯改写，禁止）作为子初始 messages | 深挖当前调查线、父临近压缩时卸载 |
+| **C · handoff 糖** | `handoff: { files?: string[], brief?: string }`：files 由 dispatcher 预 Read 注入子首条上下文（token 计子预算），brief 进 composer 独立槽位 | 明确文件集的实现型任务 |
+
+- **fork 体积闸**：快照预估 token > 子 `context.maxTokens` 的 60% → dispatcher 类型化拒绝（提示改用模式 A）。
+- **handoff 注入量双闸**：单文件 ≤ 512KB 且单次总量 ≤ 2MB（对齐 workbench 读写上限），超限 dispatcher 拒绝并指明超限项；预 Read 复用 AttachmentStore 权限根（cwd 内）。
+
+**子内部**。agent 定义 `context.maxTokens` 只可小于父继承值（缺省=父值，dispatcher 建会话取 min）；子 Runner 滑动窗口压缩生效，composer 槽位（agent 正文/constraints）压缩后重注入。`SubagentRunEntry` 增 `ctxUsagePct`（live）——运行行显示 `ctx 78%`，人可见、模型不见（模型有自己的 runner 信号）。**概念切分（钉死）**：`tokenMax`（三维预算，治**钱**）≠ `context.maxTokens`（窗口，治**状态**）≠ digest 封顶（治**父污染**）——三者独立各管一段。
+
+**上行回传（egress）**。
+
+- **注入防御（P0）**：Task 结果一律包 `<untrusted source="subagent:<agentType>">`（对齐插件/MCP 工具输出策略）；二期加 control-tag 仿冒中和（伪 `<system-reminder>` 反斜杠转义）。
+- **digest 封顶**：`resultMode: 'full' | 'digest'`，缺省 digest。子最终 assistant 文本 ≤ 8k chars → 原文进父 tool_result；超限 → 全文落 `sessions/<parent>/subagents/<id>.md`（**按子会话 id 寻址、可覆写**——与备份 `objects/<hash>` 的内容寻址是两回事），父只收 `摘要行 + 磁盘引用`。摘要 v1 = 首段 + 要点行（**不加模型调用**），**摘要自身硬截 ≤ 2k chars**（首段与要点行各自截断、溢出以省略号标注——否则无换行超长首段会让 digest 路径反超 full 路径上界）。v2 可选小模型改写（同样受 2k 截断兜底）。
+- **父上下文污染上界公式（turn 级治理数）**：Σ 回传 ≤ max(8k full, 2k digest) × 并发数（8-12）= 64-96k chars 硬顶（digest 路径实际 ≤ 2k × N）。
+- **落盘文件读取同权包裹**：`sessions/<parent>/subagents/` 前缀下文件的 Read 结果一律按 `source="subagent:<agentType>"` 包 `<untrusted>`（工具侧按路径前缀识别）；该前缀同时加为 Read 工具**显式放行根**（home 状态域在 cwd 外，不放行则 digest 落盘不可读）——放行根与包裹规则同批落地，缺一即断链。
+- **结构化结果（低优先，契约先钉）**：agent 定义 `output: { type: 'json', schema? }`；dispatch 收尾校验失败 → partial + detail。
+
+**聚合账本（ledger）**。数据源 = `subagent.settled` 的 usage（in/out/costUSD）+ `ctxIn`（交接注入量）/ `ctxOut`（回传量）；派生 per-turn / per-session / per-agentType 成本（StatsPage、`volund agents runs`、状态页页头共用）。**fork 账本规则**：fork 注入的父快照 token 计子的 `ctxIn`（成本归子），父不重复计。
+
+强制点：dispatcher 单测（fork 深拷贝只读 + 体积闸拒绝、digest 阈值分支与摘要 2k 截断、handoff 双闸、ctxIn/ctxOut 计账）；tools 单测（untrusted 包裹存在性 + `subagents/` 前缀 Read 同权包裹）；e2e（并发 8×8k full 回传 + 超长单段触发 digest 路径，回传后父 turn token 有界）。
+
+#### 2.7bis.2 多 Agent 协同（四面）
+
+**结构面（隔离层级）**。
+
+| Tier | 形态 | 写边界 | 进入方式 |
+|---|---|---|---|
+| **0 · 共享树**（缺省） | 所有 agent 在主 checkout | lock+CAS 串行 + writePaths 契约 | 缺省 |
+| **1 · worktree** | `.volund/worktrees/<sessionId>`，产出=patch | 隔离树内自由写；主树仅 apply 点 | `isolation:'worktree'` 显式；后台代理动文件前自动进（N8，`[subagent] auto_isolation` 可关，SAG D-b 拍板默认档=opt-in） |
+| **2 · detached**（北极星） | supervisor 宿主会话，跨父生命周期 | 同 Tier 1 + PR 化 | 不排期；事件/注册表已留位（无 in-turn 假设） |
+
+- **worktree 基线语义（钉死）**：基线 = 派发时刻**主树完整工作区状态**（含未提交 tracked 改动〔staged+unstaged〕与 untracked 新文件，尊重 .gitignore），**不是裸 HEAD**——实现 = worktree add 后将 `git diff HEAD` apply 进树 + 复制 untracked 清单，派发时一次完成。**嵌套隔离**：父已在 worktree 时，子的基线 = 父隔离树当前工作区状态（同法），不从主树回退取基。
+- **apply 语义**：patch 经父审批后应用（复用权限链），冲突在 apply 一次暴露；**禁止搬文件**；apply 走 mutateFiles 管线（同锁同备份）。
+
+**通信面**。v1 = 请求-响应 + 进度契约（冒泡事件即进度，子不能问父问题——权限通道除外）。v2 = **steering**：`dispatcher.inject(sessionId, text)`——文本进子消息队列，**子下一 loop 边界**（下一次 provider 请求前）作为追加 user 消息生效，不打断进行中的流；目标已 settled / 已取消 / 未知 sessionId → 类型化错误 `error_subagent_not_active`（不静默入队、不留孤儿消息）。v2 通知 = 后台代理 settled → TUI 通知行 / Web toast / Mobile push（经 gateway 既有事件通道）。北极星 SendMessage（具名代理互发）前置=detached 生命周期，不先做。**明确不建**兄弟代理的共享内存黑板（文件黑板 + writePaths 已覆盖）。
+
+**编排面**。核心动词只加 **`dispatchBatch`**（fan-out/fan-in 一次工具调用：`{ items: [{prompt, agentType?, writePaths?}...] }`，共享并发闸与预算账本，结果按序收集）。其余编排 = 定义与模板（串行 pipeline = 多次 Task；review 循环 = implementer/monitor/coordinator 模板；map-reduce = writePaths 分区 + dispatchBatch + 父合并），不是新机制。
+
+**仲裁面**。
+
+- **并发闸**：全局 in-flight 上限（默认 8，SAG D-a）+ FIFO 排队（pending 态）；排队/锁等待不计预算时间维；排队超时（缺省 10 分钟，`[subagent] queue_timeout_ms` 可调）→ 类型化终态 `error_subagent_queue_timeout`，不留无限等待位；父 abort 清队。
+- **文件仲裁**：lockfile + old_string CAS → Write read-tracking + 内容 hash + 死锁回收（§2.7bis.3）→ writePaths 越界拒 + 冲突计数进 settled。
+- **预算仲裁**：dispatch 内**逐维只能收紧**（input.budget 每维 ≤ default 对应维，超限类型化拒绝；不得沿用 spread 覆盖合并）→ session 聚合（`[subagent] session_budget`，默认关；超限 = 拒新 + 停运行中后台代理 + 类型化终态，对齐 `error_max_budget_usd`）→ daily = backlog。
+- **provider 闸**：进程级 in-flight 流上限（含子代理）——fan-out 不许打挂父会话的 429 风暴。
+- **明确不建**优先级队列/抢占（用户交互流天然经 provider 闸保护；抢占语义与预算中断混淆伤正确性）。
+
+强制点：并发 harness（双 agent 同文件竞态 / 排队超时 / 取消 / 注入时序四场景，testkit）；worktree 基线含未提交改动断言 + apply patch-不搬文件断言；dispatchBatch 预算共账测试；并发对标测试（8/12 两档）。
+
+#### 2.7bis.3 文件共享机制（黑板层）
+
+文件是 agent 间唯一共享状态载体。共享机制 = 读 / 写 / 合并 / 交接 / 回滚五环节 + 两棵树（主树/worktree）+ **三个写入口**统一治理。
+
+**读共享**：原子写（tmp+rename）保证读者永不见撕裂；读不设锁；read-tracking（(session,path)→内容 hash）为 Write expect 提供依据。**明确不建** Read 版本戳/文件变更推送（CAS 已兜底；失败-重读路径比版本协商短）。
+
+**写共享（单树内，四步）**：
+
+1. **串行化**：per-path lockfile，跨进程，持锁写 pid+sessionId（已有）。
+2. **CAS**：`old_string` 精确匹配 = 区域级乐观合并（已有）+ 快照升级为内容 hash（消同毫秒盲区）。
+3. **lost-update 检测**：Write 补 `expect=last-read hash`，失配 → changed-since-read；保留显式 force。
+4. **死锁回收**：pid liveness + 锁龄双条件抢占。
+5. **无先前读的写语义（钉死）**：覆写**已存在**路径必须有本会话 read 记录（expect 缺省取 last-read hash），无记录 → `changed-since-read` 拒；**新建**（路径不存在）放行。判定在持锁后进行——两个 agent 同时新建同路径时锁串行化，后到者判定时路径已存在且无读记录 → 拒，消除"双写新文件静默互覆"。
+
+**三个写入口统一**：
+
+| 入口 | 治理 |
+|---|---|
+| A · agent 工具（Write/Edit/MultiEdit） | 全闸（锁+CAS+备份+undo）——基准 |
+| B · Bash | 尽力而为（Bash 后失效 read-cache）；Tier 1 worktree 内自然消解 |
+| C · **Web workbench** | **写路径复用 mutation 管线**（storage/tools 公共 mutation 端口统一导出，同 `.volundlock` 约定）：同锁同备份同 undo。**会话归属（钉死）**：workbench 写入的 sessionId = `hub.active?.id`（与 changes/undo 端点同源；embedded 模式下即 TUI 当前活动会话）；无活动会话时保存拒绝并提示。不引入独立 web 会话命名空间 |
+
+**/undo 血统（U1 钉死）**：`mutateFiles` 的 sessionId 传 **lineage 根会话 id**（嵌套子代理同归一根，`depth` 只做展示）；`/undo` 语义 = "回滚本会话树"——父 + 全部子代理 + worktree apply 的备份 batch 进同一 manifest，**每次 /undo 仍弹一个 batch（一次工具执行的改动），按全局逆序逐次撤销**，面板展示剩余 batch 预览。
+
+**合并与交接**：同树并发 = 字符串 CAS 自然合并，同区域失败方 re-Read 重试，不做自动 3-way merge；跨树 = patch 经审批 apply（禁止搬文件）。**worktree 写的备份归属（钉死）**：隔离树**内部**写不进 lineage 根 manifest（batch 标 `isolationTier`，/undo 跳过）；只有 **apply 到主树的 patch** 入根 manifest。agent 间文件交接靠编排顺序或文件存在性检查，**不建** wait-for-file 原语；不建共享 KV/内存黑板（`reports/*.md` 文化 + writePaths 分区即约定）。
+
+**可观测**：锁表视图 = 持有者（lock 文件扫描，pid+sessionId）+ 等待者与等待时长（dispatcher 运行注册表）两源拼接（等待方不落盘）；热点文件指标 = per-path 冲突率（settled.conflicts 聚合）；审计闭环 = JSONL + 备份全量 + /undo 覆盖全树。**已知残留（接受项）**：目录级操作（rm/mkdir 经 Bash/workbench）无文件级锁——一期接受，目录级风险由沙箱+权限把守。
+
+强制点：workbench 写入走锁的并发单测；`/undo` 跨 lineage（父+子混合改动）e2e；双 agent 同文件竞态 harness（含 Bash 与 Web 入口三方竞态变体）。
+
+#### 2.7bis.4 数据契约
+
+```yaml
+# Task input（批次 3 终态）
+{ prompt, agentType?, budget?,          # budget 逐维只能收紧
+  writePaths?, fork?, handoff?,          # 交接：fork / 糖
+  resultMode?, runInBackground?, isolation? }
+
+# agent 定义 frontmatter（N3 富化后；在 §2.7.1 基础上扩）
+{ name, description, model?,             # model 白名单按 scope（R-C3）
+  tools?, disallowedTools?,               # 白/黑名单互补，只可收紧
+  mcp?, skills?, permissionMode?,         # 只可收窄
+  maxTurns?, context.maxTokens?,          # 只可小于父
+  output?: {type,schema}, memory? }       # 结构化结果 / 只读缺省
+
+# inject（steering，v2）
+dispatcher.inject(sessionId, text) -> queued; 子下一 loop 边界生效
+#   目标已 settled/取消/未知 -> error_subagent_not_active
+```
+
+`subagent.dispatched` / `subagent.settled` payload 字段表见[附录 D.2](./APPENDIX-D-event-payloads.md)（发父总线落父 JSONL，非冒泡事件——D.3 冒泡规则不适用）。`interrupted` 不是 settled status——dispatched 无 settled 时由注册表重放重建合成标记。新增事件类型的 8 处同步点（schema 文件 / EVENT_NAMES / EVENT_SCHEMAS / events.test.ts / event-bus.test.ts / §2.3 表 / 附录 D / verify-event-schemas 断言）缺一 CI 红。
+
+#### 2.7bis.5 UI 面（TUI / Web / Mobile）
+
+**现存缺陷修复契约（先于新功能）**：
+
+- **U3 · 子事件混流**：Web/Mobile 聊天 reducer 必须读 envelope `parentTurnId`/`parentDepth`（类型声明补齐），`parentDepth > 0 → 过滤`（对齐 TUI 既有行为）；Task 工具行折叠（子代理聚合为一行）。
+- **U4 · 审批无归属**：`permission.request` view 帧补 `lineage: { sessionId, agentType?, parentTurnId }`；三端审批卡加「子代理 · \<agentType\>」徽标（gateway 盲转天然透传）。
+- **U1/U2 · undo 盲区**：按 §2.7bis.3 修复后，Web changes 视图与 TUI `/undo` 双向覆盖全树（含 worktree apply）。
+
+**目标面**：
+
+| 面 | TUI（基线） | Web | Mobile |
+|---|---|---|---|
+| 运行面板 | `/subagents` 已有 | SubagentsPage：`GET /api/v1/subagents`（dispatcher 注册表导出）+ SSE 增量 + cancel；复用 SubagentsPanelController 契约 | 会话页内嵌只读运行行 + 取消（经 remote-link RPC） |
+| 运行行 ctx% | §2.7bis.1 压力信号 | 面板行 + Task 折叠行同字段 | 同 |
+| Task 折叠行 | 已有（冒泡过滤） | ChatPanel tool-row 折叠 + prompt 摘要 + ctx% | ChatView 工具 chip 升级 |
+| settled 通知 | 通知行（`onRunsChange` 接线） | toast | push 依赖 gateway Web Push 基建，随 detached 批次 |
+| 锁表视图 | `/subagents` 分区 | SubagentsPage 分区（同数据端口） | 不做（屏小，锁表是诊断面） |
+| undo 全树 | `/undo` 逐 batch | ChangesPage 自动受益（同 manifest） | 不做 |
+
+强制点：web/mobile reducer 的 parentDepth 过滤单测；审批卡 lineage 徽标三端快照；SubagentsPage 数据面 e2e（dispatch → SSE 增量 → cancel 全链）。
+
+#### 2.7bis.6 插件扩展面（subagent × plugin）
+
+原则：**扩展开在定义层与观察层，不开在机制层**——核心动词集与安全管线（untrusted 包裹 / digest / 锁与 CAS）不是插件扩展点。
+
+- **定义层（主扩展面）**：bridge 新增 `agents.register`（对齐 tools.register 形态），插件携带 agent 定义集进 AgentDefinitionRegistry，scope='plugin'。**覆盖序**：plugin 先扫（最低优先级）→ user → project，同名后扫覆盖（维持既有语义）——插件定义被用户/项目覆盖是特性。**校验同构**：插件来源不豁免任何收窄规则（tools 白名单对父 registry〔含全部插件工具〕收紧、model 白名单 R-C3、permissionMode/skills/mcp 只可收窄）。**trusted 度**：plugin scope 正文不包 `<untrusted>`（用户显式安装/批准即信任）；project scope 维持包裹。**编排模板即插件**：review 循环与 map-reduce 模板 = 内置插件携带的 agent 定义集 + 使用文档，零新机制；`/agents` 管理面对 user/project/plugin 三来源统一展示。
+- **工具层（已具备，钉语义）**：插件工具自动进子工具宇宙（toolRegistrySnapshot 继承父 registry）；agent 定义 `tools` 白名单可点名 `plugin:<名>:` 工具。**不做** per-audience 工具注册。
+- **观察层（随事件解锁）**：HOOK_EVENTS 新增 `subagent.dispatched` / `subagent.settled` 接通宿主广播面——插件可做通知渠道、账本聚合、护栏告警。插件 hook 对子代理工具调用**现已生效**（dispatchHook 在子 executor 内），veto/rewrite 语义与主会话一致。
+- **明确不开放**：插件自定义调度器/新通信原语/隔离后端（机制层）；插件改 digest 阈值/untrusted 包裹/锁与 CAS 行为（安全边界）；插件直读 dispatcher 内存注册表（走 §2.7bis.5 数据端口，与 Web/Mobile 同源同权）。
+
+强制点：覆盖序测试（plugin < user < project 同名三层）；插件 agent 的白名单/收窄校验同构测试；settled hook 事件 e2e（插件收到 payload 与附录 D.2 契约一致）。
 
 ### 2.8 异常谱
 

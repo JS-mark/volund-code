@@ -29,6 +29,7 @@ volund plugin <install|uninstall|list|enable|disable|upgrade|doctor|dev>
 volund skill <install|uninstall|list|enable|disable|activate|deactivate>
 volund mcp <add|remove|list|test>
 volund hook <list|test>
+volund agents <list|runs [session]>   # SAG 新增：agent 定义枚举（含信任域/tools 白名单）/ 运行史（JSONL 经 subagent.* 事件派生），详见 §2.7bis；--json 血统字段 parentDepth/parentSessionId 同批
 volund memory <list|show|add|edit|rm|search|pin|unpin|export|import>   # v4 新增，详见 §6.12.7
 volund context <show|diff|keep|unkeep|compact|policy>   # r10 新增，详见 §11.3.12 + §8b.13
 volund evolution <show|rollback|enable|disable>         # r10 新增，详见 §11.3.13 + §15

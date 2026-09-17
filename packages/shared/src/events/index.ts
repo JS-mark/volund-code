@@ -21,6 +21,8 @@ import { shellBackgroundStartedPayloadSchema } from './shell-background_started'
 import { streamCompletedPayloadSchema } from './stream-completed'
 import { streamDeltaPayloadSchema } from './stream-delta'
 import { streamStartedPayloadSchema } from './stream-started'
+import { subagentDispatchedPayloadSchema } from './subagent-dispatched'
+import { subagentSettledPayloadSchema } from './subagent-settled'
 import { toolCompletedPayloadSchema } from './tool-completed'
 import { toolPermissionAskedPayloadSchema } from './tool-permission_asked'
 import { toolRequestedPayloadSchema } from './tool-requested'
@@ -30,7 +32,7 @@ import { turnCompletedPayloadSchema } from './turn-completed'
 import { turnStartedPayloadSchema } from './turn-started'
 
 /**
- * 附录 D.2 二十六事件 → per-event payload schema 汇总（事件名 → schema）。
+ * 附录 D.2 二十八事件 → per-event payload schema 汇总（事件名 → schema）。
  * replay / §8.2 迁移 / --json 外部消费以本 map + eventEnvelopeFor 为稳定契约。
  */
 export const EVENT_SCHEMAS = {
@@ -51,6 +53,8 @@ export const EVENT_SCHEMAS = {
   'tool.completed': toolCompletedPayloadSchema,
   'shell.background_started': shellBackgroundStartedPayloadSchema,
   'shell.background_exited': shellBackgroundExitedPayloadSchema,
+  'subagent.dispatched': subagentDispatchedPayloadSchema,
+  'subagent.settled': subagentSettledPayloadSchema,
   'context.compacted': contextCompactedPayloadSchema,
   'router.switched': routerSwitchedPayloadSchema,
   'error.raised': errorRaisedPayloadSchema,
@@ -122,6 +126,11 @@ export {
 export { streamCompletedPayloadSchema, type StreamCompletedPayload } from './stream-completed'
 export { streamDeltaPayloadSchema, type StreamDeltaPayload } from './stream-delta'
 export { streamStartedPayloadSchema, type StreamStartedPayload } from './stream-started'
+export {
+  subagentDispatchedPayloadSchema,
+  type SubagentDispatchedPayload,
+} from './subagent-dispatched'
+export { subagentSettledPayloadSchema, type SubagentSettledPayload } from './subagent-settled'
 export { toolCompletedPayloadSchema, type ToolCompletedPayload } from './tool-completed'
 export {
   toolPermissionAskedPayloadSchema,

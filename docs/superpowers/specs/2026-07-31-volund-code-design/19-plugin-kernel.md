@@ -23,7 +23,8 @@
 | `model` | 每会话 Context 的 `model` 服务（ProviderRegistry 封装） |
 | `tool` | `tools` 服务 + 内置件按域拆分（`volund.core-tools` / `volund.exec` / `volund.orchestration`，`[plugins] builtin_disabled` 可整域禁用，/plugins 与 `volund plugins builtin` 可见可切）+ 桥 `tools.register/unregister`（名字强制 `plugin:<manifest.name>:` 前缀，permissionSpec 收敛 `{custom:{pluginTool}}` 进统一权限链，输出 `<untrusted>` 包裹） |
 | `prompt-source` | 桥 `prompt.contribute/revoke` → 每会话 composer（`plugin:<名>:` id 命名空间，priority 缺省 600） |
-| `hook` | 桥 `hooks.on` / `session.on` → 插件 hook 订阅；`preToolUse/postToolUse` 由 ToolExecutor dispatchHook 消费（首个 HookResult 生效、fail-open），`sessionStart/sessionEnd` 由会话事件广播 |
+| `agent`（SAG §2.7bis.6，契约冻结待落地） | 桥 `agents.register`（对齐 tools.register 形态）→ 插件携带 agent 定义集进 AgentDefinitionRegistry，scope='plugin'；覆盖序 plugin < user < project 同名后扫覆盖；校验同构不豁免收窄规则；plugin scope 正文不包 `<untrusted>`。机制层不开放：调度器/通信原语/隔离后端/digest 阈值/untrusted 包裹/锁与 CAS 行为/直读 dispatcher 注册表 |
+| `hook` | 桥 `hooks.on` / `session.on` → 插件 hook 订阅；`preToolUse/postToolUse` 由 ToolExecutor dispatchHook 消费（首个 HookResult 生效、fail-open），`sessionStart/sessionEnd` 由会话事件广播；SAG 追加 `subagent.dispatched` / `subagent.settled` 两个观察面事件（§2.7bis.6，随事件落地接通广播） |
 | 卸载语义 | 会话中途卸载/禁用插件：命令/页签立即摘除，贡献工具经 `ToolsService.unregisterPlugin` 对全部活会话内核广播摘除 |
 | 可见性 | 内置域在 /plugins 面板 Domains 页签 + `volund plugins builtin` CLI |
 

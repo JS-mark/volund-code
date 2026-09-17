@@ -390,3 +390,18 @@ node apps/cli/dist/volund.js chat
 - 面板**只读**；改配置走 `/model`、`/reflect on|off`、`volund config` 等各自入口。
 - 打开面板期间主 loop 继续运行（反思 job、后台 shell 不暂停）；面板数据是打开/`r` 时刻的快照，不声称实时。
 - 面板渲染抛错（含插件 section 抛错）→ 该 section 替换为一行 `section error: <name>`，不 crash TUI（§7.9 边界语义）；core section 抛错同样降级，禁止整个面板白屏。
+
+### 7.11 /subagents 面板与 /undo 全树（SAG §2.7bis.5，2026-09-17 冻结）
+
+`/subagents` 面板（SUBAGENTS-UI-r1 已落地列表/取消/详情）的 SAG 增量契约：
+
+- **运行行压力信号**：`SubagentRunEntry.ctxUsagePct`（live，来自子 state）——运行行显示 `ctx 78%`；人可见、模型不可见（模型有自己的 runner 信号）。
+- **锁表分区**：持有者（pid+sessionId，lock 文件扫描）+ 等待者与等待时长（dispatcher 运行注册表）两源拼接（等待方不落盘、只在进程内重试，§2.7bis.3）。
+- **follow 模式**：详情页实时 tail 选中子代理转录——数据 = 冒泡事件（envelope 带 `parentTurnId`/`parentDepth`）视图层聚合，无新数据通道。
+- **settled 通知行**：dispatcher `onRunsChange` 接线，子代理终态（completed/failed/cancelled，数据源 `subagent.settled`）在主转录上方出一行通知。
+- **主转录冒泡过滤维持**：`parentTurnId in event || parentDepth > 0 → 不渲染`（Web/Mobile 同语义对齐，§2.7bis.5 U3）；Task 工具卡挂起期间渲染折叠行（`🤖 agentType · running · 当前工具`），完成收成 `✓ agentType · 34s · $0.12`。
+- **审批卡归属（U4）**：权限弹窗带 lineage 徽标「子代理 · \<agentType\>」（数据源 = `permission.request` view 帧的 `lineage` 字段）；主代理请求无徽标。
+
+**/undo 全树（U1）**：备份 manifest 归 **lineage 根会话**（父 + 全部子代理 + worktree apply 同一棵）；`/undo` 每次仍弹**一个 batch**（一次工具执行的改动），按全局逆序逐次撤销——不是一次调用撤全树；面板展示剩余 batch 预览。worktree 隔离树**内部**写的 batch 标 `isolationTier`，`/undo` 跳过（树快照本身即其备份，§2.7bis.3）。
+
+强制点：运行行 ctx% 与通知行 pty 实测；/undo 跨 lineage（父+子混合改动）e2e。

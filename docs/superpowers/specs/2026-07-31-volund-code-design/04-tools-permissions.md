@@ -152,7 +152,20 @@ inputSchema: { path: string, old_string: string, new_string: string, replace_all
 
 - `Read` 缺省读 **2000 行**（`offset` / `limit` 可覆盖）；超长文件读首 2000 行 + 末尾标注 `[... N more lines, use offset to continue]`。
 - 目录遍历类操作（`Glob` / `@` picker / attachment 扫描）**默认跳过** `.git` / `node_modules` / `target` / `dist` / 构建缓存目录（`config [tools] ignore_dirs` 可扩展）。
-- 强制点：tools 单测（默认行数边界；忽略目录生效）。
+- **★ SAG（§2.7bis.1）**：`sessions/<parent>/subagents/` 前缀（home 状态域，cwd 外）加为 Read 工具**显式放行根**；该前缀下文件的 Read 结果一律按 `source="subagent:<agentType>"` 包 `<untrusted>`（工具侧按路径前缀识别）——digest 落盘文件是子代理产出的最厚注入面，放行根与同权包裹必须同批落地，缺一即断链。
+- 强制点：tools 单测（默认行数边界；忽略目录生效；`subagents/` 前缀放行 + 包裹存在性）。
+
+#### 4.3.4 Write 跨代理并发契约（SAG §2.7bis.3）
+
+多 agent 同文件协同的写侧契约（在 §4.3.2 Edit 契约之上增补）：
+
+- **read-tracking**：会话级 `(session, path) → 内容 hash` 记录，Read 成功即写入。
+- **lost-update 检测**：`Write` inputSchema 增可选 `expect`（last-read hash）；覆写时缺省取本会话 last-read hash 校验，失配 → `isError`（`changed-since-read`，提示 re-Read）；显式 `force: true` 跳过（标注 lost update）。
+- **无先前读的写语义（钉死）**：覆写**已存在**路径必须有本会话 read 记录，无记录 → `changed-since-read` 拒；**新建**（路径不存在）放行。**判定在持锁后进行**——两个 agent 同时新建同路径时锁串行化，后到者判定时路径已存在且无读记录 → 拒，消除"双写新文件静默互覆"。
+- **快照升级**：Edit/MultiEdit 的前后快照自 mtime+size 升级为**内容 hash**（消同毫秒/同尺寸盲区）。
+- **死锁回收**：`.volundlock` 持锁文件按 **pid liveness + 锁龄**双条件抢占（死 pid 且超龄才抢，活 pid 不抢）。
+- **三个写入口统一（钉死）**：agent 工具（全闸，基准）/ Bash（尽力而为：Bash 成功后失效本会话 read-cache）/ **Web workbench（写路径复用同一 mutation 管线**，公共 mutation 端口统一导出，同 `.volundlock` 约定；会话归属 = `hub.active?.id`，无活动会话保存拒绝——见 §22 W-08）。
+- 强制点：tools 单测（expect 失配 / 新建放行 / 无读记录覆写拒 / 持锁后判定竞态 / 死锁回收双条件）；workbench 写入走锁的并发单测；双 agent 同文件竞态 harness（含 Bash 与 Web 入口三方竞态变体）。
 
 ### 4.4 权限模型（packages/permission）
 
