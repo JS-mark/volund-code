@@ -243,8 +243,9 @@ export class RemoteLink {
         this.setState('connecting', { error: 'uplink disconnected' })
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
+        // 拨号失败不写 stderr（Mark 拍板：重试噪音）——错误进 state，由 TUI
+        // 欢迎屏 remote 行 / 远程控制 tab 呈现；一次性事件日志仍走 log()。
         this.setState('connecting', { error: message })
-        this.log(`remote link attempt ${this.attempt} failed: ${message}`)
       }
       if (!this.running) break
       await this.delay(backoff)
