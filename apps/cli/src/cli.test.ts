@@ -781,7 +781,7 @@ describe('runCli', () => {
     expect(probeSettled).toBe(false)
     expect(renderInteractiveApp).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'sandbox probing',
+        status: 'ready',
         sandboxProbe: expect.any(Function),
         welcome: expect.objectContaining({ sandbox: { status: 'probing' } }),
       }),
@@ -850,7 +850,7 @@ describe('runCli', () => {
         permissions: expect.any(Object),
         sandboxProbe: expect.any(Function),
         sessionId: 'session-1',
-        status: 'sandbox probing',
+        status: 'ready',
         welcome: expect.objectContaining({
           cwd: process.cwd(),
           sessionId: 'session-1',
@@ -866,6 +866,7 @@ describe('runCli', () => {
     const renderArg = renderMock.mock.calls[0]?.[0] as {
       sandboxProbe: () => Promise<{ sandbox: { status: string; tier?: string }; status: string }>
     }
+    // tier 不再上状态行：可用时回填 'ready'（none 才示警 'sandbox unavailable'）。
     await expect(renderArg.sandboxProbe()).resolves.toEqual({
       sandbox: {
         status: 'available',
@@ -874,7 +875,7 @@ describe('runCli', () => {
         filesystem: 'isolated',
         network: 'available',
       },
-      status: 'sandbox full',
+      status: 'ready',
     })
     expect(interactive.setPermissionPromptHandler).toHaveBeenCalledWith(expect.any(Function))
     expect(waitUntilExit).toHaveBeenCalledOnce()
@@ -1153,7 +1154,7 @@ describe('runCli', () => {
     expect(interactive.setPermissionPromptHandler).not.toHaveBeenCalled()
     expect(testPorts.ui?.renderInteractiveApp).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'sandbox probing; permissions bypassed',
+        status: 'ready',
         welcome: expect.objectContaining({
           sandbox: { status: 'probing' },
           permission: expect.objectContaining({ mode: 'full', dangerous: true }),

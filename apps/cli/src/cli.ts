@@ -908,8 +908,6 @@ export async function runCli(
       if (!(args.yolo || args.dangerouslySkipPermissions))
         interactive.setPermissionPromptHandler?.((request) => permissions.request(request))
       const permissionsBypassed = Boolean(args.yolo || args.dangerouslySkipPermissions)
-      const statusText = (tier: string) =>
-        `sandbox ${tier}${permissionsBypassed ? '; permissions bypassed' : ''}`
       // §22 W-01：静默自启 Web 控制台（挂载本会话；[web] enabled=false / VOLUND_WEB=0
       // 关闭）——在欢迎屏组装前完成，地址直接上屏；失败进启动 notices，不阻塞 TUI。
       let webConsole: { url: string; port: number; close(): Promise<void> } | undefined
@@ -1047,6 +1045,8 @@ export async function runCli(
         permissions,
         // 沙箱探针 + search/fs worker 探针并行跑；等全部 settle（预算封顶 5s）
         // 一次性回填，避免欢迎屏 native 状态停在 probing 或闪烁两跳。
+        // tier 不上状态行（Mark 拍板：macOS 常驻 partial 只是噪音）——欢迎屏
+        // Native modules 行与 /status 面板承载展示；仅 none（真不可用）示警。
         sandboxProbe: () =>
           Promise.all([probePromise, ports.native.settled?.() ?? Promise.resolve()]).then(
             ([probe]) => {
@@ -1054,7 +1054,7 @@ export async function runCli(
               return {
                 sandbox: welcomeSandboxFrom(probe),
                 ...(native ? { native } : {}),
-                status: statusText(probe.tier),
+                status: probe.tier === 'none' ? 'sandbox unavailable' : 'ready',
               }
             },
           ),
@@ -1101,7 +1101,7 @@ export async function runCli(
             })()
           : {}),
         sessionId: interactive.id,
-        status: statusText('probing'),
+        status: 'ready',
         welcome,
         ...(ports.remoteControl?.onState
           ? {

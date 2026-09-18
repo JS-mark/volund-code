@@ -65,7 +65,7 @@ describe('renderInteractiveApp', () => {
       {
         cwd: '/repo',
         sessionId: 'session-1234567890',
-        status: 'sandbox probing',
+        status: 'ready',
         welcome: { ...welcomeFixture(), sandbox: { status: 'probing' } },
         sandboxProbe: () => probe,
       },
@@ -92,16 +92,18 @@ describe('renderInteractiveApp', () => {
         network: 'available',
       },
       native: { sandbox: 'loaded', search: 'loaded', fs: 'unavailable' },
-      status: 'sandbox full',
+      status: 'ready',
     })
     // 回填是 promise 解析 → 状态更新 → 重渲染的级联——高并发下单次 render flush
     // 可能只等到中间帧；waitFor 锚定终态后再收尾。
-    await vi.waitFor(() => expect(stdout.output).toContain('sandbox full'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(stdout.output).toContain('sandbox loaded'), { timeout: 5_000 })
     await app.unmount()
     await app.waitUntilExit()
-    // Backfill refreshed the welcome native rows and the status line.
-    // （sandbox 徽标即 Native modules 的 sandbox 行；底行不再展示 mechanism/tier。）
+    // Backfill refreshed the welcome native rows only — the bottom status line
+    // no longer carries tier（Mark 拍板：tier 由 Native modules 行与 /status 呈现）。
     const flattened = stripVTControlCharacters(stdout.output)
+    expect(flattened).not.toContain('sandbox full')
+    expect(flattened).not.toContain('sandbox partial')
     expect(flattened).toContain('sandbox loaded')
     expect(flattened).toContain('search loaded')
     expect(flattened).toContain('fs not loaded')
