@@ -1113,7 +1113,14 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     />
   )
 
-  const bottomStatus = (
+  // 空闲态不占行（Mark 拍板：'- ready' 常驻只是噪音）——状态行只在有话说时
+  // 出现：turn 进行中换 StreamingStatus，权限请求/告警/瞬态文案（'status closed'
+  // 等）照常示警。warning/error 级即便文本回落成 'ready' 也不隐藏。
+  const statusIdle =
+    state.status === 'ready' &&
+    (state.statusLevel === 'muted' || state.statusLevel === 'info') &&
+    permissionRequests.length === 0
+  const bottomStatus = statusIdle ? null : (
     <StatusLine level={permissionRequests.length > 0 ? 'warning' : state.statusLevel}>
       {permissionRequests.length > 0 ? 'permission required' : state.status}
     </StatusLine>

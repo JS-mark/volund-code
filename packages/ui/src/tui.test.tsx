@@ -844,9 +844,11 @@ describe('renderInteractiveApp', () => {
     )
     await app.waitUntilRenderFlush()
     const out = stdout.output
-    expect(out.indexOf('Tips for getting started')).toBeLessThan(out.indexOf('ready'))
-    expect(out.indexOf('ready')).toBeLessThan(out.indexOf('> '))
+    expect(out.indexOf('Tips for getting started')).toBeLessThan(out.indexOf('> '))
     expect(out.indexOf('> ')).toBeLessThan(out.indexOf('mode auto'))
+    // 空闲态不渲染状态行（Mark 拍板 '- ready' 常驻是噪音）——turn/权限/告警
+    // 才出现；'agent ready' 属欢迎屏底栏，不是状态行。
+    expect(out).not.toContain('- ready')
     app.unmount()
     await app.waitUntilExit()
   })
