@@ -2,10 +2,23 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchMcpMarketIndex, parseMcpMarketIndex, readMcpMarketSource } from './mcp-market'
-import { fetchSkillMarketIndex, parseSkillMarketIndex, readSkillMarketSource } from './skill-market'
+import {
+  fetchMcpMarketIndex,
+  parseMcpMarketDocument,
+  parseMcpMarketIndex,
+  parseMcpRegistryDocument,
+  readMcpMarketSource,
+} from './mcp-market'
+import { parseGithubTreeSpec } from './skill-install'
+import {
+  fetchSkillMarketIndex,
+  parseClaudeSkillMarketplace,
+  parseSkillMarketDocument,
+  parseSkillMarketIndex,
+  readSkillMarketSource,
+} from './skill-market'
 
 const dirs: string[] = []
 afterEach(async () =>
@@ -127,5 +140,168 @@ describe('mcp market index (WEB-EXT-MANAGE-MARKET-r1 §S3.6)', () => {
     await writeFile(home + '/config.toml', '[mcp]\nmarket = "nope"\n')
     const result = await fetchMcpMarketIndex(home)
     expect(result).toEqual({ error: expect.stringContaining('config_invalid') })
+  })
+})
+
+describe('default market sources (WEB-EXT-MANAGE-MARKET-r1 r1.3)', () => {
+  it('parseMcpRegistryDocument adapts official registry v0: remotes→http, npm→npx, pypi→uvx', () => {
+    const entries = parseMcpRegistryDocument({
+      servers: [
+        {
+          server: {
+            name: 'acme/edge-mcp',
+            title: 'Edge',
+            description: 'Edge tools',
+            version: '1.0.0',
+            remotes: [{ type: 'streamable-http', url: 'https://edge.acme/mcp' }],
+          },
+          _meta: {
+            'io.modelcontextprotocol.registry/official': { status: 'active', isLatest: true },
+          },
+        },
+        {
+          server: {
+            name: 'agency.kesey/pretrip',
+            description: 'Health marketing checks',
+            packages: [
+              {
+                registryType: 'npm',
+                identifier: 'pretrip-mcp',
+                version: '1.0.1',
+                transport: { type: 'stdio' },
+              },
+            ],
+          },
+          _meta: {
+            'io.modelcontextprotocol.registry/official': { status: 'active' },
+          },
+        },
+        {
+          server: {
+            name: 'lab/py-tool',
+            packages: [
+              { registryType: 'pypi', identifier: 'py-tool', transport: { type: 'stdio' } },
+            ],
+          },
+          _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } },
+        },
+        {
+          server: { name: 'dead/withdrawn', description: 'x' },
+          _meta: { 'io.modelcontextprotocol.registry/official': { status: 'withdrawn' } },
+        },
+      ],
+    })
+    expect(entries).toHaveLength(3)
+    expect(entries[0]).toEqual({
+      name: 'Edge',
+      description: 'Edge tools',
+      transport: 'http',
+      url: 'https://edge.acme/mcp',
+    })
+    expect(entries[1]).toMatchObject({
+      name: 'agency.kesey-pretrip',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'pretrip-mcp'],
+    })
+    expect(entries[2]).toMatchObject({
+      name: 'lab-py-tool',
+      transport: 'stdio',
+      command: 'uvx',
+      args: ['py-tool'],
+    })
+  })
+
+  it('parseClaudeSkillMarketplace expands plugins[].skills[] into per-skill tree URLs', () => {
+    const entries = parseClaudeSkillMarketplace(
+      {
+        plugins: [
+          {
+            name: 'document-skills',
+            description: 'Document processing suite',
+            skills: ['./skills/xlsx', './skills/docx', 'invalid'],
+          },
+        ],
+      },
+      'https://github.com/anthropics/skills/tree/main',
+    )
+    expect(entries).toHaveLength(2)
+    expect(entries[0]).toEqual({
+      name: 'xlsx',
+      description: 'Document processing suite',
+      source: 'https://github.com/anthropics/skills/tree/main/skills/xlsx',
+    })
+  })
+
+  it('parseSkillMarketDocument / parseMcpMarketDocument auto-detect document shape', () => {
+    expect(
+      parseSkillMarketDocument({ version: 1, entries: [{ name: 'a', source: 'b' }] }),
+    ).toHaveLength(1)
+    expect(
+      parseSkillMarketDocument({ plugins: [{ name: 'p', skills: ['./s/alpha'] }] }, 'https://r'),
+    ).toHaveLength(1)
+    expect(() => parseSkillMarketDocument({ hello: true })).toThrow('unrecognized')
+    expect(
+      parseMcpMarketDocument({ version: 1, entries: [{ name: 'a', transport: 'http', url: 'u' }] }),
+    ).toHaveLength(1)
+    expect(parseMcpMarketDocument({ servers: [] })).toEqual([])
+    expect(() => parseMcpMarketDocument({ hello: true })).toThrow('unrecognized')
+  })
+
+  it('parseGithubTreeSpec extracts repo/subpath from tree URLs and github: shorthand', () => {
+    expect(
+      parseGithubTreeSpec('https://github.com/anthropics/skills/tree/main/skills/xlsx'),
+    ).toEqual({
+      repoUrl: 'https://github.com/anthropics/skills.git',
+      subpath: 'skills/xlsx',
+    })
+    expect(parseGithubTreeSpec('github:anthropics/skills/tree/main/skills/docx')).toEqual({
+      repoUrl: 'https://github.com/anthropics/skills.git',
+      subpath: 'skills/docx',
+    })
+    expect(parseGithubTreeSpec('https://github.com/anthropics/skills')).toBeUndefined()
+    expect(parseGithubTreeSpec('https://github.com/anthropics/skills.git')).toBeUndefined()
+  })
+
+  it('fetch falls back to built-in defaults when config is unset (isDefault=true)', async () => {
+    const home = await tempHome()
+    const skillFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ plugins: [{ name: 'p', skills: ['./skills/alpha'] }] }), {
+          status: 200,
+        }),
+    )
+    vi.stubGlobal('fetch', skillFetch)
+    const skillView = await fetchSkillMarketIndex(home)
+    expect(skillView).toMatchObject({ isDefault: true })
+    expect((skillView as { entries: { name: string }[] }).entries[0]?.name).toBe('alpha')
+    expect((skillFetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain(
+      'anthropics/skills',
+    )
+    vi.unstubAllGlobals()
+
+    const mcpFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            servers: [
+              {
+                server: {
+                  name: 'a/b',
+                  description: 'd',
+                  remotes: [{ type: 'streamable-http', url: 'https://x/mcp' }],
+                },
+                _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', mcpFetch)
+    const mcpView = await fetchMcpMarketIndex(home)
+    expect(mcpView).toMatchObject({ isDefault: true })
+    expect((mcpView as { entries: { name: string }[] }).entries[0]?.name).toBe('a-b')
+    vi.unstubAllGlobals()
   })
 })

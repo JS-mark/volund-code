@@ -26,7 +26,9 @@ export interface SkillPortLike {
   uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<{ ok: boolean }>
   reload(): Promise<readonly SkillListItem[]>
   marketList(): Promise<
-    { source: string; entries: readonly SkillMarketEntry[] } | { error: string } | undefined
+    | { source: string; entries: readonly SkillMarketEntry[]; isDefault: boolean }
+    | { error: string }
+    | undefined
   >
 }
 
@@ -45,7 +47,9 @@ export interface McpPortLike {
   ): Promise<{ file: string; items: readonly unknown[] }>
   reload(): Promise<readonly unknown[]>
   marketList(): Promise<
-    { source: string; entries: readonly McpMarketEntry[] } | { error: string } | undefined
+    | { source: string; entries: readonly McpMarketEntry[]; isDefault: boolean }
+    | { error: string }
+    | undefined
   >
 }
 

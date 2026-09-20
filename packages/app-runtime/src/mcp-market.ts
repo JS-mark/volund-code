@@ -1,7 +1,15 @@
 /**
- * MCP 目录索引（WEB-EXT-MANAGE-MARKET-r1 §S3.6）：读 `[mcp] market` 索引 URL →
- * 浏览 → 「安装」= 预填 add 表单、用户确认后落盘（命令注入可见性原则，不静默安装）。
- * caps 与信任源判定对齐 plugin-market / skill-market。
+ * MCP 目录索引（WEB-EXT-MANAGE-MARKET-r1 §S3.6 + r1.3 默认源）：读 `[mcp] market`
+ * 索引 URL → 浏览 → 「安装」= 预填 add 表单、用户确认后落盘（命令注入可见性原则，
+ * 不静默安装）。caps 与信任源判定对齐 plugin-market / skill-market。
+ *
+ * 支持两种文档格式（按 body 形状自动识别）：
+ * 1. volund v1 index：`{version: 1, entries: [...]}`；
+ * 2. 官方 MCP Registry v0 API（registry.modelcontextprotocol.io，业界通用）：
+ *    `{servers: [{server: {name, description, title?, remotes?, packages?}, _meta}]}` →
+ *    remotes → http 条目；packages（npm/pypi）→ stdio 条目（npx -y / uvx）。
+ *
+ * 未配置时使用内置默认源（D-3 被用户决策推翻，2026-09-20）：官方 MCP Registry。
  */
 import { join } from 'node:path'
 
@@ -13,6 +21,10 @@ const MAX_INDEX_BYTES = 1024 * 1024
 const MAX_ENTRIES = 256
 const INDEX_CACHE_TTL_MS = 60_000
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+/** 内置默认源：官方 MCP Registry v0 API（一页 100 条，registry limit 上限内；够浏览面）。 */
+export const DEFAULT_MCP_MARKET_SOURCE =
+  'https://registry.modelcontextprotocol.io/v0/servers?limit=100'
 
 export interface McpMarketEntry {
   readonly name: string
@@ -29,6 +41,8 @@ export interface McpMarketEntry {
 export interface McpMarketView {
   readonly source: string
   readonly entries: readonly McpMarketEntry[]
+  /** true = 用户未配置，正在用内置默认源（UI 显示「默认源」徽标）。 */
+  readonly isDefault: boolean
 }
 
 /** 读 `[mcp] market` 配置（用户级 config.toml）；缺省 → undefined；不信任源按 config_invalid 拒绝。 */
@@ -108,28 +122,125 @@ export function parseMcpMarketIndex(value: unknown): readonly McpMarketEntry[] {
   return entries
 }
 
+/**
+ * 官方 MCP Registry v0 适配器（r1.3）：`servers[].server` → v1 entries。
+ * 仅收 status=active；remotes → http（取第一个）；packages → stdio
+ * （npm → `npx -y <identifier>`，pypi → `uvx <identifier>`）；展示名用 title，
+ * 无则 name 里的 `/` 规整为 `-`（须过 SERVER_NAME）；按 name 去重保序。
+ */
+export function parseMcpRegistryDocument(value: unknown): readonly McpMarketEntry[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('mcp registry document must be an object')
+  const servers = (value as Record<string, unknown>).servers
+  if (!Array.isArray(servers)) throw new Error('mcp registry document requires servers[]')
+  const entries: McpMarketEntry[] = []
+  const seen = new Set<string>()
+  for (const raw of servers) {
+    if (entries.length >= MAX_ENTRIES) break
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const wrapper = raw as Record<string, unknown>
+    const server = wrapper.server
+    if (!server || typeof server !== 'object' || Array.isArray(server)) continue
+    const record = server as Record<string, unknown>
+    const meta = wrapper._meta
+    const official =
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? (meta as Record<string, Record<string, unknown>>)[
+            'io.modelcontextprotocol.registry/official'
+          ]
+        : undefined
+    if (official && official.status !== undefined && official.status !== 'active') continue
+    const rawName = typeof record.name === 'string' ? record.name : ''
+    if (!rawName) continue
+    const display =
+      typeof record.title === 'string' && record.title.trim() ? record.title.trim() : rawName
+    const name = (SERVER_NAME.test(display) ? display : display.replace(/\//g, '-')).slice(0, 64)
+    if (!SERVER_NAME.test(name) || seen.has(name)) continue
+    const description = typeof record.description === 'string' ? record.description : undefined
+    const remotes = Array.isArray(record.remotes) ? record.remotes : []
+    const packages = Array.isArray(record.packages) ? record.packages : []
+    const firstRemote = remotes.find(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>).url === 'string',
+    )
+    const firstPackage = packages.find(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>).identifier === 'string',
+    )
+    if (firstRemote?.url) {
+      seen.add(name)
+      entries.push({
+        name,
+        ...(description ? { description } : {}),
+        transport: 'http',
+        url: firstRemote.url as string,
+      })
+      continue
+    }
+    if (firstPackage) {
+      const registryType = String(firstPackage.registryType ?? 'npm')
+      const identifier = firstPackage.identifier as string
+      const command = registryType === 'pypi' ? 'uvx' : 'npx'
+      const args = registryType === 'pypi' ? [identifier] : ['-y', identifier]
+      seen.add(name)
+      entries.push({
+        name,
+        ...(description ? { description } : {}),
+        transport: 'stdio',
+        command,
+        args,
+      })
+    }
+  }
+  return entries
+}
+
+/** 按 body 形状自动识别格式并解析（volund v1 index 优先，官方 registry 次之）。 */
+export function parseMcpMarketDocument(value: unknown): readonly McpMarketEntry[] {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    if (record.version === 1 && Array.isArray(record.entries)) return parseMcpMarketIndex(value)
+    if (Array.isArray(record.servers)) return parseMcpRegistryDocument(value)
+  }
+  throw new Error('unrecognized mcp market document shape')
+}
+
 let cached: { source: string; view: McpMarketView; at: number } | undefined
 
-/** 拉取并解析索引（60s 进程内缓存；未配置 → undefined；失败 → { error } 由面板解释）。 */
+/** 拉取并解析索引（60s 进程内缓存；未配置 → 内置默认源；失败 → { error } 由面板解释）。 */
 export async function fetchMcpMarketIndex(
   home: string,
 ): Promise<McpMarketView | { error: string } | undefined> {
-  let source: string | undefined
+  let source = DEFAULT_MCP_MARKET_SOURCE
+  let isDefault = true
   try {
-    source = await readMcpMarketSource(home)
+    const configured = await readMcpMarketSource(home)
+    if (configured) {
+      source = configured
+      isDefault = false
+    }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }
-  if (!source) return undefined
   const now = Date.now()
   if (cached && cached.source === source && now - cached.at < INDEX_CACHE_TTL_MS) return cached.view
   try {
-    const response = await fetch(source)
+    const response = await fetch(source, { signal: AbortSignal.timeout(15_000) })
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
     const body = await response.text()
     if (Buffer.byteLength(body, 'utf8') > MAX_INDEX_BYTES)
       throw new Error(`mcp market index larger than ${MAX_INDEX_BYTES} bytes`)
-    const view: McpMarketView = { source, entries: parseMcpMarketIndex(JSON.parse(body)) }
+    const view: McpMarketView = {
+      source,
+      entries: parseMcpMarketDocument(JSON.parse(body)),
+      isDefault,
+    }
     cached = { source, view, at: now }
     return view
   } catch (error) {
