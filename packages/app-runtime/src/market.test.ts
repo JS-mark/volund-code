@@ -273,8 +273,11 @@ describe('default market sources (WEB-EXT-MANAGE-MARKET-r1 r1.3)', () => {
     )
     vi.stubGlobal('fetch', skillFetch)
     const skillView = await fetchSkillMarketIndex(home)
-    expect(skillView).toMatchObject({ isDefault: true })
-    expect((skillView as { entries: { name: string }[] }).entries[0]?.name).toBe('alpha')
+    expect(skillView && 'error' in skillView).toBe(false)
+    if (skillView && !('error' in skillView)) {
+      expect(skillView.isDefault).toBe(true)
+      expect(skillView.entries[0]?.name).toBe('alpha')
+    }
     expect((skillFetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain(
       'anthropics/skills',
     )
@@ -300,8 +303,8 @@ describe('default market sources (WEB-EXT-MANAGE-MARKET-r1 r1.3)', () => {
     )
     vi.stubGlobal('fetch', mcpFetch)
     const mcpView = await fetchMcpMarketIndex(home)
-    expect('error' in mcpView).toBe(false)
-    if (!('error' in mcpView)) {
+    expect(mcpView && 'error' in mcpView).toBe(false)
+    if (mcpView && !('error' in mcpView)) {
       expect(mcpView.isDefault).toBe(true)
       expect(mcpView.entries[0]?.name).toBe('a-b')
     }
