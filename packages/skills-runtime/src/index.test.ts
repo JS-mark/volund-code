@@ -432,3 +432,26 @@ it('installs into the requested scope (SKILLS-MCPS-r1 §S3.2)', async () => {
   const userInstalled = await runtime.installFromDirectory(resolve(root, 'src2', 'audit'))
   expect(userInstalled.scope).toBe('user')
 })
+
+describe('SkillsRuntime lazy provider sources (WEB-EXT-MANAGE-MARKET r1 冒烟回归)', () => {
+  it('installFromDirectory resolves writable scope through a lazy sources provider', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skills-lazy-'))
+    try {
+      await writeSkill(resolve(root, 'src'), 'lazy-skill', 'name: lazy-skill\ndescription: lazy install')
+      const src = resolve(root, 'src', 'lazy-skill')
+      const userDir = resolve(root, 'home', 'skills')
+      const runtime = new SkillsRuntime({
+        sources: async () => [{ dir: userDir, scope: 'user' as const }],
+        volundVersion: '1.0.0',
+        composer: new DefaultPromptComposer(),
+      })
+      const installed = await runtime.installFromDirectory(src, { scope: 'user' })
+      expect(installed.scope).toBe('user')
+      await expect(
+        readFile(resolve(userDir, 'lazy-skill', 'SKILL.md'), 'utf8'),
+      ).resolves.toContain('lazy install')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})
