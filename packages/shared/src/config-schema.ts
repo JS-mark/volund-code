@@ -76,6 +76,10 @@ export const configKeyRegistry = {
   'skills.index_budget': 'allowed',
   'mcp.disabled': 'allowed',
   'mcp.enable_all_project_servers': 'forbidden',
+  // skills/mcp 市场目录索引（WEB-EXT-MANAGE-MARKET-r1 §S3.6）：与 plugins.market
+  // 同门——信任配置，禁止项目级覆盖（项目 config 不得把安装源指向第三方）
+  'skills.market': 'forbidden',
+  'mcp.market': 'forbidden',
   // [plugins] 市场源（PLUGIN-MANAGER-r1）：信任配置，禁止项目级覆盖
   // （项目 config 不得把市场指向第三方源）
   'plugins.market': 'forbidden',
@@ -251,19 +255,23 @@ export const ConfigSchema = z.strictObject({
     })
     .optional(),
   evolution: z.strictObject({ enabled: z.boolean().optional() }).optional(),
-  // [skills]（SKILLS-MCPS-r1 §S3.4）：/skills 面板与 discovery 的持久开关面。
+  // [skills]（SKILLS-MCPS-r1 §S3.4）：/skills 面板与 discovery 的持久开关面；
+  // market（WEB-EXT-MANAGE-MARKET-r1 §S3.6）= 市场目录索引 URL（项目级覆盖禁止）。
   skills: z
     .strictObject({
       disabled: z.array(z.string()).optional(),
       index_budget: z.number().int().optional(),
+      market: z.string().optional(),
     })
     .optional(),
   // [mcp]（SKILLS-MCPS-r1 §S3.4）：/mcp 面板持久开关面；server 定义本体在
-  // mcp.toml / .mcp.json（开放键空间，不走 ConfigSchema 校验）。
+  // mcp.toml / .mcp.json（开放键空间，不走 ConfigSchema 校验）；
+  // market = MCP 目录索引 URL（仅预填表单，不静默安装；项目级覆盖禁止）。
   mcp: z
     .strictObject({
       disabled: z.array(z.string()).optional(),
       enable_all_project_servers: z.boolean().optional(),
+      market: z.string().optional(),
     })
     .optional(),
   // [plugins] 市场源（PLUGIN-MANAGER-r1）：HTTPS（或回环 http）索引 URL；

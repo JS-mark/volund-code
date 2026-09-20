@@ -785,13 +785,19 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
       return inspectPlugin(input)
     },
     async approvePlugin(input: string, hash: string) {
-      return approvePlugin(input, hash)
+      const entry = await approvePlugin(input, hash)
+      void options.emitTelemetry('plugin.approved', 'plugin', { name: entry.name })
+      return entry
     },
     async enablePlugin(input: string) {
-      return enablePlugin(input)
+      const entry = await enablePlugin(input)
+      void options.emitTelemetry('plugin.enabled', 'plugin', { name: entry.name })
+      return entry
     },
     async disablePlugin(input: string) {
-      return disablePlugin(input)
+      const entry = await disablePlugin(input)
+      void options.emitTelemetry('plugin.disabled', 'plugin', { name: entry.name })
+      return entry
     },
     async loadLocalPluginsFrom(candidates: readonly string[], source: LoadedPluginEntry['source']) {
       const loaded: { name: string; statusTabs: number }[] = []
@@ -821,7 +827,21 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
      * 删目录，当前会话立即可见。内置/dev 插件明确拒绝（见实现内说明）。
      */
     async uninstallMarketPlugin(input: string) {
-      return uninstallMarketPlugin(input)
+      const result = await uninstallMarketPlugin(input)
+      void options.emitTelemetry('plugin.uninstalled', 'plugin', { name: result.name })
+      return result
+    },
+    /** Web 管理面（WEB-EXT-MANAGE-MARKET-r1 §S3.5）：三源 inventory（含市场索引快照）。 */
+    async inventory() {
+      return await pluginInventory()
+    },
+    async installMarketPlugin(name: string) {
+      const result = await installMarketPlugin(name)
+      void options.emitTelemetry('plugin.installed', 'plugin', {
+        name: result.name,
+        approvalRequired: result.approvalRequired ?? false,
+      })
+      return result
     },
     async deactivateAll() {
       const entries = loadedPluginEntries.splice(0)

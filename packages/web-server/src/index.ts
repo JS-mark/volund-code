@@ -21,7 +21,7 @@ import { extname, join, normalize } from 'node:path'
 import { acceptWebSocket, WsConnection } from '@volund/gateway-server'
 import type { SubmitAttachment } from '@volund/shared'
 
-import { actionDispatcher, type ManagementPorts } from './management'
+import { actionDispatcher, parseMcpAddBody, type ManagementPorts } from './management'
 import type { SessionGroupsPort } from './session-groups'
 import type { TerminalPort } from './terminal'
 import type { WorkbenchPort } from './workbench'
@@ -1269,12 +1269,34 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
               limit: typeof body.limit === 'number' ? body.limit : 20,
             }),
           get: async (body) => await mgmt.memory!.get(String(body.id)),
+          // WEB-EXT-MANAGE-MARKET-r1 §S3.2：新建 / 编辑 / 导入导出。
+          create: async (body) =>
+            await mgmt.memory!.create({
+              content: String(body.content ?? ''),
+              ...(Array.isArray(body.tags) ? { tags: body.tags.map(String) } : {}),
+              ...(body.pinned === true ? { pinned: true } : {}),
+            }),
+          update: async (body) =>
+            await mgmt.memory!.update(
+              String(body.id),
+              { content: String(body.content ?? ''), tags: Array.isArray(body.tags) ? body.tags.map(String) : [] },
+              String(body.expectedUpdatedAt ?? ''),
+            ),
           delete: async (body) =>
             await mgmt.memory!.delete(String(body.id), String(body.expectedUpdatedAt ?? '')),
           pin: async (body) =>
             await mgmt.memory!.pin(String(body.id), String(body.expectedUpdatedAt ?? '')),
           unpin: async (body) =>
             await mgmt.memory!.unpin(String(body.id), String(body.expectedUpdatedAt ?? '')),
+          export: async () => await mgmt.memory!.exportAll(),
+          import: async (body) =>
+            await mgmt.memory!.importDocs({
+              serialized: String(body.serialized ?? ''),
+              ...(body.strategy === 'overwrite' || body.strategy === 'rename'
+                ? { strategy: body.strategy }
+                : {}),
+              ...(body.dryRun === true ? { dryRun: true } : {}),
+            }),
         }
       }
       if (mgmt.skill) {
@@ -1285,6 +1307,19 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             await mgmt.skill!.setEnabled(String(body.name), body.enabled === true)
             return { ok: true }
           },
+          // WEB-EXT-MANAGE-MARKET-r1 §S3.4：安装 / 卸载 / 重扫描 / 市场目录。
+          install: async (body) =>
+            await mgmt.skill!.install(
+              String(body.spec ?? ''),
+              body.scope === 'project' ? { scope: 'project' } : undefined,
+            ),
+          uninstall: async (body) =>
+            await mgmt.skill!.uninstall(
+              String(body.name),
+              body.scope === 'project' ? { scope: 'project' } : undefined,
+            ),
+          reload: async () => ({ items: await mgmt.skill!.reload() }),
+          marketList: async () => await mgmt.skill!.marketList(),
         }
       }
       if (mgmt.mcp) {
@@ -1295,6 +1330,15 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             await mgmt.mcp!.setEnabled(String(body.name), body.enabled === true)
             return { ok: true }
           },
+          // WEB-EXT-MANAGE-MARKET-r1 §S3.3：add/remove（同名 upsert）/ 域级 reload / 目录。
+          add: async (body) => await mgmt.mcp!.add(parseMcpAddBody(body)),
+          remove: async (body) =>
+            await mgmt.mcp!.remove(
+              String(body.name),
+              body.scope === 'project' ? 'project' : body.scope === 'user' ? 'user' : undefined,
+            ),
+          reload: async () => ({ items: await mgmt.mcp!.reload() }),
+          marketList: async () => await mgmt.mcp!.marketList(),
         }
       }
       if (mgmt.plugins) {
@@ -1306,6 +1350,17 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
             return { ok: true }
           },
           availability: async () => await mgmt.plugins!.availability(),
+          // WEB-EXT-MANAGE-MARKET-r1 §S3.5：三源 inventory + 全生命周期。
+          inventory: async () => await mgmt.plugins!.inventory(),
+          install: async (body) =>
+            await mgmt.plugins!.installMarketPlugin(String(body.name ?? '')),
+          inspect: async (body) => await mgmt.plugins!.inspectPlugin(String(body.name ?? '')),
+          approve: async (body) =>
+            await mgmt.plugins!.approvePlugin(String(body.name ?? ''), String(body.permissionHash ?? '')),
+          enable: async (body) => await mgmt.plugins!.enablePlugin(String(body.name ?? '')),
+          disable: async (body) => await mgmt.plugins!.disablePlugin(String(body.name ?? '')),
+          uninstall: async (body) =>
+            await mgmt.plugins!.uninstallMarketPlugin(String(body.name ?? '')),
         }
       }
       if (mgmt.telemetry) {

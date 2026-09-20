@@ -57,11 +57,13 @@ import type {
   EvolutionPort,
   HistoryPort,
   LocalPluginPort,
+  McpManagementPort,
   McpPort,
   NativeAvailabilityView,
   NativeHealth,
   PermissionPromptController,
   PluginPort,
+  SkillManagementPort,
   SkillPort,
   TrustPort,
 } from '@volund/app-runtime'
@@ -164,6 +166,8 @@ export interface VolundPorts {
   }
   telemetry: {
     securityEvent(name: string, payload: Record<string, boolean | string>): Promise<void>
+    /** WEB-EXT-MANAGE-MARKET-r1 MG-16：管理动作采样（memory.created 等自由字符串事件）。 */
+    event?(name: string, category: string, payload: Record<string, unknown>): Promise<void>
     summary(): Promise<TelemetrySummary>
     export(target: string): Promise<number>
     clear(): Promise<void>
@@ -199,7 +203,11 @@ export interface VolundPorts {
   memoryMaintenance?: MemoryMaintenanceService
   memoryTransfer?: MemoryTransferService
   mcp?: McpPort
+  /** Web 管理面（WEB-EXT-MANAGE-MARKET-r1 §S3.3）：常驻进程安全的 MCP 读写端口。 */
+  mcpManagement?: McpManagementPort
   skill?: SkillPort
+  /** Web 管理面（§S3.4）：install/uninstall 后热同步活动会话的 skill 端口。 */
+  skillManagement?: SkillManagementPort
   plugin?: PluginPort
   localPlugins?: LocalPluginPort
   history?: HistoryPort
