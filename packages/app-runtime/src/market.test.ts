@@ -5,11 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { fetchMcpMarketIndex, parseMcpMarketIndex, readMcpMarketSource } from './mcp-market'
-import {
-  fetchSkillMarketIndex,
-  parseSkillMarketIndex,
-  readSkillMarketSource,
-} from './skill-market'
+import { fetchSkillMarketIndex, parseSkillMarketIndex, readSkillMarketSource } from './skill-market'
 
 const dirs: string[] = []
 afterEach(async () =>
@@ -47,7 +43,10 @@ describe('skill market index (WEB-EXT-MANAGE-MARKET-r1 §S3.6)', () => {
     expect(() =>
       parseSkillMarketIndex({ version: 1, entries: [{ name: 'ok', source: '' }] }),
     ).toThrow('invalid source')
-    const oversized = { version: 1, entries: Array.from({ length: 257 }, () => ({ name: 'a', source: 'b' })) }
+    const oversized = {
+      version: 1,
+      entries: Array.from({ length: 257 }, () => ({ name: 'a', source: 'b' })),
+    }
     expect(() => parseSkillMarketIndex(oversized)).toThrow('too many')
   })
 

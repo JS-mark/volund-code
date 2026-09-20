@@ -1378,6 +1378,9 @@ importers:
       '@volund/gateway-server':
         specifier: workspace:*
         version: link:../gateway-server
+      '@volund/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@volund/shared':
         specifier: workspace:*
         version: link:../shared

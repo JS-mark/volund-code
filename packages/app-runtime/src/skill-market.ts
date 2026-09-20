@@ -81,9 +81,7 @@ export function parseSkillMarketIndex(value: unknown): readonly SkillMarketEntry
         ? { description: entry.description }
         : {}),
       ...(typeof entry.version === 'string' && entry.version ? { version: entry.version } : {}),
-      ...(typeof entry.homepage === 'string' && entry.homepage
-        ? { homepage: entry.homepage }
-        : {}),
+      ...(typeof entry.homepage === 'string' && entry.homepage ? { homepage: entry.homepage } : {}),
     })
   }
   return entries

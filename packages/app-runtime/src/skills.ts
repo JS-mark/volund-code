@@ -19,9 +19,9 @@ import { defaultSkillSources, SkillsRuntime as SkillsRuntimeClass } from '@volun
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
 import type { SlashCommandRegistryLike } from './contracts'
 import type { SkillManagementPort, SkillPort } from './ports'
-import { fetchSkillMarketIndex } from './skill-market'
 import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
 import { resolveSkillSpecToDirectories } from './skill-install'
+import { fetchSkillMarketIndex } from './skill-market'
 import { buildStackedSkillInvocationText, mapAllowedTools, splitSkillStack } from './skill-tool'
 import type { SkillsPanelController, SkillsPanelEntry } from './skills-panel'
 

@@ -47,7 +47,11 @@ export interface MemoryPanelController {
   }): Promise<readonly MemoryPanelRecord[]>
   get(id: string, signal?: AbortSignal): Promise<MemoryPanelRecord | undefined>
   /** WEB-EXT-MANAGE-MARKET-r1 §S3.2：面板新建（provenance 记 user/web）。 */
-  create(input: { content: string; tags?: readonly string[]; pinned?: boolean }): Promise<MemoryPanelRecord>
+  create(input: {
+    content: string
+    tags?: readonly string[]
+    pinned?: boolean
+  }): Promise<MemoryPanelRecord>
   update(
     id: string,
     patch: { content: string; tags: readonly string[] },

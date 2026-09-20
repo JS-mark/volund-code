@@ -6,8 +6,8 @@
  * apps/cli（Ink 渲染契约不许越过边界）。
  */
 import type { SessionCandidate } from './contracts'
-import type { McpPanelEntry, McpToolSummary } from './mcp-panel'
 import type { McpMarketView } from './mcp-market'
+import type { McpPanelEntry, McpToolSummary } from './mcp-panel'
 import type { SkillMarketView } from './skill-market'
 
 export interface DoctorHealth {
@@ -109,7 +109,10 @@ export interface McpManagementPort {
   inspect(name: string): Promise<{ entry: McpPanelEntry; tools: readonly McpToolSummary[] }>
   setEnabled(name: string, enabled: boolean): Promise<string>
   add(input: McpAddInput): Promise<{ file: string; items: readonly McpPanelEntry[] }>
-  remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string; items: readonly McpPanelEntry[] }>
+  remove(
+    name: string,
+    scope?: 'user' | 'project',
+  ): Promise<{ file: string; items: readonly McpPanelEntry[] }>
   reload(): Promise<readonly McpPanelEntry[]>
   marketList(): Promise<McpMarketView | { error: string } | undefined>
 }
