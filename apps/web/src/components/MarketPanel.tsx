@@ -8,7 +8,7 @@
  * MCP = 已配置。
  */
 import { ReloadOutlined } from '@ant-design/icons'
-import { Alert, Button, Empty, Segmented, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Input, Segmented, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
@@ -227,16 +227,28 @@ type SkillMarketEntry = { name: string; description?: string; version?: string; 
 
 function SkillsMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'skills')
-  const [entries, setEntries] = useState<SkillMarketEntry[]>()
+  const [view, setView] = useState<{
+    entries: SkillMarketEntry[]
+    isDefault: boolean
+    source: string
+  }>()
   const [installedNames, setInstalledNames] = useState<string[]>()
   const [busy, setBusy] = useState<string>()
   const [scope, setScope] = useState<'user' | 'project'>('user')
+  const [filter, setFilter] = useState('')
   const load = useCallback(async () => {
     await run({ action: 'marketList' }, (value) => {
-      const view = value as { entries?: SkillMarketEntry[]; error?: string } | undefined
-      if (!view) setNotice('未配置 [skills] market')
-      else if ('error' in view) setNotice(view.error ?? '索引拉取失败')
-      else setEntries(view.entries ?? [])
+      const result = value as
+        | { entries?: SkillMarketEntry[]; error?: string; isDefault?: boolean; source?: string }
+        | undefined
+      if (!result) setNotice('未配置 [skills] market')
+      else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+      else
+        setView({
+          entries: result.entries ?? [],
+          isDefault: result.isDefault ?? false,
+          source: result.source ?? '',
+        })
     })
     await run({ action: 'list' }, (value) => {
       setInstalledNames(
@@ -261,23 +273,44 @@ function SkillsMarket({ api }: { api: WebApi }) {
   useEffect(() => {
     void load()
   }, [load])
+  const entries = (view?.entries ?? []).filter((entry) =>
+    filter.trim()
+      ? `${entry.name} ${entry.description ?? ''} ${entry.source}`
+          .toLowerCase()
+          .includes(filter.trim().toLowerCase())
+      : true,
+  )
   return (
     <div>
       <PanelToolbar>
-        <Segmented
-          value={scope}
-          onChange={(next) => setScope(next as 'user' | 'project')}
-          options={[
-            { value: 'user', label: '装到用户级' },
-            { value: 'project', label: '装到项目级' },
-          ]}
-        />
-        <RefreshButton onClick={() => void load()} />
+        <Space wrap>
+          <Segmented
+            value={scope}
+            onChange={(next) => setScope(next as 'user' | 'project')}
+            options={[
+              { value: 'user', label: '装到用户级' },
+              { value: 'project', label: '装到项目级' },
+            ]}
+          />
+          <Input.Search
+            allowClear
+            placeholder="过滤 skill…"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            style={{ width: 220 }}
+          />
+        </Space>
+        <Space>
+          {view?.isDefault && <Tag color="blue">默认源 · anthropics/skills</Tag>}
+          <RefreshButton onClick={() => void load()} />
+        </Space>
       </PanelToolbar>
       <Notice message={notice} />
-      {entries !== undefined && entries.length === 0 && <Empty description="目录为空" />}
+      {view && entries.length === 0 && (
+        <Empty description={filter ? '没有匹配的条目' : '目录为空'} />
+      )}
       <Grid>
-        {(entries ?? []).map((entry) => {
+        {entries.map((entry) => {
           const isInstalled = installedNames?.includes(entry.name)
           return (
             <MarketItemCard
@@ -324,15 +357,22 @@ type McpMarketEntry = {
 
 function McpMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'mcp')
-  const [entries, setEntries] = useState<McpMarketEntry[]>()
+  const [view, setView] = useState<{ entries: McpMarketEntry[]; isDefault: boolean }>()
   const [configured, setConfigured] = useState<string[]>()
   const [prefill, setPrefill] = useState<McpMarketEntry>()
+  const [filter, setFilter] = useState('')
   const load = useCallback(async () => {
     await run({ action: 'marketList' }, (value) => {
-      const view = value as { entries?: McpMarketEntry[]; error?: string } | undefined
-      if (!view) setNotice('未配置 [mcp] market')
-      else if ('error' in view) setNotice(view.error ?? '索引拉取失败')
-      else setEntries(view.entries ?? [])
+      const result = value as
+        | { entries?: McpMarketEntry[]; error?: string; isDefault?: boolean }
+        | undefined
+      if (!result) setNotice('未配置 [mcp] market')
+      else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+      else
+        setView({
+          entries: result.entries ?? [],
+          isDefault: result.isDefault ?? false,
+        })
     })
     await run({ action: 'list' }, (value) => {
       setConfigured(((value as { items: { name: string }[] }).items ?? []).map((item) => item.name))
@@ -341,17 +381,39 @@ function McpMarket({ api }: { api: WebApi }) {
   useEffect(() => {
     void load()
   }, [load])
+  const entries = (view?.entries ?? []).filter((entry) =>
+    filter.trim()
+      ? `${entry.name} ${entry.description ?? ''}`
+          .toLowerCase()
+          .includes(filter.trim().toLowerCase())
+      : true,
+  )
   return (
     <div>
       <PanelToolbar>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          目录条目只预填表单——command/env 全文可见，确认后才写入 mcp.toml
-        </Typography.Text>
-        <RefreshButton onClick={() => void load()} />
+        <Space wrap>
+          <Input.Search
+            allowClear
+            placeholder="搜索 MCP server（如 github、filesystem）…"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            style={{ width: 300 }}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            目录条目只预填表单——command/env 全文可见，确认后才写入 mcp.toml
+          </Typography.Text>
+        </Space>
+        <Space>
+          {view?.isDefault && <Tag color="blue">默认源 · 官方 MCP Registry</Tag>}
+          <RefreshButton onClick={() => void load()} />
+        </Space>
       </PanelToolbar>
       <Notice message={notice} />
+      {view && entries.length === 0 && (
+        <Empty description={filter ? '没有匹配的 server' : '目录为空'} />
+      )}
       <Grid>
-        {(entries ?? []).map((entry) => {
+        {entries.map((entry) => {
           const isConfigured = configured?.includes(entry.name)
           return (
             <MarketItemCard
