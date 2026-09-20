@@ -4,7 +4,7 @@
 
 # Volund Web 控制台 · 扩展管理（MCP / Skills / Memory / Plugins）+ 市场白皮书 (r1)
 
-> **状态**：r1.1（2026-09-19）——自评审修订：① MG-04 机制改为「域级 reload」（manager 单例重建 + 会话 registry 重挂），并把 `McpPort.test/inspect` 复用共享单例后 `close()` 的**存量缺陷**（web `inspect` 动作现已注册可调，触发即拆活会话 MCP 连接）纳入同批修复；② approve 由「逐项 diff」降级为「全量清单 + permissionHash 变更高亮」（plugin-state 只存哈希，无逐项 diff 数据源）；③ mcp/skill 的 `reload` 动作口径改为「端口新增方法，复用域内同步闭包」；④ `add` 入参演示适配到 `McpAddInput` 判别联合的映射；⑤ 补 memory export/import 与 mcpServers JSON 粘贴预填；⑥ 市场已装回标分段写实（skill 无安装回执，不做更新检测）。r1（2026-09-18）首版起草。**PROPOSED / NOT SHIPPED**
+> **状态**：r1.2（2026-09-20）——**MG-01~16 已落地**（feat/web-ext-manage-market → main），MG-17 裁剪未做（D-4）。真机冒烟（pty TUI + 嵌入 web + 浏览器 CDP）发现并顺带修复三个存量缺陷：① `SkillsRuntime.installFromDirectory` 惰性 provider 下 `#sources` 恒空 → `skill install` 自 SM-08b 起静默装 0 个；② web.ts telemetry shim 漏接 `events`（面板恒空）；③ 市场页签 capability 键名误用复数。另登记新错误码 `memory_transfer_unavailable`、附录 C.2 补 `skills.market`/`mcp.market` 行。r1.1（2026-09-19）自评审修订：① MG-04 机制改为「域级 reload」（manager 单例重建 + 会话 registry 重挂），并把 `McpPort.test/inspect` 复用共享单例后 `close()` 的**存量缺陷**（web `inspect` 动作现已注册可调，触发即拆活会话 MCP 连接）纳入同批修复；② approve 由「逐项 diff」降级为「全量清单 + permissionHash 变更高亮」（plugin-state 只存哈希，无逐项 diff 数据源）；③ mcp/skill 的 `reload` 动作口径改为「端口新增方法，复用域内同步闭包」；④ `add` 入参演示适配到 `McpAddInput` 判别联合的映射；⑤ 补 memory export/import 与 mcpServers JSON 粘贴预填；⑥ 市场已装回标分段写实（skill 无安装回执，不做更新检测）。r1（2026-09-18）首版起草。
 > **文档类型**：ADR + 扩展规约
 > **范围**：`apps/web`（ManagePage 及新市场页签）、`packages/web-server`（management 动作表）、`packages/app-runtime`（memory-controller / mcp-domain / skills / plugins-domain 接线）、`packages/shared`（config schema 新键）
 > **触发**：Web 控制台四域（MCP/Skills/Memory/Plugins）现状均为只读或仅开关，无法导入/安装/编辑；且无任何市场入口。W-12 验收要求 CLI/TUI/Web 扩展管理三端平权。用户明确要求 memory 支持编辑（markdown 文本编辑器）。
