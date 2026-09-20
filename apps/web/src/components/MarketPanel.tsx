@@ -25,7 +25,7 @@ export function MarketPanel({
   available: Record<string, boolean>
 }) {
   const [kind, setKind] = useState<MarketKind>(
-    available.plugins ? 'plugins' : available.skills ? 'skills' : 'mcp',
+    available.plugins ? 'plugins' : available.skill ? 'skills' : 'mcp',
   )
   return (
     <div>
@@ -35,7 +35,7 @@ export function MarketPanel({
           onChange={(next) => setKind(next as MarketKind)}
           options={[
             ...(available.plugins ? [{ value: 'plugins', label: 'Plugins' }] : []),
-            ...(available.skills ? [{ value: 'skills', label: 'Skills' }] : []),
+            ...(available.skill ? [{ value: 'skills', label: 'Skills' }] : []),
             ...(available.mcp ? [{ value: 'mcp', label: 'MCP' }] : []),
           ]}
         />
