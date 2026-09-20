@@ -64,10 +64,32 @@ function controller(overrides: Partial<MemoryPanelController> = {}): MemoryPanel
     list: vi.fn(async () => ({ items: [first, second] })),
     search: vi.fn(async () => [first]),
     get: vi.fn(async (id) => [first, second].find((record) => record.id === id)),
+    create: vi.fn(async (input) => ({
+      ...first,
+      content: input.content,
+      tags: input.tags ?? [],
+      pinned: input.pinned ?? false,
+      updatedAt: 'next',
+    })),
     update: vi.fn(async (_id, patch) => ({ ...first, ...patch, updatedAt: 'next' })),
     delete: vi.fn(async () => {}),
     pin: vi.fn(async () => ({ ...first, pinned: true, updatedAt: 'next' })),
     unpin: vi.fn(async () => ({ ...first, pinned: false, updatedAt: 'next' })),
+    exportAll: vi.fn(async () => ({
+      schemaVersion: 'volund.memory.export.v1',
+      exportedAt: '',
+      records: [],
+    })),
+    importDocs: vi.fn(async () => ({
+      schemaVersion: 1,
+      dryRun: false,
+      strategy: 'skip',
+      total: 0,
+      applied: 0,
+      conflicts: [],
+      rolledBack: false,
+      recoveredInterruptedImport: false,
+    })),
     ...overrides,
   }
 }
