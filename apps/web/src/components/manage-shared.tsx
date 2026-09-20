@@ -5,7 +5,7 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
  * 管理页共享件（WEB-EXT-MANAGE-MARKET-r1）：inventory hook / 错误条 / 键值对编辑器
  * / 下载工具。字段交互对齐 SettingsPage 的编辑器族（ProvidersEditor 模式）。
  */
-import { Button, Alert, Input, Space } from 'antd'
+import { Button, Alert, Input, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
@@ -43,7 +43,114 @@ export function useInventory<T>(
 
 export function Notice({ message }: { message: string | undefined }) {
   if (!message) return null
-  return <Alert type="warning" showIcon title={message} style={{ marginBottom: 8 }} />
+  return <Alert type="warning" showIcon title={message} style={{ marginBottom: 12 }} />
+}
+
+/** 页头：标题 + 一句话说明（管理页每域一段自我解释）。 */
+export function PanelIntro({ title, description }: { title: string; description: string }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 2 }}>
+        {title}
+      </Typography.Title>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {description}
+      </Typography.Text>
+    </div>
+  )
+}
+
+/** 面板工具条：左侧主操作，右侧次要点位；通栏浅底容器。 */
+export function PanelToolbar({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+        padding: '10px 12px',
+        marginBottom: 12,
+        borderRadius: 10,
+        background: 'var(--ant-color-fill-quaternary, rgba(128, 128, 128, 0.08))',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** 计数徽标：scope + 条数（数据边界可视化）。 */
+export function CountBadge({
+  scopeLabel,
+  count,
+  unit = '条',
+}: {
+  scopeLabel: string
+  count: number
+  unit?: string
+}) {
+  const label =
+    scopeLabel === 'project'
+      ? '项目级'
+      : scopeLabel === 'workspace'
+        ? '工作区'
+        : scopeLabel === 'session'
+          ? '会话'
+          : scopeLabel
+  return (
+    <span>
+      <Tag color="blue">{label}</Tag>
+      <Typography.Text type="secondary">
+        {count} {unit}
+      </Typography.Text>
+    </span>
+  )
+}
+
+/** ISO 时间 → 本地短格式（09-20 13:08）。 */
+export function formatTime(iso: string | undefined): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** 列表行卡片容器：统一 border/radius/hover。 */
+export function ItemCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="manage-item-card"
+      style={{
+        border: '1px solid var(--ant-color-border-secondary, rgba(128,128,128,0.2))',
+        borderRadius: 10,
+        padding: '10px 14px',
+        transition: 'border-color 0.2s',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** 状态点：圆形色点 + 文案（MCP 连接态等）。 */
+export function StatusDot({ color, text }: { color: string; text: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: color,
+          display: 'inline-block',
+        }}
+      />
+      <span style={{ fontSize: 12 }}>{text}</span>
+    </span>
+  )
 }
 
 /** 动作快捷封装：错误转 notice，成功可选回调。 */

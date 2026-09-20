@@ -1076,3 +1076,8 @@ html[data-theme='light'] .rail-menu-item.disabled {
   line-height: 1;
   font-family: var(--ant-font-family-code);
 }
+
+/* 管理页条目卡片 hover（WEB-EXT-MANAGE-MARKET-r1 视觉轮） */
+.manage-item-card:hover {
+  border-color: var(--ant-color-primary, #1677ff);
+}
