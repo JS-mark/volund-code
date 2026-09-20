@@ -190,6 +190,7 @@ export const ErrorCodes = {
   memoryIo: 'memory_io',
   memoryNotFound: 'memory_not_found',
   memoryScopeDenied: 'memory_scope_denied',
+  memoryTransferUnavailable: 'memory_transfer_unavailable', // web 管理面 transfer 未装配（WEB-EXT-MANAGE-MARKET-r1）
   memoryUnknown: 'memory_unknown', // ui memoryPanelError 兜底
   memoryValidation: 'memory_validation',
 
