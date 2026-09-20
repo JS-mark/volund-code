@@ -71,6 +71,8 @@ export interface PluginPortLike {
 export interface TelemetryPortLike {
   summary(): Promise<unknown>
   health(): Promise<unknown>
+  /** MG-16：最近事件（Web 面板浏览；port 未接 events 时动作表回退空集）。 */
+  events?(limit: number): Promise<unknown>
 }
 
 export interface ManagementPorts {
