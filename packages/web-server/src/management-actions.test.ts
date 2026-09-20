@@ -85,6 +85,7 @@ function makePorts(home: string) {
       reload: async () => entries,
       marketList: async () => ({
         source: 'https://market.test/skills.json',
+        isDefault: false,
         entries: [{ name: 'demo-skill', source: 'github:acme/demo' }],
       }),
     },
