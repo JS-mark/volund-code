@@ -300,8 +300,11 @@ describe('default market sources (WEB-EXT-MANAGE-MARKET-r1 r1.3)', () => {
     )
     vi.stubGlobal('fetch', mcpFetch)
     const mcpView = await fetchMcpMarketIndex(home)
-    expect(mcpView).toMatchObject({ isDefault: true })
-    expect((mcpView as { entries: { name: string }[] }).entries[0]?.name).toBe('a-b')
+    expect('error' in mcpView).toBe(false)
+    if (!('error' in mcpView)) {
+      expect(mcpView.isDefault).toBe(true)
+      expect(mcpView.entries[0]?.name).toBe('a-b')
+    }
     vi.unstubAllGlobals()
   })
 })
