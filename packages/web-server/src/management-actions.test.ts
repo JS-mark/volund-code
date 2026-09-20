@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createMemoryPanelController, createMemoryStack, projectMemoryScope } from '@volund/app-runtime'
+import {
+  createMemoryPanelController,
+  createMemoryStack,
+  projectMemoryScope,
+} from '@volund/app-runtime'
 import type { McpAddInput } from '@volund/app-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -32,13 +36,21 @@ async function authed(base: string) {
   }
 }
 
-async function post(base: string, headers: Record<string, string>, domain: string, body: Record<string, unknown>) {
+async function post(
+  base: string,
+  headers: Record<string, string>,
+  domain: string,
+  body: Record<string, unknown>,
+) {
   const res = await fetch(`${base}api/v1/${domain}/actions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
   })
-  return { status: res.status, body: (await res.json()) as { data?: unknown; error?: { code: string; message: string } } }
+  return {
+    status: res.status,
+    body: (await res.json()) as { data?: unknown; error?: { code: string; message: string } },
+  }
 }
 
 function makePorts(home: string) {
@@ -52,7 +64,15 @@ function makePorts(home: string) {
   const addedServers: McpAddInput[] = []
   const removed: string[] = []
   const approved: Array<{ name: string; hash: string }> = []
-  const entries = [{ name: 'demo-skill', description: 'demo', scope: 'user', status: 'available', path: '/x' }]
+  const entries = [
+    {
+      name: 'demo-skill',
+      description: 'demo',
+      scope: 'user' as const,
+      status: 'available',
+      path: '/x',
+    },
+  ]
   return {
     memory,
     stack,
@@ -63,7 +83,10 @@ function makePorts(home: string) {
       install: async () => ({ items: entries }),
       uninstall: async () => ({ ok: true }),
       reload: async () => entries,
-      marketList: async () => ({ source: 'https://market.test/skills.json', entries: [{ name: 'demo-skill', source: 'github:acme/demo' }] }),
+      marketList: async () => ({
+        source: 'https://market.test/skills.json',
+        entries: [{ name: 'demo-skill', source: 'github:acme/demo' }],
+      }),
     },
     mcp: {
       list: async () => [{ name: 'added', transport: 'stdio', scope: 'user', status: 'disabled' }],
@@ -84,9 +107,23 @@ function makePorts(home: string) {
     plugins: {
       builtinDomains: async () => [],
       setBuiltinDomain: async () => {},
-      availability: async () => ({ available: false, code: 'x', detail: 'd', reopenCondition: 'r' }),
-      inventory: async () => ({ builtin: [], dev: [], market: { installed: [], registry: { error: 'no market' } } }),
-      installMarketPlugin: async (name: string) => ({ name, version: '1.0.0', dir: `/tmp/${name}`, approvalRequired: true }),
+      availability: async () => ({
+        available: false as const,
+        code: 'x',
+        detail: 'd',
+        reopenCondition: 'r',
+      }),
+      inventory: async () => ({
+        builtin: [],
+        dev: [],
+        market: { installed: [], registry: { error: 'no market' } },
+      }),
+      installMarketPlugin: async (name: string) => ({
+        name,
+        version: '1.0.0',
+        dir: `/tmp/${name}`,
+        approvalRequired: true,
+      }),
       inspectPlugin: async (name: string) => ({
         name,
         version: '1.0.0',
@@ -94,14 +131,40 @@ function makePorts(home: string) {
         source: 'market' as const,
         commands: 0,
         statusTabs: 0,
-        lifecycle: { permissionHash: 'a'.repeat(64), approved: false, enabled: false, loaded: false },
+        lifecycle: {
+          permissionHash: 'a'.repeat(64),
+          approved: false,
+          enabled: false,
+          loaded: false,
+        },
       }),
       approvePlugin: async (name: string, permissionHash: string) => {
         approved.push({ name, hash: permissionHash })
-        return { name, version: '1.0.0', dir: '/tmp', source: 'market' as const, commands: 0, statusTabs: 0 }
+        return {
+          name,
+          version: '1.0.0',
+          dir: '/tmp',
+          source: 'market' as const,
+          commands: 0,
+          statusTabs: 0,
+        }
       },
-      enablePlugin: async (name: string) => ({ name, version: '1.0.0', dir: '/tmp', source: 'market' as const, commands: 0, statusTabs: 0 }),
-      disablePlugin: async (name: string) => ({ name, version: '1.0.0', dir: '/tmp', source: 'market' as const, commands: 0, statusTabs: 0 }),
+      enablePlugin: async (name: string) => ({
+        name,
+        version: '1.0.0',
+        dir: '/tmp',
+        source: 'market' as const,
+        commands: 0,
+        statusTabs: 0,
+      }),
+      disablePlugin: async (name: string) => ({
+        name,
+        version: '1.0.0',
+        dir: '/tmp',
+        source: 'market' as const,
+        commands: 0,
+        statusTabs: 0,
+      }),
       uninstallMarketPlugin: async (name: string) => ({ name }),
     },
   }
@@ -132,9 +195,18 @@ describe('management actions e2e (WEB-EXT-MANAGE-MARKET-r1 §S3)', () => {
     const base = `http://127.0.0.1:${handle.port}/`
     const { headers } = await authed(base)
 
-    const created = await post(base, headers, 'memory', { action: 'create', content: '# md', tags: ['t1'] })
+    const created = await post(base, headers, 'memory', {
+      action: 'create',
+      content: '# md',
+      tags: ['t1'],
+    })
     expect(created.status).toBe(200)
-    const record = (created.body.data ?? {}) as { id: string; updatedAt: string; source: string; actor?: string }
+    const record = (created.body.data ?? {}) as {
+      id: string
+      updatedAt: string
+      source: string
+      actor?: string
+    }
     expect(record.source).toBe('user')
     expect(record.actor).toBe('web')
 
@@ -185,7 +257,12 @@ describe('management actions e2e (WEB-EXT-MANAGE-MARKET-r1 §S3)', () => {
         cwd: home,
         session: { list: async () => [] },
       },
-      management: { memory: ports.memory, skill: ports.skill, mcp: ports.mcp, plugins: ports.plugins },
+      management: {
+        memory: ports.memory,
+        skill: ports.skill,
+        mcp: ports.mcp,
+        plugins: ports.plugins,
+      },
     })
     const base = `http://127.0.0.1:${handle.port}/`
     const { headers } = await authed(base)
@@ -204,7 +281,11 @@ describe('management actions e2e (WEB-EXT-MANAGE-MARKET-r1 §S3)', () => {
       transport: { kind: 'http', url: 'https://x/sse', headers: {}, legacySse: true },
     })
 
-    const badAdd = await post(base, headers, 'mcp', { action: 'add', name: 'x', transport: 'stdio' })
+    const badAdd = await post(base, headers, 'mcp', {
+      action: 'add',
+      name: 'x',
+      transport: 'stdio',
+    })
     expect(badAdd.body.error?.code).toBe('web_schema_invalid')
 
     const skills = await post(base, headers, 'skills', { action: 'list' })
@@ -217,8 +298,14 @@ describe('management actions e2e (WEB-EXT-MANAGE-MARKET-r1 §S3)', () => {
     const inventory = await post(base, headers, 'plugins', { action: 'inventory' })
     expect(JSON.stringify(inventory.body)).toContain('no market')
     const inspected = await post(base, headers, 'plugins', { action: 'inspect', name: 'demo' })
-    expect((inspected.body.data as { lifecycle: { permissionHash: string } }).lifecycle.permissionHash).toBe('a'.repeat(64))
-    const approved = await post(base, headers, 'plugins', { action: 'approve', name: 'demo', permissionHash: 'a'.repeat(64) })
+    expect(
+      (inspected.body.data as { lifecycle: { permissionHash: string } }).lifecycle.permissionHash,
+    ).toBe('a'.repeat(64))
+    const approved = await post(base, headers, 'plugins', {
+      action: 'approve',
+      name: 'demo',
+      permissionHash: 'a'.repeat(64),
+    })
     expect(approved.status).toBe(200)
     expect(ports.spy.approved).toEqual([{ name: 'demo', hash: 'a'.repeat(64) }])
   })
