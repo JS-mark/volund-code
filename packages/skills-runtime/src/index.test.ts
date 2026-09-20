@@ -437,7 +437,11 @@ describe('SkillsRuntime lazy provider sources (WEB-EXT-MANAGE-MARKET r1 冒烟�
   it('installFromDirectory resolves writable scope through a lazy sources provider', async () => {
     const root = await mkdtemp(join(tmpdir(), 'skills-lazy-'))
     try {
-      await writeSkill(resolve(root, 'src'), 'lazy-skill', 'name: lazy-skill\ndescription: lazy install')
+      await writeSkill(
+        resolve(root, 'src'),
+        'lazy-skill',
+        'name: lazy-skill\ndescription: lazy install',
+      )
       const src = resolve(root, 'src', 'lazy-skill')
       const userDir = resolve(root, 'home', 'skills')
       const runtime = new SkillsRuntime({
@@ -447,9 +451,9 @@ describe('SkillsRuntime lazy provider sources (WEB-EXT-MANAGE-MARKET r1 冒烟�
       })
       const installed = await runtime.installFromDirectory(src, { scope: 'user' })
       expect(installed.scope).toBe('user')
-      await expect(
-        readFile(resolve(userDir, 'lazy-skill', 'SKILL.md'), 'utf8'),
-      ).resolves.toContain('lazy install')
+      await expect(readFile(resolve(userDir, 'lazy-skill', 'SKILL.md'), 'utf8')).resolves.toContain(
+        'lazy install',
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }

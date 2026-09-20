@@ -668,7 +668,12 @@ describe('McpManager.applyConfig (WEB-EXT-MANAGE-MARKET-r1 MG-04 域级 reload)'
 
     await manager.applyConfig([stdioServer('demo'), stdioServer('fresh')])
 
-    expect(manager.snapshot().map((entry) => entry.name).toSorted()).toEqual(['demo', 'fresh'])
+    expect(
+      manager
+        .snapshot()
+        .map((entry) => entry.name)
+        .toSorted(),
+    ).toEqual(['demo', 'fresh'])
     expect(registry.get('mcp__gone__read')).toBeUndefined()
     expect(manager.snapshot().find((entry) => entry.name === 'fresh')).toEqual(
       expect.objectContaining({ status: 'connected', tools: 2 }),
