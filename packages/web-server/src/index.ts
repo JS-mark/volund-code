@@ -1279,7 +1279,10 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           update: async (body) =>
             await mgmt.memory!.update(
               String(body.id),
-              { content: String(body.content ?? ''), tags: Array.isArray(body.tags) ? body.tags.map(String) : [] },
+              {
+                content: String(body.content ?? ''),
+                tags: Array.isArray(body.tags) ? body.tags.map(String) : [],
+              },
               String(body.expectedUpdatedAt ?? ''),
             ),
           delete: async (body) =>
@@ -1352,11 +1355,13 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
           availability: async () => await mgmt.plugins!.availability(),
           // WEB-EXT-MANAGE-MARKET-r1 §S3.5：三源 inventory + 全生命周期。
           inventory: async () => await mgmt.plugins!.inventory(),
-          install: async (body) =>
-            await mgmt.plugins!.installMarketPlugin(String(body.name ?? '')),
+          install: async (body) => await mgmt.plugins!.installMarketPlugin(String(body.name ?? '')),
           inspect: async (body) => await mgmt.plugins!.inspectPlugin(String(body.name ?? '')),
           approve: async (body) =>
-            await mgmt.plugins!.approvePlugin(String(body.name ?? ''), String(body.permissionHash ?? '')),
+            await mgmt.plugins!.approvePlugin(
+              String(body.name ?? ''),
+              String(body.permissionHash ?? ''),
+            ),
           enable: async (body) => await mgmt.plugins!.enablePlugin(String(body.name ?? '')),
           disable: async (body) => await mgmt.plugins!.disablePlugin(String(body.name ?? '')),
           uninstall: async (body) =>

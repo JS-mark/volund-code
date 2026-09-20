@@ -33,9 +33,10 @@ export interface SkillPortLike {
 /** MCP 管理面（mcpManagementPort 的结构投影）。 */
 export interface McpPortLike {
   list(): Promise<readonly unknown[]>
-  inspect(
-    name: string,
-  ): Promise<{ entry: unknown; tools: Array<{ name: string; description?: string }> }>
+  inspect(name: string): Promise<{
+    entry: unknown
+    tools: readonly { name: string; description?: string }[]
+  }>
   setEnabled(name: string, enabled: boolean): Promise<unknown>
   add(input: McpAddInput): Promise<{ file: string; items: readonly unknown[] }>
   remove(
