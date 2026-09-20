@@ -46,6 +46,8 @@ export interface MemoryPanelController {
     signal?: AbortSignal
   }): Promise<readonly MemoryPanelRecord[]>
   get(id: string, signal?: AbortSignal): Promise<MemoryPanelRecord | undefined>
+  /** WEB-EXT-MANAGE-MARKET-r1 §S3.2：面板新建（provenance 记 user/web）。 */
+  create(input: { content: string; tags?: readonly string[]; pinned?: boolean }): Promise<MemoryPanelRecord>
   update(
     id: string,
     patch: { content: string; tags: readonly string[] },
@@ -54,6 +56,14 @@ export interface MemoryPanelController {
   delete(id: string, expectedUpdatedAt: string): Promise<void>
   pin(id: string, expectedUpdatedAt: string): Promise<MemoryPanelRecord>
   unpin(id: string, expectedUpdatedAt: string): Promise<MemoryPanelRecord>
+  /** volund.memory.export.v1 文档（仅本面板 scope）；transfer 未装配时抛 memory_transfer_unavailable。 */
+  exportAll(): Promise<unknown>
+  /** 导入到本面板 scope；strategy/dry-run 语义与 `volund memory import` 一致。 */
+  importDocs(input: {
+    serialized: string
+    strategy?: 'skip' | 'overwrite' | 'rename'
+    dryRun?: boolean
+  }): Promise<unknown>
 }
 
 export type MemoryPanelMode =

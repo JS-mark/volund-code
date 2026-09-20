@@ -4,6 +4,7 @@ import type {
   MemoryRecord,
   MemoryRecordScope,
   MemoryService,
+  MemoryTransferService,
 } from '@volund/storage'
 
 import type { MemoryPanelController, MemoryPanelPage, MemoryPanelRecord } from './memory-panel'
@@ -20,7 +21,16 @@ export function createMemoryPanelController(
   memory: MemoryService,
   recall: MemoryRecallService | undefined,
   scope: MemoryRecordScope,
+  transfer?: MemoryTransferService | undefined,
+  emit?: ((event: string, fields: Record<string, unknown>) => void) | undefined,
 ): MemoryPanelController {
+  const requireTransfer = (): MemoryTransferService => {
+    if (!transfer)
+      throw Object.assign(new Error('Memory import/export is unavailable.'), {
+        code: 'memory_transfer_unavailable',
+      })
+    return transfer
+  }
   return {
     scopeLabel: scope.kind,
     searchAvailable: Boolean(recall),
@@ -52,8 +62,23 @@ export function createMemoryPanelController(
       throwIfAborted(signal)
       return record && !record.deletedAt ? toPanelRecord(record) : undefined
     },
+    async create(input): Promise<MemoryPanelRecord> {
+      const record = await memory.create({
+        scope,
+        content: input.content,
+        // MemoryProvenance.source 是封闭联合（user|agent|evolution|import）：
+        // Web 新建记 user 源 + actorId 'web'（区别于 CLI 的 'cli'）。
+        provenance: { source: 'user', actorId: 'web' },
+        ...(input.tags?.length ? { tags: input.tags } : {}),
+        ...(input.pinned ? { pinned: true } : {}),
+      })
+      emit?.('memory.created', sanitize({ kind: scope.kind }))
+      return toPanelRecord(record)
+    },
     async update(id, patch, expectedUpdatedAt): Promise<MemoryPanelRecord> {
-      return toPanelRecord(await memory.update(scope, id, patch, { expectedUpdatedAt }))
+      const record = await memory.update(scope, id, patch, { expectedUpdatedAt })
+      emit?.('memory.updated', sanitize({ kind: scope.kind }))
+      return toPanelRecord(record)
     },
     async delete(id, expectedUpdatedAt): Promise<void> {
       await memory.delete(scope, id, { expectedUpdatedAt })
@@ -63,6 +88,16 @@ export function createMemoryPanelController(
     },
     async unpin(id, expectedUpdatedAt): Promise<MemoryPanelRecord> {
       return toPanelRecord(await memory.unpin(scope, id, { expectedUpdatedAt }))
+    },
+    async exportAll(): Promise<unknown> {
+      return await requireTransfer().export([scope])
+    },
+    async importDocs(input): Promise<unknown> {
+      return await requireTransfer().import(input.serialized, scope, {
+        ...(input.strategy ? { strategy: input.strategy } : {}),
+        ...(input.dryRun ? { dryRun: true } : {}),
+        actorId: 'web',
+      })
     },
   }
 }

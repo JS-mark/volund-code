@@ -1750,12 +1750,16 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     plugin: pluginDomain.legacyPluginPort,
     localPlugins,
     skill: skillPort,
+    skillManagement: skillDomain.skillManagementPort,
     mcp: mcpPort,
+    mcpManagement: mcpDomain.mcpManagementPort,
     auth: authDomain,
     config: configDomain.port,
     native: nativeDomain,
     telemetry: {
       securityEvent: (name, payload) => telemetry.emit(name, 'security', payload),
+      // WEB-EXT-MANAGE-MARKET-r1 MG-16：管理动作采样走通用 emit（自由字符串事件）。
+      event: (name, category, payload) => telemetry.emit(name, category, sanitize(payload)),
       summary: () => telemetryStore.summary(),
       export: (target) => telemetryStore.export(target),
       clear: () => telemetryStore.clear(),

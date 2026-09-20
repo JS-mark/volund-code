@@ -36,6 +36,7 @@
   "dependencies": {
     "@volund/app-runtime": "workspace:*",
     "@volund/gateway-server": "workspace:*",
+    "@volund/plugin-sdk": "workspace:*",
     "@volund/shared": "workspace:*"
   },
   "devDependencies": {

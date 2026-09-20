@@ -6,6 +6,9 @@
  * apps/cli（Ink 渲染契约不许越过边界）。
  */
 import type { SessionCandidate } from './contracts'
+import type { McpPanelEntry, McpToolSummary } from './mcp-panel'
+import type { McpMarketView } from './mcp-market'
+import type { SkillMarketView } from './skill-market'
 
 export interface DoctorHealth {
   detail: string
@@ -96,6 +99,21 @@ export interface McpPort {
   logout(name: string): Promise<void>
 }
 
+/**
+ * Web 管理面的 MCP 端口（WEB-EXT-MANAGE-MARKET-r1 §S3.3）：常驻进程安全——
+ * list/inspect/setEnabled/reload 全部走活会话单例 manager（无 port.list 式
+ * 「用完 close」），add/remove 是纯文件写 + 域级 reload 串联，marketList 只读索引。
+ */
+export interface McpManagementPort {
+  list(): Promise<readonly McpPanelEntry[]>
+  inspect(name: string): Promise<{ entry: McpPanelEntry; tools: readonly McpToolSummary[] }>
+  setEnabled(name: string, enabled: boolean): Promise<string>
+  add(input: McpAddInput): Promise<{ file: string; items: readonly McpPanelEntry[] }>
+  remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string; items: readonly McpPanelEntry[] }>
+  reload(): Promise<readonly McpPanelEntry[]>
+  marketList(): Promise<McpMarketView | { error: string } | undefined>
+}
+
 export interface SkillListing {
   name: string
   description: string
@@ -116,6 +134,24 @@ export interface SkillPort {
   uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<void>
   show(name: string): Promise<string>
   setEnabled(name: string, enabled: boolean): Promise<void>
+}
+
+/**
+ * Web 管理面的 Skill 端口（WEB-EXT-MANAGE-MARKET-r1 §S3.4）：install/uninstall
+ * 落盘后自动对活动会话重扫描（registerIndex + 斜杠命令同步）；无活动会话时
+ * 仅落盘（下次会话发现）。
+ */
+export interface SkillManagementPort {
+  list(): Promise<readonly SkillListing[]>
+  show(name: string): Promise<string>
+  setEnabled(name: string, enabled: boolean): Promise<unknown>
+  install(
+    spec: string,
+    options?: { scope?: 'user' | 'project' },
+  ): Promise<{ items: readonly SkillListing[] }>
+  uninstall(name: string, options?: { scope?: 'user' | 'project' }): Promise<{ ok: boolean }>
+  reload(): Promise<readonly SkillListing[]>
+  marketList(): Promise<SkillMarketView | { error: string } | undefined>
 }
 
 export interface PluginPort {
@@ -186,6 +222,10 @@ export interface LocalPluginPort {
    * dev 目录归开发者管理（命中即明确拒绝）。
    */
   uninstallMarketPlugin(input: string): Promise<{ name: string }>
+  /** Web 管理面（WEB-EXT-MANAGE-MARKET-r1 §S3.5）：三源 inventory（builtin/dev/market + registry）。 */
+  inventory(): Promise<import('@volund/plugin-sdk').PluginInventory>
+  /** Web 管理面：市场安装（loopback 索引；远程 HTTPS fail-closed）。 */
+  installMarketPlugin(name: string): Promise<import('@volund/plugin-sdk').PluginInstallResult>
   deactivateAll(): Promise<void>
 }
 export interface PluginCompatibilityDiagnostic {

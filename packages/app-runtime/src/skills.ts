@@ -18,7 +18,8 @@ import { defaultSkillSources, SkillsRuntime as SkillsRuntimeClass } from '@volun
 
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
 import type { SlashCommandRegistryLike } from './contracts'
-import type { SkillPort } from './ports'
+import type { SkillManagementPort, SkillPort } from './ports'
+import { fetchSkillMarketIndex } from './skill-market'
 import { SkillSlashCommands, slashInvocableSkillNames } from './skill-commands'
 import { resolveSkillSpecToDirectories } from './skill-install'
 import { buildStackedSkillInvocationText, mapAllowedTools, splitSkillStack } from './skill-tool'
@@ -55,6 +56,8 @@ export interface SkillDomain {
   readonly skillCommands: SkillSlashCommands
   readonly skillsPanelController: SkillsPanelController
   readonly skillPort: SkillPort
+  /** Web 管理面组合端口（WEB-EXT-MANAGE-MARKET-r1 §S3.4）。 */
+  readonly skillManagementPort: SkillManagementPort
   readonly ensureSkillsConfig: () => Promise<void>
   readonly syncSkillSlashCommands: () => void
 }
@@ -292,12 +295,54 @@ export function createSkillDomain(options: SkillDomainOptions): SkillDomain {
       await updateConfigDisabledList({ home: options.home, section: 'skills', name, add: !enabled })
     },
   }
+  /**
+   * Web 管理面组合端口（WEB-EXT-MANAGE-MARKET-r1 §S3.4）：install/uninstall 落盘
+   * （CLI 一次性 listing runtime）后对活动会话热同步（面板 reload 闭包：重发现 +
+   * registerIndex + 斜杠命令同步）——装完即可在会话内调用（MG-09）。
+   */
+  const skillManagementPort: SkillManagementPort = {
+    async list() {
+      return await skillPort.list()
+    },
+    async show(name) {
+      return await skillPort.show(name)
+    },
+    async setEnabled(name, enabled) {
+      // 有活动会话走面板路径（热去激活 + 索引重注册）；否则仅持久化。
+      if (skillsRuntimes.size > 0) return await skillsPanelController.setEnabled(name, enabled)
+      return await skillPort.setEnabled(name, enabled)
+    },
+    async install(spec, installOptions) {
+      const items = await skillPort.install(spec, installOptions)
+      void options.emitTelemetry(
+        'skill.installed',
+        'skills',
+        sanitize({ count: items.length, scope: installOptions?.scope ?? 'user' }),
+      )
+      if (skillsRuntimes.size > 0) await skillsPanelController.reload()
+      return { items }
+    },
+    async uninstall(name, uninstallOptions) {
+      await skillPort.uninstall(name, uninstallOptions)
+      void options.emitTelemetry('skill.uninstalled', 'skills', sanitize({}))
+      if (skillsRuntimes.size > 0) await skillsPanelController.reload()
+      return { ok: true }
+    },
+    async reload() {
+      if (skillsRuntimes.size > 0) await skillsPanelController.reload()
+      return await skillPort.list()
+    },
+    async marketList() {
+      return await fetchSkillMarketIndex(options.home)
+    },
+  }
   return {
     skillsRuntimes,
     skillsDisabled,
     skillCommands,
     skillsPanelController,
     skillPort,
+    skillManagementPort,
     ensureSkillsConfig,
     syncSkillSlashCommands,
   }

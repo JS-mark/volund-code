@@ -20,7 +20,8 @@ import type { Tool, ToolRegistry } from '@volund/tool-kit'
 
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
 import type { McpPanelController } from './mcp-panel'
-import type { McpPort } from './ports'
+import type { McpManagementPort, McpPort } from './ports'
+import { fetchMcpMarketIndex } from './mcp-market'
 import { serializeToml } from './toml'
 
 /**
@@ -378,6 +379,30 @@ export class McpManager {
       state.status = this.#options.disabled.has(state.config.name) ? 'disabled' : 'connecting'
       state.reconnectAttempt = 0
     }
+    this.#options.onStateChange?.()
+    await this.connect()
+  }
+  /**
+   * 域级 reload（WEB-EXT-MANAGE-MARKET-r1 MG-04）：配置重读后替换 server 集——
+   * 断开旧连接（#disconnectState 内 #teardownTools 已把旧工具从全部 registry 摘除）、
+   * 重建状态并重连；连接完成后按既有 #registries 登记自动补注册工具。
+   * 会话 registry 无需重新 attach，manager 单例身份不变。
+   */
+  async applyConfig(servers: readonly McpServerConfig[]): Promise<void> {
+    this.#closed = true
+    await Promise.all([...this.#states.values()].map((state) => this.#disconnectState(state)))
+    this.#closed = false
+    this.#states.clear()
+    for (const server of servers) {
+      this.#states.set(server.name, {
+        config: server,
+        status: this.#options.disabled.has(server.name) ? 'disabled' : 'connecting',
+        tools: [],
+        reconnectAttempt: 0,
+        closing: false,
+      })
+    }
+    this.#log('manager.apply_config', { servers: servers.length })
     this.#options.onStateChange?.()
     await this.connect()
   }
@@ -782,6 +807,8 @@ export interface McpDomainOptions {
 export interface McpDomain {
   readonly mcpPort: McpPort
   readonly mcpPanelController: McpPanelController
+  /** Web 管理面组合端口（WEB-EXT-MANAGE-MARKET-r1 §S3.3；常驻进程安全）。 */
+  readonly mcpManagementPort: McpManagementPort
   /** createRunner 的 attach 点：共享连接挂进会话工具注册表。 */
   readonly ensureManager: (cwd: string) => Promise<McpManager>
   /** shutdown：关闭单例 manager 并 flush 诊断日志。 */
@@ -794,8 +821,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
   // .mcp.json 的信任由会话目录信任门兜底——cli.ts 在未信任目录上拒绝启动）。
   const mcpDisabled = new Set<string>()
   let mcpManager: McpManager | undefined
-  async function ensureMcpManager(cwd: string): Promise<McpManager> {
-    if (mcpManager) return mcpManager
+  /** 从 config.toml 并入 [mcp] disabled 名单（域级 reload 前先 clear 做精确刷新）。 */
+  async function readMcpDisabledNames(): Promise<void> {
     try {
       const config = await loadTomlFile(join(options.home, 'config.toml'), {
         onWarning: (message) => options.logger.warn(message),
@@ -804,6 +831,13 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+  }
+  /**
+   * 构造一个 manager 实例（不进单例缓存）。单例路径（ensureMcpManager）与一次性
+   * 路径（port.list/test/inspect，WEB-EXT-MANAGE-MARKET-r1 MG-04 存量缺陷修复）
+   * 共用——一次性实例用后即弃，绝不触碰活会话共享的连接。
+   */
+  async function createManagerInstance(cwd: string): Promise<McpManager> {
     const servers = await loadMcpServerConfigs({
       volundHome: options.home,
       cwd,
@@ -811,7 +845,7 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       onEvent: (event, fields) => void options.emitTelemetry(event, 'mcp', sanitize(fields)),
     })
     const previousStatuses = new Map<string, string>()
-    mcpManager = new McpManager({
+    const manager = new McpManager({
       servers,
       disabled: mcpDisabled,
       onWarning: (message) => options.logger.warn(message),
@@ -822,8 +856,7 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       resolveKeyref: (reference) => options.authGetCredential(reference),
       // §S3.8：状态迁移采样；server 名 sha256 前 8 位（不落明文名字）。
       onStateChange: () => {
-        if (!mcpManager) return
-        for (const entry of mcpManager.snapshot()) {
+        for (const entry of manager.snapshot()) {
           const from = previousStatuses.get(entry.name)
           if (from !== undefined && from !== entry.status)
             void options.emitTelemetry(
@@ -839,8 +872,34 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
         }
       },
     })
+    return manager
+  }
+  async function ensureMcpManager(cwd: string): Promise<McpManager> {
+    if (mcpManager) return mcpManager
+    await readMcpDisabledNames()
+    mcpManager = await createManagerInstance(cwd)
     void mcpManager.connect()
     return mcpManager
+  }
+  /**
+   * MG-04 域级 reload：精确刷新 disabled 名单 + 重读 mcp.toml/.mcp.json，
+   * applyConfig 到单例（断开旧连接 → 重建状态 → 重连；会话 registry 自动补注册）。
+   * `McpManager.reload`（仅按冻结 #states 断开重连、不重读配置）保留原语义不动。
+   */
+  async function reloadDomainManager(): Promise<readonly McpManagerEntry[]> {
+    const manager = mcpManager
+    if (!manager) return []
+    mcpDisabled.clear()
+    await readMcpDisabledNames()
+    const servers = await loadMcpServerConfigs({
+      volundHome: options.home,
+      cwd: options.getDefaultCwd(),
+      onWarning: (message) => options.logger.warn(message),
+      onEvent: (event, fields) => void options.emitTelemetry(event, 'mcp', sanitize(fields)),
+    })
+    await manager.applyConfig(servers)
+    void options.emitTelemetry('mcp.reloaded', 'mcp', sanitize({ count: servers.length }))
+    return manager.snapshot()
   }
   const mcpPort: McpPort = {
     async login(serverName) {
@@ -877,7 +936,9 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       await options.authLogout(oauthHeaderKey(serverName))
     },
     async list() {
-      const manager = await ensureMcpManager(options.getDefaultCwd())
+      // MG-04 存量缺陷修复：一次性 manager（此前复用共享单例后 close()，
+      // 常驻进程内一调即拆活会话连接）。
+      const manager = await createManagerInstance(options.getDefaultCwd())
       // 有界等待连接轮完成（CLI 场景无 REPL 轮询；超时按当前状态快照返回）。
       await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
       const snapshot = manager.snapshot().map((entry) => ({
@@ -892,7 +953,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       return snapshot
     },
     async test(name) {
-      const manager = await ensureMcpManager(options.getDefaultCwd())
+      // MG-04 存量缺陷修复：一次性 manager，不触碰活会话共享连接。
+      const manager = await createManagerInstance(options.getDefaultCwd())
       await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
       try {
         const { entry } = await manager.inspect(name)
@@ -906,7 +968,8 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       }
     },
     async inspect(name) {
-      const manager = await ensureMcpManager(options.getDefaultCwd())
+      // MG-04 存量缺陷修复：一次性 manager（web 管理面 inspect 可达，此前会拆活会话连接）。
+      const manager = await createManagerInstance(options.getDefaultCwd())
       await Promise.race([manager.connect(), new Promise((resolve) => setTimeout(resolve, 4000))])
       try {
         const { tools } = await manager.inspect(name)
@@ -981,9 +1044,10 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       return snapshot
     },
     async reload() {
+      // MG-04：域级 reload（重读 disabled + mcp.toml/.mcp.json 后 applyConfig），
+      // TUI /mcp reload 与 Web 管理面共用；`McpManager.reload` 原语义保留。
       if (!mcpManager) return []
-      await mcpManager.reload()
-      return mcpManager.snapshot()
+      return await reloadDomainManager()
     },
     async setEnabled(name, enabled) {
       if (!mcpManager) throw new Error('MCP is not available in this session')
@@ -1005,9 +1069,55 @@ export function createMcpDomain(options: McpDomainOptions): McpDomain {
       }
     },
   }
+  /**
+   * Web 管理面组合端口（WEB-EXT-MANAGE-MARKET-r1 §S3.3）：常驻进程安全——
+   * 读写全走活会话单例 manager（先 ensure）或纯文件写 + 域级 reload，
+   * 绝无 port.list/test/inspect 的旧「用完 close 单例」路径。
+   */
+  const mcpManagementPort: McpManagementPort = {
+    async list() {
+      await ensureMcpManager(options.getDefaultCwd())
+      return await mcpPanelController.list()
+    },
+    async inspect(name) {
+      await ensureMcpManager(options.getDefaultCwd())
+      return await mcpPanelController.inspect(name)
+    },
+    async setEnabled(name, enabled) {
+      await ensureMcpManager(options.getDefaultCwd())
+      return await mcpPanelController.setEnabled(name, enabled)
+    },
+    async reload() {
+      await ensureMcpManager(options.getDefaultCwd())
+      return await reloadDomainManager()
+    },
+    async add(input) {
+      const result = await mcpPort.add(input)
+      void options.emitTelemetry(
+        'mcp.added',
+        'mcp',
+        sanitize({ scope: input.scope, transport: input.transport.kind }),
+      )
+      // add 只写 TOML 不触碰活会话：串联域级 reload 让运行会话即时生效。
+      await ensureMcpManager(options.getDefaultCwd())
+      const items = await reloadDomainManager()
+      return { ...result, items }
+    },
+    async remove(name, scope) {
+      const result = await mcpPort.remove(name, scope)
+      void options.emitTelemetry('mcp.removed', 'mcp', sanitize({}))
+      await ensureMcpManager(options.getDefaultCwd())
+      const items = await reloadDomainManager()
+      return { ...result, items }
+    },
+    async marketList() {
+      return await fetchMcpMarketIndex(options.home)
+    },
+  }
   return {
     mcpPort,
     mcpPanelController,
+    mcpManagementPort,
     ensureManager: ensureMcpManager,
     closeManager: async () => {
       const manager = mcpManager

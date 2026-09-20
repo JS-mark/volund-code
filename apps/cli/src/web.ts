@@ -122,17 +122,19 @@ function buildServerOptions(
             ports.memory,
             ports.memoryRecall,
             projectMemoryScope(cwd),
+            ports.memoryTransfer,
+            (event, fields) => void ports.telemetry.event?.(event, 'memory', fields),
           ),
         }
       : {}),
-    ...(ports.skill ? { skill: ports.skill } : {}),
-    ...(ports.mcp ? { mcp: ports.mcp } : {}),
+    // WEB-EXT-MANAGE-MARKET-r1 §S3.3/§S3.4：常驻进程安全的管理端口
+    // （install/uninstall/add/remove/reload 全接；缺端口 = 域未装配，页签隐藏）。
+    ...(ports.skillManagement ? { skill: ports.skillManagement } : {}),
+    ...(ports.mcpManagement ? { mcp: ports.mcpManagement } : {}),
     ...(ports.localPlugins && ports.plugin
       ? {
           plugins: {
-            builtinDomains: () => ports.localPlugins!.builtinDomains(),
-            setBuiltinDomain: (id: string, enabled: boolean) =>
-              ports.localPlugins!.setBuiltinDomain(id, enabled),
+            ...ports.localPlugins,
             availability: () => ports.plugin!.availability(),
           },
         }

@@ -652,3 +652,51 @@ describe('resolveSkillSpecToDirectories nested git repos (SKILLS-MCPS-r1.8)', ()
     expect(names).toEqual(['pdf-tools', 'skill-creator'])
   })
 })
+
+describe('McpManager.applyConfig (WEB-EXT-MANAGE-MARKET-r1 MG-04 域级 reload)', () => {
+  it('swaps the server set: removed tools deregister, fresh server connects and registers', async () => {
+    const manager = new McpManager({
+      servers: [stdioServer('demo'), stdioServer('gone')],
+      disabled: new Set(),
+      transportFactory: () => new FakeTransport('ok'),
+    })
+    const registry = new ToolRegistry()
+    manager.attach(registry)
+    await manager.connect()
+    expect(registry.get('mcp__demo__read')).toBeDefined()
+    expect(registry.get('mcp__gone__read')).toBeDefined()
+
+    await manager.applyConfig([stdioServer('demo'), stdioServer('fresh')])
+
+    expect(manager.snapshot().map((entry) => entry.name).toSorted()).toEqual(['demo', 'fresh'])
+    expect(registry.get('mcp__gone__read')).toBeUndefined()
+    expect(manager.snapshot().find((entry) => entry.name === 'fresh')).toEqual(
+      expect.objectContaining({ status: 'connected', tools: 2 }),
+    )
+    // 断开轮会摘除幸存 server 的工具，apply 后按既有 attach 登记自动补注册。
+    expect(registry.get('mcp__demo__read')).toBeDefined()
+    await manager.close()
+  })
+  it('respects the disabled set and keeps the manager singleton identity (registries survive)', async () => {
+    const manager = new McpManager({
+      servers: [stdioServer('a'), stdioServer('b')],
+      disabled: new Set(['b']),
+      transportFactory: () => new FakeTransport('ok'),
+    })
+    const registry = new ToolRegistry()
+    const detach = manager.attach(registry)
+    await manager.connect()
+    await manager.applyConfig([stdioServer('a'), stdioServer('b')])
+    expect(manager.snapshot().find((entry) => entry.name === 'b')).toEqual(
+      expect.objectContaining({ status: 'disabled' }),
+    )
+    expect(manager.snapshot().find((entry) => entry.name === 'a')).toEqual(
+      expect.objectContaining({ status: 'connected' }),
+    )
+    expect(registry.get('mcp__a__read')).toBeDefined()
+    // 同一 manager 实例：既有注销函数仍然有效（会话无需重新 attach）。
+    detach()
+    expect(registry.get('mcp__a__read')).toBeUndefined()
+    await manager.close()
+  })
+})
