@@ -9,9 +9,9 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
   Button,
+  Empty,
   Form,
   Input,
-  List,
   Modal,
   Popconfirm,
   Segmented,
@@ -27,9 +27,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
 import {
+  CountBadge,
+  ItemCard,
   KeyValueEditor,
   Notice,
+  PanelIntro,
+  PanelToolbar,
+  StatusDot,
   downloadJson,
+  formatTime,
   marketErrorMessage,
   useAction,
   useInventory,
@@ -141,94 +147,144 @@ function MemoryPanel({ api }: { api: WebApi }) {
   if (error) return <Notice message={error} />
   return (
     <div>
-      <Space style={{ marginBottom: 8 }} wrap>
-        <Input.Search
-          placeholder={data?.searchAvailable ? '搜索 Memory…' : '搜索不可用（recall 未装配）'}
-          value={query}
-          disabled={!data?.searchAvailable}
-          onChange={(event) => setQuery(event.target.value)}
-          onSearch={() => void search()}
-          style={{ width: 280 }}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <PanelIntro
+          title="Memory 记忆库"
+          description="本项目的长期记忆：agent 会话内自动召回；新建/编辑即时生效，换项目互不可见。"
         />
-        {results && <Button onClick={() => setResults(undefined)}>清除</Button>}
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setEditor({ content: '', tags: [], pinned: false })}
-        >
-          新建
-        </Button>
-        <Button onClick={() => setImportOpen(true)}>导入</Button>
-        <Button onClick={() => void exportAll()}>导出</Button>
-      </Space>
-      <Notice message={notice} />
-      <Typography.Text type="secondary">
-        scope: {data?.scopeLabel ?? '…'} · {items.length} 条
-      </Typography.Text>
-      <List
-        size="small"
-        dataSource={items}
-        renderItem={(record) => (
-          <List.Item
-            actions={[
-              <Button
-                key="edit"
-                size="small"
-                onClick={() =>
-                  setEditor({
-                    record,
-                    content: record.content,
-                    tags: [...record.tags],
-                    pinned: record.pinned,
-                  })
-                }
-              >
-                编辑
-              </Button>,
-              <Button
-                key="pin"
-                size="small"
-                onClick={() =>
-                  void run(
-                    {
-                      action: record.pinned ? 'unpin' : 'pin',
-                      id: record.id,
-                      expectedUpdatedAt: record.updatedAt,
-                    },
-                    reload,
-                  )
-                }
-              >
-                {record.pinned ? '取消置顶' : '置顶'}
-              </Button>,
-              <Popconfirm
-                key="delete"
-                title="删除这条记忆？"
-                onConfirm={() =>
-                  void run(
-                    { action: 'delete', id: record.id, expectedUpdatedAt: record.updatedAt },
-                    reload,
-                  )
-                }
-              >
-                <Button size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>,
-            ]}
+        <CountBadge scopeLabel={data?.scopeLabel ?? '…'} count={items.length} />
+      </div>
+      <PanelToolbar>
+        <Space wrap>
+          <Input.Search
+            placeholder={data?.searchAvailable ? '搜索 Memory…' : '搜索不可用（recall 未装配）'}
+            value={query}
+            disabled={!data?.searchAvailable}
+            allowClear
+            onChange={(event) => setQuery(event.target.value)}
+            onSearch={() => void search()}
+            style={{ width: 300 }}
+          />
+          {results && (
+            <Button size="small" onClick={() => setResults(undefined)}>
+              清除搜索
+            </Button>
+          )}
+        </Space>
+        <Space wrap>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setEditor({ content: '', tags: [], pinned: false })}
           >
-            <List.Item.Meta
-              title={
-                <>
-                  {record.pinned && '📌 '}
-                  {record.content.slice(0, 120)}
-                </>
-              }
-              description={`${record.id.slice(0, 8)} · ${record.tags.join(', ') || '无标签'} · ${record.updatedAt}`}
-            />
-          </List.Item>
+            新建
+          </Button>
+          <Button onClick={() => setImportOpen(true)}>导入</Button>
+          <Button onClick={() => void exportAll()}>导出</Button>
+        </Space>
+      </PanelToolbar>
+      <Notice message={notice} />
+      <div style={{ display: 'grid', gap: 8 }}>
+        {items.length === 0 && (
+          <div style={{ padding: '36px 0' }}>
+            <Empty description={query ? '没有匹配的记忆' : '还没有记忆——点「新建」写第一条'}>
+              {!query && (
+                <Button
+                  type="primary"
+                  onClick={() => setEditor({ content: '', tags: [], pinned: false })}
+                >
+                  新建记忆
+                </Button>
+              )}
+            </Empty>
+          </div>
         )}
-      />
+        {items.map((record) => (
+          <ItemCard key={record.id}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <Typography.Paragraph
+                  style={{ marginBottom: 6, whiteSpace: 'pre-wrap' }}
+                  ellipsis={{ rows: 3 }}
+                >
+                  {record.pinned && '📌 '}
+                  {record.content.slice(0, 240) || '（空）'}
+                </Typography.Paragraph>
+                <Space size={6} wrap>
+                  {record.tags.map((tag) => (
+                    <Tag key={tag} style={{ marginInlineEnd: 0 }}>
+                      {tag}
+                    </Tag>
+                  ))}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {record.id.slice(0, 8)} · {formatTime(record.updatedAt)}
+                  </Typography.Text>
+                </Space>
+              </div>
+              <Space size={0} style={{ flexShrink: 0 }}>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() =>
+                    setEditor({
+                      record,
+                      content: record.content,
+                      tags: [...record.tags],
+                      pinned: record.pinned,
+                    })
+                  }
+                >
+                  编辑
+                </Button>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() =>
+                    void run(
+                      {
+                        action: record.pinned ? 'unpin' : 'pin',
+                        id: record.id,
+                        expectedUpdatedAt: record.updatedAt,
+                      },
+                      reload,
+                    )
+                  }
+                >
+                  {record.pinned ? '取消置顶' : '置顶'}
+                </Button>
+                <Popconfirm
+                  title="删除这条记忆？"
+                  onConfirm={() =>
+                    void run(
+                      { action: 'delete', id: record.id, expectedUpdatedAt: record.updatedAt },
+                      reload,
+                    )
+                  }
+                >
+                  <Button type="text" size="small" danger>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
+          </ItemCard>
+        ))}
+      </div>
       <Modal
         title={editor?.record ? '编辑记忆' : '新建记忆'}
         open={editor !== undefined}
@@ -357,97 +413,140 @@ function SkillsPanel({ api }: { api: WebApi }) {
   }, [reload, run, scope, spec])
 
   if (error) return <Notice message={error} />
+  const skills = data?.items ?? []
   return (
     <div>
-      <Space style={{ marginBottom: 8 }} wrap>
-        <Input
-          style={{ width: 360 }}
-          placeholder="安装来源：本地目录 | git URL | github:owner/repo"
-          value={spec}
-          onChange={(event) => setSpec(event.target.value)}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <PanelIntro
+          title="Skills 技能"
+          description="目录 + SKILL.md 的渐进披露技能：安装后自动热重扫，会话内 /斜杠命令或模型自动触发。"
         />
-        <Segmented
-          value={scope}
-          onChange={(next) => setScope(next as 'user' | 'project')}
-          options={[
-            { value: 'user', label: '用户级' },
-            { value: 'project', label: '项目级' },
-          ]}
-        />
-        <Button type="primary" disabled={!spec.trim()} onClick={() => void install()}>
-          安装
-        </Button>
+        <CountBadge scopeLabel="skills" count={skills.length} unit="个" />
+      </div>
+      <PanelToolbar>
+        <Space wrap>
+          <Input
+            style={{ width: 360 }}
+            placeholder="安装来源：本地目录 | git URL | github:owner/repo"
+            value={spec}
+            onChange={(event) => setSpec(event.target.value)}
+          />
+          <Segmented
+            value={scope}
+            onChange={(next) => setScope(next as 'user' | 'project')}
+            options={[
+              { value: 'user', label: '用户级' },
+              { value: 'project', label: '项目级' },
+            ]}
+          />
+          <Button type="primary" disabled={!spec.trim()} onClick={() => void install()}>
+            安装
+          </Button>
+        </Space>
         <Button icon={<ReloadOutlined />} onClick={() => void run({ action: 'reload' }, reload)}>
           重扫描
         </Button>
-      </Space>
+      </PanelToolbar>
       <Notice message={notice} />
-      <List
-        size="small"
-        dataSource={data?.items ?? []}
-        renderItem={(skill) => (
-          <List.Item
-            actions={[
-              <Button
-                key="show"
-                size="small"
-                onClick={() =>
-                  void run({ action: 'show', name: skill.name }, (value) => {
-                    setDetail({ name: skill.name, raw: (value as { body: string }).body })
-                  })
-                }
-              >
-                详情
-              </Button>,
-              <Button
-                key="toggle"
-                size="small"
-                onClick={() =>
-                  void run(
-                    {
-                      action: 'setEnabled',
-                      name: skill.name,
-                      enabled: skill.status === 'disabled',
-                    },
-                    reload,
-                  )
-                }
-              >
-                {skill.status === 'disabled' ? '启用' : '禁用'}
-              </Button>,
-              ...(skill.scope === 'user' || skill.scope === 'project'
-                ? [
-                    <Popconfirm
-                      key="uninstall"
-                      title={`卸载 ${skill.name}？`}
-                      onConfirm={() =>
-                        void run(
-                          { action: 'uninstall', name: skill.name, scope: skill.scope },
-                          reload,
-                        )
-                      }
-                    >
-                      <Button size="small" danger>
-                        卸载
-                      </Button>
-                    </Popconfirm>,
-                  ]
-                : []),
-            ]}
-          >
-            <List.Item.Meta
-              title={
-                <>
-                  /{skill.name} <Tag>{skill.scope}</Tag>
-                  {skill.status !== 'available' && <Tag color="warning">{skill.status}</Tag>}
-                  {skill.version && <Tag>v{skill.version}</Tag>}
-                </>
-              }
-              description={skill.description}
-            />
-          </List.Item>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {skills.length === 0 && (
+          <div style={{ padding: '36px 0' }}>
+            <Empty description="没有已发现的 skill——从上方输入来源安装，或放入 ~/.volund/skills/" />
+          </div>
         )}
-      />
+        {skills.map((skill) => (
+          <ItemCard key={`${skill.name}:${skill.scope}`}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <Space size={6} wrap style={{ marginBottom: 2 }}>
+                  <Typography.Text strong>/{skill.name}</Typography.Text>
+                  <Tag
+                    color={
+                      skill.scope === 'user' ? 'blue' : skill.scope === 'plugin' ? 'purple' : 'cyan'
+                    }
+                  >
+                    {skill.scope === 'user'
+                      ? '用户级'
+                      : skill.scope === 'plugin'
+                        ? '插件'
+                        : '项目级'}
+                  </Tag>
+                  {skill.status === 'disabled' && <Tag color="warning">已禁用</Tag>}
+                  {skill.status === 'broken' && <Tag color="error">损坏</Tag>}
+                  {skill.status === 'shadowed' && <Tag color="default">被覆盖</Tag>}
+                  {skill.version && <Tag color="default">v{skill.version}</Tag>}
+                </Space>
+                <Typography.Paragraph
+                  type="secondary"
+                  style={{ marginBottom: 0 }}
+                  ellipsis={{ rows: 2 }}
+                >
+                  {skill.description}
+                </Typography.Paragraph>
+              </div>
+              <Space size={0} style={{ flexShrink: 0 }}>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() =>
+                    void run({ action: 'show', name: skill.name }, (value) => {
+                      setDetail({ name: skill.name, raw: (value as { body: string }).body })
+                    })
+                  }
+                >
+                  详情
+                </Button>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() =>
+                    void run(
+                      {
+                        action: 'setEnabled',
+                        name: skill.name,
+                        enabled: skill.status === 'disabled',
+                      },
+                      reload,
+                    )
+                  }
+                >
+                  {skill.status === 'disabled' ? '启用' : '禁用'}
+                </Button>
+                {(skill.scope === 'user' || skill.scope === 'project') && (
+                  <Popconfirm
+                    title={`卸载 ${skill.name}？`}
+                    onConfirm={() =>
+                      void run(
+                        { action: 'uninstall', name: skill.name, scope: skill.scope },
+                        reload,
+                      )
+                    }
+                  >
+                    <Button type="text" size="small" danger>
+                      卸载
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </div>
+          </ItemCard>
+        ))}
+      </div>
       <Modal
         title={`/${detail?.name ?? ''} · SKILL.md`}
         open={detail !== undefined}
@@ -671,7 +770,22 @@ function McpPanel({ api }: { api: WebApi }) {
   const entries = data?.items ?? []
   return (
     <div>
-      <Space style={{ marginBottom: 8 }} wrap>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <PanelIntro
+          title="MCP servers"
+          description="外部工具服务器：定义落 mcp.toml / .mcp.json，重载后 `mcp__server__tool` 即时进运行会话。"
+        />
+        <CountBadge scopeLabel="mcp" count={entries.length} unit="个 server" />
+      </div>
+      <PanelToolbar>
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -680,79 +794,94 @@ function McpPanel({ api }: { api: WebApi }) {
             setFormOpen(true)
           }}
         >
-          添加
+          添加 server
         </Button>
         <Button icon={<ReloadOutlined />} onClick={() => void run({ action: 'reload' }, reload)}>
           重载（重读 mcp.toml）
         </Button>
-      </Space>
+      </PanelToolbar>
       <Notice message={notice} />
-      <List
-        size="small"
-        dataSource={entries}
-        renderItem={(entry) => (
-          <List.Item
-            actions={[
-              <Button
-                key="inspect"
-                size="small"
-                onClick={() =>
-                  void run({ action: 'inspect', name: entry.name }, (value) =>
-                    setInspect(value as { entry: McpEntry; tools: [] }),
-                  )
-                }
-              >
-                详情
-              </Button>,
-              <Button key="edit" size="small" onClick={() => setEditEntry(entry)}>
-                编辑
-              </Button>,
-              <Button
-                key="toggle"
-                size="small"
-                disabled={
-                  entry.status !== 'disabled' &&
-                  entry.status !== 'connected' &&
-                  entry.status !== 'failed'
-                }
-                onClick={() =>
-                  void run(
-                    {
-                      action: 'setEnabled',
-                      name: entry.name,
-                      enabled: entry.status === 'disabled',
-                    },
-                    reload,
-                  )
-                }
-              >
-                {entry.status === 'disabled' ? '启用' : '禁用'}
-              </Button>,
-              <Popconfirm
-                key="remove"
-                title={`移除 ${entry.name}（${entry.scope ?? '?'} 作用域）？`}
-                onConfirm={() =>
-                  void run({ action: 'remove', name: entry.name, scope: entry.scope }, reload)
-                }
-              >
-                <Button size="small" danger>
-                  移除
-                </Button>
-              </Popconfirm>,
-            ]}
-          >
-            <List.Item.Meta
-              title={
-                <>
-                  {entry.name} <Tag>{entry.transport}</Tag>
-                  <McpStatusTag status={entry.status} />
-                </>
-              }
-              description={`${entry.scope ?? ''} · ${entry.status ?? 'unknown'}${entry.tools !== undefined ? ` · ${entry.tools} tools` : ''}${entry.detail ? ` · ${entry.detail}` : ''}`}
-            />
-          </List.Item>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {entries.length === 0 && (
+          <div style={{ padding: '36px 0' }}>
+            <Empty description="还没有配置 MCP server——点「添加 server」或粘贴 mcpServers JSON" />
+          </div>
         )}
-      />
+        {entries.map((entry) => (
+          <ItemCard key={entry.name}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <Space size={8} wrap style={{ marginBottom: 2 }}>
+                  <Typography.Text strong>{entry.name}</Typography.Text>
+                  <Tag color="default">
+                    {entry.transport.startsWith('stdio') ? 'stdio' : entry.transport}
+                  </Tag>
+                  <McpStatusDot status={entry.status} />
+                </Space>
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                  {entry.scope === 'project' ? '项目级' : '用户级'}
+                  {entry.tools !== undefined ? ` · ${entry.tools} 个工具` : ''}
+                  {entry.detail ? ` · ${entry.detail}` : ''}
+                </Typography.Text>
+              </div>
+              <Space size={0} style={{ flexShrink: 0 }}>
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() =>
+                    void run({ action: 'inspect', name: entry.name }, (value) =>
+                      setInspect(value as { entry: McpEntry; tools: [] }),
+                    )
+                  }
+                >
+                  详情
+                </Button>
+                <Button type="text" size="small" onClick={() => setEditEntry(entry)}>
+                  编辑
+                </Button>
+                <Button
+                  type="text"
+                  size="small"
+                  disabled={
+                    entry.status !== 'disabled' &&
+                    entry.status !== 'connected' &&
+                    entry.status !== 'failed'
+                  }
+                  onClick={() =>
+                    void run(
+                      {
+                        action: 'setEnabled',
+                        name: entry.name,
+                        enabled: entry.status === 'disabled',
+                      },
+                      reload,
+                    )
+                  }
+                >
+                  {entry.status === 'disabled' ? '启用' : '禁用'}
+                </Button>
+                <Popconfirm
+                  title={`移除 ${entry.name}（${entry.scope ?? '?'} 作用域）？`}
+                  onConfirm={() =>
+                    void run({ action: 'remove', name: entry.name, scope: entry.scope }, reload)
+                  }
+                >
+                  <Button type="text" size="small" danger>
+                    移除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
+          </ItemCard>
+        ))}
+      </div>
       <McpServerFormModal
         api={api}
         open={formOpen}
@@ -801,16 +930,16 @@ function McpPanel({ api }: { api: WebApi }) {
   )
 }
 
-function McpStatusTag({ status }: { status: string | undefined }) {
-  const color =
-    status === 'connected'
-      ? 'success'
-      : status === 'failed'
-        ? 'error'
-        : status === 'needs-auth'
-          ? 'warning'
-          : 'default'
-  return <Tag color={color}>{status ?? 'unknown'}</Tag>
+function McpStatusDot({ status }: { status: string | undefined }) {
+  const map: Record<string, { color: string; text: string }> = {
+    connected: { color: '#52c41a', text: '已连接' },
+    connecting: { color: '#faad14', text: '连接中' },
+    'needs-auth': { color: '#fa8c16', text: '需要认证' },
+    failed: { color: '#ff4d4f', text: '失败' },
+    disabled: { color: '#bfbfbf', text: '已禁用' },
+  }
+  const state = map[status ?? ''] ?? { color: '#bfbfbf', text: status ?? '未知' }
+  return <StatusDot color={state.color} text={state.text} />
 }
 
 // ── Plugins（§S3.5）──────────────────────────────────────────────────
@@ -888,6 +1017,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
         <Button
           key="disable"
           size="small"
+          type="text"
           onClick={() => void run({ action: 'disable', name: entry.name }, () => void combined())}
         >
           禁用
@@ -913,7 +1043,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
             void run({ action: 'uninstall', name: entry.name }, () => void combined())
           }
         >
-          <Button size="small" danger>
+          <Button type="text" size="small" danger>
             卸载
           </Button>
         </Popconfirm>,
@@ -922,33 +1052,62 @@ function PluginsPanel({ api }: { api: WebApi }) {
   }
 
   const renderEntries = (entries: PluginEntry[]) => (
-    <List
-      size="small"
-      dataSource={entries}
-      renderItem={(entry) => (
-        <List.Item actions={entryActions(entry)}>
-          <List.Item.Meta
-            title={
-              <>
-                {entry.name} <Tag>v{entry.version}</Tag>
-                <PluginLifecycleTag entry={entry} />
-              </>
-            }
-            description={entry.source}
-          />
-        </List.Item>
-      )}
-    />
+    <div style={{ display: 'grid', gap: 8 }}>
+      {entries.length === 0 && <Empty description="无" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+      {entries.map((entry) => (
+        <ItemCard key={entry.name}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <Space size={8} wrap>
+              <Typography.Text strong>{entry.name}</Typography.Text>
+              <Tag color="default">v{entry.version}</Tag>
+              <PluginLifecycleTag entry={entry} />
+            </Space>
+            <Space size={0}>{entryActions(entry)}</Space>
+          </div>
+        </ItemCard>
+      ))}
+    </div>
   )
 
   if (error) return <Notice message={error} />
   const registry = inventory?.market.registry
+  const total =
+    (inventory?.builtin.length ?? 0) +
+    (inventory?.dev.length ?? 0) +
+    (inventory?.market.installed.length ?? 0)
   return (
     <div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <PanelIntro
+          title="Plugins 插件"
+          description="沙箱子进程插件：市场安装 → 批准（权限清单前置）→ 启用 三段状态机，激活前逐文件 digest 重验。"
+        />
+        <CountBadge scopeLabel="plugins" count={total} unit="个插件" />
+      </div>
+      <PanelToolbar>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          legacy catalog（deny-only）通道已关闭；管理走下方 v2 状态机
+        </Typography.Text>
+        <Button icon={<ReloadOutlined />} onClick={() => void combined()}>
+          刷新 inventory
+        </Button>
+      </PanelToolbar>
       <Notice message={notice} />
-      <Button icon={<ReloadOutlined />} style={{ marginBottom: 8 }} onClick={() => void combined()}>
-        刷新 inventory
-      </Button>
       <Tabs
         size="small"
         items={[
@@ -956,25 +1115,37 @@ function PluginsPanel({ api }: { api: WebApi }) {
             key: 'domains',
             label: '第一方域',
             children: (
-              <List
-                size="small"
-                dataSource={data?.items ?? []}
-                renderItem={(domain) => (
-                  <List.Item
-                    actions={[
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(data?.items ?? []).map((domain) => (
+                  <ItemCard key={domain.id}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <Typography.Text strong>{domain.label}</Typography.Text>
+                        <Typography.Paragraph
+                          type="secondary"
+                          style={{ marginBottom: 0, fontSize: 12 }}
+                        >
+                          {domain.description}
+                        </Typography.Paragraph>
+                      </div>
                       <Button
-                        key="toggle"
+                        type="text"
                         size="small"
                         onClick={() => void toggleDomain(domain.id, !domain.enabled)}
                       >
                         {domain.enabled ? '禁用' : '启用'}
-                      </Button>,
-                    ]}
-                  >
-                    <List.Item.Meta title={domain.label} description={domain.description} />
-                  </List.Item>
-                )}
-              />
+                      </Button>
+                    </div>
+                  </ItemCard>
+                ))}
+              </div>
             ),
           },
           { key: 'builtin', label: '内置插件', children: renderEntries(inventory?.builtin ?? []) },
@@ -985,7 +1156,9 @@ function PluginsPanel({ api }: { api: WebApi }) {
             children: (
               <div style={{ display: 'grid', gap: 16 }}>
                 <div>
-                  <Typography.Title level={5}>已安装</Typography.Title>
+                  <Typography.Title level={5} style={{ marginTop: 0 }}>
+                    已安装
+                  </Typography.Title>
                   {renderEntries(inventory?.market.installed ?? [])}
                 </div>
                 <div>
@@ -997,18 +1170,40 @@ function PluginsPanel({ api }: { api: WebApi }) {
                     <Typography.Text type="warning">{registry.error}</Typography.Text>
                   )}
                   {registry && 'plugins' in registry && (
-                    <List
-                      size="small"
-                      dataSource={registry.plugins}
-                      renderItem={(listing) => {
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {registry.plugins.length === 0 && (
+                        <Empty description="市场源没有条目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      )}
+                      {registry.plugins.map((listing) => {
                         const installed = inventory?.market.installed.some(
                           (entry) => entry.name === listing.name,
                         )
                         return (
-                          <List.Item
-                            actions={[
+                          <ItemCard key={listing.name}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 12,
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <Space size={8} wrap>
+                                  <Typography.Text strong>{listing.name}</Typography.Text>
+                                  <Tag color="default">v{listing.version}</Tag>
+                                </Space>
+                                <Typography.Paragraph
+                                  type="secondary"
+                                  style={{ marginBottom: 0, fontSize: 12 }}
+                                  ellipsis={{ rows: 2 }}
+                                >
+                                  {[listing.publisher, listing.description]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </Typography.Paragraph>
+                              </div>
                               <Button
-                                key="install"
                                 size="small"
                                 type={installed ? 'default' : 'primary'}
                                 disabled={installed}
@@ -1016,23 +1211,12 @@ function PluginsPanel({ api }: { api: WebApi }) {
                                 onClick={() => void install(listing.name)}
                               >
                                 {installed ? '已安装' : '安装'}
-                              </Button>,
-                            ]}
-                          >
-                            <List.Item.Meta
-                              title={
-                                <>
-                                  {listing.name} <Tag>v{listing.version}</Tag>
-                                </>
-                              }
-                              description={[listing.publisher, listing.description]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            />
-                          </List.Item>
+                              </Button>
+                            </div>
+                          </ItemCard>
                         )
-                      }}
-                    />
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1056,12 +1240,12 @@ function PluginsPanel({ api }: { api: WebApi }) {
 }
 
 function PluginLifecycleTag({ entry }: { entry: PluginEntry }) {
-  if (!entry.lifecycle) return <Tag>{entry.source}</Tag>
+  if (!entry.lifecycle) return <Tag color="default">{entry.source}</Tag>
   const { approved, enabled, loaded } = entry.lifecycle
-  if (loaded) return <Tag color="success">loaded</Tag>
-  if (enabled) return <Tag color="success">enabled</Tag>
-  if (approved) return <Tag color="processing">approved</Tag>
-  return <Tag color="warning">approval-required</Tag>
+  if (loaded) return <StatusDot color="#52c41a" text="已加载" />
+  if (enabled) return <StatusDot color="#52c41a" text="已启用" />
+  if (approved) return <StatusDot color="#1677ff" text="待启用" />
+  return <StatusDot color="#faad14" text="待批准" />
 }
 
 /** 批准前强制展示权限清单（§S3.5 不变量：未展示前批准不可用；hash 变更高亮）。 */

@@ -8,11 +8,19 @@
  * MCP = 已配置。
  */
 import { ReloadOutlined } from '@ant-design/icons'
-import { Alert, Button, Empty, List, Segmented, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Segmented, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
-import { Notice, installableMarketSource, marketErrorMessage, useAction } from './manage-shared'
+import {
+  ItemCard,
+  Notice,
+  PanelToolbar,
+  StatusDot,
+  installableMarketSource,
+  marketErrorMessage,
+  useAction,
+} from './manage-shared'
 import { McpServerFormModal } from './ManagePanels'
 
 type MarketKind = 'plugins' | 'skills' | 'mcp'
@@ -29,25 +37,81 @@ export function MarketPanel({
   )
   return (
     <div>
-      <Space style={{ marginBottom: 12 }}>
-        <Segmented
-          value={kind}
-          onChange={(next) => setKind(next as MarketKind)}
-          options={[
-            ...(available.plugins ? [{ value: 'plugins', label: 'Plugins' }] : []),
-            ...(available.skill ? [{ value: 'skills', label: 'Skills' }] : []),
-            ...(available.mcp ? [{ value: 'mcp', label: 'MCP' }] : []),
-          ]}
-        />
+      <div style={{ marginBottom: 10 }}>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 2 }}>
+          市场
+        </Typography.Title>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          索引源：<code>[plugins|skills|mcp] market</code>（~/.volund/config.toml；项目级覆盖禁止）
+          索引源：
+          <code>[plugins|skills|mcp] market</code>
+          （~/.volund/config.toml；项目级覆盖禁止，供应链面不变）
         </Typography.Text>
-      </Space>
+      </div>
+      <Segmented
+        value={kind}
+        onChange={(next) => setKind(next as MarketKind)}
+        style={{ marginBottom: 12 }}
+        options={[
+          ...(available.plugins ? [{ value: 'plugins', label: 'Plugins' }] : []),
+          ...(available.skill ? [{ value: 'skills', label: 'Skills' }] : []),
+          ...(available.mcp ? [{ value: 'mcp', label: 'MCP' }] : []),
+        ]}
+      />
       {kind === 'plugins' && <PluginsMarket api={api} />}
       {kind === 'skills' && <SkillsMarket api={api} />}
       {kind === 'mcp' && <McpMarket api={api} />}
     </div>
   )
+}
+
+/** 条目卡片：名称/版本行 + 描述行 + 右侧动作。 */
+function MarketItemCard({
+  title,
+  version,
+  meta,
+  action,
+}: {
+  title: string
+  version?: string
+  meta?: string
+  action: React.ReactNode
+}) {
+  return (
+    <ItemCard>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <Space size={8} wrap>
+            <Typography.Text strong>{title}</Typography.Text>
+            {version && <Tag color="default">v{version}</Tag>}
+          </Space>
+          {meta && (
+            <Typography.Paragraph
+              type="secondary"
+              style={{ marginBottom: 0, fontSize: 12 }}
+              ellipsis={{ rows: 2 }}
+            >
+              {meta}
+            </Typography.Paragraph>
+          )}
+        </div>
+        <div style={{ flexShrink: 0 }}>{action}</div>
+      </div>
+    </ItemCard>
+  )
+}
+
+function RefreshButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button icon={<ReloadOutlined />} size="small" onClick={onClick}>
+      刷新
+    </Button>
+  )
+}
+
+function Grid({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: 'grid', gap: 8 }}>{children}</div>
 }
 
 // ── Plugins 段：复用 plugins domain registry ──────────────────────────
@@ -98,78 +162,60 @@ function PluginsMarket({ api }: { api: WebApi }) {
   }, [load])
   return (
     <div>
-      <Space style={{ marginBottom: 8 }}>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-          刷新
-        </Button>
-      </Space>
+      <PanelToolbar>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {registry && 'plugins' in registry
+            ? `源：${registry.source} · ${installableMarketSource(registry.source) ? '本地源，可安装' : '远程 HTTPS 安装需签名信任根（§19a），当前置灰'}`
+            : '远程 HTTPS 安装需签名信任根（§19a）；loopback http 本地源可装'}
+        </Typography.Text>
+        <RefreshButton onClick={() => void load()} />
+      </PanelToolbar>
       <Notice message={notice} />
       {!registry && <Empty description="未配置 [plugins] market（~/.volund/config.toml）" />}
       {registry && 'error' in registry && <Alert type="warning" showIcon title={registry.error} />}
       {registry && 'plugins' in registry && (
-        <>
-          <Typography.Paragraph type="secondary">
-            源：{registry.source} · {registry.plugins.length} 个条目 ·{' '}
-            {installableMarketSource(registry.source)
-              ? '本地源，可安装'
-              : '远程 HTTPS 安装需签名信任根（§19a），当前置灰'}
-          </Typography.Paragraph>
-          <List
-            size="small"
-            dataSource={registry.plugins}
-            renderItem={(listing) => {
-              const record = installed?.find((entry) => entry.name === listing.name)
-              const badge = record
-                ? record.lifecycle?.enabled
-                  ? 'enabled'
-                  : record.lifecycle?.approved
-                    ? 'approved'
-                    : 'approval-required'
-                : undefined
-              const canInstall = !badge && installableMarketSource(registry.source)
-              return (
-                <List.Item
-                  actions={
-                    badge
-                      ? [
-                          <Tag key="state" color={badge === 'enabled' ? 'success' : 'processing'}>
-                            {badge}
-                          </Tag>,
-                        ]
-                      : [
-                          <Button
-                            key="install"
-                            size="small"
-                            type="primary"
-                            disabled={!canInstall}
-                            loading={busy === listing.name}
-                            title={
-                              canInstall
-                                ? undefined
-                                : '等待签名信任根（§19a）；loopback http 本地源可装'
-                            }
-                            onClick={() => void installListing(listing.name)}
-                          >
-                            安装
-                          </Button>,
-                        ]
-                  }
-                >
-                  <List.Item.Meta
-                    title={
-                      <>
-                        {listing.name} <Tag>v{listing.version}</Tag>
-                      </>
-                    }
-                    description={[listing.publisher, listing.description]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  />
-                </List.Item>
-              )
-            }}
-          />
-        </>
+        <Grid>
+          {registry.plugins.length === 0 && (
+            <Empty description="市场源没有条目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+          {registry.plugins.map((listing) => {
+            const record = installed?.find((entry) => entry.name === listing.name)
+            const badge = record
+              ? record.lifecycle?.enabled
+                ? { color: '#52c41a', text: '已启用' }
+                : record.lifecycle?.approved
+                  ? { color: '#1677ff', text: '待启用' }
+                  : { color: '#faad14', text: '待批准' }
+              : undefined
+            const canInstall = !badge && installableMarketSource(registry.source)
+            return (
+              <MarketItemCard
+                key={listing.name}
+                title={listing.name}
+                version={listing.version}
+                meta={[listing.publisher, listing.description].filter(Boolean).join(' · ')}
+                action={
+                  badge ? (
+                    <StatusDot color={badge.color} text={badge.text} />
+                  ) : (
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={!canInstall}
+                      loading={busy === listing.name}
+                      title={
+                        canInstall ? undefined : '等待签名信任根（§19a）；loopback http 本地源可装'
+                      }
+                      onClick={() => void installListing(listing.name)}
+                    >
+                      安装
+                    </Button>
+                  )
+                }
+              />
+            )
+          })}
+        </Grid>
       )}
     </div>
   )
@@ -217,10 +263,7 @@ function SkillsMarket({ api }: { api: WebApi }) {
   }, [load])
   return (
     <div>
-      <Space style={{ marginBottom: 8 }} wrap>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-          刷新
-        </Button>
+      <PanelToolbar>
         <Segmented
           value={scope}
           onChange={(next) => setScope(next as 'user' | 'project')}
@@ -229,24 +272,26 @@ function SkillsMarket({ api }: { api: WebApi }) {
             { value: 'project', label: '装到项目级' },
           ]}
         />
-      </Space>
+        <RefreshButton onClick={() => void load()} />
+      </PanelToolbar>
       <Notice message={notice} />
       {entries !== undefined && entries.length === 0 && <Empty description="目录为空" />}
-      <List
-        size="small"
-        dataSource={entries ?? []}
-        renderItem={(entry) => {
+      <Grid>
+        {(entries ?? []).map((entry) => {
           const isInstalled = installedNames?.includes(entry.name)
           return (
-            <List.Item
-              actions={[
+            <MarketItemCard
+              key={entry.name}
+              title={`/${entry.name}`}
+              {...(entry.version !== undefined ? { version: entry.version } : {})}
+              {...(entry.source || entry.description
+                ? { meta: [entry.source, entry.description].filter(Boolean).join(' · ') }
+                : {})}
+              action={
                 isInstalled ? (
-                  <Tag key="state" color="success">
-                    已装
-                  </Tag>
+                  <StatusDot color="#52c41a" text="已装" />
                 ) : (
                   <Button
-                    key="install"
                     size="small"
                     type="primary"
                     loading={busy === entry.name}
@@ -254,21 +299,12 @@ function SkillsMarket({ api }: { api: WebApi }) {
                   >
                     安装
                   </Button>
-                ),
-              ]}
-            >
-              <List.Item.Meta
-                title={
-                  <>
-                    /{entry.name} {entry.version && <Tag>v{entry.version}</Tag>}
-                  </>
-                }
-                description={[entry.source, entry.description].filter(Boolean).join(' · ')}
-              />
-            </List.Item>
+                )
+              }
+            />
           )
-        }}
-      />
+        })}
+      </Grid>
     </div>
   )
 }
@@ -307,50 +343,38 @@ function McpMarket({ api }: { api: WebApi }) {
   }, [load])
   return (
     <div>
-      <Space style={{ marginBottom: 8 }}>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-          刷新
-        </Button>
+      <PanelToolbar>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           目录条目只预填表单——command/env 全文可见，确认后才写入 mcp.toml
         </Typography.Text>
-      </Space>
+        <RefreshButton onClick={() => void load()} />
+      </PanelToolbar>
       <Notice message={notice} />
-      <List
-        size="small"
-        dataSource={entries ?? []}
-        renderItem={(entry) => {
+      <Grid>
+        {(entries ?? []).map((entry) => {
           const isConfigured = configured?.includes(entry.name)
           return (
-            <List.Item
-              actions={[
+            <MarketItemCard
+              key={entry.name}
+              title={entry.name}
+              {...(entry.transport === 'stdio'
+                ? { meta: [entry.command, (entry.args ?? []).join(' ')].filter(Boolean).join(' ') }
+                : entry.url !== undefined
+                  ? { meta: entry.url }
+                  : {})}
+              action={
                 isConfigured ? (
-                  <Tag key="state" color="success">
-                    已配置
-                  </Tag>
+                  <StatusDot color="#52c41a" text="已配置" />
                 ) : (
-                  <Button key="prefill" size="small" onClick={() => setPrefill(entry)}>
+                  <Button size="small" onClick={() => setPrefill(entry)}>
                     预填安装…
                   </Button>
-                ),
-              ]}
-            >
-              <List.Item.Meta
-                title={
-                  <>
-                    {entry.name} <Tag>{entry.transport}</Tag>
-                  </>
-                }
-                description={
-                  entry.transport === 'stdio'
-                    ? [entry.command, (entry.args ?? []).join(' ')].filter(Boolean).join(' ')
-                    : entry.url
-                }
-              />
-            </List.Item>
+                )
+              }
+            />
           )
-        }}
-      />
+        })}
+      </Grid>
       {prefill && (
         <McpServerFormModal
           api={api}
