@@ -8,7 +8,7 @@
  * MCP = 已配置。
  */
 import { ReloadOutlined } from '@ant-design/icons'
-import { Alert, Button, Empty, Input, Segmented, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Input, Segmented, Space, Spin, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
@@ -102,9 +102,9 @@ function MarketItemCard({
   )
 }
 
-function RefreshButton({ onClick }: { onClick: () => void }) {
+function RefreshButton({ onClick, loading }: { onClick: () => void; loading: boolean }) {
   return (
-    <Button icon={<ReloadOutlined />} size="small" onClick={onClick}>
+    <Button icon={<ReloadOutlined />} size="small" loading={loading} onClick={onClick}>
       刷新
     </Button>
   )
@@ -112,6 +112,18 @@ function RefreshButton({ onClick }: { onClick: () => void }) {
 
 function Grid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gap: 8 }}>{children}</div>
+}
+
+/** 首次加载占位（拉远端索引秒级耗时；有数据后的刷新走按钮 loading，不闪列表）。 */
+function LoadingBlock({ text }: { text: string }) {
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', gap: 10, padding: '56px 0' }}>
+      <Spin />
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {text}
+      </Typography.Text>
+    </div>
+  )
 }
 
 // ── Plugins 段：复用 plugins domain registry ──────────────────────────
@@ -129,18 +141,24 @@ function PluginsMarket({ api }: { api: WebApi }) {
   const [installed, setInstalled] =
     useState<{ name: string; lifecycle?: { approved: boolean; enabled: boolean } }[]>()
   const [busy, setBusy] = useState<string>()
+  const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
-    const result = (await run({ action: 'inventory' }, undefined)) as
-      | {
-          market: {
-            installed: { name: string; lifecycle?: { approved: boolean; enabled: boolean } }[]
-            registry: PluginRegistry
+    setLoading(true)
+    try {
+      const result = (await run({ action: 'inventory' }, undefined)) as
+        | {
+            market: {
+              installed: { name: string; lifecycle?: { approved: boolean; enabled: boolean } }[]
+              registry: PluginRegistry
+            }
           }
-        }
-      | undefined
-    if (result) {
-      setInstalled(result.market.installed)
-      setRegistry(result.market.registry)
+        | undefined
+      if (result) {
+        setInstalled(result.market.installed)
+        setRegistry(result.market.registry)
+      }
+    } finally {
+      setLoading(false)
     }
   }, [run])
   const installListing = useCallback(
@@ -168,10 +186,13 @@ function PluginsMarket({ api }: { api: WebApi }) {
             ? `源：${registry.source} · ${installableMarketSource(registry.source) ? '本地源，可安装' : '远程 HTTPS 安装需签名信任根（§19a），当前置灰'}`
             : '远程 HTTPS 安装需签名信任根（§19a）；loopback http 本地源可装'}
         </Typography.Text>
-        <RefreshButton onClick={() => void load()} />
+        <RefreshButton loading={loading} onClick={() => void load()} />
       </PanelToolbar>
       <Notice message={notice} />
-      {!registry && <Empty description="未配置 [plugins] market（~/.volund/config.toml）" />}
+      {loading && !registry && <LoadingBlock text="正在加载市场 inventory…" />}
+      {!loading && !registry && (
+        <Empty description="未配置 [plugins] market（~/.volund/config.toml）" />
+      )}
       {registry && 'error' in registry && <Alert type="warning" showIcon title={registry.error} />}
       {registry && 'plugins' in registry && (
         <Grid>
@@ -236,25 +257,31 @@ function SkillsMarket({ api }: { api: WebApi }) {
   const [busy, setBusy] = useState<string>()
   const [scope, setScope] = useState<'user' | 'project'>('user')
   const [filter, setFilter] = useState('')
+  const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
-    await run({ action: 'marketList' }, (value) => {
-      const result = value as
-        | { entries?: SkillMarketEntry[]; error?: string; isDefault?: boolean; source?: string }
-        | undefined
-      if (!result) setNotice('未配置 [skills] market')
-      else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
-      else
-        setView({
-          entries: result.entries ?? [],
-          isDefault: result.isDefault ?? false,
-          source: result.source ?? '',
-        })
-    })
-    await run({ action: 'list' }, (value) => {
-      setInstalledNames(
-        ((value as { items: { name: string }[] }).items ?? []).map((item) => item.name),
-      )
-    })
+    setLoading(true)
+    try {
+      await run({ action: 'marketList' }, (value) => {
+        const result = value as
+          | { entries?: SkillMarketEntry[]; error?: string; isDefault?: boolean; source?: string }
+          | undefined
+        if (!result) setNotice('未配置 [skills] market')
+        else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+        else
+          setView({
+            entries: result.entries ?? [],
+            isDefault: result.isDefault ?? false,
+            source: result.source ?? '',
+          })
+      })
+      await run({ action: 'list' }, (value) => {
+        setInstalledNames(
+          ((value as { items: { name: string }[] }).items ?? []).map((item) => item.name),
+        )
+      })
+    } finally {
+      setLoading(false)
+    }
   }, [run])
   const installSkill = useCallback(
     async (entry: SkillMarketEntry) => {
@@ -302,11 +329,12 @@ function SkillsMarket({ api }: { api: WebApi }) {
         </Space>
         <Space>
           {view?.isDefault && <Tag color="blue">默认源 · anthropics/skills</Tag>}
-          <RefreshButton onClick={() => void load()} />
+          <RefreshButton loading={loading} onClick={() => void load()} />
         </Space>
       </PanelToolbar>
       <Notice message={notice} />
-      {view && entries.length === 0 && (
+      {loading && !view && <LoadingBlock text="正在拉取 skills 市场索引…" />}
+      {!loading && view && entries.length === 0 && (
         <Empty description={filter ? '没有匹配的条目' : '目录为空'} />
       )}
       <Grid>
@@ -361,22 +389,30 @@ function McpMarket({ api }: { api: WebApi }) {
   const [configured, setConfigured] = useState<string[]>()
   const [prefill, setPrefill] = useState<McpMarketEntry>()
   const [filter, setFilter] = useState('')
+  const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
-    await run({ action: 'marketList' }, (value) => {
-      const result = value as
-        | { entries?: McpMarketEntry[]; error?: string; isDefault?: boolean }
-        | undefined
-      if (!result) setNotice('未配置 [mcp] market')
-      else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
-      else
-        setView({
-          entries: result.entries ?? [],
-          isDefault: result.isDefault ?? false,
-        })
-    })
-    await run({ action: 'list' }, (value) => {
-      setConfigured(((value as { items: { name: string }[] }).items ?? []).map((item) => item.name))
-    })
+    setLoading(true)
+    try {
+      await run({ action: 'marketList' }, (value) => {
+        const result = value as
+          | { entries?: McpMarketEntry[]; error?: string; isDefault?: boolean }
+          | undefined
+        if (!result) setNotice('未配置 [mcp] market')
+        else if ('error' in result) setNotice(result.error ?? '索引拉取失败')
+        else
+          setView({
+            entries: result.entries ?? [],
+            isDefault: result.isDefault ?? false,
+          })
+      })
+      await run({ action: 'list' }, (value) => {
+        setConfigured(
+          ((value as { items: { name: string }[] }).items ?? []).map((item) => item.name),
+        )
+      })
+    } finally {
+      setLoading(false)
+    }
   }, [run])
   useEffect(() => {
     void load()
@@ -405,11 +441,12 @@ function McpMarket({ api }: { api: WebApi }) {
         </Space>
         <Space>
           {view?.isDefault && <Tag color="blue">默认源 · 官方 MCP Registry</Tag>}
-          <RefreshButton onClick={() => void load()} />
+          <RefreshButton loading={loading} onClick={() => void load()} />
         </Space>
       </PanelToolbar>
       <Notice message={notice} />
-      {view && entries.length === 0 && (
+      {loading && !view && <LoadingBlock text="正在拉取官方 MCP Registry…" />}
+      {!loading && view && entries.length === 0 && (
         <Empty description={filter ? '没有匹配的 server' : '目录为空'} />
       )}
       <Grid>
