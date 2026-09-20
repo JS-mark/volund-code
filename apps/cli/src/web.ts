@@ -144,6 +144,13 @@ function buildServerOptions(
           telemetry: {
             summary: () => ports.telemetry!.summary(),
             health: () => ports.telemetry!.health(),
+            // MG-16：管理动作采样与既有事件共用 recent 通道（Web 面板可见）。
+            events: (limit: number) =>
+              ports.telemetry!.events?.(limit) ?? {
+                events: [],
+                corruptLines: 0,
+                total: 0,
+              },
           },
         }
       : {}),

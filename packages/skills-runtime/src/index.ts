@@ -253,7 +253,13 @@ export class SkillsRuntime {
     const sourceRoot = await realpath(sourceDir)
     // SKILLS-MCPS-r1 §S3.2：默认装 user scope；--scope project 装到
     // <cwd>/.volund/skills（可写 = 非 interop 的目标作用域源）。
-    const writable = this.#sources.find(
+    // 惰性 provider（SM-08b）下 #sources 恒为空——与 discover 同路求值，
+    // 否则 skill install 静默装 0 个（WEB-EXT-MANAGE-MARKET r1 冒烟发现）。
+    const sources =
+      typeof this.options.sources === 'function'
+        ? await this.options.sources()
+        : (this.options.sources ?? this.#sources)
+    const writable = (sources ?? []).find(
       (source) => !source.interop && source.scope === (options.scope ?? 'user'),
     )
     if (!writable)
