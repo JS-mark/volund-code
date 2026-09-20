@@ -19,9 +19,9 @@ import { productIdentity, type JsonValue } from '@volund/shared'
 import type { Tool, ToolRegistry } from '@volund/tool-kit'
 
 import { disabledNamesFrom, updateConfigDisabledList } from './config-edit'
+import { fetchMcpMarketIndex } from './mcp-market'
 import type { McpPanelController } from './mcp-panel'
 import type { McpManagementPort, McpPort } from './ports'
-import { fetchMcpMarketIndex } from './mcp-market'
 import { serializeToml } from './toml'
 
 /**

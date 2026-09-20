@@ -21,8 +21,8 @@ export function createMemoryPanelController(
   memory: MemoryService,
   recall: MemoryRecallService | undefined,
   scope: MemoryRecordScope,
-  transfer?: MemoryTransferService | undefined,
-  emit?: ((event: string, fields: Record<string, unknown>) => void) | undefined,
+  transfer?: MemoryTransferService,
+  emit?: (event: string, fields: Record<string, unknown>) => void,
 ): MemoryPanelController {
   const requireTransfer = (): MemoryTransferService => {
     if (!transfer)

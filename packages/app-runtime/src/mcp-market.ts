@@ -97,16 +97,12 @@ export function parseMcpMarketIndex(value: unknown): readonly McpMarketEntry[] {
         : {}),
       ...(typeof entry.url === 'string' && entry.url ? { url: entry.url } : {}),
       ...(isTable(entry.headers) ? { headers: stringRecord(entry.headers, 'headers') } : {}),
-      ...(typeof entry.command === 'string' && entry.command
-        ? { command: entry.command }
-        : {}),
+      ...(typeof entry.command === 'string' && entry.command ? { command: entry.command } : {}),
       ...(Array.isArray(entry.args) && entry.args.every((item) => typeof item === 'string')
         ? { args: entry.args as string[] }
         : {}),
       ...(isTable(entry.env) ? { env: stringRecord(entry.env, 'env') } : {}),
-      ...(typeof entry.homepage === 'string' && entry.homepage
-        ? { homepage: entry.homepage }
-        : {}),
+      ...(typeof entry.homepage === 'string' && entry.homepage ? { homepage: entry.homepage } : {}),
     })
   }
   return entries

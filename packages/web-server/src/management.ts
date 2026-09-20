@@ -7,14 +7,10 @@
  * remove/reload/marketList/inventory/approve…）——实现侧是 app-runtime 的
  * mcpManagementPort / skillManagementPort / localPlugins（零新写路径）。
  */
-import type {
-  McpAddInput,
-  MemoryPanelController,
-  SkillListing,
-} from '@volund/app-runtime'
-import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
+import type { McpAddInput, MemoryPanelController, SkillListing } from '@volund/app-runtime'
 import type { McpMarketEntry } from '@volund/app-runtime'
 import type { SkillMarketEntry } from '@volund/app-runtime'
+import type { PluginInstallResult, PluginInventory, PluginInventoryEntry } from '@volund/plugin-sdk'
 
 export type SkillListItem = SkillListing
 
@@ -42,7 +38,10 @@ export interface McpPortLike {
   ): Promise<{ entry: unknown; tools: Array<{ name: string; description?: string }> }>
   setEnabled(name: string, enabled: boolean): Promise<unknown>
   add(input: McpAddInput): Promise<{ file: string; items: readonly unknown[] }>
-  remove(name: string, scope?: 'user' | 'project'): Promise<{ file: string; items: readonly unknown[] }>
+  remove(
+    name: string,
+    scope?: 'user' | 'project',
+  ): Promise<{ file: string; items: readonly unknown[] }>
   reload(): Promise<readonly unknown[]>
   marketList(): Promise<
     { source: string; entries: readonly McpMarketEntry[] } | { error: string } | undefined

@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createMemoryStack } from './memory'
-import { projectMemoryScope } from './memory-scope'
 import { createMemoryPanelController } from './memory-controller'
+import { projectMemoryScope } from './memory-scope'
 
 const dirs: string[] = []
 afterEach(async () =>
@@ -35,7 +35,11 @@ describe('memory panel controller create/export/import (WEB-EXT-MANAGE-MARKET-r1
     expect(created.source).toBe('user')
     expect(created.actor).toBe('web')
 
-    const updated = await controller.update(created.id, { content: 'updated', tags: ['c'] }, created.updatedAt)
+    const updated = await controller.update(
+      created.id,
+      { content: 'updated', tags: ['c'] },
+      created.updatedAt,
+    )
     expect(updated.content).toBe('updated')
     expect(updated.tags).toEqual(['c'])
 
