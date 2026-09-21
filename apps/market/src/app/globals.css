@@ -50,8 +50,8 @@ html[data-theme='light'] {
 
 :root {
   --mk-font:
-    'Avenir Next', 'Segoe UI Variable', 'Helvetica Neue', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    'Avenir Next', 'Segoe UI Variable', 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
   --mk-mono: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', monospace;
 }
 
@@ -78,8 +78,7 @@ body::before {
   background:
     radial-gradient(circle at 77% 4%, var(--mk-glow), transparent 25rem),
     linear-gradient(var(--mk-grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--mk-grid-line) 1px, transparent 1px),
-    var(--mk-ink);
+    linear-gradient(90deg, var(--mk-grid-line) 1px, transparent 1px), var(--mk-ink);
   background-size:
     auto,
     3rem 3rem,

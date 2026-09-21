@@ -76,8 +76,7 @@ export const zh = {
   'admin.tokenPlaceholder': 'MARKET_ADMIN_TOKEN（服务端 .env 里设置的值）',
   'admin.tokenNote':
     'token 只存本机 localStorage，随请求以 Bearer 头发送；服务端未配置 token 时写接口整体关闭。',
-  footer:
-    '索引契约与 volund 客户端逐字段对齐 · 插件可执行安装仅限回环 http 源',
+  footer: '索引契约与 volund 客户端逐字段对齐 · 插件可执行安装仅限回环 http 源',
 } as const
 
 export type Dict = Record<keyof typeof zh, string>

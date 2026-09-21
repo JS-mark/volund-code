@@ -160,7 +160,10 @@ if (token) {
   check('mcp create 201', addMcp.status === 201, `status=${addMcp.status}`)
   const mcpVisible = await getJson('/api/mcp/index.json')
   const smokeMcp = mcpVisible.entries.find((entry) => entry.name === 'smoke-test-mcp')
-  check('mcp visible with version in compat index', Boolean(smokeMcp && smokeMcp.version === '1.2.3'))
+  check(
+    'mcp visible with version in compat index',
+    Boolean(smokeMcp && smokeMcp.version === '1.2.3'),
+  )
   const removeMcp = await fetch(`${base}/api/v1/mcp/smoke-test-mcp`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${token}` },

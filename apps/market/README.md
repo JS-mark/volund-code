@@ -38,8 +38,8 @@ pnpm --filter @volund/market dev            # http://127.0.0.1:4315
 | `GET /api/v1/plugins/:name`                                  | 详情（全部版本、最新 manifest、文件 digest、readme）                                                                                   |
 | `POST /api/v1/plugins`                                       | 发布：`{files:[{path,contentBase64}], publisher?, readme?}`；manifest 从 `files['manifest.json']` 解出并按宿主规则校验；同名同版本 409 |
 | `DELETE /api/v1/plugins/:name`                               | 删除全部版本与 bundle                                                                                                                  |
-| `GET/POST /api/v1/skills`、`GET/DELETE /api/v1/skills/:name` | Skill 目录 upsert（重名提交 = 更新；`source` 须是 SkillPort.install 认的 git 形态；`version` 可选 semver）  |
-| `GET/POST /api/v1/mcp`、`GET/DELETE /api/v1/mcp/:name`       | MCP 目录 upsert（重名提交 = 更新；stdio 必须有 command；http 必须有 url；`version` 可选 semver）           |
+| `GET/POST /api/v1/skills`、`GET/DELETE /api/v1/skills/:name` | Skill 目录 upsert（重名提交 = 更新；`source` 须是 SkillPort.install 认的 git 形态；`version` 可选 semver）                             |
+| `GET/POST /api/v1/mcp`、`GET/DELETE /api/v1/mcp/:name`       | MCP 目录 upsert（重名提交 = 更新；stdio 必须有 command；http 必须有 url；`version` 可选 semver）                                       |
 | `GET /api/health`                                            | 存活 + 条目计数                                                                                                                        |
 
 ## 客户端接入（volund 侧零改动）

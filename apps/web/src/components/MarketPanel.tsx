@@ -164,9 +164,7 @@ type PluginListing = {
   publisher?: string
 }
 
-type PluginRegistry =
-  | { source: string; plugins: PluginListing[] }
-  | { error: string }
+type PluginRegistry = { source: string; plugins: PluginListing[] } | { error: string }
 
 function PluginsMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'plugins')
@@ -302,12 +300,16 @@ function PluginsMarket({ api }: { api: WebApi }) {
               安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
             </Typography.Paragraph>
             {installed?.some((entry) => entry.name === detail.name) ? (
-              <Typography.Text type="secondary">已安装（在 Plugins 页签管理生命周期）</Typography.Text>
+              <Typography.Text type="secondary">
+                已安装（在 Plugins 页签管理生命周期）
+              </Typography.Text>
             ) : (
               <Button
                 type="primary"
                 block
-                disabled={!(registry && 'source' in registry && installableMarketSource(registry.source))}
+                disabled={
+                  !(registry && 'source' in registry && installableMarketSource(registry.source))
+                }
                 loading={busy === detail.name}
                 onClick={() => void installListing(detail.name)}
               >
