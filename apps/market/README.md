@@ -56,23 +56,69 @@ market = "http://127.0.0.1:4315/api/skills/index.json"
 market = "http://127.0.0.1:4315/api/mcp/index.json"
 ```
 
-## Docker 部署
+## Docker
 
-一条命令完成「standalone 构建 → 打包镜像 → 起容器」（需本机 docker）：
+镜像内只包含 standalone 产物 + node:22-bookworm-slim 运行时（非 root、自带
+`/api/health` 健康检查），数据一律放 `/app/data`（首次启动自动播种）。
+
+### 发布镜像（推送方）
+
+一条命令完成「standalone 构建 → 打包镜像 → 推送」：
 
 ```bash
-MARKET_ADMIN_TOKEN=xxx sh apps/market/scripts/docker-deploy.sh
-# PORT=8080 IMAGE=registry.example.com/volund-market:v1 可覆盖端口/镜像名
+REGISTRY=registry.example.com/volund sh apps/market/scripts/image-push.sh
+# REGISTRY=… sh apps/market/scripts/image-push.sh v1.2.0   # 指定 tag（默认取 package.json 版本）
 ```
 
-- 部署脚本流程：`NEXT_OUTPUT=standalone pnpm build` → 产物整理到
-  `apps/market/.docker-build/` → `docker build`（上下文只有产物，秒级）→
-  起容器（非 root、自带 `/api/health` 健康检查、`restart: unless-stopped`）
-- 数据持久化：命名卷 `volund-market-data`；升级 = 重跑脚本（旧容器原地替换，数据保留）
-- compose 编排（自定义端口/卷/环境）：改完跑一次部署脚本生成产物后
-  `docker compose -f apps/market/docker-compose.yml up -d`
-- 迁移数据：`docker run --rm -v volund-market-data:/data alpine tar cz -C /data . > backup.tgz`
-- colima / 旧版 builder 用户：legacy builder 传上下文较慢，建议 `docker buildx install`
+脚本同时推送 `:版本号` 与 `:latest`。在 amd64 机器上发布 arm64 镜像（或反过来）
+用多架构构建：
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t $REGISTRY/volund-market:1.2.0 -t $REGISTRY/volund-market:latest --push apps/market
+```
+
+（buildx 路径要求产物已存在于 `apps/market/.docker-build`，先跑一次
+`NEXT_OUTPUT=standalone pnpm build` 并按脚本第 2 步整理。）
+
+### 使用镜像（使用方）
+
+```bash
+docker run -d --name volund-market \
+  -p 4315:4315 \
+  -e MARKET_ADMIN_TOKEN=你的写接口令牌 \
+  -v volund-market-data:/app/data \
+  --restart unless-stopped \
+  registry.example.com/volund/volund-market:1.0.0
+```
+
+| 配置 | 说明 |
+| --- | --- |
+| `-p 4315:4315` | 宿主端口映射（容器内固定 4315） |
+| `-e MARKET_ADMIN_TOKEN=…` | 管理 API（发布/删除）的写接口令牌；不设则写接口整体关闭，浏览/下载不受影响 |
+| `-v volund-market-data:/app/data` | 市场数据持久化（单文件 JSON 库 + 插件 bundle），**必须挂载**，否则容器重建数据丢失 |
+| `--restart unless-stopped` | 崩溃/宿主重启后自动拉起 |
+
+compose 编排（`MARKET_IMAGE` / `MARKET_ADMIN_TOKEN` 走环境变量或同目录 `.env`）：
+
+```bash
+MARKET_IMAGE=registry.example.com/volund/volund-market:1.0.0 \
+MARKET_ADMIN_TOKEN=xxx \
+docker compose -f apps/market/docker-compose.yml up -d
+```
+
+接入 volund 客户端：`~/.volund/config.toml` 的三个 `market` 指向
+`http://<宿主>:4315/api/{plugins,skills,mcp}/index.json`（见「客户端接入」）。
+
+**升级**：拉新镜像后 `docker rm -f volund-market` 再用新镜像重跑上面的
+`docker run`（数据在命名卷里保留）。
+
+**数据备份 / 迁移**：
+
+```bash
+docker run --rm -v volund-market-data:/data alpine tar cz -C /data . > market-backup.tgz
+# 恢复：docker run --rm -i -v volund-market-data:/data alpine tar xz -C /data < market-backup.tgz
+```
 - 容器验证记录：`docker run` 后 health/index/首页 200，数据卷跨容器重启持久化（写入 → restart → 仍在）
 
 

@@ -1,7 +1,6 @@
 # market 运行镜像：只打包「宿主机构建好的 standalone 产物」（上下文 = apps/market）。
-# 不要直接 docker build——产物由部署脚本生成：
-#   sh apps/market/scripts/docker-deploy.sh
-# 脚本流程：宿主 NEXT_OUTPUT=standalone 构建 → 产物整理到 apps/market/.docker-build → 本镜像。
+# 产物与镜像的构建/推送走 scripts/image-push.sh（或手动 NEXT_OUTPUT=standalone pnpm
+# build 后按脚本第 2 步整理到 .docker-build）。
 # 镜像内不需要 node_modules/lockfile——standalone 已包含裁剪后的依赖。
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
