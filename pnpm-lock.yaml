@@ -430,6 +430,43 @@ importers:
         specifier: 'catalog:'
         version: 3.5.40(typescript@5.9.3)
 
+  apps/market:
+    dependencies:
+      '@ant-design/icons':
+        specifier: 'catalog:'
+        version: 6.3.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@ant-design/nextjs-registry':
+        specifier: 'catalog:'
+        version: 1.3.0(@ant-design/cssinjs@2.1.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(antd@6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(next@16.3.4(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      antd:
+        specifier: 'catalog:'
+        version: 6.6.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      next:
+        specifier: 'catalog:'
+        version: 16.3.4(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react:
+        specifier: 'catalog:'
+        version: 19.2.8
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.7(@types/react@19.2.18)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.2)(terser@5.51.2)(yaml@2.9.0))
+
   apps/mobile:
     dependencies:
       '@ant-design/icons':

@@ -1,0 +1,405 @@
+/* 设计语言对齐 apps/docs（VitePress 主题 custom.css）：墨色画布 + 3rem 网格 +
+   角落青绿辉光 + 颗粒噪点；mono 眉题/字标、发丝线边框、accent 悬停。
+   主题三态（auto/dark/light）经 <html data-theme> 切换，色板全部走 CSS 变量；
+   白昼色板取自 docs custom.css 的 html:not(.dark) 覆盖。 */
+
+:root,
+html[data-theme='dark'] {
+  --mk-ink: #0a0d0d;
+  --mk-surface: #151918;
+  --mk-line: rgba(231, 239, 229, 0.14);
+  --mk-accent: #2bbd9b;
+  --mk-accent-strong: #55d7b9;
+  --mk-text: #edf1e9;
+  --mk-muted: #9ca59f;
+  --mk-desc: #89928d;
+  --mk-lede: #aab2ad;
+  --mk-card-bg: rgba(21, 25, 24, 0.5);
+  --mk-card-hover-bg: rgba(24, 30, 28, 0.72);
+  --mk-code-bg: rgba(13, 16, 15, 0.85);
+  --mk-code-text: #c7cec9;
+  --mk-glow: rgba(43, 189, 155, 0.11);
+  --mk-grid-line: rgba(255, 255, 255, 0.025);
+  --mk-shadow: rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+html[data-theme='light'] {
+  --mk-ink: #f0f0e9;
+  --mk-surface: #e7e7df;
+  --mk-line: rgba(20, 31, 25, 0.16);
+  --mk-accent: #147a69;
+  --mk-accent-strong: #0f6759;
+  --mk-text: #111714;
+  --mk-muted: #667069;
+  --mk-desc: #4e5952;
+  --mk-lede: #4e5952;
+  --mk-card-bg: rgba(252, 253, 248, 0.6);
+  --mk-card-hover-bg: rgba(255, 255, 250, 0.9);
+  --mk-code-bg: rgba(227, 229, 220, 0.8);
+  --mk-code-text: #333d37;
+  --mk-glow: rgba(20, 122, 105, 0.13);
+  --mk-grid-line: rgba(18, 30, 23, 0.05);
+  --mk-shadow: rgba(20, 31, 25, 0.14);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --mk-font:
+    'Avenir Next', 'Segoe UI Variable', 'Helvetica Neue', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --mk-mono: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+body {
+  margin: 0;
+  color: var(--mk-text);
+  background: var(--mk-ink);
+  font-family: var(--mk-font);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 画布铺满视口（比内容列更宽的屏幕也完整覆盖） */
+body::before,
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: '';
+}
+
+body::before {
+  background:
+    radial-gradient(circle at 77% 4%, var(--mk-glow), transparent 25rem),
+    linear-gradient(var(--mk-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mk-grid-line) 1px, transparent 1px),
+    var(--mk-ink);
+  background-size:
+    auto,
+    3rem 3rem,
+    3rem 3rem,
+    auto;
+}
+
+body::after {
+  opacity: 0.16;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.25'/%3E%3C/svg%3E");
+}
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell {
+  /* width:100% 必须显式：.page 是 column flex，块级 margin:auto 会让子项
+     退化成 shrink-to-fit（auto 外边距吃掉 stretch），内容列塌缩到内容宽 */
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* 顶栏不做实色条：全宽画布色渐隐融进页面，滚动时保持字面可读即可 */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mk-ink) 78%, transparent) 50%,
+    color-mix(in srgb, var(--mk-ink) 28%, transparent) 84%,
+    transparent
+  );
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  padding-bottom: 14px;
+}
+
+.site-header .brand {
+  color: var(--mk-text);
+  font-family: var(--mk-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-decoration: none;
+}
+
+.site-header .brand:hover .mk-accent-text {
+  color: var(--mk-accent-strong);
+}
+
+.mk-accent-text {
+  color: var(--mk-accent);
+}
+
+.site-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.site-header nav a {
+  margin-left: 22px;
+  color: var(--mk-muted);
+  font-family: var(--mk-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.site-header nav a:hover,
+.site-header nav a.active {
+  color: var(--mk-accent);
+}
+
+.mk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--mk-muted);
+  cursor: pointer;
+  font-family: var(--mk-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.mk-icon-btn:hover {
+  color: var(--mk-accent);
+  border-color: var(--mk-line);
+}
+
+main.shell {
+  flex: 1;
+  padding-bottom: 56px;
+}
+
+.site-footer {
+  border-top: 1px solid var(--mk-line);
+  color: var(--mk-muted);
+  font-family: var(--mk-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+}
+
+.site-footer .shell {
+  padding-top: 18px;
+  padding-bottom: 30px;
+}
+
+/* 眉题 + 展示级标题 + 引子（docs hero 同款比例，zh 用宽松字距） */
+.mk-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 44px 0 0;
+  color: var(--mk-muted);
+  font-family: var(--mk-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mk-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--mk-accent);
+  box-shadow: 0 0 1rem color-mix(in srgb, var(--mk-accent) 80%, transparent);
+  animation: mk-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes mk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.mk-display {
+  margin: 16px 0 12px;
+  font-size: clamp(2.1rem, 4.5vw, 3.1rem);
+  font-weight: 560;
+  letter-spacing: -0.015em;
+  line-height: 1.08;
+}
+
+.mk-lede {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--mk-lede);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.mk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 30px;
+}
+
+.mk-grid {
+  display: grid;
+  /* 280px 下限：1400 内容列 4 列，中屏 3 列，缩放/窄窗保 2 列 */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.mk-card {
+  padding: 18px;
+  border: 1px solid var(--mk-line);
+  border-radius: 10px;
+  background: var(--mk-card-bg);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.mk-card:hover {
+  border-color: color-mix(in srgb, var(--mk-accent) 55%, transparent);
+  background: var(--mk-card-hover-bg);
+  transform: translateY(-2px);
+  box-shadow:
+    0 14px 34px var(--mk-shadow),
+    0 0 0 1px color-mix(in srgb, var(--mk-accent) 12%, transparent);
+}
+
+.mk-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mk-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.mk-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.8em;
+  margin: 8px 0 14px;
+  color: var(--mk-desc);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.mk-meta {
+  display: flex;
+  gap: 14px;
+  color: var(--mk-muted);
+  font-family: var(--mk-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+}
+
+.mk-chip {
+  display: inline-block;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--mk-accent) 40%, transparent);
+  border-radius: 999px;
+  color: var(--mk-accent);
+  font-family: var(--mk-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.mk-chip.neutral {
+  border-color: var(--mk-line);
+  color: var(--mk-muted);
+}
+
+/* antd 面板（详情/管理页的 Card）统一发丝线 + 眉题化标题 */
+.mk-panel {
+  border-color: var(--mk-line) !important;
+  background: var(--mk-card-bg) !important;
+}
+
+.mk-panel .ant-card-head {
+  min-height: auto;
+  border-bottom-color: var(--mk-line);
+}
+
+.mk-panel .ant-card-head .ant-card-head-title {
+  color: var(--mk-muted) !important;
+  font-family: var(--mk-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mk-codeblock {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--mk-line);
+  border-radius: 8px;
+  background: var(--mk-code-bg);
+  color: var(--mk-code-text);
+  font-family: var(--mk-mono);
+  font-size: 0.74rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mk-loading {
+  padding: 90px 0;
+  text-align: center;
+}
+
+.mk-empty {
+  padding: 70px 0;
+  color: var(--mk-muted);
+  font-family: var(--mk-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.mk-back {
+  margin-top: 28px;
+  margin-left: -8px;
+}

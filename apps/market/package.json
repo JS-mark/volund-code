@@ -1,0 +1,31 @@
+{
+  "name": "@volund/market",
+  "version": "0.1.0",
+  "private": true,
+  "description": "volund 插件 / Skill / MCP 市场服务端：兼容层索引与 app-runtime 客户端解析器逐字段对齐，客户端零改动接入",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev -p 4315",
+    "start": "next start -p 4315",
+    "test": "vitest run --passWithNoTests --exclude='dist/**' --exclude='.next/**' --exclude='out/**'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "market:publish": "node scripts/publish.mjs",
+    "market:smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "catalog:",
+    "@ant-design/nextjs-registry": "catalog:",
+    "antd": "catalog:",
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

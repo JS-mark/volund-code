@@ -14,6 +14,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "out/**", ".vitepress/dist/**"]
     },
+    "@volund/market#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
     "test": {
       "dependsOn": ["^build", "//#verify:config-docs", "//#verify:error-codes"],
       "outputs": []
