@@ -1,0 +1,23 @@
+# market 服务端编排（镜像构建走 apps/market/Dockerfile，产物需先由
+# scripts/docker-deploy.sh 生成到 apps/market/.docker-build——脚本会一并起容器，
+# 通常不需要手动 compose；compose 用于自定义端口/卷/环境后的编排管理）。
+#   MARKET_ADMIN_TOKEN=xxx sh apps/market/scripts/docker-deploy.sh
+#   docker compose -f apps/market/docker-compose.yml up -d
+services:
+  market:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: volund-market:latest
+    container_name: volund-market
+    restart: unless-stopped
+    ports:
+      - '4315:4315'
+    environment:
+      PORT: 4315
+      MARKET_ADMIN_TOKEN: ${MARKET_ADMIN_TOKEN:?在 .env 或环境变量里设置 MARKET_ADMIN_TOKEN}
+    volumes:
+      - market-data:/app/data
+
+volumes:
+  market-data:

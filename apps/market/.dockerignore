@@ -1,0 +1,4 @@
+# 上下文 = apps/market，且产物在 .docker-build 里打包进镜像——其余全部排除。
+*
+!.docker-build
+!Dockerfile

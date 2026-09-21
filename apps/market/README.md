@@ -56,6 +56,25 @@ market = "http://127.0.0.1:4315/api/skills/index.json"
 market = "http://127.0.0.1:4315/api/mcp/index.json"
 ```
 
+## Docker 部署
+
+一条命令完成「standalone 构建 → 打包镜像 → 起容器」（需本机 docker）：
+
+```bash
+MARKET_ADMIN_TOKEN=xxx sh apps/market/scripts/docker-deploy.sh
+# PORT=8080 IMAGE=registry.example.com/volund-market:v1 可覆盖端口/镜像名
+```
+
+- 部署脚本流程：`NEXT_OUTPUT=standalone pnpm build` → 产物整理到
+  `apps/market/.docker-build/` → `docker build`（上下文只有产物，秒级）→
+  起容器（非 root、自带 `/api/health` 健康检查、`restart: unless-stopped`）
+- 数据持久化：命名卷 `volund-market-data`；升级 = 重跑脚本（旧容器原地替换，数据保留）
+- compose 编排（自定义端口/卷/环境）：改完跑一次部署脚本生成产物后
+  `docker compose -f apps/market/docker-compose.yml up -d`
+- 迁移数据：`docker run --rm -v volund-market-data:/data alpine tar cz -C /data . > backup.tgz`
+- colima / 旧版 builder 用户：legacy builder 传上下文较慢，建议 `docker buildx install`
+
+
 ## 发布插件
 
 方式一：`/admin` 页面选插件目录上传（浏览器 folder picker，自动剔除

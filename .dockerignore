@@ -1,4 +1,4 @@
-# Docker 构建上下文裁剪（deploy/gateway/Dockerfile 的上下文是仓库根）。
+# Docker 构建上下文裁剪（deploy/gateway/Dockerfile 与 apps/market/Dockerfile 的上下文都是仓库根）。
 .git
 node_modules
 **/node_modules
@@ -9,8 +9,15 @@ target
 _tmp_test
 apps/web/out
 **/.next
+**/out
 apps/docs/.vitepress/cache
 apps/docs/.vitepress/dist
+**/coverage
+**/*.tsbuildinfo
+**/data
+crates
+docs
+examples
 *.log
 .DS_Store
 deploy/gateway/workspace

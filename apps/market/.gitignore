@@ -1,2 +1,4 @@
 # 运行时状态：单文件 JSON 库 + 插件 bundle（首次启动自动播种）
 data/
+# Docker 部署产物（scripts/docker-deploy.sh 生成，打进镜像）
+.docker-build/
