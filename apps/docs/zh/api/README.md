@@ -1,8 +1,15 @@
-# API 参考（导读）
+# Volund CLI API
 
-> API 参考由 TypeDoc 从 TypeScript 导出生成，**内容为英文**；本页是中文导读，各模块详情点击后进入对应英文参考页。
+> **同一性约定：** 公开 TypeScript 符号、schema ID、环境变量、manifest 键、命令名、
+> 包名与磁盘路径统一使用 `volund` / `VOLUND` 拼写。
 
-Volund CLI 的公开 API 按包划分为以下模块（`@volund/<模块名>`）：
+本参考由 TypeDoc 从导出的 TypeScript API 自动生成（内容为英文）。面向使用方的命令与
+示例请使用 `volund` 命令与 [`@volund/cli`](/zh/docs/reference/cli) npm 包，见
+[使用指南](/zh/docs/guides/managing-skills)。
+
+## 模块目录
+
+API 按包划分为以下模块（详情为英文参考页；与英文版侧栏一致）：
 
 | 模块 | 职责 |
 | --- | --- |
@@ -25,6 +32,3 @@ Volund CLI 的公开 API 按包划分为以下模块（`@volund/<模块名>`）�
 | [tool-kit](/api/tool-kit/src/README) | 工具公共套件 |
 | [tools](/api/tools/src/README) | 内置工具 |
 | [ui](/api/ui/src/README) | TUI 组件 |
-
-面向使用方的命令与示例请直接看[使用指南](/zh/docs/guides/managing-skills)与
-[CLI 参考](/zh/docs/reference/cli)——API 层主要面向参与内核与插件开发的贡献者。
