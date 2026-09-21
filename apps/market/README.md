@@ -73,6 +73,7 @@ MARKET_ADMIN_TOKEN=xxx sh apps/market/scripts/docker-deploy.sh
   `docker compose -f apps/market/docker-compose.yml up -d`
 - 迁移数据：`docker run --rm -v volund-market-data:/data alpine tar cz -C /data . > backup.tgz`
 - colima / 旧版 builder 用户：legacy builder 传上下文较慢，建议 `docker buildx install`
+- 容器验证记录：`docker run` 后 health/index/首页 200，数据卷跨容器重启持久化（写入 → restart → 仍在）
 
 
 ## 发布插件
