@@ -9,6 +9,8 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
   Button,
+  Descriptions,
+  Drawer,
   Empty,
   Form,
   Input,
@@ -36,6 +38,7 @@ import {
   StatusDot,
   downloadJson,
   formatTime,
+  installableMarketSource,
   marketErrorMessage,
   useAction,
   useInventory,
@@ -948,6 +951,10 @@ type PluginEntry = {
   name: string
   version: string
   source: 'builtin' | 'dev' | 'market'
+  /** 市场插件安装目录（inventory 投影含；approvals 等场景可省）。 */
+  dir?: string
+  commands?: number
+  statusTabs?: number
   lifecycle?: { permissionHash: string; approved: boolean; enabled: boolean; loaded: boolean }
   permissions?: Record<string, unknown>
 }
@@ -975,6 +982,10 @@ function PluginsPanel({ api }: { api: WebApi }) {
   const [inventory, setInventory] = useState<PluginInventory>()
   const [approve, setApprove] = useState<PluginEntry>()
   const [installing, setInstalling] = useState<string>()
+  const [listingDetail, setListingDetail] = useState<
+    { name: string; version: string; description?: string; publisher?: string } | undefined
+  >()
+  const [entryDetail, setEntryDetail] = useState<PluginEntry>()
   const loadInventory = useCallback(async () => {
     await run({ action: 'inventory' }, (value) => setInventory(value as PluginInventory))
   }, [run])
@@ -1051,7 +1062,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
     return actions
   }
 
-  const renderEntries = (entries: PluginEntry[]) => (
+  const renderEntries = (entries: PluginEntry[], onDetail?: (entry: PluginEntry) => void) => (
     <div style={{ display: 'grid', gap: 8 }}>
       {entries.length === 0 && <Empty description="无" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
       {entries.map((entry) => (
@@ -1064,11 +1075,17 @@ function PluginsPanel({ api }: { api: WebApi }) {
               gap: 12,
             }}
           >
-            <Space size={8} wrap>
-              <Typography.Text strong>{entry.name}</Typography.Text>
-              <Tag color="default">v{entry.version}</Tag>
-              <PluginLifecycleTag entry={entry} />
-            </Space>
+            <div
+              style={{ minWidth: 0, cursor: onDetail ? 'pointer' : undefined }}
+              onClick={() => onDetail?.(entry)}
+              title={onDetail ? '查看详情' : undefined}
+            >
+              <Space size={8} wrap>
+                <Typography.Text strong>{entry.name}</Typography.Text>
+                <Tag color="default">v{entry.version}</Tag>
+                <PluginLifecycleTag entry={entry} />
+              </Space>
+            </div>
             <Space size={0}>{entryActions(entry)}</Space>
           </div>
         </ItemCard>
@@ -1159,7 +1176,7 @@ function PluginsPanel({ api }: { api: WebApi }) {
                   <Typography.Title level={5} style={{ marginTop: 0 }}>
                     已安装
                   </Typography.Title>
-                  {renderEntries(inventory?.market.installed ?? [])}
+                  {renderEntries(inventory?.market.installed ?? [], setEntryDetail)}
                 </div>
                 <div>
                   <Typography.Title level={5}>市场源</Typography.Title>
@@ -1188,7 +1205,11 @@ function PluginsPanel({ api }: { api: WebApi }) {
                                 gap: 12,
                               }}
                             >
-                              <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{ minWidth: 0, cursor: 'pointer' }}
+                                onClick={() => setListingDetail(listing)}
+                                title="查看详情"
+                              >
                                 <Space size={8} wrap>
                                   <Typography.Text strong>{listing.name}</Typography.Text>
                                   <Tag color="default">v{listing.version}</Tag>
@@ -1224,6 +1245,80 @@ function PluginsPanel({ api }: { api: WebApi }) {
           },
         ]}
       />
+      <Modal
+        open={Boolean(listingDetail)}
+        onCancel={() => setListingDetail(undefined)}
+        centered
+        title={listingDetail ? `${listingDetail.name} v${listingDetail.version}` : undefined}
+        width={640}
+        footer={null}
+      >
+        {listingDetail && (
+          <>
+            <Descriptions size="small" column={1} bordered>
+              <Descriptions.Item label="版本">{listingDetail.version}</Descriptions.Item>
+              <Descriptions.Item label="发布者">{listingDetail.publisher ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="描述">{listingDetail.description ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="索引源">
+                <Typography.Text copyable code style={{ fontSize: 12 }}>
+                  {registry && 'source' in registry ? registry.source : ''}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="安装资格">
+                {registry && 'source' in registry && installableMarketSource(registry.source)
+                  ? '本地源，可安装'
+                  : '远程 HTTPS 安装需签名信任根（§19a）'}
+              </Descriptions.Item>
+            </Descriptions>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+              安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
+            </Typography.Paragraph>
+            {inventory?.market.installed.some((entry) => entry.name === listingDetail.name) ? (
+              <Typography.Text type="secondary">已安装（上方「已安装」列表管理生命周期）</Typography.Text>
+            ) : (
+              <Button
+                type="primary"
+                block
+                disabled={!(registry && 'source' in registry && installableMarketSource(registry.source))}
+                loading={installing === listingDetail.name}
+                onClick={() => void install(listingDetail.name)}
+              >
+                安装 v{listingDetail.version}
+              </Button>
+            )}
+          </>
+        )}
+      </Modal>
+      <Modal
+        open={Boolean(entryDetail)}
+        onCancel={() => setEntryDetail(undefined)}
+        centered
+        title={entryDetail ? `${entryDetail.name} v${entryDetail.version}` : undefined}
+        width={640}
+        footer={null}
+      >
+        {entryDetail && (
+          <Descriptions size="small" column={1} bordered>
+            <Descriptions.Item label="来源">{entryDetail.source}</Descriptions.Item>
+            <Descriptions.Item label="安装目录">
+              <Typography.Text copyable code style={{ fontSize: 12 }}>
+                {entryDetail.dir}
+              </Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="注册命令数">{entryDetail.commands}</Descriptions.Item>
+            <Descriptions.Item label="状态页签数">{entryDetail.statusTabs}</Descriptions.Item>
+            <Descriptions.Item label="已批准">
+              {entryDetail.lifecycle?.approved ? '是' : '否'}
+            </Descriptions.Item>
+            <Descriptions.Item label="已启用">
+              {entryDetail.lifecycle?.enabled ? '是' : '否'}
+            </Descriptions.Item>
+            <Descriptions.Item label="已加载">
+              {entryDetail.lifecycle?.loaded ? '是' : '否'}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
       {approve && (
         <ApproveModal
           api={api}

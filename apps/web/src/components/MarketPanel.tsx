@@ -8,7 +8,19 @@
  * MCP = 已配置。
  */
 import { ReloadOutlined } from '@ant-design/icons'
-import { Alert, Button, Empty, Input, Segmented, Space, Spin, Tag, Typography } from 'antd'
+import {
+  Alert,
+  Button,
+  Descriptions,
+  Empty,
+  Input,
+  Modal,
+  Segmented,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { WebApi } from '../lib/api'
@@ -64,24 +76,30 @@ export function MarketPanel({
   )
 }
 
-/** 条目卡片：名称/版本行 + 描述行 + 右侧动作。 */
+/** 条目卡片：名称/版本行 + 描述行 + 右侧动作；左侧区域可点开详情抽屉。 */
 function MarketItemCard({
   title,
   version,
   meta,
   action,
+  onDetail,
 }: {
   title: string
   version?: string
   meta?: string
   action: React.ReactNode
+  onDetail?: () => void
 }) {
   return (
     <ItemCard>
       <div
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div
+          style={{ minWidth: 0, cursor: onDetail ? 'pointer' : undefined }}
+          onClick={onDetail}
+          title={onDetail ? '查看详情' : undefined}
+        >
           <Space size={8} wrap>
             <Typography.Text strong>{title}</Typography.Text>
             {version && <Tag color="default">v{version}</Tag>}
@@ -94,6 +112,17 @@ function MarketItemCard({
             >
               {meta}
             </Typography.Paragraph>
+          )}
+          {onDetail && (
+            <Typography.Link
+              onClick={(event) => {
+                event.stopPropagation()
+                onDetail()
+              }}
+              style={{ fontSize: 12 }}
+            >
+              详情
+            </Typography.Link>
           )}
         </div>
         <div style={{ flexShrink: 0 }}>{action}</div>
@@ -128,11 +157,15 @@ function LoadingBlock({ text }: { text: string }) {
 
 // ── Plugins 段：复用 plugins domain registry ──────────────────────────
 
+type PluginListing = {
+  name: string
+  version: string
+  description?: string
+  publisher?: string
+}
+
 type PluginRegistry =
-  | {
-      source: string
-      plugins: { name: string; version: string; description?: string; publisher?: string }[]
-    }
+  | { source: string; plugins: PluginListing[] }
   | { error: string }
 
 function PluginsMarket({ api }: { api: WebApi }) {
@@ -141,6 +174,7 @@ function PluginsMarket({ api }: { api: WebApi }) {
   const [installed, setInstalled] =
     useState<{ name: string; lifecycle?: { approved: boolean; enabled: boolean } }[]>()
   const [busy, setBusy] = useState<string>()
+  const [detail, setDetail] = useState<PluginListing>()
   const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
     setLoading(true)
@@ -215,6 +249,7 @@ function PluginsMarket({ api }: { api: WebApi }) {
                 title={listing.name}
                 version={listing.version}
                 meta={[listing.publisher, listing.description].filter(Boolean).join(' · ')}
+                onDetail={() => setDetail(listing)}
                 action={
                   badge ? (
                     <StatusDot color={badge.color} text={badge.text} />
@@ -238,13 +273,63 @@ function PluginsMarket({ api }: { api: WebApi }) {
           })}
         </Grid>
       )}
+      <Modal
+        open={Boolean(detail)}
+        onCancel={() => setDetail(undefined)}
+        centered
+        title={detail ? `${detail.name} v${detail.version}` : undefined}
+        width={640}
+        footer={null}
+      >
+        {detail && (
+          <>
+            <Descriptions size="small" column={1} bordered>
+              <Descriptions.Item label="版本">{detail.version}</Descriptions.Item>
+              <Descriptions.Item label="发布者">{detail.publisher ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="索引源">
+                <Typography.Text copyable code style={{ fontSize: 12 }}>
+                  {registry && 'source' in registry ? registry.source : ''}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="安装资格">
+                {registry && 'source' in registry && installableMarketSource(registry.source)
+                  ? '本地源，可安装'
+                  : '远程 HTTPS 安装需签名信任根（§19a）'}
+              </Descriptions.Item>
+            </Descriptions>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+              安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
+            </Typography.Paragraph>
+            {installed?.some((entry) => entry.name === detail.name) ? (
+              <Typography.Text type="secondary">已安装（在 Plugins 页签管理生命周期）</Typography.Text>
+            ) : (
+              <Button
+                type="primary"
+                block
+                disabled={!(registry && 'source' in registry && installableMarketSource(registry.source))}
+                loading={busy === detail.name}
+                onClick={() => void installListing(detail.name)}
+              >
+                安装 v{detail.version}
+              </Button>
+            )}
+          </>
+        )}
+      </Modal>
     </div>
   )
 }
 
 // ── Skills 段：`[skills] market` 目录（git 安装通道）───────────────────
 
-type SkillMarketEntry = { name: string; description?: string; version?: string; source: string }
+type SkillMarketEntry = {
+  name: string
+  description?: string
+  version?: string
+  source: string
+  homepage?: string
+}
 
 function SkillsMarket({ api }: { api: WebApi }) {
   const { notice, setNotice, run } = useAction(api, 'skills')
@@ -257,6 +342,7 @@ function SkillsMarket({ api }: { api: WebApi }) {
   const [busy, setBusy] = useState<string>()
   const [scope, setScope] = useState<'user' | 'project'>('user')
   const [filter, setFilter] = useState('')
+  const [detail, setDetail] = useState<SkillMarketEntry>()
   const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
     setLoading(true)
@@ -348,6 +434,7 @@ function SkillsMarket({ api }: { api: WebApi }) {
               {...(entry.source || entry.description
                 ? { meta: [entry.source, entry.description].filter(Boolean).join(' · ') }
                 : {})}
+              onDetail={() => setDetail(entry)}
               action={
                 isInstalled ? (
                   <StatusDot color="#52c41a" text="已装" />
@@ -366,6 +453,53 @@ function SkillsMarket({ api }: { api: WebApi }) {
           )
         })}
       </Grid>
+      <Modal
+        open={Boolean(detail)}
+        onCancel={() => setDetail(undefined)}
+        centered
+        title={detail ? `/${detail.name}${detail.version ? ` v${detail.version}` : ''}` : undefined}
+        width={640}
+        footer={null}
+      >
+        {detail && (
+          <>
+            <Descriptions size="small" column={1} bordered>
+              <Descriptions.Item label="版本">{detail.version ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="安装源">
+                <Typography.Text copyable code style={{ fontSize: 12 }}>
+                  {detail.source}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="主页">
+                {detail.homepage ? (
+                  <Typography.Link href={detail.homepage} target="_blank">
+                    {detail.homepage}
+                  </Typography.Link>
+                ) : (
+                  '—'
+                )}
+              </Descriptions.Item>
+            </Descriptions>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+              安装走 git 通道（skill 不执行代码，远程源可装），当前装到
+              {scope === 'user' ? '用户级' : '项目级'}目录。
+            </Typography.Paragraph>
+            {installedNames?.includes(detail.name) ? (
+              <Typography.Text type="secondary">已安装</Typography.Text>
+            ) : (
+              <Button
+                type="primary"
+                block
+                loading={busy === detail.name}
+                onClick={() => void installSkill(detail)}
+              >
+                安装到{scope === 'user' ? '用户级' : '项目级'}
+              </Button>
+            )}
+          </>
+        )}
+      </Modal>
     </div>
   )
 }
@@ -381,6 +515,7 @@ type McpMarketEntry = {
   command?: string
   args?: string[]
   env?: Record<string, string>
+  homepage?: string
 }
 
 function McpMarket({ api }: { api: WebApi }) {
@@ -388,6 +523,7 @@ function McpMarket({ api }: { api: WebApi }) {
   const [view, setView] = useState<{ entries: McpMarketEntry[]; isDefault: boolean }>()
   const [configured, setConfigured] = useState<string[]>()
   const [prefill, setPrefill] = useState<McpMarketEntry>()
+  const [detail, setDetail] = useState<McpMarketEntry>()
   const [filter, setFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
@@ -461,6 +597,7 @@ function McpMarket({ api }: { api: WebApi }) {
                 : entry.url !== undefined
                   ? { meta: entry.url }
                   : {})}
+              onDetail={() => setDetail(entry)}
               action={
                 isConfigured ? (
                   <StatusDot color="#52c41a" text="已配置" />
@@ -493,6 +630,72 @@ function McpMarket({ api }: { api: WebApi }) {
           }}
         />
       )}
+      <Modal
+        open={Boolean(detail)}
+        onCancel={() => setDetail(undefined)}
+        centered
+        title={detail?.name}
+        width={640}
+        footer={null}
+      >
+        {detail && (
+          <>
+            <Descriptions size="small" column={1} bordered>
+              <Descriptions.Item label="描述">{detail.description ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="传输">
+                <Tag>{detail.transport}</Tag>
+              </Descriptions.Item>
+              {detail.url && (
+                <Descriptions.Item label="URL">
+                  <Typography.Text copyable code style={{ fontSize: 12 }}>
+                    {detail.url}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {detail.command && (
+                <Descriptions.Item label="启动命令">
+                  <Typography.Text code>
+                    {detail.command} {(detail.args ?? []).join(' ')}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {detail.env && Object.keys(detail.env).length > 0 && (
+                <Descriptions.Item label="env">
+                  <Typography.Text code style={{ fontSize: 12 }}>
+                    {JSON.stringify(detail.env)}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {detail.headers && Object.keys(detail.headers).length > 0 && (
+                <Descriptions.Item label="headers">
+                  <Typography.Text code style={{ fontSize: 12 }}>
+                    {JSON.stringify(detail.headers)}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {detail.homepage && (
+                <Descriptions.Item label="主页">
+                  <Typography.Link href={detail.homepage} target="_blank">
+                    {detail.homepage}
+                  </Typography.Link>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+              「安装」只预填表单——command/env 全文可见，确认后才写入 mcp.toml。
+            </Typography.Paragraph>
+            <Button
+              block
+              onClick={() => {
+                setPrefill(detail)
+                setDetail(undefined)
+              }}
+            >
+              预填安装…
+            </Button>
+          </>
+        )}
+      </Modal>
     </div>
   )
 }
