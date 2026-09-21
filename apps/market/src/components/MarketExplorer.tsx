@@ -120,7 +120,7 @@ export default function MarketExplorer() {
                   <span>{hostOf(item.source) ?? 'git'}</span>
                 ) : undefined}
                 {kind === 'mcp' && item.transport ? <span>{item.transport}</span> : undefined}
-                {item.updatedAt ?? item.addedAt ? (
+                {(item.updatedAt ?? item.addedAt) ? (
                   <span>{(item.updatedAt ?? item.addedAt ?? '').slice(0, 10)}</span>
                 ) : undefined}
               </div>

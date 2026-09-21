@@ -1,18 +1,7 @@
 'use client'
 
 import { DeleteOutlined, FolderOpenOutlined, UploadOutlined } from '@ant-design/icons'
-import {
-  App,
-  Button,
-  Form,
-  Input,
-  Popconfirm,
-  Select,
-  Space,
-  Table,
-  Tabs,
-  Typography,
-} from 'antd'
+import { App, Button, Form, Input, Popconfirm, Select, Space, Table, Tabs, Typography } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 
 import { useI18n } from './Providers'
@@ -97,7 +86,9 @@ function PluginPublishTab({ token }: { token: string }) {
       if (response.ok) message.success(`${data.name}@${data.version}`)
       else message.error(`${t['admin.publishFailed']}：${data.error ?? response.status}`)
     } catch (error) {
-      message.error(`${t['admin.publishFailed']}：${error instanceof Error ? error.message : String(error)}`)
+      message.error(
+        `${t['admin.publishFailed']}：${error instanceof Error ? error.message : String(error)}`,
+      )
     } finally {
       setBusy(false)
     }
@@ -202,10 +193,7 @@ function CatalogTab({
 
   const submit = async (values: Record<string, unknown>) => {
     const body: Record<string, unknown> = { ...values }
-    if (typeof body.args === 'string')
-      body.args = String(body.args)
-        .split(/\s+/)
-        .filter(Boolean)
+    if (typeof body.args === 'string') body.args = String(body.args).split(/\s+/).filter(Boolean)
     const response = await fetch(`/api/v1/${kind}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeaders(token) },
@@ -313,7 +301,12 @@ export default function AdminPanel() {
       <Form.Item name="name" label={t['admin.name']} rules={[{ required: true }]}>
         <Input placeholder="filesystem" />
       </Form.Item>
-      <Form.Item name="transport" label={t['admin.transport']} rules={[{ required: true }]} initialValue="stdio">
+      <Form.Item
+        name="transport"
+        label={t['admin.transport']}
+        rules={[{ required: true }]}
+        initialValue="stdio"
+      >
         <Select
           options={[
             { value: 'stdio', label: 'stdio（本地进程）' },
@@ -368,9 +361,21 @@ export default function AdminPanel() {
       </Space>
       <Tabs
         items={[
-          { key: 'plugins', label: t['admin.tab.plugin'], children: <PluginPublishTab token={token} /> },
-          { key: 'skills', label: t['admin.tab.skills'], children: <CatalogTab kind="skills" token={token} formFields={skillForm} /> },
-          { key: 'mcp', label: t['admin.tab.mcp'], children: <CatalogTab kind="mcp" token={token} formFields={mcpForm} /> },
+          {
+            key: 'plugins',
+            label: t['admin.tab.plugin'],
+            children: <PluginPublishTab token={token} />,
+          },
+          {
+            key: 'skills',
+            label: t['admin.tab.skills'],
+            children: <CatalogTab kind="skills" token={token} formFields={skillForm} />,
+          },
+          {
+            key: 'mcp',
+            label: t['admin.tab.mcp'],
+            children: <CatalogTab kind="mcp" token={token} formFields={mcpForm} />,
+          },
         ]}
       />
     </div>

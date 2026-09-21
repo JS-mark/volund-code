@@ -133,7 +133,12 @@ export default function EntryDetail() {
 function InstallHint({ hint }: { hint: string }) {
   const { t } = useI18n()
   return (
-    <Card size="small" className="mk-panel" title={t['detail.clientSetup']} style={{ marginTop: 24 }}>
+    <Card
+      size="small"
+      className="mk-panel"
+      title={t['detail.clientSetup']}
+      style={{ marginTop: 24 }}
+    >
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
         {t['detail.clientSetupHint']}
       </Typography.Paragraph>
@@ -149,7 +154,9 @@ function PluginSections({ detail, installHint }: { detail: PluginDetail; install
     <>
       <Descriptions size="small" column={2} bordered style={{ marginTop: 20 }}>
         <Descriptions.Item label={t['detail.latest']}>{latest?.version ?? '—'}</Descriptions.Item>
-        <Descriptions.Item label={t['detail.publisher']}>{detail.publisher ?? '—'}</Descriptions.Item>
+        <Descriptions.Item label={t['detail.publisher']}>
+          {detail.publisher ?? '—'}
+        </Descriptions.Item>
         <Descriptions.Item label={t['detail.downloads']}>{detail.downloads}</Descriptions.Item>
         <Descriptions.Item label={t['detail.updated']}>
           {detail.updatedAt.slice(0, 19).replace('T', ' ')}
@@ -157,7 +164,12 @@ function PluginSections({ detail, installHint }: { detail: PluginDetail; install
       </Descriptions>
       {latest ? (
         <>
-          <Card size="small" className="mk-panel" title={t['detail.filesTitle']} style={{ marginTop: 24 }}>
+          <Card
+            size="small"
+            className="mk-panel"
+            title={t['detail.filesTitle']}
+            style={{ marginTop: 24 }}
+          >
             <Table
               size="small"
               rowKey="path"
@@ -167,9 +179,7 @@ function PluginSections({ detail, installHint }: { detail: PluginDetail; install
                 {
                   title: t['admin.table.path'],
                   dataIndex: 'path',
-                  render: (value: string) => (
-                    <Typography.Text code>{value}</Typography.Text>
-                  ),
+                  render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
                 },
                 {
                   title: 'digest',

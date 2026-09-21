@@ -10,19 +10,21 @@ export async function GET(): Promise<Response> {
   const entries = Object.values(database.mcp)
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, MAX_CATALOG_ENTRIES)
-    .map(({ name, description, version, transport, url, headers, command, args, env, homepage }) => ({
-      name,
-      transport,
-      ...(description ? { description } : {}),
-      // 客户端 v1 解析器忽略未知字段；带上供展示与未来版本读取
-      ...(version ? { version } : {}),
-      ...(url ? { url } : {}),
-      ...(headers ? { headers } : {}),
-      ...(command ? { command } : {}),
-      ...(args ? { args } : {}),
-      ...(env ? { env } : {}),
-      ...(homepage ? { homepage } : {}),
-    }))
+    .map(
+      ({ name, description, version, transport, url, headers, command, args, env, homepage }) => ({
+        name,
+        transport,
+        ...(description ? { description } : {}),
+        // 客户端 v1 解析器忽略未知字段；带上供展示与未来版本读取
+        ...(version ? { version } : {}),
+        ...(url ? { url } : {}),
+        ...(headers ? { headers } : {}),
+        ...(command ? { command } : {}),
+        ...(args ? { args } : {}),
+        ...(env ? { env } : {}),
+        ...(homepage ? { homepage } : {}),
+      }),
+    )
   const index: McpIndex = { version: 1, entries }
   return Response.json(index, { headers: { 'cache-control': 'no-store' } })
 }

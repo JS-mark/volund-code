@@ -14,7 +14,11 @@ export type ResolvedTheme = 'dark' | 'light'
 const THEME_STORAGE_KEY = 'apollo-market-theme'
 const LOCALE_STORAGE_KEY = 'apollo-market-locale'
 
-const ThemeCtx = createContext<{ mode: ThemeMode; resolved: ResolvedTheme; setMode: (mode: ThemeMode) => void }>({
+const ThemeCtx = createContext<{
+  mode: ThemeMode
+  resolved: ResolvedTheme
+  setMode: (mode: ThemeMode) => void
+}>({
   mode: 'auto',
   resolved: 'dark',
   setMode: () => {},

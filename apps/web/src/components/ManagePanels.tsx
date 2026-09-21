@@ -1274,12 +1274,16 @@ function PluginsPanel({ api }: { api: WebApi }) {
               安装由宿主逐文件下载并做 sha256 完整性校验，落盘 ~/.volund/plugins/ 后等待权限批准。
             </Typography.Paragraph>
             {inventory?.market.installed.some((entry) => entry.name === listingDetail.name) ? (
-              <Typography.Text type="secondary">已安装（上方「已安装」列表管理生命周期）</Typography.Text>
+              <Typography.Text type="secondary">
+                已安装（上方「已安装」列表管理生命周期）
+              </Typography.Text>
             ) : (
               <Button
                 type="primary"
                 block
-                disabled={!(registry && 'source' in registry && installableMarketSource(registry.source))}
+                disabled={
+                  !(registry && 'source' in registry && installableMarketSource(registry.source))
+                }
                 loading={installing === listingDetail.name}
                 onClick={() => void install(listingDetail.name)}
               >
