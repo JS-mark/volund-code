@@ -93,6 +93,7 @@ export default withMermaid(
                 items: [
                   { text: 'Managing skills', link: '/docs/guides/managing-skills' },
                   { text: 'MCP servers', link: '/docs/guides/mcp-servers' },
+                  { text: 'Marketplaces', link: '/docs/guides/marketplace' },
                   { text: 'Remote gateway', link: '/docs/guides/remote-gateway' },
                   { text: 'Gateway integration', link: '/docs/guides/gateway-integration' },
                 ],
@@ -150,6 +151,7 @@ export default withMermaid(
                 items: [
                   { text: '管理 Skill', link: '/zh/docs/guides/managing-skills' },
                   { text: '接入 MCP Server', link: '/zh/docs/guides/mcp-servers' },
+                  { text: '市场与自建目录', link: '/zh/docs/guides/marketplace' },
                   { text: '远程网关', link: '/zh/docs/guides/remote-gateway' },
                   { text: '网关接入', link: '/zh/docs/guides/gateway-integration' },
                 ],
