@@ -1,6 +1,8 @@
 .vitepress/cache/
 .vitepress/dist/
 .turbo/
-# 只忽略仓库根的 typedoc 产物；/zh/api/ 是手写的中文导读页，需要入库
+# 只忽略仓库根的 typedoc 产物；/zh/api/ 是构建镜像（脚本生成）+ 手写总览
 /api/
+zh/api/*
+!zh/api/README.md
 .promo-work/

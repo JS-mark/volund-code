@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --dir ../.. docs:api && vitepress build",
+    "build": "pnpm --dir ../.. docs:api && node scripts/mirror-api-zh.mjs && vitepress build",
+    "dev": "pnpm --dir ../.. docs:api && node scripts/mirror-api-zh.mjs && vitepress dev",
     "dev": "vitepress dev",
     "preview": "vitepress preview",
     "test": "node --test ../../scripts/verify-l1-docs.test.mjs",
-    "typecheck": "pnpm --dir ../.. docs:api && vitepress build",
+    "typecheck": "pnpm --dir ../.. docs:api && node scripts/mirror-api-zh.mjs && vitepress build",
     "promo:audio": "node scripts/promo/gen-audio.mjs",
     "promo:render": "node scripts/promo/capture.mjs",
     "promo:assets": "node scripts/promo/gen-assets.mjs"
