@@ -71,6 +71,33 @@ export default withMermaid(
             { text: 'GitHub', link: 'https://github.com/JS-mark/volund-code' },
           ],
           sidebar: {
+            '/api/': [
+              {
+                text: 'API reference',
+                items: [
+                  { text: 'Overview', link: '/api/README' },
+                  { text: 'auth', link: '/api/auth/src/README' },
+                  { text: 'config', link: '/api/config/src/README' },
+                  { text: 'context', link: '/api/context/src/README' },
+                  { text: 'core', link: '/api/core/src/README' },
+                  { text: 'native-bridge', link: '/api/native-bridge/src/README' },
+                  { text: 'permission', link: '/api/permission/src/README' },
+                  { text: 'plugin-runtime', link: '/api/plugin-runtime/src/README' },
+                  { text: 'plugin-sdk', link: '/api/plugin-sdk/src/README' },
+                  { text: 'provider-anthropic', link: '/api/provider-anthropic/src/README' },
+                  { text: 'provider-kit', link: '/api/provider-kit/src/README' },
+                  { text: 'provider-openai', link: '/api/provider-openai/src/README' },
+                  { text: 'router', link: '/api/router/src/README' },
+                  { text: 'shared', link: '/api/shared/src/README' },
+                  { text: 'skills-runtime', link: '/api/skills-runtime/src/README' },
+                  { text: 'storage', link: '/api/storage/src/README' },
+                  { text: 'telemetry', link: '/api/telemetry/src/README' },
+                  { text: 'tool-kit', link: '/api/tool-kit/src/README' },
+                  { text: 'tools', link: '/api/tools/src/README' },
+                  { text: 'ui', link: '/api/ui/src/README' },
+                ],
+              },
+            ],
             '/docs/': [
               {
                 text: 'Getting started',
