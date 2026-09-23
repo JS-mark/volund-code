@@ -203,6 +203,17 @@ export class GatewayOAuthServer {
       : undefined
   }
 
+  /** 运行时登记新客户端（机器注册的落点）；同 id 视为装配错误直接抛。 */
+  addClient(client: GatewayOAuthClient): void {
+    if (this.clients.has(client.id)) throw new Error(`duplicate gateway client id: ${client.id}`)
+    this.clients.set(client.id, client)
+  }
+
+  /** 客户端元数据（id/scopes；secretHash 永不出认证面）。 */
+  listClients(): readonly { id: string; scopes: readonly string[] }[] {
+    return [...this.clients.values()].map((client) => ({ id: client.id, scopes: client.scopes }))
+  }
+
   /** 签发 JWT。请求的 scope 必须是客户端已授权 scope 的子集，否则 undefined。 */
   issue(client: GatewayOAuthClient, requestedScopes: readonly string[]): IssuedToken | undefined {
     const granted =

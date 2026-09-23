@@ -1,16 +1,23 @@
 /**
- * 配对与移动端设备凭证（远程控制 REM-r1）。
+ * 配对与移动端设备凭证（远程控制 REM-r1）+ 机器注册码（多机自助接入）。
  *
- * 流程：桌面 Web「远程控制」页经 uplink 请求 `pairing.create` → 网关生成
- * 一次性短时配对码（内存态，默认 5 分钟）→ 手机站 `POST /pairing/redeem`
- * 核销 → 签发设备 JWT（默认 30 天）并登记设备。
+ * 两种 kind：
+ * - device（默认）：桌面 Web「远程控制」页经 uplink 请求 `pairing.create` →
+ *   网关生成一次性短时配对码（内存态，默认 5 分钟）→ 手机站
+ *   `POST /pairing/redeem` 核销 → 签发设备 JWT（默认 30 天）并登记设备。
+ * - machine：已接入机器经 `POST /v1/pairing`（uplink scope）铸造注册码 →
+ *   新机器 `POST /pairing/redeem`（带 kind=machine 的码）核销 → 网关铸造
+ *   独立 OAuth 机器客户端（哈希落盘 + 认证面登记），明文 secret 只在核销
+ *   应答里出现一次。注册码的铸造与核销信任同一前提：持有已接入机器的人
+ *   = 有权接纳新机器。
  *
  * 与 OAuth client_credentials 的分工：机器凭证面向 uplink/CI（clients.json）；
  * 设备 token 面向人（手机浏览器），sub=deviceId、client=所绑定机器的 client id
  * ——网关路由与撤销都以设备注册表为准（有状态），所以 token 校验同时查注册表。
  *
  * 存储：设备注册表 JSON 落盘（0600，配对跨网关重启存活；uplink/配对码是内存态，
- * 重启后重连/重发即可）。lastSeen 节流写（≥60s 才落盘一次）。
+ * 重启后重连/重发即可）。lastSeen 节流写（≥60s 才落盘一次）。机器客户端的
+ * 落盘不在本模块——认证面归 clients.json（relay-config 的 registerClient）。
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -33,6 +40,8 @@ export interface PairedDeviceRecord {
 export interface PairingCodeRecord {
   readonly code: string
   readonly client: string
+  /** device=移动设备配对（核销签设备 token）；machine=机器注册（核销铸造 OAuth client）。 */
+  readonly kind: 'device' | 'machine'
   readonly createdAt: number
   readonly expiresAt: number
 }
@@ -147,13 +156,17 @@ export class PairingStore {
   }
 
   /** 生成一次性配对码（同 client 可并存多张；每张限核销一次）。 */
-  async createCode(client: string): Promise<PairingCodeRecord> {
+  async createCode(
+    client: string,
+    kind: 'device' | 'machine' = 'device',
+  ): Promise<PairingCodeRecord> {
     await this.ensureLoaded()
     this.sweepCodes()
     const now = this.now()
     const record: PairingCodeRecord = {
       code: newPairingCode(),
       client,
+      kind,
       createdAt: now,
       expiresAt: now + this.codeTtlMs,
     }
@@ -162,13 +175,15 @@ export class PairingStore {
   }
 
   /**
-   * 核销配对码 → 登记设备 + 签发设备 token。码不存在/过期/已用一律 undefined
-   * （错误信息不区分，收敛探测面）；比对走常量时间。
+   * 核销配对码。码不存在/过期/已用一律 undefined（错误信息不区分，收敛探测面）；
+   * 比对走常量时间。device → 登记设备 + 签发设备 token；machine → 只消费码，
+   * 凭证铸造（clients.json 落盘 + 认证面登记）由网关侧 registerMachine 承接，
+   * result 为 undefined。
    */
   async redeem(
     code: string,
     deviceName: string | undefined,
-  ): Promise<{ record: PairingCodeRecord; result: RedeemResult } | undefined> {
+  ): Promise<{ record: PairingCodeRecord; result: RedeemResult | undefined } | undefined> {
     await this.ensureLoaded()
     this.sweepCodes()
     const now = this.now()
@@ -179,6 +194,7 @@ export class PairingStore {
     }
     if (!matched) return undefined
     this.codes.delete(matched.code)
+    if (matched.kind === 'machine') return { record: matched, result: undefined }
     const deviceId = `dev-${randomBytes(9).toString('base64url')}`
     const expiresAt = Math.floor((now + this.deviceTtlSeconds * 1000) / 1000)
     const device: PairedDeviceRecord = {

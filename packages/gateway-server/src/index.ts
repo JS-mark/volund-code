@@ -15,7 +15,9 @@
  * - 直挂：`hub` 直接挂本进程 SessionHub（库形态保留；产品面不再有 CLI 入口）；
  * - 中转 relay（远程控制 REM-r1）：`relay` 开启后 `/v1/*` 流量经 `/uplink`
  *   反向隧道路由到已注册的本机实例（RemoteHub），并开放 `/pairing/redeem`
- *   设备配对；`staticDir` 可同时托管移动端静态站（同源免 CORS）。
+ *   设备配对与机器注册核销（kind=machine 码 → 铸造独立机器客户端，多机自助
+ *   接入）；`POST /v1/pairing` 铸造注册码、`GET /v1/instances` / `GET /v1/clients`
+ *   是在线发现面（uplink scope）；`staticDir` 可同时托管移动端静态站（同源免 CORS）。
  *   独立入口 `dist/bin.js`（`volund-gateway` bin / deploy/gateway Docker 镜像）
  *   即此形态，不经 volund CLI。
  */
@@ -27,7 +29,8 @@ import type { Duplex } from 'node:stream'
 import { handleChatCompletion } from './chat'
 import type { GatewayEnvelope, GatewayHubLike, GatewayModelListing, GatewayModelsView } from './hub'
 import type { GatewayOAuthClient, GatewayTokenClaims } from './oauth'
-import { GatewayOAuthServer } from './oauth'
+import type { GeneratedGatewayClient } from './oauth'
+import { GatewayOAuthServer, hashGatewayClient } from './oauth'
 import { PairingStore } from './pairing'
 import type { PairedDeviceRecord } from './pairing'
 import { GatewayError, TurnQueue } from './queue'
@@ -130,9 +133,20 @@ export interface GatewayServerOptions {
   /**
    * 中转模式（远程控制）：本机经 /uplink 反向拨出注册，/v1/* 流量按
    * 认证 client 路由到对应实例；`pairing` 缺省时网关自建内存态配对存储。
+   * `machineEnrollment` 是机器注册铸造面（kind=machine 配对码的兑现）——
+   * 缺省时注册面关闭（redeem 明确 404）。
    */
   readonly relay?: {
     readonly pairing?: PairingStore
+    /**
+     * kind=machine 配对码核销时的铸造动作：generate 出新机器客户端明文，
+     * persist 落哈希（relay-config 的 registerClient）。网关本体负责把哈希
+     * 登记进认证面（oauth.addClient），明文只经 /pairing/redeem 应答出现一次。
+     */
+    readonly machineEnrollment?: {
+      readonly generate: () => GeneratedGatewayClient
+      readonly persist: (stored: GatewayOAuthClient) => Promise<void>
+    }
   }
   /** 移动端静态站目录（Next 静态导出产物）；GET 非保留路径由此托管。 */
   readonly staticDir?: string
@@ -275,6 +289,18 @@ export async function createGatewayServer(
     throw new Error('gateway requires either hub (direct mode) or relay (relay mode)')
   const serverId = randomBytes(16).toString('base64url')
   const oauth = new GatewayOAuthServer(options.oauth)
+  // 机器注册的铸造编排：生成 → 哈希落盘（装配侧 persist）→ 登记进认证面。
+  // 明文 secret 只作为本函数返回值经 /pairing/redeem 应答出现一次。
+  const registerMachine = options.relay?.machineEnrollment
+    ? async (): Promise<{ clientId: string; clientSecret: string }> => {
+        const enrollment = options.relay!.machineEnrollment!
+        const generated = enrollment.generate()
+        const stored = hashGatewayClient(generated)
+        await enrollment.persist(stored)
+        oauth.addClient(stored)
+        return { clientId: generated.id, clientSecret: generated.secret }
+      }
+    : undefined
   const hub = options.hub
   const queue = new TurnQueue()
   const startedAt = Date.now()
@@ -420,10 +446,14 @@ export async function createGatewayServer(
       )
     switch (input.method) {
       case 'pairing.create': {
-        const code = await pairing.createCode(input.client)
+        // device=移动设备配对（默认，含移动站落地 URL）；machine=机器注册码
+        // （只进 CLI，`volund remote connect` 核销，没有移动站落地面）。
+        const kind = input.params.kind === 'machine' ? 'machine' : 'device'
+        const code = await pairing.createCode(input.client, kind)
         return {
+          kind,
           code: code.code,
-          url: pairingUrl(input.hostHeader, code.code),
+          ...(kind === 'device' ? { url: pairingUrl(input.hostHeader, code.code) } : {}),
           expiresAt: code.expiresAt,
         }
       }
@@ -620,6 +650,31 @@ export async function createGatewayServer(
           res,
           new GatewayError('gateway_pairing_invalid', 400, 'pairing code is invalid or expired'),
         )
+      // 机器注册码：核销铸造独立机器客户端，明文 secret 只出现在这一次应答
+      // （与设备 token 的一次性下发同一模型）；未装配铸造面时明确关闭。
+      if (redeemed.record.kind === 'machine') {
+        if (!registerMachine)
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_enrollment_disabled',
+              404,
+              'machine enrollment is not enabled on this gateway',
+            ),
+          )
+        const minted = await registerMachine()
+        ok(res, {
+          client_id: minted.clientId,
+          client_secret: minted.clientSecret,
+          scope: 'chat sessions uplink',
+        })
+        return
+      }
+      if (!redeemed.result)
+        return fail(
+          res,
+          new GatewayError('gateway_pairing_invalid', 400, 'pairing code is invalid or expired'),
+        )
       ok(res, {
         access_token: redeemed.result.accessToken,
         token_type: redeemed.result.tokenType,
@@ -646,6 +701,108 @@ export async function createGatewayServer(
         return fail(res, new GatewayError('gateway_rate_limited', 429, 'rate limit exceeded'), {
           'Retry-After': String(retryAfter),
         })
+
+      // ── 机器注册码铸造（POST /v1/pairing）：uplink scope 门槛——设备 token
+      // 只有 chat，到不了这里；信任模型=持有已接入机器凭证的人有权接纳新机器。
+      if (path === '/v1/pairing' && req.method === 'POST') {
+        if (!pairing)
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_schema_invalid',
+              404,
+              `unknown endpoint: ${req.method} ${path}`,
+            ),
+          )
+        if (!auth.scopes.includes('uplink'))
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_auth_invalid',
+              403,
+              'machine enrollment requires the uplink scope',
+            ),
+          )
+        const codeRetryAfter = pairingLimiter.hit(
+          `pairing:${req.socket.remoteAddress ?? 'unknown'}`,
+        )
+        if (codeRetryAfter !== undefined)
+          return fail(
+            res,
+            new GatewayError('gateway_rate_limited', 429, 'too many pairing requests'),
+            { 'Retry-After': String(codeRetryAfter) },
+          )
+        const code = await pairing.createCode(auth.sub, 'machine')
+        ok(res, { code: code.code, expiresAt: code.expiresAt })
+        return
+      }
+
+      // ── 在线实例清单（GET /v1/instances）：uplink 注册表的运行时视图，多机
+      // 部署排障与「谁在线」的主动发现面（healthz 只给数量）。 ──────────────
+      if (path === '/v1/instances' && req.method === 'GET') {
+        if (!options.relay)
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_schema_invalid',
+              404,
+              `unknown endpoint: ${req.method} ${path}`,
+            ),
+          )
+        if (!auth.scopes.includes('uplink'))
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_auth_invalid',
+              403,
+              'instance listing requires the uplink scope',
+            ),
+          )
+        ok(res, {
+          instances: registry.list().map((registration) => ({
+            client: registration.client,
+            instanceId: registration.info.instanceId,
+            workspaceCwd: registration.info.workspaceCwd,
+            ...(registration.info.hostname ? { hostname: registration.info.hostname } : {}),
+            ...(registration.info.version ? { version: registration.info.version } : {}),
+            channels: registration.info.channels,
+            connectedAt: registration.info.connectedAt,
+          })),
+        })
+        return
+      }
+
+      // ── 已配置客户端与在线标记（GET /v1/clients）：哪些 client id 存在、
+      // 哪些正连着 uplink。只给 id/scopes，哈希与明文永不出认证面。 ───────────
+      if (path === '/v1/clients' && req.method === 'GET') {
+        if (!options.relay)
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_schema_invalid',
+              404,
+              `unknown endpoint: ${req.method} ${path}`,
+            ),
+          )
+        if (!auth.scopes.includes('uplink'))
+          return fail(
+            res,
+            new GatewayError(
+              'gateway_auth_invalid',
+              403,
+              'client listing requires the uplink scope',
+            ),
+          )
+        const online = new Set(registry.list().map((registration) => registration.client))
+        ok(res, {
+          clients: oauth.listClients().map((client) => ({
+            id: client.id,
+            scopes: client.scopes,
+            online: online.has(client.id),
+          })),
+        })
+        return
+      }
 
       if (path === '/v1/models' && req.method === 'GET') {
         // relay 模式经隧道取自本机（hub.listModels 未实现 = 空列表，与直挂缺省一致）。

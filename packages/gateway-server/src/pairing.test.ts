@@ -49,7 +49,8 @@ describe('PairingStore', () => {
     const code = await store.createCode('machine-a')
     const redeemed = await store.redeem(code.code, '手机')
     expect(redeemed).toBeTruthy()
-    const token = redeemed!.result.accessToken
+    expect(redeemed!.result).toBeTruthy()
+    const token = redeemed!.result!.accessToken
     const claims = await store.verifyDeviceToken(token)
     expect(claims?.client).toBe('machine-a')
     expect(claims?.sub).toMatch(/^dev-/)
@@ -61,6 +62,27 @@ describe('PairingStore', () => {
     expect(await store.revokeDevice('machine-b', claims!.sub)).toBe(false)
   })
 
+  it('machine-kind codes redeem without device registration', async () => {
+    const store = createStore()
+    const deviceCode = await store.createCode('machine-a', 'device')
+    const machineCode = await store.createCode('machine-a', 'machine')
+    expect(machineCode.kind).toBe('machine')
+    expect(deviceCode.kind).toBe('device')
+
+    const redeemed = await store.redeem(machineCode.code, undefined)
+    expect(redeemed).toBeTruthy()
+    // 机器注册：只消费码，不登记设备、不签 token——凭证铸造在网关侧。
+    expect(redeemed!.record.kind).toBe('machine')
+    expect(redeemed!.result).toBeUndefined()
+    expect(await store.listDevices()).toEqual([])
+
+    // 码一次性：二次核销无效；device 码与 machine 码互不串。
+    expect(await store.redeem(machineCode.code, undefined)).toBeUndefined()
+    const deviceRedeemed = await store.redeem(deviceCode.code, '手机')
+    expect(deviceRedeemed?.record.kind).toBe('device')
+    expect(deviceRedeemed?.result).toBeTruthy()
+  })
+
   it('survives reload from disk without secrets in the store file', async () => {
     const store = createStore()
     const code = await store.createCode('machine-a')
@@ -69,8 +91,8 @@ describe('PairingStore', () => {
     expect(raw).not.toMatch(/secret|token|access/i)
 
     const reloaded = createStore()
-    const claims = await reloaded.verifyDeviceToken(redeemed!.result.accessToken)
-    expect(claims?.sub).toBe(redeemed!.result.deviceId)
+    const claims = await reloaded.verifyDeviceToken(redeemed!.result!.accessToken)
+    expect(claims?.sub).toBe(redeemed!.result!.deviceId)
     expect((await reloaded.listDevices('machine-a')).map((device) => device.name)).toEqual(['手机'])
   })
 
@@ -87,6 +109,6 @@ describe('PairingStore', () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(join(dir!, 'devices.json'), JSON.stringify(devices))
     const reloaded = createStore()
-    expect(await reloaded.verifyDeviceToken(redeemed!.result.accessToken)).toBeUndefined()
+    expect(await reloaded.verifyDeviceToken(redeemed!.result!.accessToken)).toBeUndefined()
   })
 })

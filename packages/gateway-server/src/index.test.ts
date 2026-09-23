@@ -951,3 +951,147 @@ describe('websocket channel', () => {
     client.close()
   })
 })
+
+describe('machine enrollment and discovery (relay)', () => {
+  const UPLINK_PLAINTEXT = 'u'.repeat(43)
+  const UPLINK_CLIENT = {
+    id: 'enroll-client',
+    secretHash: hashGatewayClientREFID_014Q(UPLINK_PLAINTEXT),
+    scopes: ['chat', 'sessions', 'uplink'],
+  }
+  const MINTED = { id: 'volund-enrolled', secret: 'n'.repeat(43) }
+
+  /** relay 形态装配：无直挂 hub；注册面可选。 */
+  async function startRelayServer(
+    machineEnrollment: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    await startServer({
+      hub: undefined,
+      oauth: {
+        issuer: 'volund-gateway-test',
+        signingKey: deriveSigningKey('integration-test-key'),
+        tokenTtlSeconds: 3600,
+        clients: [
+          UPLINK_CLIENT,
+          {
+            id: 'chat-client',
+            secretHash: hashGatewayClientREFID_014Q(CLIENT_PLAINTEXT),
+            scopes: ['chat'],
+          },
+        ],
+      },
+      relay: machineEnrollment ? { machineEnrollment } : {},
+    })
+  }
+
+  async function tokenFor(id: string, secret: string): Promise<string> {
+    const response = await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: id,
+        client_secret: secret,
+      }),
+    })
+    const body = (await response.json()) as { access_token?: string }
+    if (!body.access_token) throw new Error(`token request failed: ${response.status}`)
+    return body.access_token
+  }
+
+  it('enrolls a new machine client end-to-end and exposes discovery views', async () => {
+    const persisted: { id: string; secretHash: string }[] = []
+    await startRelayServer({
+      generate: () => ({ ...MINTED, scopes: ['chat', 'sessions', 'uplink'] }),
+      persist: async (stored: { id: string; secretHash: string }) => {
+        persisted.push(stored)
+      },
+    })
+    const uplinkToken = await tokenFor(UPLINK_CLIENT.id, UPLINK_PLAINTEXT)
+    const chatToken = await tokenFor('chat-client', CLIENT_PLAINTEXT)
+
+    // 设备 token（chat scope）到不了注册码铸造面。
+    const forbidden = await fetch(`${base}/v1/pairing`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${chatToken}` },
+    })
+    expect(forbidden.status).toBe(403)
+
+    const minted = await fetch(`${base}/v1/pairing`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${uplinkToken}` },
+    })
+    expect(minted.status).toBe(200)
+    const { code } = (await minted.json()) as { code: string }
+    expect(code).toMatch(/^[23456789A-Z]{8}$/)
+
+    // 公开核销端点：一次性换出新机器凭证（明文 secret 只在此出现）。
+    const redeem = await fetch(`${base}/pairing/redeem`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    expect(redeem.status).toBe(200)
+    const credentials = (await redeem.json()) as {
+      client_id?: string
+      client_secret?: string
+      scope?: string
+    }
+    expect(credentials.client_id).toBe(MINTED.id)
+    expect(credentials.client_secret).toBe(MINTED.secret)
+    expect(credentials.scope).toContain('uplink')
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]!.secretHash).toMatch(/^[0-9a-f]{64}$/)
+    // 码一次性。
+    const replay = await fetch(`${base}/pairing/redeem`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    expect(replay.status).toBe(400)
+
+    // 新凭证即刻可用：client_credentials 颁证 + /v1/* 访问（注册即生效，无需重启）。
+    const newToken = await tokenFor(credentials.client_id!, credentials.client_secret!)
+    const instances = await fetch(`${base}/v1/instances`, {
+      headers: { authorization: `Bearer ${newToken}` },
+    })
+    expect(instances.status).toBe(200)
+    expect(((await instances.json()) as { instances: unknown[] }).instances).toEqual([])
+
+    // 发现面：在线实例清单 + 已配置客户端（在线标记；无 uplink 连接 → 全离线）。
+    const clients = await fetch(`${base}/v1/clients`, {
+      headers: { authorization: `Bearer ${uplinkToken}` },
+    })
+    const view = (await clients.json()) as { clients: { id: string; online: boolean }[] }
+    expect(view.clients.map((client) => client.id).sort()).toEqual([
+      'chat-client',
+      UPLINK_CLIENT.id,
+      MINTED.id,
+    ])
+    expect(view.clients.every((client) => client.online === false)).toBe(true)
+
+    const gated = await fetch(`${base}/v1/instances`, {
+      headers: { authorization: `Bearer ${chatToken}` },
+    })
+    expect(gated.status).toBe(403)
+  })
+
+  it('rejects machine-kind redemption when enrollment is not wired', async () => {
+    await startRelayServer(undefined)
+    const uplinkToken = await tokenFor(UPLINK_CLIENT.id, UPLINK_PLAINTEXT)
+    const minted = await fetch(`${base}/v1/pairing`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${uplinkToken}` },
+    })
+    const { code } = (await minted.json()) as { code: string }
+    const redeem = await fetch(`${base}/pairing/redeem`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    expect(redeem.status).toBe(404)
+    expect(((await redeem.json()) as { error: { code: string } }).error.code).toBe(
+      'gateway_enrollment_disabled',
+    )
+  })
+})

@@ -137,6 +137,37 @@ describe('resolveGatewayCredentials', () => {
     expect(resolved.clients[0]?.id).toBe('env-client')
   })
 
+  it('registerClient appends hashed entries to the clients file and rejects duplicates', async () => {
+    const resolved = await resolveGatewayCredentials(home, {})
+    expect(resolved.registerClient).toBeDefined()
+    const added = {
+      id: 'machine-2',
+      secretHash: 'a'.repeat(64),
+      scopes: ['chat', 'sessions', 'uplink'],
+    }
+    await resolved.registerClient!(added)
+    const onDisk = JSON.parse(await readFile(join(home, 'gateway', 'clients.json'), 'utf8')) as {
+      id: string
+      secretHash: string
+    }[]
+    expect(onDisk.map((entry) => entry.id)).toEqual([resolved.clients[0]!.id, 'machine-2'])
+    expect(onDisk[1]!.secretHash).toMatch(/^[0-9a-f]{64}$/)
+
+    // 同 id 再注册被拒（fail closed，不产生半写状态）。
+    await expect(resolved.registerClient!(added)).rejects.toThrow(/duplicate/)
+
+    // 新注册的客户端经新一轮启动解析即可认证（文件是事实源）。
+    const second = await resolveGatewayCredentials(home, {})
+    expect(second.clients.map((client) => client.id)).toContain('machine-2')
+  })
+
+  it('registerClient is undefined when clients come from GATEWAY_CLIENTS env', async () => {
+    const resolved = await resolveGatewayCredentials(home, {
+      GATEWAY_CLIENTS: JSON.stringify([{ id: 'env-client', secret: 'e'.repeat(32) }]),
+    })
+    expect(resolved.registerClient).toBeUndefined()
+  })
+
   it('derives the signing key from GATEWAY_TOKEN_SECRET', async () => {
     const a = await resolveGatewayCredentials(home, {
       GATEWAY_CLIENTS: JSON.stringify([{ id: 'c', secret: 'x'.repeat(32) }]),

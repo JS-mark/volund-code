@@ -83,6 +83,12 @@ export interface GatewayCredentialsResolution {
   readonly source: 'env' | 'file' | 'generated'
   /** 老格式文件（明文 secret）被自动迁移为哈希存储时为 true。 */
   readonly migrated: boolean
+  /**
+   * 运行时注册：把哈希形态的客户端追加进 clients 文件（0600，重读现文件避免
+   * 覆盖外部追加）。env 来源（GATEWAY_CLIENTS）时为 undefined——env 是唯一
+   * 事实源，运行时注册面应关闭而不是写出一份被重启覆盖的文件。
+   */
+  readonly registerClient?: (client: GatewayOAuthClient) => Promise<void>
 }
 
 /**
@@ -121,6 +127,20 @@ export async function resolveGatewayCredentials(
     }
   }
   const clientsFile = env.GATEWAY_CLIENTS_FILE ?? join(dir, 'clients.json')
+  // 运行时注册的落盘路径：重读现文件再追加，多出来的外部条目不被覆盖。
+  const registerClient = async (client: GatewayOAuthClient): Promise<void> => {
+    let current: readonly GatewayOAuthClient[] = []
+    try {
+      current = parseGatewayClients(await readFile(clientsFile, 'utf8')).clients
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+    if (current.some((entry) => entry.id === client.id))
+      throw new Error(`duplicate gateway client id: ${client.id}`)
+    await writeFile(clientsFile, `${JSON.stringify([...current, client], null, 2)}\n`, {
+      mode: 0o600,
+    })
+  }
   try {
     const parsed = parseGatewayClients(await readFile(clientsFile, 'utf8'))
     if (parsed.migratedPlaintextIds.length > 0) {
@@ -135,6 +155,7 @@ export async function resolveGatewayCredentials(
       generated: undefined,
       source: 'file',
       migrated: parsed.migratedPlaintextIds.length > 0,
+      registerClient,
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
@@ -142,7 +163,14 @@ export async function resolveGatewayCredentials(
   const generated = generateGatewayClient()
   const stored = hashGatewayClient(generated)
   await writeFile(clientsFile, `${JSON.stringify([stored], null, 2)}\n`, { mode: 0o600 })
-  return { clients: [stored], signingKey, generated, source: 'generated', migrated: false }
+  return {
+    clients: [stored],
+    signingKey,
+    generated,
+    source: 'generated',
+    migrated: false,
+    registerClient,
+  }
 }
 
 function cryptoRandomKey(): string {

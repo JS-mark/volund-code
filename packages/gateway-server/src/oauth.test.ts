@@ -107,6 +107,21 @@ describe('GatewayOAuthServer', () => {
     expect(oauth.authenticate('ci-bot', 'wrong-secret-value')).toBeUndefined()
     expect(oauth.authenticate('nobody', CLIENT_PLAINTEXT)).toBeUndefined()
   })
+
+  it('registers clients at runtime and lists metadata without secrets', () => {
+    const oauth = makeServer()
+    const minted = generateGatewayClient()
+    oauth.addClient(hashGatewayClient(minted))
+    expect(oauth.authenticate(minted.id, minted.secret)?.id).toBe(minted.id)
+    // 新客户端即刻可签发含 uplink 的 token。
+    const issued = oauth.issue(oauth.authenticate(minted.id, minted.secret)!, ['chat', 'uplink'])
+    expect(oauth.verify(issued!.accessToken)?.scopes).toEqual(['chat', 'uplink'])
+
+    expect(oauth.listClients().map((entry) => entry.id)).toEqual(['ci-bot', minted.id])
+    expect(JSON.stringify(oauth.listClients())).not.toContain('secretHash')
+
+    expect(() => oauth.addClient(hashGatewayClient(minted))).toThrow(/duplicate/)
+  })
 })
 
 describe('parseGatewayClients', () => {

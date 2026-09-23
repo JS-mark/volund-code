@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createGatewayServer } from './index'
+import { generateGatewayClient } from './oauth'
 import { PairingStore } from './pairing'
 import { resolveGatewayCredentials, resolveRelayConfig } from './relay-config'
 
@@ -109,6 +110,17 @@ async function main(): Promise<void> {
         storePath: join(home, 'gateway', 'devices.json'),
         logger: (message) => process.stdout.write(`[gateway] ${message}\n`),
       }),
+      // 机器注册铸造面：clients.json 来源（file/generated）时开放——新机器凭
+      // 配对码自助接入，哈希落盘；GATEWAY_CLIENTS env 来源时关闭（env 是唯一
+      // 事实源，运行时写不出被重启覆盖的文件）。
+      ...(credentials.registerClient
+        ? {
+            machineEnrollment: {
+              generate: generateGatewayClient,
+              persist: credentials.registerClient,
+            },
+          }
+        : {}),
     },
     ...(staticDir ? { staticDir } : {}),
     ...(process.env.GATEWAY_PUBLIC_URL ? { publicUrl: process.env.GATEWAY_PUBLIC_URL } : {}),
@@ -136,13 +148,18 @@ async function main(): Promise<void> {
       'GET /v1/ws (websocket)',
       'GET /uplink (websocket, machine dial-out)',
       'POST /pairing/redeem',
+      'POST /v1/pairing (machine enrollment code)',
+      'GET /v1/instances (online machines)',
+      'GET /v1/clients (configured clients + online)',
     ],
     mobileSite: Boolean(staticDir),
+    machineEnrollment: credentials.registerClient !== undefined,
   }
   let stdout = args.json
     ? `${JSON.stringify(banner)}\n`
     : `volund gateway listening on ${server.url} (relay mode)\n` +
       `  oauth clients: ${credentials.source} (${credentials.clients.length})\n` +
+      `  machine enrollment: ${credentials.registerClient ? 'on (POST /v1/pairing mints an enrollment code)' : 'off (GATEWAY_CLIENTS env is read-only)'}\n` +
       banner.endpoints.map((endpoint) => `  - ${endpoint}`).join('\n') +
       '\n' +
       `  mobile site: ${staticDir ? 'served at /' : 'assets not found (set VOLUND_MOBILE_ASSET_DIR)'}\n` +
