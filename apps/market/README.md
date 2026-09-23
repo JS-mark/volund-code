@@ -58,28 +58,26 @@ market = "http://127.0.0.1:4315/api/mcp/index.json"
 
 ## Docker
 
-镜像内只包含 standalone 产物 + node:22-bookworm-slim 运行时（非 root、自带
+部署资产（Dockerfile / compose / 推送脚本）在 `deploy/market/`。镜像内只包含
+standalone 产物 + node:22-bookworm-slim 运行时（非 root、自带
 `/api/health` 健康检查），数据一律放 `/app/data`（首次启动自动播种）。
 
 ### 发布镜像（推送方）
 
-一条命令完成「standalone 构建 → 打包镜像 → 推送」：
+一条命令完成「容器内构建 → 推送」（默认 buildx 多架构 `linux/amd64,linux/arm64`）：
 
 ```bash
-REGISTRY=registry.example.com/volund sh apps/market/scripts/image-push.sh
-# REGISTRY=… sh apps/market/scripts/image-push.sh v1.2.0   # 指定 tag（默认取 package.json 版本）
+REGISTRY=registry.example.com/volund sh deploy/market/image-push.sh
+# REGISTRY=… sh deploy/market/image-push.sh v1.2.0   # 指定 tag（默认取 package.json 版本）
+# PLATFORMS=host REGISTRY=… sh deploy/market/image-push.sh   # 只构本机架构
 ```
 
-脚本同时推送 `:版本号` 与 `:latest`。在 amd64 机器上发布 arm64 镜像（或反过来）
-用多架构构建：
+三镜像（gateway / mobile / market）统一入口：`sh deploy/image-push.sh market`
+（默认推 `registry.cn-hangzhou.aliyuncs.com/future-coding-backend`）。
 
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t $REGISTRY/volund-market:1.2.0 -t $REGISTRY/volund-market:latest --push apps/market
-```
-
-（buildx 路径要求产物已存在于 `apps/market/.docker-build`，先跑一次
-`NEXT_OUTPUT=standalone pnpm build` 并按脚本第 2 步整理。）
+脚本同时推送 `:版本号` 与 `:latest`。构建在容器内多阶段完成（上下文=仓库根），
+**不要宿主机构建 standalone 后 COPY 进镜像**——standalone 产物含平台相关可选
+依赖（如 sharp 的原生 `.node`），darwin 宿主的产物进 linux 镜像会带错平台二进制。
 
 ### 使用镜像（使用方）
 
@@ -92,19 +90,19 @@ docker run -d --name volund-market \
   registry.example.com/volund/volund-market:1.0.0
 ```
 
-| 配置 | 说明 |
-| --- | --- |
-| `-p 4315:4315` | 宿主端口映射（容器内固定 4315） |
-| `-e MARKET_ADMIN_TOKEN=…` | 管理 API（发布/删除）的写接口令牌；不设则写接口整体关闭，浏览/下载不受影响 |
+| 配置                              | 说明                                                                               |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `-p 4315:4315`                    | 宿主端口映射（容器内固定 4315）                                                    |
+| `-e MARKET_ADMIN_TOKEN=…`         | 管理 API（发布/删除）的写接口令牌；不设则写接口整体关闭，浏览/下载不受影响         |
 | `-v volund-market-data:/app/data` | 市场数据持久化（单文件 JSON 库 + 插件 bundle），**必须挂载**，否则容器重建数据丢失 |
-| `--restart unless-stopped` | 崩溃/宿主重启后自动拉起 |
+| `--restart unless-stopped`        | 崩溃/宿主重启后自动拉起                                                            |
 
 compose 编排（`MARKET_IMAGE` / `MARKET_ADMIN_TOKEN` 走环境变量或同目录 `.env`）：
 
 ```bash
 MARKET_IMAGE=registry.example.com/volund/volund-market:1.0.0 \
 MARKET_ADMIN_TOKEN=xxx \
-docker compose -f apps/market/docker-compose.yml up -d
+docker compose -f deploy/market/docker-compose.yml up -d
 ```
 
 接入 volund 客户端：`~/.volund/config.toml` 的三个 `market` 指向
@@ -119,8 +117,8 @@ docker compose -f apps/market/docker-compose.yml up -d
 docker run --rm -v volund-market-data:/data alpine tar cz -C /data . > market-backup.tgz
 # 恢复：docker run --rm -i -v volund-market-data:/data alpine tar xz -C /data < market-backup.tgz
 ```
-- 容器验证记录：`docker run` 后 health/index/首页 200，数据卷跨容器重启持久化（写入 → restart → 仍在）
 
+- 容器验证记录：`docker run` 后 health/index/首页 200，数据卷跨容器重启持久化（写入 → restart → 仍在）
 
 ## 发布插件
 
