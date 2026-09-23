@@ -151,6 +151,24 @@ Note: legacy plugin activation is temporarily unavailable; list, doctor,
 disable, and uninstall remain available for inspection and cleanup.
 `
 
+const remoteUsage = `Usage: ${commandName} remote enroll
+       ${commandName} remote connect --gateway <url> --code <code>
+
+Enroll machines onto a remote gateway (multi-machine self-service):
+
+  enroll    Mint a machine enrollment code on this machine (requires [remote]
+            gateway credentials and the uplink scope on the gateway).
+  connect   Redeem an enrollment code on a NEW machine: the gateway mints a
+            dedicated client (client_secret is returned once) and the command
+            writes [remote] gateway_url/client_id/client_secret and enables
+            remote control.
+
+Options:
+  --gateway <url>    Gateway base URL (connect)
+  --code <code>      Enrollment code (connect)
+  --json             Emit machine-readable output
+`
+
 const mcpUsage = `Usage: ${commandName} mcp <command> [options]
 
 Commands:
@@ -247,6 +265,7 @@ export const commandUsage: Readonly<Record<string, string>> = {
   telemetry: telemetryUsage,
   trust: trustUsage,
   plugin: pluginUsage,
+  remote: remoteUsage,
   mcp: mcpUsage,
   skill: skillUsage,
   context: contextUsage,
@@ -267,6 +286,7 @@ export const actionStyleCommands: ReadonlySet<string> = new Set([
   'telemetry',
   'trust',
   'plugin',
+  'remote',
   'mcp',
   'skill',
   'context',

@@ -26,6 +26,7 @@ import { doctorCommand } from './commands/doctor'
 import { actionStyleCommands, commandUsage } from './commands/help'
 import { createHistoryCommand } from './commands/history'
 import { createMemoryCommand } from './commands/memory'
+import { createRemoteCommand } from './commands/remote'
 import { createStatusCommand } from './commands/status'
 import { telemetryCommand } from './commands/telemetry'
 import { trustCommand } from './commands/trust'
@@ -83,6 +84,8 @@ const argsDefinition = {
   yes: { type: 'boolean' as const },
   port: { type: 'string' as const },
   open: { type: 'boolean' as const },
+  gateway: { type: 'string' as const },
+  code: { type: 'string' as const },
 }
 export type { CliIo, CliResult } from './shared/cli-types'
 const defaultIo: CliIo = {
@@ -190,6 +193,7 @@ export async function runCli(
       renderText: renderTextStatus,
     }),
     createMemoryCommand(io),
+    createRemoteCommand(),
   ])
   if (subcommand && registry.has(subcommand))
     return registry.dispatch(subcommand, { args, cwd, ports })
