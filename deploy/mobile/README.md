@@ -25,8 +25,21 @@ GATEWAY_CORS_ORIGINS=https://m.example.com
 ```bash
 # 构建上下文是仓库根
 docker build -f deploy/mobile/Dockerfile -t volund-mobile .
-docker run -d -p 8080:80 volund-mobile
+docker run -d -p 8080:8800 volund-mobile
 ```
+
+或用 compose（同时支持本地构建与直接拉镜像仓库的镜像）：
+
+```bash
+docker compose -f deploy/mobile/docker-compose.yml up -d --build   # 本地构建
+MOBILE_IMAGE=registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-mobile:v0.0.1 \
+  docker compose -f deploy/mobile/docker-compose.yml up -d         # 用仓库镜像
+```
+
+宿主端口默认 8080，`MOBILE_PORT=…` 可改。
+
+镜像推送到镜像仓库：`sh deploy/image-push.sh mobile [TAG]`（三个镜像统一入口，
+默认推 `registry.cn-hangzhou.aliyuncs.com/future-coding-backend`，先 `docker login`）。
 
 前面挂任意 TLS 终结（Caddy/CDN）即可。不配 TLS 也能跑——配对链接与设备 token
 都走网关侧，移动站本身不持有机密。

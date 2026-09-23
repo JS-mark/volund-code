@@ -1,0 +1,17 @@
+# volund 移动站编排：纯静态 nginx 托管，无状态（数据全在浏览器 localStorage），无卷。
+# 用法：
+#   本地构建启动（上下文=仓库根）：
+#     docker compose -f deploy/mobile/docker-compose.yml up -d --build
+#   直接用镜像仓库镜像：
+#     MOBILE_IMAGE=registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-mobile:v0.0.1 \
+#       docker compose -f deploy/mobile/docker-compose.yml up -d
+# 宿主端口默认 8800（MOBILE_PORT 可改）；跨源调网关须在网关侧配
+# GATEWAY_CORS_ORIGINS（本站 Origin）与 GATEWAY_MOBILE_PUBLIC_URL（见同目录 README）。
+
+services:
+  mobile:
+    image: ${MOBILE_IMAGE:-registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-mobile:latest}
+    container_name: volund-mobile
+    restart: unless-stopped
+    ports:
+      - '${MOBILE_PORT:-8800}:8800'
