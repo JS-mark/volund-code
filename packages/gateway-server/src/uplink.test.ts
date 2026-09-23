@@ -836,3 +836,23 @@ describe('跨设备 turn 中断', () => {
     deviceB.close()
   })
 })
+
+describe('uplink rpc 失败日志', () => {
+  it('logs failed tunnel rpc with method and error', async () => {
+    const logs: string[] = []
+    await startRelay([MACHINE], { logger: (message) => logs.push(message) })
+    const uplink = await dialUplink()
+    await uplink.waitRegistered()
+    const token = await tokenFor(base, { id: MACHINE.id, secret: MACHINE_SECRET })
+
+    // session.transcript 未在测试桩实现 → rpc error → 网关 502 + 失败日志。
+    const res = await fetch(`${base}/v1/sessions/active/transcript`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.status).toBe(502)
+    const failed = logs.find((line) => line.startsWith('uplink rpc failed: session.transcript'))
+    expect(failed).toBeTruthy()
+    expect(failed).toContain('unknown method')
+    uplink.close()
+  })
+})

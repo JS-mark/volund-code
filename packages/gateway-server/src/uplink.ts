@@ -74,6 +74,7 @@ interface RpcPending {
   readonly resolve: (value: unknown) => void
   readonly reject: (cause: unknown) => void
   readonly timer: ReturnType<typeof setTimeout>
+  readonly method: string
 }
 
 /** `GatewayHubLike` 的远程代理：方法 RPC 化，事件/状态由本机推送。 */
@@ -89,6 +90,7 @@ export class RemoteHub implements GatewayHubLike {
     private readonly conn: WsConnection,
     private readonly rpcTimeoutMs: number,
     private readonly onEvent: (envelope: GatewayEnvelope) => void,
+    private readonly log?: (message: string) => void,
   ) {}
 
   get active(): { id: string; cwd?: string } | undefined {
@@ -208,6 +210,11 @@ export class RemoteHub implements GatewayHubLike {
       const error = frame.error as
         | { code?: unknown; message?: unknown; status?: unknown }
         | undefined
+      this.log?.(
+        `uplink rpc failed: ${pending.method} — ` +
+          `${typeof error?.code === 'string' ? error.code : 'unknown'} ` +
+          `${typeof error?.message === 'string' ? error.message : ''}`,
+      )
       pending.reject(
         new GatewayError(
           typeof error?.code === 'string' ? error.code : 'gateway_upstream_failed',
@@ -242,10 +249,11 @@ export class RemoteHub implements GatewayHubLike {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
+        this.log?.(`uplink rpc timeout: ${method} after ${timeoutMs ?? this.rpcTimeoutMs}ms`)
         reject(new GatewayError('gateway_upstream_failed', 504, `uplink rpc timeout: ${method}`))
       }, timeoutMs ?? this.rpcTimeoutMs)
       timer.unref?.()
-      this.pending.set(id, { resolve, reject, timer })
+      this.pending.set(id, { resolve, reject, timer, method })
       this.conn.send(JSON.stringify({ type: 'rpc', id, method, params } satisfies GatewayFrame))
     })
   }
@@ -393,9 +401,14 @@ export class UplinkRegistry {
               (channel): channel is string => typeof channel === 'string',
             )
           : []
-        const hub = new RemoteHub(conn, this.rpcTimeoutMs, (envelope) => {
-          for (const listener of this.hubListeners) listener(input.client, envelope)
-        })
+        const hub = new RemoteHub(
+          conn,
+          this.rpcTimeoutMs,
+          (envelope) => {
+            for (const listener of this.hubListeners) listener(input.client, envelope)
+          },
+          this.log,
+        )
         hub.applyState(active ?? null, pendingPermissions)
         registration = {
           client: input.client,

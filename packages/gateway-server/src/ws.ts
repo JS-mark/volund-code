@@ -37,6 +37,8 @@ export interface WsChannelDeps {
   readonly maxTurnHoldMs: number
   readonly serverId: string
   readonly version: string
+  /** 排障日志（命令错误帧/handler 异常）；缺省静默。 */
+  readonly logger?: (message: string) => void
 }
 
 /** cwd 禁出 workspace（realpath 双端解析，防 symlink 逃逸）。 */
@@ -91,7 +93,9 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
   })
 
   conn.onMessage = (text) => {
-    void handleFrame(text).catch(() => {})
+    void handleFrame(text).catch((cause) => {
+      deps.logger?.(`ws handler failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    })
   }
 
   const replyError = (ref: string | undefined, cause: unknown) => {
@@ -103,6 +107,7 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
             502,
             cause instanceof Error ? cause.message : String(cause),
           )
+    deps.logger?.(`ws command error: ${error.code} ${error.message}`)
     send({ type: 'error', ...(ref ? { ref } : {}), code: error.code, message: error.message })
   }
 

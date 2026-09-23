@@ -11,6 +11,7 @@ import { App as AntApp, Badge, Select, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { ChatView, type SubmitImage } from '../components/ChatView'
+import { DiagPanel } from '../components/DiagPanel'
 import { MineView } from '../components/MineView'
 import { PairView } from '../components/PairView'
 import { SessionsView } from '../components/SessionsView'
@@ -21,6 +22,7 @@ import {
   reduceChatState,
   type ChatMessageImage,
 } from '../lib/chat'
+import { diag } from '../lib/diag'
 import {
   clearSession,
   GatewayApi,
@@ -108,12 +110,17 @@ export default function MobileApp() {
     setHydrating(true)
     try {
       const snapshot = await new GatewayApi(current.token).transcript()
+      diag(
+        'hydrate',
+        `transcript=${snapshot.transcript?.length ?? 0} 条 session=${snapshot.id ?? '—'}`,
+      )
       if (snapshot.transcript?.length)
         dispatch({ type: 'hydrate', transcript: snapshot.transcript })
       // resume 时 targetSessionId 优先（WS 应答里的 id 是最新的，setState 还没同步）。
       if (targetSessionId) setActiveSessionId(targetSessionId)
       else if (snapshot.id) setActiveSessionId(snapshot.id)
-    } catch {
+    } catch (cause) {
+      diag('hydrate', `失败: ${cause instanceof Error ? cause.message : String(cause)}`)
       // 无会话或链路未就绪：聊天视图提示即可。
     } finally {
       setHydrating(false)
@@ -145,13 +152,22 @@ export default function MobileApp() {
         // 本机重连上线：uplink 断开期间的流式/终态事件已丢失，重新水合 transcript 收口，
         // 否则断线期的半截回复会一直卡在 streaming 或干脆缺失。
         const viewEvent = envelope.event as { type?: string; id?: unknown } | undefined
-        if (envelope.kind === 'view' && viewEvent?.type === 'machine.online') void hydrate()
+        if (envelope.kind === 'view' && viewEvent?.type === 'machine.online') {
+          diag('machine', '本机上线 → 重新水合')
+          void hydrate()
+        }
+        if (envelope.kind === 'view' && viewEvent?.type === 'machine.offline')
+          diag('machine', '本机离线')
         // 活动会话切换广播（桌面 TUI 切换 / 任一设备 resume，同会话也会重发）：
         // 同会话的 echo 忽略——多设备共用会话时它不该清掉别人的上下文；
         // 异会话则跟随切换并全量水合新会话历史（旧会话视图作废）。
         if (envelope.kind === 'view' && viewEvent?.type === 'session.attached') {
           const attachedId = typeof viewEvent.id === 'string' ? viewEvent.id : undefined
           if (attachedId && attachedId !== activeSessionRef.current) {
+            diag(
+              'session',
+              `活动会话切换 ${String(activeSessionRef.current ?? '—')} → ${attachedId}，跟随水合`,
+            )
             setActiveSessionId(attachedId)
             void hydrate(attachedId)
           }
@@ -249,6 +265,7 @@ export default function MobileApp() {
         size: image.staged.size,
         ...(image.staged.handle ? { handle: image.staged.handle } : {}),
       }))
+      diag('turn', `submit session=${activeSessionId} model=${modelOverride ?? '默认'}`)
       ws.send({
         type: 'turn.submit',
         prompt: text,
@@ -293,6 +310,7 @@ export default function MobileApp() {
   }, [])
 
   const interrupt = useCallback(() => {
+    diag('turn', 'interrupt')
     wsRef.current?.send({ type: 'turn.interrupt' })
   }, [])
 
@@ -420,12 +438,15 @@ export default function MobileApp() {
               onNewChat={newChat}
             />
           ) : (
-            <MineView
-              session={session}
-              connected={connected}
-              activeSessionId={activeSessionId}
-              onUnpair={unpair}
-            />
+            <>
+              <MineView
+                session={session}
+                connected={connected}
+                activeSessionId={activeSessionId}
+                onUnpair={unpair}
+              />
+              <DiagPanel />
+            </>
           )}
         </div>
         <nav className="tabbar">

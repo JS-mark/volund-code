@@ -515,7 +515,11 @@ export async function createGatewayServer(
     return `${mobileBase ?? gatewayBase}/#pair=${code}`
   }
 
-  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  const handleRequest = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    audit?: { identity: string },
+  ): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://gateway.internal')
     const path = url.pathname
     const cors = corsHeaders(req)
@@ -610,6 +614,7 @@ export async function createGatewayServer(
           ),
         )
       const client = oauth.authenticate(clientId, clientSecret)
+      if (audit) audit.identity = clientId
       if (!client)
         return fail(
           res,
@@ -732,6 +737,7 @@ export async function createGatewayServer(
             'WWW-Authenticate': 'Bearer realm="volund-gateway"',
           },
         )
+      if (audit) audit.identity = auth.device ? `device:${auth.sub}` : auth.client
       const retryAfter = apiLimiter.hit(`client:${auth.sub}`)
       if (retryAfter !== undefined)
         return fail(res, new GatewayError('gateway_rate_limited', 429, 'rate limit exceeded'), {
@@ -898,7 +904,11 @@ export async function createGatewayServer(
         const hubForAuth = resolveHub(auth) as unknown as {
           transcript?(): Promise<{ transcript?: readonly unknown[] }>
         }
-        ok(res, hubForAuth.transcript ? await hubForAuth.transcript() : { transcript: [] })
+        try {
+          ok(res, hubForAuth.transcript ? await hubForAuth.transcript() : { transcript: [] })
+        } catch (cause) {
+          return fail(res, cause instanceof GatewayError ? cause : offline())
+        }
         return
       }
 
@@ -1071,7 +1081,26 @@ export async function createGatewayServer(
   }
 
   const server: Server = createServer((req, res) => {
-    void handleRequest(req, res).catch(() => {
+    // 请求审计行：/v1/*、token、配对核销在 finish 时记一行（方法/路径/状态/耗时/
+    // 身份/ip）；healthz 与静态资源不记（噪音）。异常经 catch 单独记 handler 失败。
+    const requestStarted = Date.now()
+    const requestIp = clientIp(req, trustProxy)
+    const audit = { identity: '' }
+    res.on('finish', () => {
+      const rawPath = (req.url ?? '/').split('?')[0] ?? '/'
+      const audited =
+        rawPath === '/oauth/token' || rawPath === '/pairing/redeem' || rawPath.startsWith('/v1/')
+      if (!audited || rawPath === '/v1/health' || rawPath === '/healthz') return
+      log(
+        `${req.method} ${rawPath} → ${res.statusCode} ${Date.now() - requestStarted}ms` +
+          ` ip=${requestIp}${audit.identity ? ` ${audit.identity}` : ''}`,
+      )
+    })
+    void handleRequest(req, res, audit).catch((cause) => {
+      log(
+        `request handler failed: ${req.method} ${req.url ?? '/'} — ` +
+          `${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}`,
+      )
       if (!res.headersSent)
         fail(res, new GatewayError('gateway_upstream_failed', 500, 'internal error'))
     })
@@ -1168,6 +1197,7 @@ export async function createGatewayServer(
           workspaceCwd: workspaceFor(auth),
           queueTimeoutMs,
           maxTurnHoldMs,
+          logger: log,
           serverId,
           version: options.version,
         },

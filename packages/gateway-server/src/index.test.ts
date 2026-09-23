@@ -1169,3 +1169,35 @@ describe('来源 ip 遥测（trustProxy + XFF）', () => {
     expect(issued).not.toContain('203.0.113.5')
   })
 })
+
+describe('请求审计日志', () => {
+  it('logs a request line with status, duration, ip, and identity', async () => {
+    const logs: string[] = []
+    await startServer({
+      logger: (message: string) => logs.push(message),
+    })
+    const token = await fetchToken()
+    expect(token.split('.')).toHaveLength(3)
+
+    const issued = logs.find((line) => line.startsWith('POST /oauth/token → 200'))
+    expect(issued).toBeTruthy()
+    expect(issued).toContain(`ip=127.0.0.1`)
+    expect(issued).toContain('test-client')
+
+    // /v1/* 带 Bearer 的请求行带设备/机器身份。
+    await fetch(`${base}/v1/models`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const models = logs.find((line) => line.startsWith('GET /v1/models → 200'))
+    expect(models).toBeTruthy()
+    expect(models).toContain('test-client')
+
+    // 4xx 也记一行（排障时能看到失败请求）。
+    await fetch(`${base}/v1/unknown`, { headers: { authorization: `Bearer ${token}` } })
+    expect(logs.some((line) => line.startsWith('GET /v1/unknown → 404'))).toBe(true)
+
+    // healthz 不记（噪音）。
+    await fetch(`${base}/healthz`)
+    expect(logs.some((line) => line.includes('/healthz →'))).toBe(false)
+  })
+})

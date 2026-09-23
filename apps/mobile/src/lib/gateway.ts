@@ -8,6 +8,8 @@
  * 清本地回到配对页。
  */
 
+import { diag } from './diag'
+
 export interface MobileSession {
   readonly token: string
   readonly deviceId: string
@@ -114,6 +116,7 @@ export function setUnauthorizedHandler(handler: (() => void) | undefined): void 
 }
 
 function notifyUnauthorized(): void {
+  diag('auth', '401/被撤销 → 清本地凭证回配对页')
   clearSession()
   unauthorizedListener?.()
 }
@@ -139,7 +142,8 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: code.trim().toUpperCase(), name }),
     })
-  } catch {
+  } catch (cause) {
+    diag('pair', `redeem 网络失败: ${cause instanceof Error ? cause.message : String(cause)}`)
     // fetch 在断网与 CORS 拦截下都抛 TypeError——给出可操作的提示而非裸异常。
     throw new Error(
       '连不上网关：确认网关地址可达；跨源部署时网关侧须把本站 Origin 加进 GATEWAY_CORS_ORIGINS',
@@ -151,8 +155,11 @@ export async function redeemPairing(code: string, name: string): Promise<Pairing
     expires_in?: number
     error?: { message?: string }
   }
-  if (!res.ok || !body.access_token || !body.device_id)
+  if (!res.ok || !body.access_token || !body.device_id) {
+    diag('pair', `redeem → ${res.status} ${body.error?.message ?? ''}`)
     throw new Error(body.error?.message ?? `配对失败（${res.status}）`)
+  }
+  diag('pair', `redeem → 200 device=${body.device_id}`)
   const session: MobileSession = {
     token: body.access_token,
     deviceId: body.device_id,
@@ -190,13 +197,24 @@ export class GatewayApi {
   constructor(private readonly token: string) {}
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${gatewayBase()}${path}`, {
-      headers: { Authorization: `Bearer ${this.token}` },
-    })
+    const started = Date.now()
+    let res: Response
+    try {
+      res = await fetch(`${gatewayBase()}${path}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+    } catch (cause) {
+      diag(
+        'http',
+        `GET ${path} 网络失败: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+      throw cause
+    }
     if (res.status === 401) {
       notifyUnauthorized()
       throw new Error('凭证已失效，请重新配对')
     }
+    diag('http', `GET ${path} → ${res.status} ${Date.now() - started}ms`)
     if (!res.ok) throw new Error(`网关请求失败（${res.status}）`)
     return (await res.json()) as T
   }
@@ -228,7 +246,11 @@ export class GatewayApi {
     const body = (await res.json().catch(() => ({}))) as StagedAttachment & {
       error?: { message?: string }
     }
-    if (!res.ok) throw new Error(body.error?.message ?? `图片上传失败（${res.status}）`)
+    if (!res.ok) {
+      diag('http', `POST /v1/attachments → ${res.status} ${body.error?.message ?? ''}`)
+      throw new Error(body.error?.message ?? `图片上传失败（${res.status}）`)
+    }
+    diag('http', `POST /v1/attachments → 200 handle=${body.handle ?? '—'}`)
     return body
   }
 
@@ -314,9 +336,13 @@ export class GatewayWs {
     const wsBase = base
       ? base.replace(/^http/, 'ws')
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+    diag('ws', `connect ${wsBase}/v1/ws`)
     const ws = new WebSocket(`${wsBase}/v1/ws?access_token=${encodeURIComponent(this.token)}`)
     this.ws = ws
-    ws.onopen = () => this.handlers.onOpenChange(true)
+    ws.onopen = () => {
+      diag('ws', 'open')
+      this.handlers.onOpenChange(true)
+    }
     ws.onmessage = (event) => {
       // 只处理当前连接的帧：重连后旧连接若未竟，其迟到事件不应重复进 reducer。
       if (this.ws !== ws) return
@@ -327,6 +353,12 @@ export class GatewayWs {
         return
       }
       if (frame.type === 'hello') {
+        const hello = frame as unknown as WsHello & { turnRunning?: boolean }
+        diag(
+          'ws',
+          `hello session=${hello.session?.id ?? '—'} turnRunning=${String(hello.turnRunning ?? false)}` +
+            ` pending=${hello.pendingPermissions?.length ?? 0}`,
+        )
         this.handlers.onHello(frame as unknown as WsHello)
         return
       }
@@ -337,9 +369,12 @@ export class GatewayWs {
           return
         }
       }
+      if (frame.type === 'error')
+        diag('ws', `← error ${String(frame.code ?? '')}: ${String(frame.message ?? '')}`)
       this.handlers.onFrame(frame)
     }
     const onDrop = (code?: number, reason?: string) => {
+      diag('ws', `close code=${code ?? '—'} reason=${reason || '—'}`)
       // 策略关闭（设备被撤销）：不重连，通知上层回配对页。
       if (code === 1008) {
         this.handlers.onOpenChange(false)
@@ -361,6 +396,10 @@ export class GatewayWs {
   }
 
   send(frame: Record<string, unknown>): void {
+    diag(
+      'ws',
+      `→ ${String(frame.type ?? '?')}${typeof frame.ref === 'string' ? ` ref=${frame.ref}` : ''}`,
+    )
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(frame))
   }
 
