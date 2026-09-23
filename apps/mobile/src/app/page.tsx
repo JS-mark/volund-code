@@ -141,8 +141,19 @@ export default function MobileApp() {
       onEvent: (envelope) => {
         // 本机重连上线：uplink 断开期间的流式/终态事件已丢失，重新水合 transcript 收口，
         // 否则断线期的半截回复会一直卡在 streaming 或干脆缺失。
-        const viewEvent = envelope.event as { type?: string } | undefined
+        const viewEvent = envelope.event as { type?: string; id?: unknown } | undefined
         if (envelope.kind === 'view' && viewEvent?.type === 'machine.online') void hydrate()
+        // 活动会话切换广播（桌面 TUI 切换 / 任一设备 resume，同会话也会重发）：
+        // 同会话的 echo 忽略——多设备共用会话时它不该清掉别人的上下文；
+        // 异会话则跟随切换并全量水合新会话历史（旧会话视图作废）。
+        if (envelope.kind === 'view' && viewEvent?.type === 'session.attached') {
+          const attachedId = typeof viewEvent.id === 'string' ? viewEvent.id : undefined
+          if (attachedId && attachedId !== activeSessionRef.current) {
+            setActiveSessionId(attachedId)
+            void hydrate(attachedId)
+          }
+          return
+        }
         // 单活动会话模型：过滤非当前会话的残留信封（activeSessionId 读 ref，避免陈旧闭包）。
         const active = activeSessionRef.current
         if (active && envelope.sessionId && envelope.sessionId !== active) return

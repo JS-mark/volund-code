@@ -409,7 +409,11 @@ function reduceEnvelope(
         messages: finalizeStreaming(state.messages),
         notice: view.message ?? 'turn 失败',
       }
-    if (view.type === 'session.attached') return { ...initialChatState, notice: '已连接会话' }
+    // session.attached 不在这里清屏：多设备共用单活动会话时它是对全员广播的
+    // （任何一台设备 resume，哪怕同一个会话，都会触发）——重置交由 page 层
+    // 判定「同会话忽略 / 异会话跟随 + hydrate 全量重建」，这里动 messages
+    // 会把其他设备的上下文打空（还能发消息，但历史看不见）。
+    if (view.type === 'session.attached') return state
     // 网关合成的机器在线状态（uplink 断开/重连）：离线即提示，上线仅清离线条。
     if (view.type === 'machine.offline') return { ...state, notice: MACHINE_OFFLINE_NOTICE }
     if (view.type === 'machine.online')

@@ -598,3 +598,28 @@ describe('mobile chat reducer', () => {
     })
   })
 })
+
+describe('多设备共用会话的 session.attached 语义', () => {
+  it('does not wipe context when another device re-attaches the same session', () => {
+    let state = initialChatState
+    state = reduceChatState(state, {
+      type: 'hydrate',
+      transcript: [
+        { id: 't1', role: 'user', text: '第一条' },
+        { id: 't2', role: 'assistant', text: '第一条的回复' },
+      ],
+    })
+    expect(state.messages).toHaveLength(2)
+    // 其他设备 resume 同一会话 → 网关对全员广播 session.attached：
+    // reducer 不得清空视图（旧实现 {...initialChatState} 会把上下文打空）。
+    const after = reduceChatState(state, {
+      type: 'envelope',
+      envelope: envelope('view', {
+        type: 'session.attached',
+        id: 's1',
+      } as unknown as EnvelopeEvent),
+    })
+    expect(after.messages).toHaveLength(2)
+    expect(after.messages.map((message) => message.text)).toEqual(['第一条', '第一条的回复'])
+  })
+})
