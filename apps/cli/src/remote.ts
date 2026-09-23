@@ -120,7 +120,8 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       listModels: () => listModels(ports, cwd),
     }
     link = createRemoteLink({
-      // 每次拨号前现取配置：tab 改完 [remote] 立即生效，无需重启。
+      // 拨号瞬间取 cachedConfig；缓存由 start() 与 refreshConfig()（web 写 [remote]
+      // 段后经 web-server 通知）刷新——凭证变更经下面的 stop→start 重拨生效。
       config: () => cachedConfig,
       hub: aliasedHub,
       workspaceCwd: cwd,
@@ -137,6 +138,38 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
     // 先读配置再启动：RemoteLink 的 config() 在拨号瞬间取 cachedConfig。
     active.start()
     if (persist) await persistEnabled(true)
+  }
+
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * [remote] 段经 web config/set|unset 变更后的落地：链路在跑则 stop→start 用
+   * 新凭证重拨（RemoteLink.stop 会清缓存 token，不会复用旧凭证换来的 JWT）；
+   * 没在跑只刷新缓存，等下次 start。enabled 被显式关掉或凭证不再完整则就地停链
+   * （不写回 enabled——配置本身即事实源，与 start/stop 按钮的持久化语义分开）。
+   */
+  const applyConfigRefresh = async (): Promise<void> => {
+    const remote = await readConfig()
+    if (!link || link.status.state === 'off') return
+    if (remote.enabled === false || !cachedConfig) {
+      await link.stop()
+      return
+    }
+    await link.stop()
+    link.start()
+  }
+
+  /** 连续保存三件套（网关地址/client_id/client_secret 各一次写）去抖合并成一次重拨。 */
+  const scheduleConfigRefresh = (): void => {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined
+      void applyConfigRefresh().catch((cause) => {
+        process.stderr.write(
+          `[remote] config refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+        )
+      })
+    }, 1_500)
   }
 
   return {
@@ -162,6 +195,9 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       await link?.stop()
       await persistEnabled(false).catch(() => {})
     },
+    refreshConfig: () => {
+      scheduleConfigRefresh()
+    },
     createPairing: async () => {
       const active = link ?? (await ensureLink())
       if (!link) throw new Error('remote link is not started')
@@ -186,6 +222,10 @@ export function createRemoteControlPort(ports: VolundPorts): RemoteControlHandle
       await refreshAndStart(false)
     },
     close: async () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+        refreshTimer = undefined
+      }
       await link?.stop()
       hub?.dispose()
       hub = undefined

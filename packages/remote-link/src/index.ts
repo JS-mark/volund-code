@@ -111,6 +111,8 @@ export class RemoteLink {
   private readonly pending = new Map<string, OutstandingRequest>()
   private nextRef = 0
   private token: { value: string; expiresAtMs: number } | undefined
+  /** 当前拨号连接的关闭信号（connect 挂上、close 事件触发）；stop() 等它收尾。 */
+  private socketClosed: Promise<void> | undefined
   /** 被同凭证的新实例顶替（1008 replaced）后置位：让位不重连，避免注册战。 */
   private replacedByPeer = false
   private readonly listeners = new Set<(status: RemoteLinkStatus) => void>()
@@ -161,6 +163,9 @@ export class RemoteLink {
 
   async stop(): Promise<void> {
     this.running = false
+    // 清缓存的 access_token：换凭证后 stop→start 必须重新换 token，不能复用旧凭证
+    // 换来的 JWT（默认 1h TTL，不清会让新配置看起来「不生效」）。
+    this.token = undefined
     for (const request of this.pending.values()) {
       clearTimeout(request.timer)
       request.reject(new Error('remote link stopped'))
@@ -170,6 +175,12 @@ export class RemoteLink {
     this.detachHub = undefined
     this.socket?.close()
     this.socket = undefined
+    // 等旧连接的关闭握手收尾（上限 1s 防网络黑洞挂死）：stop 后立即 start（换凭证
+    // 重拨）时，未收尾的旧连接会在网关撞上「顶替」路径——对已 CLOSING 的 socket
+    // 再 close 是 no-op，旧连接变僵尸挂住网关的 server.close。
+    const closed = this.socketClosed
+    this.socketClosed = undefined
+    if (closed) await Promise.race([closed, this.delay(1_000)])
     this.setState('off')
   }
 
@@ -257,6 +268,11 @@ export class RemoteLink {
     const token = await this.ensureToken(config)
     const gatewayBase = config.gatewayUrl.replace(/\/+$/, '')
     const url = `${gatewayBase.replace(/^http/, 'ws')}/uplink?access_token=${encodeURIComponent(token)}`
+    let resolveClosed!: () => void
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve
+    })
+    this.socketClosed = closed
     await new Promise<void>((resolveDisconnected, rejectConnect) => {
       const socket = this.createSocket(url)
       this.socket = socket
@@ -272,6 +288,7 @@ export class RemoteLink {
         })
       })
       socket.onClose((code, reason) => {
+        resolveClosed()
         if (settled) return
         settled = true
         // 1008 + replaced：同凭证的新实例完成注册，本连接被顶替（见 loop 的让位逻辑）。

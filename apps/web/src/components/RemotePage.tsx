@@ -72,8 +72,7 @@ export function RemotePage({ api }: { api: WebApi }) {
   const [clientId, setClientId, saveClientId, endSaveClientId] = useStateField()
   const [clientSecret, setClientSecret, saveClientSecret, endSaveClientSecret] = useStateField()
   const [messageApi, contextHolder] = message.useMessage()
-  const configRef = useRef(config)
-  configRef.current = config
+  const fieldsInitialized = useRef(false)
 
   const refresh = useCallback(async () => {
     const [remoteView, configView] = await Promise.all([
@@ -83,13 +82,17 @@ export function RemotePage({ api }: { api: WebApi }) {
     if (remoteView) setView(remoteView)
     if (configView) {
       setConfig(configView)
-      const remote = configView.config.remote as
-        | { gateway_url?: string; client_id?: string }
-        | undefined
-      if (remote?.gateway_url && !gatewayUrl.value) setGatewayUrl(remote.gateway_url)
-      if (remote?.client_id && !clientId.value) setClientId(remote.client_id)
+      // 凭证字段只在首帧回填一次：3s 轮询若持续回填，用户清空输入框会被旧值顶回去。
+      if (!fieldsInitialized.current) {
+        fieldsInitialized.current = true
+        const remote = configView.config.remote as
+          | { gateway_url?: string; client_id?: string }
+          | undefined
+        setGatewayUrl(remote?.gateway_url ?? '')
+        setClientId(remote?.client_id ?? '')
+      }
     }
-  }, [api, gatewayUrl.value, clientId.value])
+  }, [api])
 
   useEffect(() => {
     void refresh()
@@ -149,11 +152,21 @@ export function RemotePage({ api }: { api: WebApi }) {
       begin: () => void,
       end: () => void,
     ) => {
-      if (!value.trim()) return
+      const trimmed = value.trim()
+      if (!trimmed) {
+        messageApi.warning('请先输入内容再保存')
+        return
+      }
+      // schema 门（remote.client_secret min 16）前端预检：后端报 config_invalid
+      // 堆栈话术，这里直接给可操作的提示。
+      if (key === 'client_secret' && trimmed.length < 16) {
+        messageApi.error('client_secret 至少 16 个字符（网关签发的是 43 字符 base64url）')
+        return
+      }
       begin()
       try {
-        await api.configSet(`remote.${key}`, value.trim())
-        messageApi.success('已保存')
+        await api.configSet(`remote.${key}`, trimmed)
+        messageApi.success('已保存，运行中的链路将自动用新凭证重拨')
         await refresh()
         if (key === 'client_secret') setClientSecret('')
       } catch (cause) {

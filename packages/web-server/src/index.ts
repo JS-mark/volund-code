@@ -53,6 +53,11 @@ export interface RemoteControlPort {
   }
   start(): void
   stop(): Promise<void>
+  /**
+   * [remote] 段经 /api/v1/config/set|unset 变更后的落地钩子（装配侧去抖）：
+   * 重读配置，链路在跑则用新凭证重拨。不实现时改凭证只落盘、运行中链路不感知。
+   */
+  refreshConfig?(): void
   createPairing(): Promise<{ code: string; url: string; expiresAt: number }>
   listDevices(): Promise<
     readonly { id: string; name: string; pairedAt: number; lastSeen: number }[]
@@ -341,6 +346,15 @@ function isConfigKeyShape(key: unknown): key is string {
   )
 }
 
+/** [remote] 段写成功后通知链路端口重读配置（改凭证立即生效，装配侧去抖重拨）。 */
+function notifyRemoteConfigChange(
+  remote: RemoteControlPort | undefined,
+  key: string | undefined,
+): void {
+  if (!remote?.refreshConfig || typeof key !== 'string' || !key.startsWith('remote.')) return
+  remote.refreshConfig()
+}
+
 /** 常量时间比较（nonce/CSRF/session id 全走这里）。 */
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a)
@@ -612,6 +626,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       try {
         ok(res, await options.ports.config.setValue({ cwd: options.ports.cwd, key, value }))
+        notifyRemoteConfigChange(options.remote, key)
       } catch (cause) {
         failFrom(res, cause)
       }
@@ -633,6 +648,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
       }
       try {
         ok(res, await options.ports.config.unsetValue({ cwd: options.ports.cwd, key }))
+        notifyRemoteConfigChange(options.remote, key)
       } catch (cause) {
         failFrom(res, cause)
       }

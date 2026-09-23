@@ -20,6 +20,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { RemoteLink } from './index'
+import type { RemoteLinkOptions } from './index'
 
 const CLIENT_ID = 'machine-a'
 const CLIENT_SECRET = 'm'.repeat(43)
@@ -155,8 +156,8 @@ afterEach(async () => {
   gateway = undefined
 })
 
-function createLink(): RemoteLink {
-  return new RemoteLink({
+function createLinkOptions(): RemoteLinkOptions {
+  return {
     config: () => ({
       gatewayUrl: base,
       clientId: CLIENT_ID,
@@ -170,7 +171,11 @@ function createLink(): RemoteLink {
     initialBackoffMs: 50,
     maxBackoffMs: 200,
     logger: () => {},
-  })
+  }
+}
+
+function createLink(): RemoteLink {
+  return new RemoteLink(createLinkOptions())
 }
 
 async function waitOnline(target: RemoteLink, timeoutMs = 5_000): Promise<void> {
@@ -496,5 +501,28 @@ describe('RemoteLink', () => {
     expect(link.status.lastError).toBe('remote is not configured')
     // 未配置期间不应发起任何网络拨号。
     expect(link.status.gatewayUrl).toBeUndefined()
+  })
+
+  it('re-mints the access token after stop→start (token cache cleared on stop)', async () => {
+    await startGateway()
+    let tokenRequests = 0
+    const countingFetch: typeof fetch = (input, init) => {
+      if (String(input).endsWith('/oauth/token')) tokenRequests += 1
+      return fetch(input, init)
+    }
+    link = new RemoteLink({
+      ...createLinkOptions(),
+      fetchImpl: countingFetch,
+    })
+    link.start()
+    await waitOnline(link)
+    expect(tokenRequests).toBeGreaterThanOrEqual(1)
+
+    // token TTL 3600s 远大于测试时长：stop 不清缓存的话，这里不会再次请求 token。
+    const afterFirstDial = tokenRequests
+    await link.stop()
+    link.start()
+    await waitOnline(link)
+    expect(tokenRequests).toBe(afterFirstDial + 1)
   })
 })

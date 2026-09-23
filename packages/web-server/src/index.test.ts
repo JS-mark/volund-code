@@ -1002,6 +1002,7 @@ describe('web-server remote control endpoints (REM-r1)', () => {
       current: 'off' as 'off' | 'connecting' | 'online',
       started: 0,
       stopped: 0,
+      refreshed: 0,
     }
     const port: RemoteControlPort & { state: typeof state } = {
       state,
@@ -1019,6 +1020,9 @@ describe('web-server remote control endpoints (REM-r1)', () => {
       stop: async () => {
         state.stopped += 1
         state.current = 'off'
+      },
+      refreshConfig: () => {
+        state.refreshed += 1
       },
       createPairing: async () => ({
         code: 'ABCD2345',
@@ -1101,6 +1105,52 @@ describe('web-server remote control endpoints (REM-r1)', () => {
     })
     expect(stop.status).toBe(200)
     expect(remote.state.stopped).toBe(1)
+  })
+
+  it('config/set and config/unset of remote.* notify the link port to re-read config', async () => {
+    const remote = fakeRemote()
+    const { url } = await start({
+      remote,
+      ports: {
+        identity: { version: '0.0.0-test' },
+        cwd: '/tmp/web-server-test',
+        config: configPort().port,
+      },
+    })
+    const { base, headers } = await authed(url)
+
+    const set = await fetch(`${base}api/v1/config/set`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ key: 'remote.client_secret', value: 's'.repeat(43) }),
+    })
+    expect(set.status).toBe(200)
+    expect(remote.state.refreshed).toBe(1)
+
+    const setUnrelated = await fetch(`${base}api/v1/config/set`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ key: 'ui.theme', value: 'dark' }),
+    })
+    expect(setUnrelated.status).toBe(200)
+    expect(remote.state.refreshed).toBe(1)
+
+    const unset = await fetch(`${base}api/v1/config/unset`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ key: 'remote.gateway_url' }),
+    })
+    expect(unset.status).toBe(200)
+    expect(remote.state.refreshed).toBe(2)
+
+    // 写失败（形状门拒绝）不应触发通知。
+    const malformed = await fetch(`${base}api/v1/config/set`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ key: '..', value: 1 }),
+    })
+    expect(malformed.status).toBe(400)
+    expect(remote.state.refreshed).toBe(2)
   })
 
   it('is 503 without the remote port wired', async () => {
