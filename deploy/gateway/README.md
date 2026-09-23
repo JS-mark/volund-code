@@ -183,6 +183,7 @@ ws.onmessage = (e) => {
 | `GATEWAY_RATE_LIMIT_RPM` | `600` | 每客户端每分钟 API 上限 |
 | `GATEWAY_TOKEN_RATE_LIMIT_RPM` | `30` | 每 IP 每分钟颁证上限 |
 | `GATEWAY_CORS_ORIGINS` | 空 | 跨域白名单（逗号分隔；空 = 不下发 CORS 头） |
+| `GATEWAY_TRUST_PROXY` | 关 | 前置反代/CDN 时开启：客户端 ip 取 X-Forwarded-For/X-Real-IP（uplink 注册、配对、token 颁发日志与 /v1/instances、设备 lastIp 用） |
 
 直挂模式遗留的 `GATEWAY_PERMISSION_MODE` / `GATEWAY_DEFAULT_PROVIDER` /
 `GATEWAY_WORKSPACE` 独立入口不再读取（权限模式与模型别名都在本机侧）。

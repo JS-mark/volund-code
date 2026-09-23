@@ -193,3 +193,18 @@ describe('resolveGatewayCredentials', () => {
     await expect(resolveGatewayCredentials(home, {})).rejects.toThrow(/JSON array/)
   })
 })
+
+describe('GATEWAY_TRUST_PROXY', () => {
+  it('defaults to false and accepts truthy values', () => {
+    expect(resolveRelayConfig({ args: {}, env: {} }).trustProxy).toBe(false)
+    expect(resolveRelayConfig({ args: {}, env: { GATEWAY_TRUST_PROXY: 'nope' } }).trustProxy).toBe(
+      false,
+    )
+    expect(resolveRelayConfig({ args: {}, env: { GATEWAY_TRUST_PROXY: '1' } }).trustProxy).toBe(
+      true,
+    )
+    expect(resolveRelayConfig({ args: {}, env: { GATEWAY_TRUST_PROXY: 'true' } }).trustProxy).toBe(
+      true,
+    )
+  })
+})

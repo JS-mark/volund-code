@@ -1095,3 +1095,77 @@ describe('machine enrollment and discovery (relay)', () => {
     )
   })
 })
+
+describe('来源 ip 遥测（trustProxy + XFF）', () => {
+  it('logs token issuance with the forwarded client ip', async () => {
+    const logs: string[] = []
+    await startServer({
+      hub: undefined,
+      logger: (message: string) => logs.push(message),
+      trustProxy: true,
+      oauth: {
+        issuer: 'volund-gateway-test',
+        signingKey: deriveSigningKey('integration-test-key'),
+        tokenTtlSeconds: 3600,
+        clients: [
+          {
+            id: 'ip-client',
+            secretHash: hashGatewayClientREFID_014Q(CLIENT_PLAINTEXT),
+            scopes: ['chat'],
+          },
+        ],
+      },
+      relay: {},
+    })
+    await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-forwarded-for': '203.0.113.5, 70.41.3.18',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: 'ip-client',
+        client_secret: CLIENT_PLAINTEXT,
+      }),
+    })
+    const issued = logs.find((line) => line.startsWith('token issued: ip-client'))
+    expect(issued).toContain('from 203.0.113.5')
+  })
+
+  it('uses the socket address when trustProxy is off (no XFF spoofing)', async () => {
+    const logs: string[] = []
+    await startServer({
+      hub: undefined,
+      logger: (message: string) => logs.push(message),
+      oauth: {
+        issuer: 'volund-gateway-test',
+        signingKey: deriveSigningKey('integration-test-key'),
+        tokenTtlSeconds: 3600,
+        clients: [
+          {
+            id: 'ip-client',
+            secretHash: hashGatewayClientREFID_014Q(CLIENT_PLAINTEXT),
+            scopes: ['chat'],
+          },
+        ],
+      },
+      relay: {},
+    })
+    await fetch(`${base}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-forwarded-for': '203.0.113.5',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: 'ip-client',
+        client_secret: CLIENT_PLAINTEXT,
+      }),
+    })
+    const issued = logs.find((line) => line.startsWith('token issued: ip-client'))
+    expect(issued).toContain('from 127.0.0.1')
+    expect(issued).not.toContain('203.0.113.5')
+  })
+})

@@ -157,4 +157,6 @@ localStorage 后跨源直连网关，同源托管形态行为不变。
 - `/oauth/token` 每 IP 限流（默认 30/min），`/v1/*` 每客户端限流（默认 600/min）；
 - JSON body 4 MiB 上限，WS 消息 1 MiB 上限；客户端帧必须掩码（RFC 6455）；
 - CORS 默认关闭，`GATEWAY_CORS_ORIGINS` 显式开白名单；
+- 记录客户端来源 ip（uplink 注册/断线、设备配对 `lastIp`、token 颁发、WS 连接）
+  ——前置反代/CDN 时配 `GATEWAY_TRUST_PROXY`，取转发地址而非对端地址；
 - 会话 cwd 被关进本机工作区（网关与本机双重 realpath 校验）。

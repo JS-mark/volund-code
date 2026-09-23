@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto'
  * - GATEWAY_QUEUE_TIMEOUT_MS（默认 600000）/ GATEWAY_MAX_TURN_HOLD_MS（默认 1800000）
  * - GATEWAY_RATE_LIMIT_RPM（默认 600）/ GATEWAY_TOKEN_RATE_LIMIT_RPM（默认 30）
  * - GATEWAY_CORS_ORIGINS（逗号分隔，默认空 = 不下发 CORS 头）
+ * - GATEWAY_TRUST_PROXY（前置反代/CDN 时开启：客户端 ip 取 X-Forwarded-For/X-Real-IP）
  * - GATEWAY_PUBLIC_URL（配对 URL 基地址；缺省按请求 Host 推断）
  * - GATEWAY_MOBILE_PUBLIC_URL（移动站单独部署的站点地址；配对 URL 指向它并带 &gw=）
  * - VOLUND_MOBILE_ASSET_DIR（移动站静态产物目录；单独部署时无需配置）
@@ -41,6 +42,14 @@ export interface RelayServerConfig {
   readonly rateLimitPerMinute: number
   readonly tokenRateLimitPerMinute: number
   readonly corsOrigins: readonly string[]
+  /** 信任 X-Forwarded-For / X-Real-IP 取真实客户端 ip（网关前置反代/CDN 时开启）。 */
+  readonly trustProxy: boolean
+}
+
+/** env 布尔解析（'1'/'true'/'yes'/'on' 为真，其余假）。 */
+function boolFromEnv(value: string | undefined): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 function intFromEnv(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -72,6 +81,7 @@ export function resolveRelayConfig(input: {
       .split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),
+    trustProxy: boolFromEnv(env.GATEWAY_TRUST_PROXY),
   }
 }
 

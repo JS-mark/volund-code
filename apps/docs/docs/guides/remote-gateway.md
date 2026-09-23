@@ -179,5 +179,8 @@ same-origin hosting shape is unchanged when these are unset.
   (600/min default);
 - 4 MiB JSON body cap, 1 MiB WS message cap; masked client frames enforced (RFC 6455);
 - CORS disabled by default, explicit allowlist via `GATEWAY_CORS_ORIGINS`;
+- client source IPs are recorded (uplink register/disconnect, device pairing
+  `lastIp`, token issuance, WS connects) — set `GATEWAY_TRUST_PROXY` when behind
+  a reverse proxy/CDN so the forwarded address is used instead of the peer;
 - session cwd is confined to the desktop workspace (double realpath checks on both the
   gateway and the desktop side).

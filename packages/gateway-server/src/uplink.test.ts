@@ -349,7 +349,12 @@ afterEach(async () => {
 
 async function startRelay(
   clients: readonly GatewayOAuthClient[] = [MACHINE, OTHER],
-  extra?: { publicUrl?: string; mobilePublicUrl?: string },
+  extra?: {
+    publicUrl?: string
+    mobilePublicUrl?: string
+    logger?: (message: string) => void
+    trustProxy?: boolean
+  },
 ): Promise<void> {
   server = await createGatewayServer({
     host: '127.0.0.1',
@@ -372,6 +377,8 @@ async function startRelay(
     listSessions: () => Promise.resolve([]),
     ...(extra?.publicUrl ? { publicUrl: extra.publicUrl } : {}),
     ...(extra?.mobilePublicUrl ? { mobilePublicUrl: extra.mobilePublicUrl } : {}),
+    ...(extra?.logger ? { logger: extra.logger } : {}),
+    ...(extra?.trustProxy ? { trustProxy: true } : {}),
   })
   base = server.url
 }
@@ -732,5 +739,24 @@ describe('relay static site hosting', () => {
     // API 面不受静态托管影响。
     const health = await fetch(`${base}/v1/health`)
     expect(((await health.json()) as { status?: string }).status).toBe('ok')
+  })
+})
+
+describe('uplink 来源 ip 遥测', () => {
+  it('records the dial-out ip in the registry and logs register/disconnect with it', async () => {
+    const logs: string[] = []
+    await startRelay([MACHINE], { logger: (message) => logs.push(message), trustProxy: true })
+    const uplink = await dialUplink()
+    await uplink.waitRegistered()
+
+    const registered = logs.find((line) => line.startsWith('uplink registered: machine-a'))
+    expect(registered).toContain('ip=127.0.0.1')
+    expect(registered).toContain('instance=instance-a')
+    expect(server!.registry?.resolve('machine-a')?.info.ip).toBe('127.0.0.1')
+
+    uplink.close()
+    while (!uplink.closed) await sleep(10)
+    const disconnected = logs.find((line) => line.startsWith('uplink disconnected: machine-a'))
+    expect(disconnected).toContain('ip=127.0.0.1')
   })
 })

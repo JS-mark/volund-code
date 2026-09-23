@@ -46,6 +46,8 @@ export interface UplinkInstanceInfo {
   readonly version?: string
   readonly channels: readonly string[]
   readonly connectedAt: number
+  /** 拨出连接的来源 ip（trustProxy 时取 X-Forwarded-For 的真实客户端地址）。 */
+  readonly ip?: string
 }
 
 export interface UplinkRegistration {
@@ -326,6 +328,8 @@ export class UplinkRegistry {
       readonly serverId: string
       readonly version: string
       readonly commandHandler: UplinkCommandHandler
+      /** 拨出来源 ip（upgrade 握手时提取，trustProxy 时为 XFF 真实地址）。 */
+      readonly ip?: string
     },
   ): void {
     let registration: UplinkRegistration | undefined
@@ -334,7 +338,11 @@ export class UplinkRegistry {
     conn.onClose = () => {
       if (registration && this.instances.get(registration.client) === registration) {
         this.instances.delete(registration.client)
-        this.log(`uplink disconnected: ${registration.client}`)
+        const durationS = Math.round((Date.now() - registration.info.connectedAt) / 1000)
+        this.log(
+          `uplink disconnected: ${registration.client} (ip=${registration.info.ip ?? 'unknown'}, ` +
+            `connected ${durationS}s ago)`,
+        )
         // 主动通知该机器的客户端连接（mobile 的离线提示条；被新连接顶替的旧连接
         // 不走这里——registration 已非当前值，online 事件由新注册发出）。
         for (const listener of this.hubListeners)
@@ -396,6 +404,7 @@ export class UplinkRegistry {
             workspaceCwd,
             ...(typeof record.hostname === 'string' ? { hostname: record.hostname } : {}),
             ...(typeof record.version === 'string' ? { version: record.version } : {}),
+            ...(input.ip ? { ip: input.ip } : {}),
             channels,
             connectedAt: Date.now(),
           },
@@ -411,7 +420,12 @@ export class UplinkRegistry {
           this.log(`uplink replaced stale connection: ${input.client}`)
         }
         this.instances.set(input.client, registration)
-        this.log(`uplink registered: ${input.client} (${workspaceCwd})`)
+        this.log(
+          `uplink registered: ${input.client} (${workspaceCwd})` +
+            ` instance=${instanceId}` +
+            `${typeof record.version === 'string' ? ` version=${record.version}` : ''}` +
+            ` ip=${input.ip ?? 'unknown'}`,
+        )
         send({
           type: 'uplink.registered',
           serverId: input.serverId,

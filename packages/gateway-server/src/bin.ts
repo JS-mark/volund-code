@@ -134,6 +134,7 @@ async function main(): Promise<void> {
     rateLimitPerMinute: config.rateLimitPerMinute,
     tokenRateLimitPerMinute: config.tokenRateLimitPerMinute,
     corsOrigins: config.corsOrigins,
+    ...(config.trustProxy ? { trustProxy: true } : {}),
   })
 
   const banner = {

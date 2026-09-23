@@ -112,3 +112,30 @@ describe('PairingStore', () => {
     expect(await reloaded.verifyDeviceToken(redeemed!.result!.accessToken)).toBeUndefined()
   })
 })
+
+describe('设备审计元数据（ip/UA）', () => {
+  it('stores pairing meta, survives reload, and refreshes lastIp on activity', async () => {
+    const store = createStore()
+    const code = await store.createCode('machine-a')
+    const redeemed = await store.redeem(code.code, '手机', {
+      ip: '203.0.113.7',
+      userAgent: 'iOS Safari/17',
+    })
+    expect(redeemed).toBeTruthy()
+    const [device] = await store.listDevices()
+    expect(device).toMatchObject({ lastIp: '203.0.113.7', userAgent: 'iOS Safari/17' })
+
+    // devices.json 落盘包含新字段，重载后仍在。
+    const reloaded = createStore()
+    const [loaded] = await reloaded.listDevices()
+    expect(loaded).toMatchObject({ lastIp: '203.0.113.7', userAgent: 'iOS Safari/17' })
+
+    // 活跃心跳（越过 lastSeen 节流窗口）刷新 lastIp。
+    const token = redeemed!.result!.accessToken
+    expect(await reloaded.verifyDeviceToken(token, '198.51.100.9')).toBeTruthy()
+    now += 61_000
+    expect(await reloaded.verifyDeviceToken(token, '198.51.100.9')).toBeTruthy()
+    const [refreshed] = await reloaded.listDevices()
+    expect(refreshed?.lastIp).toBe('198.51.100.9')
+  })
+})

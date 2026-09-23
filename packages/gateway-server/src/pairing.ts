@@ -35,6 +35,10 @@ export interface PairedDeviceRecord {
   readonly client: string
   readonly pairedAt: number
   lastSeen: number
+  /** 最近一次配对/活跃的来源 ip（trustProxy 时为 XFF 真实地址）。 */
+  lastIp?: string
+  /** 配对时浏览器的 User-Agent（审计参考，可缺失）。 */
+  userAgent?: string
 }
 
 export interface PairingCodeRecord {
@@ -133,6 +137,8 @@ export class PairingStore {
               client: record.client,
               pairedAt: typeof record.pairedAt === 'number' ? record.pairedAt : 0,
               lastSeen: typeof record.lastSeen === 'number' ? record.lastSeen : 0,
+              ...(typeof record.lastIp === 'string' ? { lastIp: record.lastIp } : {}),
+              ...(typeof record.userAgent === 'string' ? { userAgent: record.userAgent } : {}),
             },
           ]
         })
@@ -178,11 +184,12 @@ export class PairingStore {
    * 核销配对码。码不存在/过期/已用一律 undefined（错误信息不区分，收敛探测面）；
    * 比对走常量时间。device → 登记设备 + 签发设备 token；machine → 只消费码，
    * 凭证铸造（clients.json 落盘 + 认证面登记）由网关侧 registerMachine 承接，
-   * result 为 undefined。
+   * result 为 undefined。`deviceMeta` 是审计信息（来源 ip/UA），随设备落盘。
    */
   async redeem(
     code: string,
     deviceName: string | undefined,
+    deviceMeta?: { readonly ip?: string; readonly userAgent?: string },
   ): Promise<{ record: PairingCodeRecord; result: RedeemResult | undefined } | undefined> {
     await this.ensureLoaded()
     this.sweepCodes()
@@ -204,6 +211,8 @@ export class PairingStore {
       client: matched.client,
       pairedAt: now,
       lastSeen: now,
+      ...(deviceMeta?.ip ? { lastIp: deviceMeta.ip } : {}),
+      ...(deviceMeta?.userAgent ? { userAgent: deviceMeta.userAgent } : {}),
     }
     this.devices.push(device)
     await this.persist()
@@ -250,8 +259,11 @@ export class PairingStore {
     return true
   }
 
-  /** 设备 token 校验：JWT 语义 + 注册表存在性（撤销即失效）。 */
-  async verifyDeviceToken(token: string): Promise<DeviceTokenClaims | undefined> {
+  /**
+   * 设备 token 校验：JWT 语义 + 注册表存在性（撤销即失效）。
+   * `ip` 提供时随活跃心跳刷新 lastIp（同一节流窗口内落盘）。
+   */
+  async verifyDeviceToken(token: string, ip?: string): Promise<DeviceTokenClaims | undefined> {
     await this.ensureLoaded()
     const claims = verifyGatewayJwt(token, this.options.signingKey)
     if (!claims || claims.typ !== 'device') return undefined
@@ -260,9 +272,10 @@ export class PairingStore {
     if (typeof claims.exp !== 'number' || claims.exp * 1000 <= this.now()) return undefined
     const device = this.devices.find((entry) => entry.id === claims.sub)
     if (!device || device.client !== claims.client) return undefined
-    // lastSeen 节流落盘：活跃设备每分钟最多写一次盘。
+    // lastSeen/lastIp 节流落盘：活跃设备每分钟最多写一次盘。
     if (this.now() - device.lastSeen >= TOUCH_THROTTLE_MS) {
       device.lastSeen = this.now()
+      if (ip) device.lastIp = ip
       void this.persist().catch(() => {})
     }
     const scopes = typeof claims.scope === 'string' ? claims.scope.split(' ').filter(Boolean) : []

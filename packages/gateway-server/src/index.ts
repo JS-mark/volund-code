@@ -186,6 +186,11 @@ export interface GatewayServerOptions {
   readonly pairingRateLimitPerMinute?: number
   /** 允许跨域的 Origin 白名单；默认空 = 不下发任何 CORS 头。 */
   readonly corsOrigins?: readonly string[]
+  /**
+   * 信任 X-Forwarded-For / X-Real-IP 取真实客户端 ip（网关前置反代/CDN 时开启）。
+   * 默认 false = 用 TCP 对端地址（直曝部署），防伪造头冒充来源。
+   */
+  readonly trustProxy?: boolean
   /** JSON body 上限（默认 4 MiB）。 */
   readonly maxBodyBytes?: number
   /** POST /v1/attachments 原始字节上限（默认 20 MiB，与 AttachmentStore 一致）。 */
@@ -282,6 +287,23 @@ function bearerToken(req: IncomingMessage): string | undefined {
   return rest[0]
 }
 
+/**
+ * 客户端来源 ip：trustProxy 时优先 X-Forwarded-For 首跳 / X-Real-IP（前置反代/CDN
+ * 追加的真实地址）；默认只信 TCP 对端——XFF 可被客户端伪造，不该无条件采信。
+ */
+function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = req.headers['x-forwarded-for']
+    if (typeof forwarded === 'string') {
+      const first = forwarded.split(',')[0]?.trim()
+      if (first) return first
+    }
+    const real = req.headers['x-real-ip']
+    if (typeof real === 'string' && real.trim()) return real.trim()
+  }
+  return req.socket.remoteAddress ?? 'unknown'
+}
+
 export async function createGatewayServer(
   options: GatewayServerOptions,
 ): Promise<GatewayServerHandle> {
@@ -311,6 +333,7 @@ export async function createGatewayServer(
   // 附件上传上限与 AttachmentStore 的 20 MiB 一致（字节直传，不经 JSON）。
   const maxAttachmentBytes = options.maxAttachmentBytes ?? 20 * 1024 * 1024
   const corsOrigins = new Set(options.corsOrigins ?? [])
+  const trustProxy = options.trustProxy === true
   const apiLimiter = new RateLimiter(options.rateLimitPerMinute ?? 600)
   const tokenLimiter = new RateLimiter(options.tokenRateLimitPerMinute ?? 30)
   const pairingLimiter = new RateLimiter(options.pairingRateLimitPerMinute ?? 20)
@@ -382,7 +405,7 @@ export async function createGatewayServer(
     const claims: GatewayTokenClaims | undefined = oauth.verify(token)
     if (claims) return { ...claims, client: claims.sub, device: false }
     if (pairing) {
-      const device = await pairing.verifyDeviceToken(token)
+      const device = await pairing.verifyDeviceToken(token, clientIp(req, trustProxy))
       if (device)
         return {
           sub: device.sub,
@@ -603,6 +626,7 @@ export async function createGatewayServer(
           res,
           new GatewayError('gateway_schema_invalid', 400, 'requested scope exceeds client grants'),
         )
+      log(`token issued: ${clientId} from ${clientIp(req, trustProxy)}`)
       ok(res, {
         access_token: issued.accessToken,
         token_type: issued.tokenType,
@@ -641,9 +665,16 @@ export async function createGatewayServer(
       const entry = body as { code?: unknown; name?: unknown }
       if (typeof entry.code !== 'string' || !entry.code)
         return fail(res, new GatewayError('gateway_schema_invalid', 400, 'code is required'))
+      // 审计元数据：核销来源 ip + UA 随设备登记（trustProxy 时为 XFF 真实地址）。
+      const redeemIp = clientIp(req, trustProxy)
+      const userAgent = req.headers['user-agent']
       const redeemed = await pairing.redeem(
         entry.code,
         typeof entry.name === 'string' ? entry.name : undefined,
+        {
+          ip: redeemIp,
+          ...(typeof userAgent === 'string' && userAgent ? { userAgent } : {}),
+        },
       )
       if (!redeemed)
         return fail(
@@ -663,6 +694,7 @@ export async function createGatewayServer(
             ),
           )
         const minted = await registerMachine()
+        log(`machine enrolled: ${minted.clientId} from ${redeemIp}`)
         ok(res, {
           client_id: minted.clientId,
           client_secret: minted.clientSecret,
@@ -675,6 +707,10 @@ export async function createGatewayServer(
           res,
           new GatewayError('gateway_pairing_invalid', 400, 'pairing code is invalid or expired'),
         )
+      log(
+        `device paired: ${redeemed.result.deviceId} (${redeemed.record.client})` +
+          ` from ${redeemIp}`,
+      )
       ok(res, {
         access_token: redeemed.result.accessToken,
         token_type: redeemed.result.tokenType,
@@ -765,6 +801,7 @@ export async function createGatewayServer(
             workspaceCwd: registration.info.workspaceCwd,
             ...(registration.info.hostname ? { hostname: registration.info.hostname } : {}),
             ...(registration.info.version ? { version: registration.info.version } : {}),
+            ...(registration.info.ip ? { ip: registration.info.ip } : {}),
             channels: registration.info.channels,
             connectedAt: registration.info.connectedAt,
           })),
@@ -1060,7 +1097,9 @@ export async function createGatewayServer(
       const claims = oauth.verify(token)
       if (claims) return { ...claims, client: claims.sub, device: false }
       if (pairing) {
-        const resolved = await pairing.verifyDeviceToken(token).catch(() => undefined)
+        const resolved = await pairing
+          .verifyDeviceToken(token, clientIp(req, trustProxy))
+          .catch(() => undefined)
         if (resolved)
           return {
             sub: resolved.sub,
@@ -1093,6 +1132,7 @@ export async function createGatewayServer(
           client: auth.client,
           serverId,
           version: options.version,
+          ip: clientIp(req, trustProxy),
           commandHandler: ({ method, params }) =>
             uplinkCommandHandler({ method, params, client: auth.client, hostHeader }),
         })
@@ -1115,6 +1155,10 @@ export async function createGatewayServer(
         socket.destroy()
         return
       }
+      log(
+        `ws client connected: ${auth.device ? `device ${auth.sub} (of ${auth.client})` : auth.client}` +
+          ` from ${clientIp(req, trustProxy)}`,
+      )
       const conn = new WsConnection(socket, { pingIntervalMs: 30_000 })
       broadcaster.add(conn, auth.client, auth.device ? auth.sub : undefined)
       attachWsConnection(
@@ -1157,13 +1201,15 @@ export async function createGatewayServer(
   }
 }
 
-/** 设备视图（secret 类信息不出网关；lastSeen 供「在线状态」粗判）。 */
+/** 设备视图（secret 类信息不出网关；lastSeen/lastIp 供「在线状态/来源」粗判）。 */
 function viewDevice(device: PairedDeviceRecord): Record<string, unknown> {
   return {
     id: device.id,
     name: device.name,
     pairedAt: device.pairedAt,
     lastSeen: device.lastSeen,
+    ...(device.lastIp ? { lastIp: device.lastIp } : {}),
+    ...(device.userAgent ? { userAgent: device.userAgent } : {}),
   }
 }
 
