@@ -33,15 +33,21 @@ Docker 镜像或直接 `node packages/gateway-server/dist/bin.js` 启动。
 
 ## 快速开始（Docker）
 
+单容器即可：网关自身同源托管移动站静态产物，REST/WS/移动站全在 8788，无前置依赖。
+
 ```bash
 cd deploy/gateway
 cp .env.example .env        # 填 GATEWAY_PUBLIC_URL 等
-docker compose up -d --build
+docker compose pull && docker compose up -d   # compose 为纯拉镜像模式，不本地构建
 docker compose logs gateway # 首启打印 bootstrap client 明文凭证（只此一次，不落盘）
 ```
 
-DNS 把 `gateway.ai-agentic.cc` 指到主机后，Caddy 自动签发/续期 TLS 证书。
-网关服务不直接暴露端口，全部流量经 Caddy 终结 TLS 后反代。
+网关是**纯 HTTP、无 TLS**：公网部署明文传输 device token 与会话内容，接受不了
+就在自己的前置层做 TLS 终结（nginx/CDN/独立 caddy 反代到 `localhost:8788`），
+并把 `GATEWAY_PUBLIC_URL` 配成客户端实际访问到的基地址（如 `http://<host>:8788`）。
+
+镜像推送到镜像仓库：`sh deploy/image-push.sh gateway [TAG]`（三个镜像统一入口，
+默认推 `registry.cn-hangzhou.aliyuncs.com/future-coding-backend`，先 `docker login`）。
 
 ### 生产环境注意事项
 

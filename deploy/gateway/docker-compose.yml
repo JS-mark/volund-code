@@ -1,35 +1,23 @@
-# docker compose 部署：volund 网关 + Caddy 终结 TLS（gateway.ai-agentic.cc）。
+# docker compose 部署：volund 网关（拉镜像仓库镜像），单容器。
+# 网关自身同源托管移动站静态产物（镜像内置 apps/mobile/out），REST/WS/移动站都在 8788。
 # 用法：
-#   cp .env.example .env   # 填入上游 provider 配置
-#   docker compose up -d --build
+#   cp .env.example .env   # 填 GATEWAY_PUBLIC_URL 等
+#   docker compose pull && docker compose up -d   # 本 compose 不构建，直接用镜像仓库镜像
 #   docker compose logs gateway | grep -A3 'bootstrap client'   # 首次启动取客户端凭证
 #
-# DNS：gateway.ai-agentic.cc 的 A 记录指向本机；Caddy 自动签发/续期证书。
+# 网关是纯 HTTP（无 TLS）：公网部署明文传输 device token 与会话内容；要 TLS 在
+# 自己的前置层做（nginx/CDN/独立 caddy 反代到 localhost:8788），并把
+# GATEWAY_PUBLIC_URL 配成客户端实际访问到的基地址。
 
 services:
   gateway:
-    build:
-      context: ../..
-      dockerfile: deploy/gateway/Dockerfile
+    image: registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-gateway:latest
     env_file: .env
     volumes:
       - volund-home:/data
     restart: unless-stopped
-    # 不直接暴露端口——只经 Caddy 反代（TLS + 域名收口）。
-
-  caddy:
-    image: caddy:2
-    depends_on: [gateway]
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    restart: unless-stopped
+      - '8788:8788'
 
 volumes:
   volund-home:
-  caddy-data:
-  caddy-config:
