@@ -103,9 +103,9 @@ docker run -d -p 8788:8788 -v volund-home:/data volund-gateway
 
 # 移动站（可选，独立部署）
 docker build -f deploy/mobile/Dockerfile -t volund-mobile .
-docker run -d -p 8080:80 volund-mobile
+docker run -d -p 8080:8800 volund-mobile
 ```
 
-生产环境把 `GATEWAY_PUBLIC_URL` 配成网关公网地址（如
-`https://gateway.ai-agentic.cc`），TLS 由前置 Caddy/CDN 终结。完整 env 表与
-Caddy 示例见 `deploy/gateway/README.md`。
+生产环境把 `GATEWAY_PUBLIC_URL` 配成客户端实际访问到的地址（直曝即
+`http://<host>:8788`；在自己前置层终结 TLS/CDN 时配对外的 https 基地址）。
+完整 env 表见 `deploy/gateway/README.md`。

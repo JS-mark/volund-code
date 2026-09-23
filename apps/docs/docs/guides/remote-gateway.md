@@ -6,7 +6,8 @@ The remote gateway is a standalone public relay process (`@volund/gateway-server
 gateway to the **local** session (topology: phone → gateway(VPS) → uplink tunnel →
 local machine). Public instance: `https://gateway.ai-agentic.cc`.
 
-> Deployment (Docker / Caddy / domain setup) lives in `deploy/gateway/README.md`.
+> Deployment (Docker; TLS via your own fronting proxy/CDN if needed) lives in
+> `deploy/gateway/README.md`.
 > The gateway is a standalone protocol surface — any application implementing the
 > gateway protocol can integrate: frame and REST/WS contracts live in
 > `packages/gateway-server/PROTOCOL.md` (TypeScript frame types are exported from
@@ -83,21 +84,21 @@ turn; resumable later via the `x-volund-session-id` response header).
 
 ## Endpoints
 
-| Endpoint                       | Purpose                                                      |
-| ------------------------------ | ------------------------------------------------------------ |
-| `POST /oauth/token`            | client_credentials grant (form / JSON / Basic header)        |
-| `GET /v1/health`               | Health check (unauthenticated)                               |
-| `GET /v1/sessions`             | Resumable session list (fetched via the tunnel)              |
-| `POST /v1/chat/completions`    | OpenAI-compatible; SSE when `stream: true`                   |
-| `POST /v1/attachments`         | Attachment upload (raw image bytes → AttachmentStore handle) |
-| `GET /v1/attachments/{handle}` | Attachment byte replay (mobile image echo from history)      |
-| `GET /v1/ws`                   | WebSocket interactive channel (approvals/interrupts/events)  |
-| `GET /uplink`                  | Machine dial-out registration (uplink scope)                 |
-| `POST /pairing/redeem`         | Pairing-code redemption → device token (IP rate-limited)     |
-| `POST /v1/pairing`             | Mint a machine enrollment code (uplink scope)                |
+| Endpoint                       | Purpose                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `POST /oauth/token`            | client_credentials grant (form / JSON / Basic header)                     |
+| `GET /v1/health`               | Health check (unauthenticated)                                            |
+| `GET /v1/sessions`             | Resumable session list (fetched via the tunnel)                           |
+| `POST /v1/chat/completions`    | OpenAI-compatible; SSE when `stream: true`                                |
+| `POST /v1/attachments`         | Attachment upload (raw image bytes → AttachmentStore handle)              |
+| `GET /v1/attachments/{handle}` | Attachment byte replay (mobile image echo from history)                   |
+| `GET /v1/ws`                   | WebSocket interactive channel (approvals/interrupts/events)               |
+| `GET /uplink`                  | Machine dial-out registration (uplink scope)                              |
+| `POST /pairing/redeem`         | Pairing-code redemption → device token (IP rate-limited)                  |
+| `POST /v1/pairing`             | Mint a machine enrollment code (uplink scope)                             |
 | `GET /v1/instances`            | Online machine list: client id, workspace, version, uptime (uplink scope) |
-| `GET /v1/clients`              | Configured clients + online flags (uplink scope)             |
-| `GET /` (non-API paths)        | Mobile site static hosting (same-origin, no CORS)            |
+| `GET /v1/clients`              | Configured clients + online flags (uplink scope)                          |
+| `GET /` (non-API paths)        | Mobile site static hosting (same-origin, no CORS)                         |
 
 ### chat/completions mapping
 

@@ -34,7 +34,7 @@ market = "https://market.example.com/mcp/index.json"
 构建并推送镜像：
 
 ```bash
-REGISTRY=registry.example.com/volund sh apps/market/scripts/image-push.sh
+REGISTRY=registry.example.com/volund sh deploy/market/image-push.sh
 ```
 
 运行（数据持久化在 `volund-market-data` 卷；首次启动播种示例插件、样例 Skill 与 MCP 条目）：

@@ -116,9 +116,9 @@ docker run -d -p 8788:8788 -v volund-home:/data volund-gateway
 
 # Mobile site (optional, standalone)
 docker build -f deploy/mobile/Dockerfile -t volund-mobile .
-docker run -d -p 8080:80 volund-mobile
+docker run -d -p 8080:8800 volund-mobile
 ```
 
-In production, set `GATEWAY_PUBLIC_URL` to the gateway's public address (e.g.
-`https://gateway.ai-agentic.cc`) and terminate TLS on a fronting Caddy/CDN. The full env
-table and a Caddy example live in `deploy/gateway/README.md`.
+In production, set `GATEWAY_PUBLIC_URL` to the address clients actually reach (e.g.
+`http://<host>:8788` direct, or the public `https://` address when you terminate TLS
+on a fronting proxy/CDN). The full env table lives in `deploy/gateway/README.md`.

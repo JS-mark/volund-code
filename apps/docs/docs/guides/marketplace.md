@@ -49,7 +49,7 @@ so clients browse and install from it with zero changes.
 Build and push the image:
 
 ```bash
-REGISTRY=registry.example.com/volund sh apps/market/scripts/image-push.sh
+REGISTRY=registry.example.com/volund sh deploy/market/image-push.sh
 ```
 
 Run it (data persists in the `volund-market-data` volume; first start seeds a demo

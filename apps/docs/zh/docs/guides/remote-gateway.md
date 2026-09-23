@@ -5,7 +5,7 @@
 网关中转控制**本机**会话（拓扑：手机 → 网关(VPS) → uplink 隧道 → 本机）。
 公网实例：`https://gateway.ai-agentic.cc`。
 
-> 部署细节（Docker / Caddy / 域名）见仓库 `deploy/gateway/README.md`。
+> 部署细节（Docker；TLS 需要时走你自己的前置反代/CDN）见仓库 `deploy/gateway/README.md`。
 > 网关是独立的协议面——任何实现网关协议的应用都能对接：帧协议与 REST/WS
 > 契约见 `packages/gateway-server/PROTOCOL.md`（TypeScript 帧类型由
 > `@volund/gateway-server` 导出）。
@@ -76,21 +76,21 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 
 ## 端点
 
-| 端点                           | 说明                                                  |
-| ------------------------------ | ----------------------------------------------------- |
-| `POST /oauth/token`            | client_credentials 换 token（form / JSON / Basic 头） |
-| `GET /v1/health`               | 健康检查（无需认证）                                  |
-| `GET /v1/sessions`             | 可恢复会话清单（经隧道取自本机）                      |
-| `POST /v1/chat/completions`    | OpenAI 兼容；`stream: true` 走 SSE                    |
-| `POST /v1/attachments`         | 附件上传（原始图片字节 → AttachmentStore handle）     |
-| `GET /v1/attachments/{handle}` | 附件字节回放（移动站历史图片回显）                    |
-| `GET /v1/ws`                   | WebSocket 交互通道（审批/打断/事件流）                |
-| `GET /uplink`                  | 本机反向拨出注册（uplink scope）                      |
-| `POST /pairing/redeem`         | 配对码核销 → 移动设备长期 token（IP 限流）            |
-| `POST /v1/pairing`             | 铸造机器注册码（uplink scope）                        |
+| 端点                           | 说明                                                            |
+| ------------------------------ | --------------------------------------------------------------- |
+| `POST /oauth/token`            | client_credentials 换 token（form / JSON / Basic 头）           |
+| `GET /v1/health`               | 健康检查（无需认证）                                            |
+| `GET /v1/sessions`             | 可恢复会话清单（经隧道取自本机）                                |
+| `POST /v1/chat/completions`    | OpenAI 兼容；`stream: true` 走 SSE                              |
+| `POST /v1/attachments`         | 附件上传（原始图片字节 → AttachmentStore handle）               |
+| `GET /v1/attachments/{handle}` | 附件字节回放（移动站历史图片回显）                              |
+| `GET /v1/ws`                   | WebSocket 交互通道（审批/打断/事件流）                          |
+| `GET /uplink`                  | 本机反向拨出注册（uplink scope）                                |
+| `POST /pairing/redeem`         | 配对码核销 → 移动设备长期 token（IP 限流）                      |
+| `POST /v1/pairing`             | 铸造机器注册码（uplink scope）                                  |
 | `GET /v1/instances`            | 在线机器清单：client id、工作区、版本、上线时间（uplink scope） |
-| `GET /v1/clients`              | 已配置客户端 + 在线标记（uplink scope）               |
-| `GET /`（非 API 路径）         | 移动端网站静态托管（同源免 CORS）                     |
+| `GET /v1/clients`              | 已配置客户端 + 在线标记（uplink scope）                         |
+| `GET /`（非 API 路径）         | 移动端网站静态托管（同源免 CORS）                               |
 
 ### chat/completions 映射
 
