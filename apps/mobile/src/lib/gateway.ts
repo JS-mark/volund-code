@@ -284,6 +284,8 @@ export interface WsHello {
   version: string
   session: { id: string; cwd?: string } | null
   pendingPermissions: string[]
+  /** 握手瞬间是否有 turn 在途（迟到者恢复运行态/中断按钮）。 */
+  turnRunning?: boolean
 }
 
 export interface GatewayWsHandlers {

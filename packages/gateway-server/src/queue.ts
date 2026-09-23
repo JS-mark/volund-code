@@ -17,6 +17,12 @@ export class GatewayError extends Error {
 
 export class TurnQueue {
   private tail: Promise<void> = Promise.resolve()
+  private depth = 0
+
+  /** 当前是否有持有者（turn/会话命令在途）——hello 帧的 turnRunning 数据源。 */
+  get locked(): boolean {
+    return this.depth > 0
+  }
 
   /** FIFO 取锁；timeoutMs 内拿不到即抛 409。release 必须配对调用。 */
   async acquire(timeoutMs: number): Promise<() => void> {
@@ -43,7 +49,12 @@ export class TurnQueue {
     } finally {
       if (timer) clearTimeout(timer)
     }
+    this.depth += 1
+    let released = false
     return () => {
+      if (released) return
+      released = true
+      this.depth -= 1
       release()
     }
   }

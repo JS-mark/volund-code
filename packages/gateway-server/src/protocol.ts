@@ -195,6 +195,8 @@ export interface ServerHelloFrame {
   readonly version: string
   readonly session: ProtocolActiveState
   readonly pendingPermissions: readonly string[]
+  /** 握手瞬间是否有 turn 在途（迟到者据此恢复运行态/中断按钮）。 */
+  readonly turnRunning: boolean
 }
 
 export type ServerFrame =

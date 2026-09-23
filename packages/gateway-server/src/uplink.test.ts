@@ -61,8 +61,16 @@ class LocalHub implements GatewayHubLike {
     return { id }
   }
 
+  /** 中断复现用：true（默认）时 submit 立即完成；false 时挂起等 completeRunning()。 */
+  autoComplete = true
+  interruptCalls = 0
+
   async submit(input: { prompt: string; model?: string }): Promise<'accepted'> {
     this.submitted.push(input)
+    if (!this.autoComplete) {
+      this.emit('core', { type: 'turn.started', payload: {} })
+      return 'accepted'
+    }
     setTimeout(() => {
       this.emit('core', { type: 'stream.delta', payload: { kind: 'text', fragment: 'hi' } })
       this.emit('core', { type: 'turn.completed', payload: {} })
@@ -70,7 +78,16 @@ class LocalHub implements GatewayHubLike {
     return 'accepted'
   }
 
-  async interrupt(): Promise<void> {}
+  completeRunning(): void {
+    this.emit('core', { type: 'stream.delta', payload: { kind: 'text', fragment: 'hi' } })
+    this.emit('core', { type: 'turn.completed', payload: {} })
+  }
+
+  async interrupt(): Promise<void> {
+    this.interruptCalls += 1
+    this.emit('core', { type: 'turn.aborted', payload: { reason: 'user_interrupt' } })
+    return Promise.resolve()
+  }
 
   async closeActive(): Promise<void> {
     this.activeSession = undefined
@@ -758,5 +775,64 @@ describe('uplink 来源 ip 遥测', () => {
     while (!uplink.closed) await sleep(10)
     const disconnected = logs.find((line) => line.startsWith('uplink disconnected: machine-a'))
     expect(disconnected).toContain('ip=127.0.0.1')
+  })
+})
+
+describe('跨设备 turn 中断', () => {
+  it('interrupts a running turn and broadcasts abort to every connected device', async () => {
+    hub.autoComplete = false
+    await startRelay([MACHINE])
+    const uplink = await dialUplink()
+    await uplink.waitRegistered()
+    const token = await tokenFor(base, { id: MACHINE.id, secret: MACHINE_SECRET })
+    const deviceA = new WsClient(base, token)
+    await deviceA.waitOpen()
+    console.log('STEP A open')
+    await deviceA.expect((frame) => frame.type === 'hello')
+    console.log('STEP A resume sent')
+    deviceA.send({ type: 'session.resume', id: 'sess-1', ref: 's1' })
+    await deviceA.expect((frame) => frame.type === 'session.attached')
+    console.log('STEP A attached')
+
+    console.log('STEP A submit sent')
+    deviceA.send({ type: 'turn.submit', prompt: '跑一个长回合', ref: 't1' })
+    await deviceA.expect(
+      (frame) => frame.type === 'event' && JSON.stringify(frame).includes('turn.started'),
+    )
+
+    // 设备 B 中途连入（多设备共用单活动会话）。resume 与 turn 共用 FIFO——
+    // turn 进行中 resume 被队列挡住是设计行为，这里只验证监听与广播。
+    console.log(
+      'STEP A got turn.started; frames:',
+      JSON.stringify(deviceA.frames.map((f) => f.type)),
+    )
+    const deviceB = new WsClient(base, token)
+    await deviceB.waitOpen()
+    const bHello = await deviceB.expect((frame) => frame.type === 'hello')
+    // 迟到者恢复：turn 在途时接入的设备在 hello 里拿到 turnRunning=true。
+    expect(bHello.turnRunning).toBe(true)
+
+    // A 发中断：hub.interrupt 被调、两个设备都收到 turn.aborted。
+    console.log('STEP B hello ok; A frames:', JSON.stringify(deviceA.frames.map((f) => f.type)))
+    deviceA.send({ type: 'turn.interrupt', ref: 'i1' })
+    console.log('STEP A interrupt sent')
+    await deviceA.expect((frame) => frame.type === 'turn.interrupt_requested')
+    console.log('STEP A interrupt_requested ok')
+    await deviceA.expect(
+      (frame) => frame.type === 'event' && JSON.stringify(frame).includes('turn.aborted'),
+    )
+    await deviceB.expect(
+      (frame) => frame.type === 'event' && JSON.stringify(frame).includes('turn.aborted'),
+    )
+    expect(hub.interruptCalls).toBe(1)
+
+    // B 再发一次中断同样生效（广播权限对称）。
+    deviceB.send({ type: 'turn.interrupt', ref: 'i2' })
+    await deviceB.expect((frame) => frame.type === 'turn.interrupt_requested')
+    expect(hub.interruptCalls).toBe(2)
+
+    hub.completeRunning()
+    deviceA.close()
+    deviceB.close()
   })
 })

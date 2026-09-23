@@ -623,3 +623,10 @@ describe('多设备共用会话的 session.attached 语义', () => {
     expect(after.messages.map((message) => message.text)).toEqual(['第一条', '第一条的回复'])
   })
 })
+
+describe('迟到者运行态恢复', () => {
+  it('restores the running turn from hello.turnRunning so the interrupt button shows', () => {
+    const state = reduceChatState(initialChatState, { type: 'turn-restored' })
+    expect(state.turn).toBe('running')
+  })
+})

@@ -85,6 +85,9 @@ export function attachWsConnection(deps: WsChannelDeps, conn: WsConnection): voi
     version: deps.version,
     session: deps.hub.active ?? null,
     pendingPermissions: deps.hub.pendingPermissionIds(),
+    // 迟到者恢复：turn 进行中接入的设备拿不到 turn.started 事件——
+    // 用队列锁状态把运行态一次性补给 hello（终态事件随订阅正常送达）。
+    turnRunning: deps.queue.locked,
   })
 
   conn.onMessage = (text) => {

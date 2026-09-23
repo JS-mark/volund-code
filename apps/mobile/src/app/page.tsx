@@ -134,6 +134,9 @@ export default function MobileApp() {
       },
       onHello: (hello) => {
         setActiveSessionId(hello.session?.id)
+        // 迟到者恢复：接入时 turn 已在途（错过了 turn.started）——补运行态，
+        // 否则中断按钮不出现；终态事件随订阅送达后自动收回。
+        if (hello.turnRunning && hello.session?.id) dispatch({ type: 'turn-restored' })
         void hydrate()
         void refreshSessions()
         void refreshModels()

@@ -108,6 +108,7 @@ export interface EnvelopeEvent {
 export type StreamAction =
   | { type: 'envelope'; envelope: { kind: string; sessionId?: string; event: EnvelopeEvent } }
   | { type: 'hydrate'; transcript: readonly unknown[] }
+  | { type: 'turn-restored' }
   | { type: 'echo'; text: string; images?: readonly ChatMessageImage[] }
   | { type: 'notice'; notice: string | undefined }
   | { type: 'reset' }
@@ -423,6 +424,10 @@ function reduceEnvelope(
 }
 
 export function reduceChatState(state: ChatState, action: StreamAction): ChatState {
+  // 迟到者恢复：hello.turnRunning=true 时补运行态（中断按钮可见）。
+  // 终态由后续 turn.completed/aborted 事件正常收回——错过终态的极端窗口
+  // （attach 前一瞬完成）订阅保证不存在：hello 与订阅在同一次同步段内建立。
+  if (action.type === 'turn-restored') return { ...state, turn: 'running' }
   if (action.type === 'envelope') {
     const event = action.envelope.event as Partial<Event>
     if (!event || typeof event !== 'object' || typeof event.type !== 'string') return state

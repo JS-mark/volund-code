@@ -121,7 +121,8 @@ hub RPC 面相应多出 `hub.stageAttachment{mime, dataBase64}`（字节 base64 
 60s 超时）与 `models.list`（模型清单，供 `GET /v1/models`）；uplink 连接的
 WS 帧上限因此放到 32 MiB，/v1/ws 客户端面仍为 1 MiB。
 
-服务端帧（ServerFrame）：`hello{serverId, version, session, pendingPermissions}`
+服务端帧（ServerFrame）：`hello{serverId, version, session, pendingPermissions, turnRunning}`
+（`turnRunning`=握手瞬间是否有 turn 在途，迟到者据此恢复运行态/中断按钮）
 （连接即发）/ `pong` / `session.attached{id, cwd?}` / `session.ended` /
 `turn.accepted` / `turn.interrupt_requested` /
 `permission.decided{requestId, decided}` / `event`（事件信封透传）/
