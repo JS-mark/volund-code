@@ -141,3 +141,12 @@ legacy v1 的安装、启用与激活仍保持 `plugin_legacy_activation_unavail
 交互式 Chat 的 `/plugins` 使用独立的 v2 生命周期。市场安装只下载、校验并登记，绝不立即激活。先执行 `/plugins inspect <name>` 检查完整权限和 permission hash，再执行 `/plugins approve <name> <permission-hash>` 与 `/plugins enable <name>`。版本或权限 hash 变化会撤销批准并自动禁用；`/plugins disable <name>` 可在不卸载的情况下热停用。唯一持久状态源是原子写入的 `~/.volund/plugin-state.v2.json`，它不读取或改写 legacy `plugins.json`。
 
 HTTPS 市场索引当前可以浏览，但在发布者签名、吊销和可信 key root 端到端接通前，远程安装会以 `plugin_registry_signature_required` fail closed。回环 HTTP 只允许本地开发和测试执行安装。HTTPS 与文件 digest 证明的是传输完整性，不是发布者身份。
+
+## 远程网关注册（多机自助接入）
+
+`volund remote enroll` 与 `volund remote connect` 让更多桌面机无需登录网关服务器即可自助接入（网关保持纯转发）：
+
+- `volund remote enroll [--json]` —— 在已接入的机器上运行：用已配置的 `[remote]` 凭证（gateway_url / client_id / client_secret）认证，经 `POST /v1/pairing` 铸造 8 位一次性注册码（5 分钟有效）。需要网关侧 `uplink` scope。
+- `volund remote connect --gateway <url> --code <code> [--json]` —— 在新机器上运行：公开端点 `POST /pairing/redeem` 核销后，网关铸造独立机器客户端（clients.json 只存哈希），明文 `client_secret` 只在这次应答返回；命令把 `[remote]` 段写入用户级 config.toml 并启用远程控制，下次启动即拨出（或在 Web 控制台切换）。
+
+信任模型与设备配对一致：持有已接入机器凭证的人 = 有权接纳新机器。一机一凭证——uplink 注册表按 client id 键控，同 id 的第二条连接会顶替第一条。完整流程与 `/v1/instances`、`/v1/clients` 发现端点见[远程网关指南](../guides/remote-gateway.md)。

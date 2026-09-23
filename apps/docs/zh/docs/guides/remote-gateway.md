@@ -87,6 +87,9 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 | `GET /v1/ws`                   | WebSocket 交互通道（审批/打断/事件流）                |
 | `GET /uplink`                  | 本机反向拨出注册（uplink scope）                      |
 | `POST /pairing/redeem`         | 配对码核销 → 移动设备长期 token（IP 限流）            |
+| `POST /v1/pairing`             | 铸造机器注册码（uplink scope）                        |
+| `GET /v1/instances`            | 在线机器清单：client id、工作区、版本、上线时间（uplink scope） |
+| `GET /v1/clients`              | 已配置客户端 + 在线标记（uplink scope）               |
 | `GET /`（非 API 路径）         | 移动端网站静态托管（同源免 CORS）                     |
 
 ### chat/completions 映射
@@ -118,6 +121,27 @@ chat/completions 共享同一个活动会话；chat/completions 在无活动会�
 「远程控制」tab 生成一次性配对码（5 分钟有效），手机打开网关地址扫码/输入，
 `POST /pairing/redeem` 核销后签发 30 天设备 token（落盘
 `~/.volund/gateway/devices.json`）；设备 token 只授 chat scope，撤销即失效。
+
+## 机器注册（多机自助接入）
+
+更多桌面机无需碰网关服务器即可自助接入，信任模型与设备配对一致：持有已接入
+机器凭证的人 = 有权接纳新机器。
+
+1. 在已接入的机器上运行 `volund remote enroll`——用已配置的 `[remote]` 凭证
+   认证，经 `POST /v1/pairing`（需 uplink scope，设备 token 到不了）铸造 8 位
+   一次性注册码（5 分钟有效）。
+2. 在新机器上运行
+   `volund remote connect --gateway https://gateway.example.com --code ABCD2345`。
+   公开的 `POST /pairing/redeem` 端点铸造独立机器客户端（`chat sessions uplink`
+   scope），clients.json 只落其 SHA-256 哈希，明文 secret **只在这次应答**返回
+   一次；命令随后写回 `[remote]` 段并启用远程控制。
+3. 每台机器拿到独立 client id——一机一凭证（uplink 注册表按 client id 键控，
+   同 id 的第二条连接会顶替第一条）。`/v1/instances` 与 `/v1/clients` 查看
+   在线状态。
+
+clients.json 来源（bootstrap / 文件）时注册面开放；客户端来自 `GATEWAY_CLIENTS`
+环境变量时注册面只读，核销返回 `404 gateway_enrollment_disabled`——env 是唯一
+事实源，运行时写出的文件会被重启覆盖。
 
 ## 移动站单独部署
 

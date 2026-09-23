@@ -161,3 +161,12 @@ Legacy v1 plugin installation, enablement, and activation are temporarily unavai
 Interactive Chat has a separate local-plugin v2 lifecycle through `/plugins`. Market installation only downloads, verifies, and records the plugin; it never activates code. Run `/plugins inspect <name>`, review the complete permissions and permission hash, then `/plugins approve <name> <permission-hash>` and `/plugins enable <name>`. A version or permission-hash change revokes approval and disables the plugin. `/plugins disable <name>` stops it without uninstalling it. This state is stored atomically in `~/.volund/plugin-state.v2.json`; it never reads or rewrites legacy `~/.volund/plugins/plugins.json`.
 
 HTTPS market indexes may currently be browsed, but remote installation fails closed with `plugin_registry_signature_required` until publisher signatures, revocation, and a trusted-key root are wired end to end. Loopback HTTP sources are executable only for local development and tests. HTTPS plus file digests proves transport integrity, not publisher identity.
+
+## Remote gateway enrollment
+
+`volund remote enroll` and `volund remote connect` let additional desktops join a remote gateway without touching the gateway server (multi-machine self-service; the gateway stays a pure relay).
+
+- `volund remote enroll [--json]` — run on a machine that is already connected. It authenticates with the configured `[remote]` credentials (`gateway_url` / `client_id` / `client_secret`) and mints an 8-character one-shot enrollment code (5-minute validity) via `POST /v1/pairing`. Requires the `uplink` scope on the gateway.
+- `volund remote connect --gateway <url> --code <code> [--json]` — run on the new machine. Redeems the code at the public `POST /pairing/redeem` endpoint: the gateway mints a dedicated machine client (hash-only storage in `clients.json`), returns the plaintext `client_secret` once, and the command writes the `[remote]` section into user `config.toml` and enables remote control. Remote control dials out on the next start (or toggle it in the web console).
+
+Trust model matches device pairing: whoever holds a connected machine's credentials may admit a new machine. One client per machine — the uplink registry keys by client id, and a second connection with the same id replaces the first. See the [remote gateway guide](../guides/remote-gateway.md) for the full flow and the `/v1/instances` / `/v1/clients` discovery endpoints.

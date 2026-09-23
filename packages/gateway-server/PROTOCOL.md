@@ -105,6 +105,9 @@ JSON 文本帧，`type` 判别；未知帧类型网关以 1002 关闭。
 | `POST /v1/attachments`               | 附件上传（原始字节直传，Content-Type 限 image/png·jpeg·gif·webp，≤20 MiB）；字节经隧道进本机 AttachmentStore，返回 `{kind,mime,size,handle}`              |
 | `GET /v1/attachments/{handle}`       | 附件字节回放（移动站 transcript 图片回显）；handle 即 AttachmentStore 内容寻址引用，二进制应答带不可变长缓存；读不到 → 404 `gateway_attachment_not_found` |
 | `POST /pairing/redeem`               | 配对码核销（无认证，IP 限流）→ 设备 token                                                                                                                 |
+| `POST /v1/pairing`                   | 铸造机器注册码（uplink scope；`{code, expiresAt}`）——多机自助接入的铸造面                                                                                 |
+| `GET /v1/instances`                  | 在线实例清单（uplink scope）：`{instances: [{client, instanceId, workspaceCwd, hostname?, version?, channels, connectedAt}]}`                             |
+| `GET /v1/clients`                    | 已配置客户端 + 在线标记（uplink scope）：`{clients: [{id, scopes, online}]}`——只有 id/scopes，secretHash 永不出认证面                                     |
 
 ### WebSocket `GET /v1/ws`（Bearer 或 ?access_token=）
 
@@ -131,12 +134,25 @@ WS 帧上限因此放到 32 MiB，/v1/ws 客户端面仍为 1 MiB。
 
 ### 配对流程
 
-1. 机器侧 `req: pairing.create` → `{code, url, expiresAt}`；
-   `url` 指向移动站（`GATEWAY_MOBILE_PUBLIC_URL`，缺省为网关自身），
-   形如 `<site>/#pair=CODE[&gw=<网关地址>]`。
+1. 机器侧 `req: pairing.create` → `{kind?, code, url, expiresAt}`；
+   `kind` 缺省为 `device`（设备配对，带移动站落地 `url`），`machine` 为机器注册码
+   （只进 CLI，无移动站 url）；`url` 指向移动站（`GATEWAY_MOBILE_PUBLIC_URL`，
+   缺省为网关自身），形如 `<site>/#pair=CODE[&gw=<网关地址>]`。
 2. 设备打开 url（或手动输入网关地址 + 配对码）→ `POST /pairing/redeem`
    `{code, name}` → `{access_token, device_id, expires_in}`。
 3. 设备 token 直连 `/v1/ws` + REST；机器侧 `device.revoke` 可即时撤销。
+
+### 机器注册流程（kind=machine）
+
+信任模型与设备配对一致：持有已接入机器凭证 = 有权接纳新机器。
+
+1. 已接入机器 `POST /v1/pairing`（Bearer，uplink scope）→ `{code, expiresAt}`。
+2. 新机器 `POST /pairing/redeem {code}`（公开端点，同一 IP 限流）→ 网关铸造
+   独立机器客户端（`chat sessions uplink`）：SHA-256 哈希追加进 clients.json
+   （0600）并登记进运行时认证面，明文 secret **只在这次应答**返回
+   `{client_id, client_secret, scope}`。
+3. 一机一凭证：uplink 注册表按 client id 键控，同 id 重连顶替旧连接。
+   `GATEWAY_CLIENTS` env 来源时注册面关闭（核销 → 404 `gateway_enrollment_disabled`）。
 
 ## 错误码
 
@@ -145,7 +161,8 @@ WS 帧上限因此放到 32 MiB，/v1/ws 客户端面仍为 1 MiB。
 `gateway_rate_limited`(429) / `gateway_schema_invalid`(400/404) /
 `gateway_session_busy`(409) / `gateway_session_not_found`(404) /
 `gateway_unsupported_content`(400) / `gateway_upstream_failed`(502) /
-`gateway_uplink_offline`(503) / `gateway_ws_protocol_error`(WS 帧内)。
+`gateway_uplink_offline`(503) / `gateway_ws_protocol_error`(WS 帧内) /
+`gateway_enrollment_disabled`(404，机器注册面未开放)。
 
 ## 安全约束
 

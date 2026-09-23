@@ -94,6 +94,9 @@ turn; resumable later via the `x-volund-session-id` response header).
 | `GET /v1/ws`                   | WebSocket interactive channel (approvals/interrupts/events)  |
 | `GET /uplink`                  | Machine dial-out registration (uplink scope)                 |
 | `POST /pairing/redeem`         | Pairing-code redemption → device token (IP rate-limited)     |
+| `POST /v1/pairing`             | Mint a machine enrollment code (uplink scope)                |
+| `GET /v1/instances`            | Online machine list: client id, workspace, version, uptime (uplink scope) |
+| `GET /v1/clients`              | Configured clients + online flags (uplink scope)             |
 | `GET /` (non-API paths)        | Mobile site static hosting (same-origin, no CORS)            |
 
 ### chat/completions mapping
@@ -131,6 +134,31 @@ The remote-control tab issues one-shot pairing codes (5-minute validity); the ph
 the gateway URL and enters/scans the code, `POST /pairing/redeem` mints a 30-day device
 token (persisted at `~/.volund/gateway/devices.json`). Device tokens carry only the chat
 scope, and revocation kills them immediately.
+
+## Machine enrollment (multi-machine self-service)
+
+Additional desktops enroll themselves without touching the gateway server. The trust
+model matches device pairing: whoever holds a connected machine's credentials may admit
+a new machine.
+
+1. On a machine that is already connected, run `volund remote enroll` — it authenticates
+   with the configured `[remote]` credentials and mints an 8-character one-shot
+   enrollment code (5-minute validity) via `POST /v1/pairing` (uplink scope required;
+   device tokens cannot reach it).
+2. On the new machine, run
+   `volund remote connect --gateway https://gateway.example.com --code ABCD2345`.
+   The public `POST /pairing/redeem` endpoint mints a dedicated machine client
+   (`chat sessions uplink` scopes), stores only its SHA-256 hash in `clients.json`,
+   and returns the plaintext secret **once** in that response; the command writes the
+   `[remote]` section and enables remote control.
+3. Each enrolled machine gets its own client id — one credential per machine, since the
+   uplink registry keys by client id and a second connection with the same id replaces
+   the first. `/v1/instances` and `/v1/clients` show what is online.
+
+Enrollment is available when clients live in `clients.json` (bootstrap or file source).
+If clients come from the `GATEWAY_CLIENTS` environment variable, the registry surface is
+read-only and redemption answers `404 gateway_enrollment_disabled` — env is the single
+source of truth and a runtime-written file would be overwritten on restart.
 
 ## Standalone mobile-site deployment
 
