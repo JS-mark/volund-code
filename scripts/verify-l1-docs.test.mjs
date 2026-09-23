@@ -56,7 +56,11 @@ void test('keeps the docs site private and buildable', async () => {
     readRepoFile('turbo.json').then(JSON.parse),
   ])
   assert.equal(manifest.private, true)
-  assert.match(manifest.scripts.build, /docs:api && vitepress build/)
+  // 生成 typedoc API → 镜像中文 API 区 → 构建（a1cb658 起 zh 镜像进 build 链）。
+  assert.match(
+    manifest.scripts.build,
+    /docs:api && node scripts\/mirror-api-zh\.mjs && vitepress build/,
+  )
   assert.ok(
     turbo.tasks.typecheck.dependsOn.includes('build'),
     'typecheck must wait for the same package build to avoid concurrent VitePress temp writes',

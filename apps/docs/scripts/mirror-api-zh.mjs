@@ -12,7 +12,7 @@ const srcRoot = join(docsRoot, 'api')
 const destRoot = join(docsRoot, 'zh', 'api')
 const OVERVIEW = 'README.md' // 中文总览为手写文件，镜像时跳过
 
-const banner = (depth) =>
+const banner = (_depth) =>
   `> **注：** 本页为 TypeDoc 自动生成的 API 参考，内容为英文。中文导读见 [API 总览](/zh/api/README)。\n\n`
 
 async function collect(dir) {
