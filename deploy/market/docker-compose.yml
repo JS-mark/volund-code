@@ -1,10 +1,10 @@
 # market 服务端编排：直接使用镜像仓库里的镜像。
 #   MARKET_IMAGE=registry.example.com/volund/volund-market:1.0.0 \
 #   MARKET_ADMIN_TOKEN=xxx \
-#   docker compose -f apps/market/docker-compose.yml up -d
+#   docker compose -f deploy/market/docker-compose.yml up -d
 services:
   market:
-    image: ${MARKET_IMAGE:?设置 MARKET_IMAGE（如 registry.example.com/volund/volund-market:1.0.0）}
+    image: registry.cn-hangzhou.aliyuncs.com/future-coding-backend/volund-market:latest
     container_name: volund-market
     restart: unless-stopped
     ports:

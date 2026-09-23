@@ -8,7 +8,10 @@
 # /uplink 反向拨出注册；镜像同时携带移动站静态产物（apps/mobile/out），
 # 由网关同源托管（VOLUND_MOBILE_ASSET_DIR）。
 
-FROM node:22-bookworm-slim AS build
+# 构建阶段钉 BUILDPLATFORM：构建机原生跑 node/pnpm（跨架构时不进 QEMU——
+# node 在 QEMU 用户态模拟下会撞 libuv 断言崩溃 uv__io_poll: errno == EEXIST）。
+# 产物是纯 JS（tsc dist / 静态 out/），架构无关，拷进目标架构运行时层即正确。
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY . .
