@@ -398,6 +398,39 @@ describe('SessionController', () => {
     await resumed.end()
   })
 
+  it('resume 尾窗不把子代理冒泡的 turn.started 计入——父会话历史不被挤出窗口', async () => {
+    const sessionsDir = await sessionsRoot()
+    const controller = new SessionController(new Context(), {
+      sessionsDir,
+      createRunner: fakeFactory(),
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    for (let index = 0; index < 3; index += 1) await session.submit(`turn ${index}`)
+    // 一段长子代理工作：30 条冒泡 turn.started（附录 D.3 tag）落在父 JSONL 里。
+    // 尾窗若把它们计入，from 会切进冒泡段，父会话 3 个 turn 的消息全被丢掉。
+    const store = new SessionStore(join(sessionsDir, `${session.id}.jsonl`))
+    for (let index = 0; index < 30; index += 1) {
+      await store.append({
+        v: 1,
+        id: `bubbled-${index}`,
+        type: 'turn.started',
+        sessionId: 'sub-session-id',
+        turnId: `sub-turn-${index}`,
+        parentTurnId: 'turn-3',
+        parentDepth: 1,
+        at: new Date().toISOString(),
+        payload: { turnId: `sub-turn-${index}` },
+      })
+    }
+    await session.end()
+    const resumed = await controller.resumeInteractive(session.id)
+    const texts = (resumed.transcript ?? [])
+      .filter((entry) => !isTranscriptToolEntry(entry))
+      .map((entry) => ('text' in entry ? entry.text : ''))
+    expect(texts).toContain('turn 0')
+    await resumed.end()
+  })
+
   it('list() 未命名标题按 [ui].locale 探针取值（i18n-r1：缺省 zh，en 探针回 Untitled session）', async () => {
     let locale: Locale | undefined
     const controller = new SessionController(new Context(), {

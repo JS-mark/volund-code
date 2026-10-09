@@ -20,6 +20,7 @@ import type { Context } from '@cordisjs/core'
 import {
   createSession,
   EventBus,
+  isBubbledEvent,
   MachineEventFormatter,
   replaySessionState,
   updateSession,
@@ -355,7 +356,12 @@ export class SessionController<TStatusView = unknown> extends Service {
     // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
     // 行作为旧数据的基线兜底），禁止再写全量快照。
     const all = await store.load()
-    const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
+    // 尾窗按「父会话真实 turn」计：子代理冒泡的 turn.started 在父 JSONL 里有副本
+    // （附录 D.3 tag），不计入窗口——否则一段长子代理工作就能把父会话历史挤出
+    // 尾窗（窗口之前的父消息被整体丢弃，resume 后模型失去自己的近期上下文）。
+    const turnStarts: number[] = []
+    for (const [index, entry] of all.entries())
+      if (entry.type === 'turn.started' && !isBubbledEvent(entry)) turnStarts.push(index)
     const tailTurns = 20
     const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
     // 会话级模型事件（/model 钉住）不受尾部窗口限制：窗口前的 session.model_changed
@@ -364,7 +370,9 @@ export class SessionController<TStatusView = unknown> extends Service {
       ...all.slice(0, from).filter((entry) => entry.type === 'session.model_changed'),
       ...all.slice(from),
     ]
-    const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
+    const replayedTurns = entries.filter(
+      (entry) => entry.type === 'turn.started' && !isBubbledEvent(entry),
+    ).length
     const skippedTurns = Math.max(
       0,
       turnStarts.filter((index) => index >= 0).length - replayedTurns,

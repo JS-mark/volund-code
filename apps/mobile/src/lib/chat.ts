@@ -55,17 +55,46 @@ export interface ToolCard {
   body?: string
 }
 
+/** 一条子代理工具调用（冒泡 tool.requested/started/completed 的展示投影，旧→新）。 */
+export interface SubagentToolRun {
+  toolUseId: string
+  tool: string
+  status: 'running' | 'done' | 'error'
+  /** 单行目标（requested 帧带 input 时提取；started 兜底建条目时缺席）。 */
+  target?: string
+}
+
 /**
  * 一个 Task 派发下的子代理活动聚合（key = 父 turnId，即冒泡事件的 parentTurnId）。
  * 只从冒泡 tool.* 事件累积——子代理的消息/流式/turn 事件不进主聊天流。
  */
 export interface SubagentActivity {
-  /** 子代理已启动的工具调用数（冒泡 tool.started 计数）。 */
+  /** 子代理已启动的工具调用数（冒泡 tool.requested/started 去重计数）。 */
   toolCalls: number
   /** 仍在运行的子代理工具数（started − completed，下界 0）。 */
   running: number
   /** 最近启动的子代理工具名（折叠行的「当前工具」）。 */
   lastTool?: string
+  /** 工具调用轨迹（Task 卡展开面的时间线；上限之外丢最旧，计数不随之丢失）。 */
+  runs: SubagentToolRun[]
+}
+
+/** 轨迹保留上限：手机展开面刷 50 行足够定位上下文，再早的看计数即可。 */
+const SUBAGENT_RUNS_MAX = 50
+
+/** 追加/更新一条轨迹；超上限丢最旧（更新不改变位置）。 */
+function upsertRun(
+  runs: readonly SubagentToolRun[],
+  id: string,
+  tool: string,
+  target: string | undefined,
+): SubagentToolRun[] {
+  const known = runs.some((run) => run.toolUseId === id)
+  const patch = { tool, status: 'running' as const, ...(target ? { target } : {}) }
+  const next = known
+    ? runs.map((run) => (run.toolUseId === id ? { ...run, ...patch } : run))
+    : [...runs, { toolUseId: id, ...patch }]
+  return next.length > SUBAGENT_RUNS_MAX ? next.slice(next.length - SUBAGENT_RUNS_MAX) : next
 }
 
 /**
@@ -473,32 +502,63 @@ function finalizeStreaming(messages: ChatMessage[]): ChatMessage[] {
 
 /**
  * §2.7bis.5 U3 / 附录 D.3：子代理冒泡事件的归约——不碰消息流/工具列表/turn 状态
- * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行的数据源）。
+ * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行与展开轨迹的数据源）。
  * 归属键 = parentTurnId（父 turnId，与 Task 卡 tool.started 的 event.turnId 相同）。
  */
 function reduceBubbledEvent(state: ChatState, event: Event): ChatState {
   const parentTurnId = typeof event.parentTurnId === 'string' ? event.parentTurnId : undefined
   if (!parentTurnId) return state
   const payload = event.payload ?? {}
+  const id = typeof payload.toolUseId === 'string' ? payload.toolUseId : undefined
   switch (event.type) {
+    // requested（带 input，先到）与 started（兜底 stub）同 toolUseId 只计一次；
+    // requested 的 input 提取单行目标（MCP 工具无 target 语义，同主流工具卡）。
+    case 'tool.requested':
     case 'tool.started': {
-      const current = state.subagents[parentTurnId] ?? { toolCalls: 0, running: 0 }
-      const activity: SubagentActivity = {
-        ...current,
-        toolCalls: current.toolCalls + 1,
-        running: current.running + 1,
-        lastTool: typeof payload.tool === 'string' ? payload.tool : '',
-      }
-      return { ...state, subagents: { ...state.subagents, [parentTurnId]: activity } }
-    }
-    case 'tool.completed': {
-      const current = state.subagents[parentTurnId]
-      if (!current) return state
+      const tool = typeof payload.tool === 'string' ? payload.tool : ''
+      if (!id || !tool) return state
+      const current = state.subagents[parentTurnId] ?? { toolCalls: 0, running: 0, runs: [] }
+      const known = current.runs.some((run) => run.toolUseId === id)
+      const target =
+        event.type === 'tool.requested' && !mcpToolParts(tool)
+          ? toolTargetLabel(tool, payload.input)
+          : undefined
       return {
         ...state,
         subagents: {
           ...state.subagents,
-          [parentTurnId]: { ...current, running: Math.max(0, current.running - 1) },
+          [parentTurnId]: {
+            ...current,
+            toolCalls: known ? current.toolCalls : current.toolCalls + 1,
+            running: known ? current.running : current.running + 1,
+            lastTool: tool,
+            runs: upsertRun(current.runs, id, tool, target),
+          },
+        },
+      }
+    }
+    case 'tool.completed': {
+      const current = state.subagents[parentTurnId]
+      if (!current) return state
+      const failed = payload.isError === true
+      const run = id ? current.runs.find((item) => item.toolUseId === id) : undefined
+      const runs =
+        run && id
+          ? current.runs.map((item) =>
+              item.toolUseId === id
+                ? { ...item, status: failed ? ('error' as const) : ('done' as const) }
+                : item,
+            )
+          : current.runs
+      // running 只对「确曾 running」的收口递减（重复 completed 幂等）；轨迹缺席的
+      // id（requested/started 双双迟到丢失）按旧语义兜底递减。
+      const running =
+        !run || run.status === 'running' ? Math.max(0, current.running - 1) : current.running
+      return {
+        ...state,
+        subagents: {
+          ...state.subagents,
+          [parentTurnId]: { ...current, running, runs },
         },
       }
     }

@@ -1204,6 +1204,53 @@ div.tool-row:active {
   visibility: visible;
 }
 
+/* wrap 内的多段容器（Task 卡 = prompt 详情卡 + 子代理工具轨迹）：单子元素动画要求
+   共居一层，min-height:0 + overflow:hidden 让 0fr 态真正塌缩。 */
+.tool-card-stack {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Task 卡展开面的子代理工具轨迹：与工具组同款左缩进线，逐行 = 图标+名称+目标+状态 */
+.task-trail {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme='dark'] .task-trail {
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+
+.task-trail-head {
+  flex-shrink: 0;
+  padding: 2px 0;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .task-trail-head {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.task-trail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+[data-theme='dark'] .task-trail-row {
+  color: rgba(255, 255, 255, 0.62);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tool-chevron,
   .tool-card-wrap,

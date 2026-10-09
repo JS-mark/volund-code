@@ -26,6 +26,9 @@ export const zh = {
   'chat.truncated': '…（已截断）',
   'chat.groupDone': '{n} 个完成',
   'chat.groupRunning': '{n} 个运行中',
+  'chat.groupTitle': '{n} 次工具调用',
+  'chat.groupFailed': '{n} 个失败',
+  'chat.taskTrail': '工具轨迹',
 
   // ChatView.tsx
   'chat.thinkingLabel': '思考过程',
@@ -216,6 +219,9 @@ export const en: Record<DictKey, string> = {
   'chat.truncated': '… (truncated)',
   'chat.groupDone': '{n} done',
   'chat.groupRunning': '{n} running',
+  'chat.groupTitle': '{n} tool calls',
+  'chat.groupFailed': '{n} failed',
+  'chat.taskTrail': 'Tool activity',
 
   'chat.thinkingLabel': 'Thinking',
   'chat.toolCallCount': '{count} calls',

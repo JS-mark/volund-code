@@ -788,8 +788,16 @@ describe('mobile chat reducer', () => {
         turnId: 't1',
         task: { agentType: 'explore', prompt: '查一下事件链路' },
       })
-      // 折叠行聚合：2 次调用、1 个仍在跑、当前工具 = 最近启动的 grep。
-      expect(state.subagents['t1']).toEqual({ toolCalls: 2, running: 1, lastTool: 'grep' })
+      // 折叠行聚合：2 次调用、1 个仍在跑、当前工具 = 最近启动的 grep；轨迹按序收口。
+      expect(state.subagents['t1']).toEqual({
+        toolCalls: 2,
+        running: 1,
+        lastTool: 'grep',
+        runs: [
+          { toolUseId: 'sub-tu1', tool: 'bash', status: 'done' },
+          { toolUseId: 'sub-tu2', tool: 'grep', status: 'running' },
+        ],
+      })
       // Task 自己 completed → 卡收口，聚合保留（折叠行展示「完成 · N 次调用」）。
       state = reduceChatState(state, {
         type: 'envelope',
@@ -800,6 +808,90 @@ describe('mobile chat reducer', () => {
       })
       expect(state.tools[0]?.status).toBe('done')
       expect(state.subagents['t1']?.toolCalls).toBe(2)
+    })
+
+    it('builds the Task trail from bubbled requested→started→completed（target 提取/失败收口）', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'task-1', tool: 'Task' },
+          turnId: 't1',
+        }),
+      })
+      // requested 先到（带 input → 单行目标进轨迹）；started 同 id 不重复计数。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.requested',
+          payload: {
+            toolUseId: 'sub-r1',
+            tool: 'Read',
+            input: { path: '/repo/packages/core/src/index.ts' },
+          },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'sub-r1', tool: 'Read' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      expect(state.subagents['t1']).toMatchObject({ toolCalls: 1, running: 1 })
+      expect(state.subagents['t1']?.runs).toEqual([
+        {
+          toolUseId: 'sub-r1',
+          tool: 'Read',
+          status: 'running',
+          target: '/repo/packages/core/src/index.ts',
+        },
+      ])
+      // 失败收口 → error 状态、running 归零；轨迹行原位更新。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 'sub-r1', isError: true },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      expect(state.subagents['t1']).toMatchObject({ running: 0 })
+      expect(state.subagents['t1']?.runs[0]?.status).toBe('error')
+    })
+
+    it('轨迹上限 50 条：最旧被丢，计数保留总数', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'task-1', tool: 'Task' },
+          turnId: 't1',
+        }),
+      })
+      for (let index = 0; index < 60; index += 1) {
+        state = reduceChatState(state, {
+          type: 'envelope',
+          envelope: envelope('core', {
+            type: 'tool.started',
+            payload: { toolUseId: `sub-${index}`, tool: 'Grep' },
+            parentTurnId: 't1',
+            parentDepth: 1,
+          }),
+        })
+      }
+      const activity = state.subagents['t1']
+      expect(activity?.toolCalls).toBe(60)
+      expect(activity?.runs).toHaveLength(50)
+      expect(activity?.runs[0]?.toolUseId).toBe('sub-10')
+      expect(activity?.runs.at(-1)?.toolUseId).toBe('sub-59')
     })
 
     it('keeps main-session events (no parent tags) unaffected', () => {

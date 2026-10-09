@@ -35,6 +35,15 @@ export interface ReplayResult {
 const terminalTurnStatuses = new Set(['done', 'aborted', 'error'])
 
 /**
+ * 附录 D.3 冒泡 tag：子代理事件被 forward 进父总线后会随 store 落进父会话 JSONL，
+ * 但它们不属于父会话状态——replay 时必须剔除，否则子代理的消息/usage 会烤进
+ * 父会话（resume 喂进模型上下文 + transcript 快照混流 + 累计 usage 双算）。
+ */
+export function isBubbledEvent(event: { parentTurnId?: string; parentDepth?: number }): boolean {
+  return event.parentTurnId !== undefined || (event.parentDepth ?? 0) > 0
+}
+
+/**
  * REM-74（r13-I8 / §8.2 D1-1）：resume 一律走事件 replay，禁止 session.snapshot 快照行。
  *
  * - 新形状（附录 D.2）：message.appended 的 ★role ★content 直接重建 messages；
@@ -137,23 +146,31 @@ export function replaySessionState(
           ]
         })
         break
-      case 'turn.completed':
-        draft = updateSession(draft, (target) => {
-          const usage = payload.usage as SessionState['cumulativeUsage']
-          target.cumulativeUsage.input += usage.input
-          target.cumulativeUsage.output += usage.output
-          target.cumulativeUsage.cacheRead =
-            (target.cumulativeUsage.cacheRead ?? 0) + (usage.cacheRead ?? 0)
-          target.cumulativeUsage.cacheWrite =
-            (target.cumulativeUsage.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
-          target.cumulativeUsage.costUSD += usage.costUSD ?? 0
-        })
+      case 'turn.completed': {
+        // 子代理 turn.completed：lineage turn 记录照常收口，但 usage 不累计进父会话
+        // （子代理消耗已在子代理口径统计，父会话照单全收就是双算）。
+        if (!isBubbledEvent(event))
+          draft = updateSession(draft, (target) => {
+            const usage = payload.usage as SessionState['cumulativeUsage']
+            target.cumulativeUsage.input += usage.input
+            target.cumulativeUsage.output += usage.output
+            target.cumulativeUsage.cacheRead =
+              (target.cumulativeUsage.cacheRead ?? 0) + (usage.cacheRead ?? 0)
+            target.cumulativeUsage.cacheWrite =
+              (target.cumulativeUsage.cacheWrite ?? 0) + (usage.cacheWrite ?? 0)
+            target.cumulativeUsage.costUSD += usage.costUSD ?? 0
+          })
         draft = settleTurn(draft, String(payload.turnId ?? event.turnId ?? ''), false)
         break
+      }
       case 'turn.aborted':
         draft = settleTurn(draft, String(payload.turnId ?? event.turnId ?? ''), true)
         break
       case 'message.appended': {
+        // 冒泡的子代理消息不进父会话 messages：父会话 resume 的模型上下文与
+        // transcript 快照（readTranscript 投影 runner.state.messages）都以它为源，
+        // 混进去就是子代理 prompt 变父会话 user 气泡 + 子代理全文挤占父上下文。
+        if (isBubbledEvent(event)) break
         const message: Message = {
           id: String(payload.messageId),
           role: payload.role as Message['role'],
