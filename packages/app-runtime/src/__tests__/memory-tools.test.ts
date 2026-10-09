@@ -2,7 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DefaultMemoryService, LocalMemoryRepository } from '@volund/storage'
+import {
+  DefaultMemoryRecallService,
+  DefaultMemoryService,
+  IndexingMemoryService,
+  LocalKeywordMemoryIndex,
+  LocalMemoryRepository,
+} from '@volund/storage'
 import type { ToolContext } from '@volund/tool-kit'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -18,8 +24,11 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'volund-memory-tools-'))
   roots.push(root)
-  const memory = new DefaultMemoryService(new LocalMemoryRepository(join(root, 'records.json')))
-  const tools = new Map(createMemoryTools(memory).map((tool) => [tool.name, tool]))
+  const repository = new LocalMemoryRepository(join(root, 'records.json'))
+  const index = new LocalKeywordMemoryIndex(join(root, 'index.json'))
+  const memory = new IndexingMemoryService(new DefaultMemoryService(repository), repository, index)
+  const memoryRecall = new DefaultMemoryRecallService(memory, index)
+  const tools = new Map(createMemoryTools(memory, memoryRecall).map((tool) => [tool.name, tool]))
   const context = {
     abortSignal: new AbortController().signal,
     session: { id: 'session-1', cwd: '/workspace/project', turnId: 'turn-1' },
@@ -37,6 +46,7 @@ describe('Memory.* model tools', () => {
       'Memory.create',
       'Memory.get',
       'Memory.list',
+      'Memory.recall',
       'Memory.update',
       'Memory.delete',
       'Memory.pin',
@@ -88,5 +98,46 @@ describe('Memory.* model tools', () => {
         .invoke({ scope: 'project', id: 'rejected', content: fakeProviderSecret }, context),
     ).rejects.toMatchObject({ code: 'memory_validation' })
     expect(await memory.list(projectMemoryScope(context.session.cwd))).toEqual([])
+  })
+
+  it('recall returns keyword hits inside an untrusted wrapper with snippets', async () => {
+    const { tools, context } = await fixture()
+    await tools
+      .get('Memory.create')!
+      .invoke(
+        { scope: 'project', id: 'convention', content: 'This repo always uses pnpm, never npm' },
+        context,
+      )
+    await tools
+      .get('Memory.create')!
+      .invoke({ scope: 'workspace', id: 'unrelated', content: '回答保持简洁' }, context)
+
+    const result = await tools.get('Memory.recall')!.invoke({ query: 'pnpm' }, context)
+    const output = (result.content[0] as { text: string }).text
+    expect(output).toContain('<untrusted source="memory:recall" query="pnpm">')
+    expect(output).toContain('id="convention" scope="project"')
+    expect(output).toContain('This repo always uses pnpm')
+    expect(output).toContain('Memory.get')
+    // default scope is project: the workspace record must not leak into the hits
+    expect(output).not.toContain('回答保持简洁')
+
+    const empty = await tools.get('Memory.recall')!.invoke({ query: 'nonexistent-topic' }, context)
+    expect(JSON.parse((empty.content[0] as { text: string }).text)).toEqual({
+      query: 'nonexistent-topic',
+      scope: 'project',
+      hits: [],
+    })
+  })
+
+  it('recall clips long content to a bounded snippet', async () => {
+    const { tools, context } = await fixture()
+    await tools
+      .get('Memory.create')!
+      .invoke({ scope: 'project', id: 'long', content: `needle\n${'line\n'.repeat(60)}` }, context)
+    const result = await tools.get('Memory.recall')!.invoke({ query: 'needle' }, context)
+    const output = (result.content[0] as { text: string }).text
+    expect(output).toContain('needle')
+    const snippet = output.split('<memory')[1]!.split('</memory>')[0]!
+    expect(snippet.split('\n').filter(Boolean).length).toBeLessThanOrEqual(22)
   })
 })

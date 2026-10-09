@@ -1,6 +1,7 @@
 import type {
   MemoryListOptions,
   MemoryRecordScope,
+  MemoryRecallService,
   MemoryService,
   NewMemoryRecord,
 } from '@volund/storage'
@@ -12,6 +13,9 @@ type ScopeKind = MemoryRecordScope['kind']
 
 const scopeSchema = { type: 'string', enum: ['workspace', 'project', 'session'] }
 const baseProperties = { scope: scopeSchema }
+
+const SNIPPET_MAX_LINES = 20
+const SNIPPET_MAX_CHARS = 1_000
 
 function scopeFor(kind: ScopeKind, context: ToolContext): MemoryRecordScope {
   if (kind === 'workspace') return workspaceMemoryScope()
@@ -26,12 +30,33 @@ function text(value: unknown): ToolResult {
   }
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** Short preview of a hit's content; Memory.get remains the full-text channel. */
+function snippetOf(content: string): string {
+  const lines = content.split('\n', SNIPPET_MAX_LINES + 1)
+  const clipped =
+    lines.length > SNIPPET_MAX_LINES
+      ? `${lines.slice(0, SNIPPET_MAX_LINES).join('\n')}\n…`
+      : lines.join('\n')
+  return clipped.length > SNIPPET_MAX_CHARS ? `${clipped.slice(0, SNIPPET_MAX_CHARS)}…` : clipped
+}
+
 function tool(definition: Omit<Tool, 'permissionSpec'> & { readonly readonly?: boolean }): Tool {
   return { ...definition, permissionSpec: () => ({}) }
 }
 
 /** Model-facing adapters. All authorization and mutation semantics remain in MemoryService. */
-export function createMemoryTools(memory: MemoryService): Tool[] {
+export function createMemoryTools(
+  memory: MemoryService,
+  memoryRecall: MemoryRecallService,
+): Tool[] {
   return [
     tool({
       name: 'Memory.create',
@@ -102,6 +127,57 @@ export function createMemoryTools(memory: MemoryService): Tool[] {
         const input = value as { scope: ScopeKind } & MemoryListOptions
         const { scope, ...options } = input
         return text(await memory.listPage(scopeFor(scope, context), options))
+      },
+    }),
+    tool({
+      name: 'Memory.recall',
+      description:
+        'Search memories in a scope by keywords (local index). Returns short snippets; read the full text of a hit with Memory.get.',
+      readonly: true,
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['query'],
+        properties: {
+          ...baseProperties,
+          query: { type: 'string', minLength: 1, maxLength: 512 },
+          tags: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 64 },
+          limit: { type: 'integer', minimum: 1, maximum: 50 },
+        },
+      },
+      async invoke(value: unknown, context) {
+        const input = value as {
+          scope?: ScopeKind
+          query: string
+          tags?: string[]
+          limit?: number
+        }
+        const scopeKind = input.scope ?? 'project'
+        const hits = await memoryRecall.recall(scopeFor(scopeKind, context), input.query, {
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.tags === undefined ? {} : { tags: input.tags }),
+        })
+        if (hits.length === 0) return text({ query: input.query, scope: scopeKind, hits: [] })
+        const body = hits
+          .map((hit) =>
+            [
+              `<memory id="${escapeXml(hit.record.id)}" scope="${hit.record.scope.kind}" pinned="${hit.record.pinned}" updated="${escapeXml(hit.record.updatedAt)}">`,
+              escapeXml(snippetOf(hit.record.content)),
+              '</memory>',
+            ].join('\n'),
+          )
+          .join('\n')
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `<untrusted source="memory:recall" query="${escapeXml(input.query)}">\n${body}\n</untrusted>\n` +
+                'Snippets only — read the full text of a hit with Memory.get <id>.',
+            },
+          ],
+          meta: { durationMs: 0, costImpact: 'safe' },
+        }
       },
     }),
     ...(['update', 'delete', 'pin', 'unpin'] as const).map(
