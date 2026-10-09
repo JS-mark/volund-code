@@ -500,6 +500,13 @@ function finalizeStreaming(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((message) => (message.streaming ? { ...message, streaming: false } : message))
 }
 
+/** 回合终态清扫：仍 running 的工具卡按失败收口（正常路径 tool.completed 已先行；
+ * 回合死了卡还挂着 = 执行栈异常/中断残留，不能让「运行中」永恒悬挂）。 */
+function settleRunningTools(tools: ToolCard[]): ToolCard[] {
+  if (!tools.some((tool) => tool.status === 'running')) return tools
+  return tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'error' } : tool))
+}
+
 /**
  * §2.7bis.5 U3 / 附录 D.3：子代理冒泡事件的归约——不碰消息流/工具列表/turn 状态
  * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行与展开轨迹的数据源）。
@@ -672,9 +679,15 @@ function reduceEnvelope(
     case 'turn.started':
       return { ...state, turn: 'running', streamedChars: 0, interrupted: false }
     case 'turn.completed':
-      return { ...state, turn: 'idle', messages: finalizeStreaming(state.messages) }
+      return {
+        ...state,
+        turn: 'idle',
+        messages: finalizeStreaming(state.messages),
+        tools: settleRunningTools(state.tools),
+      }
     case 'turn.aborted': {
       const messages = finalizeStreaming(state.messages)
+      const tools = settleRunningTools(state.tools)
       // reason=error 时 error.raised 通常已给出具体原因，不覆盖；user_interrupt
       // 才是「用户中断」语义——走 interrupted 友好提示（可重试），不与报错
       // notice 同槽（报错文案一律英文+code，中断提示是 UI chrome 中文）。
@@ -684,11 +697,18 @@ function reduceEnvelope(
           ...state,
           turn: 'idle',
           messages,
+          tools,
           notice: state.notice ?? 'turn aborted due to an error',
         }
       if (reason === 'stream_interrupted')
-        return { ...state, turn: 'idle', messages, notice: state.notice ?? 'stream interrupted' }
-      return { ...state, turn: 'idle', messages, interrupted: true }
+        return {
+          ...state,
+          turn: 'idle',
+          messages,
+          tools,
+          notice: state.notice ?? 'stream interrupted',
+        }
+      return { ...state, turn: 'idle', messages, tools, interrupted: true }
     }
     case 'tool.requested': {
       // requested 帧带 input：非 Task 工具在此建卡并提取单行目标 + 展开正文（折叠行/
@@ -847,6 +867,7 @@ function reduceEnvelope(
         ...state,
         turn: 'idle',
         messages: finalizeStreaming(state.messages),
+        tools: settleRunningTools(state.tools),
         notice: view.message ?? 'turn failed',
       }
     // session.attached 不在这里清屏：多设备共用单活动会话时它是对全员广播的

@@ -118,6 +118,47 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(state.messages[0]).toMatchObject({ text: '完整', streaming: false })
   })
 
+  it('回合终态清扫仍 running 的工具卡为 error（中断/异常残留不再永恒运行中）', () => {
+    const running = reduceMany(initialChatState, [
+      envelope('core', {
+        type: 'tool.requested',
+        payload: { toolUseId: 't1', tool: 'Task', input: { prompt: 'scan' } },
+      }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Task' } }),
+      envelope('core', {
+        type: 'tool.requested',
+        payload: { toolUseId: 't2', tool: 'Grep', input: { pattern: 'x' } },
+      }),
+    ])
+    expect(running.tools.map((tool) => tool.status)).toEqual(['running', 'running'])
+    // 中断：全部按失败收口。
+    const aborted = reduceChatState(
+      running,
+      envelope('core', { type: 'turn.aborted', payload: { reason: 'user_interrupt' } }),
+    )
+    expect(aborted.tools.map((tool) => tool.status)).toEqual(['error', 'error'])
+    expect(aborted.interrupted).toBe(true)
+    // 正常完成：已收口的卡保持原状态，残留 running 才清扫。
+    const mixed = reduceChatState(
+      running,
+      envelope('core', { type: 'tool.completed', payload: { toolUseId: 't2', isError: false } }),
+    )
+    const completed = reduceChatState(
+      mixed,
+      envelope('core', {
+        type: 'turn.completed',
+        payload: { usage: { input: 1, output: 1, costUSD: 0 } },
+      }),
+    )
+    expect(completed.tools.map((tool) => tool.status)).toEqual(['error', 'done'])
+    // turn.failed（hub 对并发提交的拒绝投影）同样清扫。
+    const failed = reduceChatState(
+      running,
+      envelope('view', { type: 'turn.failed', message: 'busy' }),
+    )
+    expect(failed.tools.map((tool) => tool.status)).toEqual(['error', 'error'])
+  })
+
   it('user 的 message.appended 到达时清掉本地乐观回显（不回声成双）', () => {
     const echoed = reduceChatState(initialChatState, {
       type: 'echo',

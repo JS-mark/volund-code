@@ -101,6 +101,38 @@ describe('mobile chat reducer', () => {
     expect(state.messages[0]).toMatchObject({ id: 'm1', text: '你好，世界', streaming: false })
   })
 
+  it('回合终态清扫仍 running 的工具卡为 error（中断/异常残留不再永恒运行中）', () => {
+    const drive = (state: ReturnType<typeof reduceChatState>, event: EnvelopeEvent) =>
+      reduceChatState(state, { type: 'envelope', envelope: envelope('core', event) })
+    let state = initialChatState
+    state = drive(state, {
+      type: 'tool.requested',
+      payload: { toolUseId: 't1', tool: 'Task', input: { prompt: 'scan' } },
+    } as EnvelopeEvent)
+    state = drive(state, {
+      type: 'tool.started',
+      payload: { toolUseId: 't1', tool: 'Task' },
+    } as EnvelopeEvent)
+    state = drive(state, {
+      type: 'tool.requested',
+      payload: { toolUseId: 't2', tool: 'Grep', input: { pattern: 'x' } },
+    } as EnvelopeEvent)
+    expect(state.tools.map((tool) => tool.status)).toEqual(['running', 'running'])
+    const aborted = drive(state, { type: 'turn.aborted', payload: { reason: 'user_interrupt' } })
+    expect(aborted.tools.map((tool) => tool.status)).toEqual(['error', 'error'])
+    expect(aborted.interrupted).toBe(true)
+    // 正常完成：已收口的卡保持原状态，残留 running 才清扫。
+    const mixed = drive(state, {
+      type: 'tool.completed',
+      payload: { toolUseId: 't2', isError: false },
+    })
+    const completed = drive(mixed, {
+      type: 'turn.completed',
+      payload: { usage: { input: 1, output: 1, costUSD: 0 } },
+    })
+    expect(completed.tools.map((tool) => tool.status)).toEqual(['error', 'done'])
+  })
+
   it('replaces the local echo when the real user message arrives', () => {
     let state = initialChatState
     state = reduceChatState(state, { type: 'echo', text: '在吗' })

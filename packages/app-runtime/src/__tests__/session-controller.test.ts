@@ -381,6 +381,123 @@ describe('SessionController', () => {
     await resumed.end()
   })
 
+  it('transcript 收口非活跃回合的孤儿 tool_use；活跃回合内的未配对调用保持 running', async () => {
+    let mutate: ((fn: (draft: SessionState) => void) => void) | undefined
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: (initial, events) => {
+        let state = initial
+        const apply = (fn: (draft: SessionState) => void) => {
+          state = updateSession(state, fn)
+        }
+        mutate = apply
+        const appendEvent = async (
+          messageId: string,
+          role: string,
+          content: readonly ContentPart[],
+        ) => {
+          await events.emit({
+            type: 'message.appended',
+            version: state.version,
+            sessionId: state.id,
+            turnId: 'turn-1',
+            payload: { messageId, role, content: toEventContent(content) } as unknown as JsonValue,
+          })
+        }
+        return {
+          get state() {
+            return state
+          },
+          interrupt: vi.fn(async () => {}),
+          run: vi.fn(async (text: string) => {
+            await events.emit({
+              type: 'turn.started',
+              version: state.version,
+              sessionId: state.id,
+              turnId: 'turn-1',
+              payload: { turnId: 'turn-1' },
+            })
+            await appendEvent('user-1', 'user', [{ type: 'text', text }])
+            // assistant：两个 tool_use，都无 tool_result（中断/孤儿残留形态）。
+            const assistant = {
+              id: 'asst-1',
+              role: 'assistant',
+              content: [
+                { type: 'tool_use', id: 'tu-1', name: 'Task', input: { prompt: 'scan' } },
+                { type: 'tool_use', id: 'tu-2', name: 'Grep', input: { pattern: 'x' } },
+              ],
+              createdAt: 2,
+            } as SessionState['messages'][number]
+            await appendEvent('asst-1', 'assistant', assistant.content)
+            apply((draft) => {
+              draft.messages = [
+                ...draft.messages,
+                { id: 'user-1', role: 'user', content: [{ type: 'text', text }], createdAt: 1 },
+                assistant,
+              ]
+              draft.turns = [
+                ...draft.turns,
+                { id: 'turn-1', startMessageId: 'user-1', status: 'aborted', parentDepth: 0 },
+              ]
+              draft.activeTurn = null
+            })
+            return state
+          }),
+        } as unknown as Runner
+      },
+    })
+    const session = await controller.startInteractive({ cwd: process.cwd() })
+    await session.submit('go')
+    const statuses = () =>
+      (session.transcript ?? []).filter(isTranscriptToolEntry).map((entry) => entry.status)
+    // 回合已终结：孤儿 tool_use 收口为 error——resume/刷新不再永恒「运行中」。
+    expect(statuses()).toEqual(['error', 'error'])
+    // 同一批调用落在活跃回合内时仍是在途语义（边界 = 回合起点锚之后）。
+    mutate!((draft) => {
+      draft.activeTurn = 'turn-1'
+      const turn = draft.turns.find((item) => item.id === 'turn-1')
+      if (turn) turn.status = 'streaming'
+    })
+    expect(statuses()).toEqual(['running', 'running'])
+  })
+
+  it('resume 在 turn 中途换 runner：先 interrupt 前任并作废旧航班锁，新会话不被永久拒', async () => {
+    let firstInterrupt: ReturnType<typeof vi.fn> | undefined
+    let invocations = 0
+    const controller = new SessionController(new Context(), {
+      sessionsDir: await sessionsRoot(),
+      createRunner: (initial) => {
+        invocations += 1
+        const first = invocations === 1
+        let release: (() => void) | undefined
+        // 首个 runner 的回合永不自行收尾（挂死形态），interrupt 才解除。
+        const flight = first
+          ? new Promise<SessionState>((resolve) => {
+              release = () => resolve(initial)
+            })
+          : Promise.resolve(initial)
+        const interrupt = vi.fn(() => release?.())
+        if (first) firstInterrupt = interrupt
+        return {
+          get state() {
+            return initial
+          },
+          interrupt,
+          run: vi.fn(() => flight),
+        } as unknown as Runner
+      },
+    })
+    const first = await controller.startInteractive({ cwd: process.cwd() })
+    const pending = first.submit('hang')
+    // resume 不被在途回合阻塞，且先 interrupt 前任。
+    const resumed = await controller.resumeInteractive(first.id)
+    expect(firstInterrupt).toHaveBeenCalled()
+    await pending
+    // 旧航班已作废：新会话立即提交不再撞 session_turn_in_progress。
+    await expect(resumed.submit('next')).resolves.toBeUndefined()
+    await resumed.end()
+  })
+
   it('restores the pinned model even when it was pinned outside the 20-turn replay window', async () => {
     const sessionsDir = await sessionsRoot()
     const controller = new SessionController(new Context(), {

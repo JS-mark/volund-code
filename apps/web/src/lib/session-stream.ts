@@ -490,6 +490,14 @@ function reduceBubbledEvent(state: ChatState, event: Envelope['event']): ChatSta
   }
 }
 
+/** 回合终态清扫：仍 running 的工具卡按失败收口（正常路径 tool.completed 已先行；
+ * 回合死了卡还挂着 = 执行栈异常/中断残留，不能让「运行中」永恒悬挂）。 */
+function settleRunningTools(state: ChatState): ToolCard[] {
+  return state.tools.some((tool) => tool.status === 'running')
+    ? state.tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'error' } : tool))
+    : state.tools
+}
+
 function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
   const { event } = envelope
   const payload = event.payload ?? {}
@@ -583,17 +591,24 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         ...state,
         turn: 'idle',
         usage: payload.usage as ChatState['usage'],
+        tools: settleRunningTools(state),
       }
     case 'turn.aborted': {
       // reason=error 时 error.raised 通常已给出具体原因，不覆盖；
       // user_interrupt 才是「用户中断」语义——走 interrupted 友好提示（可重试），
       // 不与报错 notice 同槽（报错文案一律英文+code，中断提示是 UI chrome 中文）。
       const reason = payload.reason
+      const tools = settleRunningTools(state)
       if (reason === 'error')
-        return { ...state, turn: 'idle', notice: state.notice ?? 'turn aborted due to an error' }
+        return {
+          ...state,
+          turn: 'idle',
+          tools,
+          notice: state.notice ?? 'turn aborted due to an error',
+        }
       if (reason === 'stream_interrupted')
-        return { ...state, turn: 'idle', notice: state.notice ?? 'stream interrupted' }
-      return { ...state, turn: 'idle', interrupted: true }
+        return { ...state, turn: 'idle', tools, notice: state.notice ?? 'stream interrupted' }
+      return { ...state, turn: 'idle', tools, interrupted: true }
     }
     case 'tool.requested': {
       // 附录 D.2：input 携带工具参数——requested 帧建卡并提取单行目标 + 展开正文
@@ -741,7 +756,12 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
       return state
     }
     if (view.type === 'turn.failed')
-      return { ...state, turn: 'idle', notice: view.message ?? 'turn failed' }
+      return {
+        ...state,
+        turn: 'idle',
+        tools: settleRunningTools(state),
+        notice: view.message ?? 'turn failed',
+      }
     // 会话重挂（TUI 侧 resume 等）：聊天状态归零，但进程级权限档位保留
     // （SSE permission.mode 帧会持续纠正，不需要随会话切换清空）。
     if (view.type === 'session.attached')

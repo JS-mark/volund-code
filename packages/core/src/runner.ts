@@ -125,6 +125,12 @@ export class Runner {
     const turnId = uuidv7()
     this.#turnAbort = new AbortController()
     const signal = this.#turnAbort.signal
+    // 回合首条消息锚点先建（纯工厂，不动状态）：transcript 投影按「活跃回合起点
+    // 之后」判定在途工具，startMessageId 缺省时无法区分历史孤儿与活跃调用。
+    const user = this.message(
+      'user',
+      typeof input === 'string' ? [{ type: 'text', text: input }] : [...input],
+    )
     this.#state = updateSession(this.#state, (draft) => {
       draft.pendingInterrupt = false
       draft.activeTurn = turnId
@@ -132,7 +138,7 @@ export class Runner {
         ...draft.turns,
         {
           id: turnId,
-          startMessageId: '',
+          startMessageId: user.id,
           status: 'streaming',
           parentDepth: this.#state.lineage?.depth ?? 0,
           ...(this.#state.lineage?.parentTurnId
@@ -150,10 +156,6 @@ export class Runner {
       ...(this.#state.lineage?.agentType ? { agentType: this.#state.lineage.agentType } : {}),
     })
     if (this.options.taskRun) await this.emit('task.started', turnId, { ...this.options.taskRun })
-    const user = this.message(
-      'user',
-      typeof input === 'string' ? [{ type: 'text', text: input }] : [...input],
-    )
     this.append(user)
     await this.emit('message.appended', turnId, {
       messageId: user.id,
