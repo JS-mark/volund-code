@@ -21,7 +21,8 @@
     "@volund/permission": "workspace:*",
     "@volund/provider-kit": "workspace:*",
     "@volund/shared": "workspace:*",
-    "uuid": "catalog:"
+    "uuid": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
