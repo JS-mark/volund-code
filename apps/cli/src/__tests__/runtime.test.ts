@@ -2786,7 +2786,9 @@ describe('status configuration adapter', () => {
       logger: { debug() {}, info() {}, warn() {}, error() {} },
       ui: { requestInput: async () => '' },
     }
-    const tools = new Map(createMemoryTools(memory).map((tool) => [tool.name, tool]))
+    const tools = new Map(
+      createMemoryTools(memory, ports.memoryRecall!).map((tool) => [tool.name, tool]),
+    )
     await tools
       .get('Memory.create')!
       .invoke({ scope: 'project', id: 'original', content: 'safe original' }, context as never)

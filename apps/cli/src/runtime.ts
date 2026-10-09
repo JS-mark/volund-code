@@ -1119,7 +1119,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) names.add(tool.name)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
-      for (const tool of createMemoryTools(memory)) names.add(tool.name)
+      for (const tool of createMemoryTools(memory, memoryRecall)) names.add(tool.name)
       names.add(SKILL_TOOL_NAME)
       names.add(ASK_USER_QUESTION_TOOL_NAME)
     }
@@ -1627,7 +1627,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) registry.register(tool)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
-      for (const tool of createMemoryTools(memory)) registry.register(tool)
+      for (const tool of createMemoryTools(memory, memoryRecall)) registry.register(tool)
       registry.register(
         createSkillTool({
           skills,
