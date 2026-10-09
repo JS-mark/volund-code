@@ -435,6 +435,22 @@ export function toolBodyLabel(tool: string, input: unknown): string | undefined 
     : body
 }
 
+/** Task 入参 → 卡面摘要（agentType / prompt 首行截 80）：requested 帧与 hydrate 共用。 */
+function taskSummaryOf(input: unknown): ToolCard['task'] | undefined {
+  const record = input !== null && typeof input === 'object' ? input : undefined
+  const agentType =
+    record && 'agentType' in record && typeof record.agentType === 'string'
+      ? record.agentType
+      : undefined
+  const prompt =
+    record && 'prompt' in record && typeof record.prompt === 'string' ? record.prompt : undefined
+  if (!agentType && !prompt) return undefined
+  return {
+    ...(agentType ? { agentType } : {}),
+    ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
+  }
+}
+
 /** message.appended content 的 image part → 回显图片（仅 handle 引用式可取字节）。 */
 function imagesOfContent(content: unknown): ChatImage[] {
   if (!Array.isArray(content)) return []
@@ -643,25 +659,13 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         }
       }
       const input: unknown = payload.input
-      const record = input !== null && typeof input === 'object' ? input : undefined
-      const agentType =
-        record && 'agentType' in record && typeof record.agentType === 'string'
-          ? record.agentType
-          : undefined
-      const prompt =
-        record && 'prompt' in record && typeof record.prompt === 'string'
-          ? record.prompt
-          : undefined
-      const task: ToolCard['task'] = {
-        ...(agentType ? { agentType } : {}),
-        ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
-      }
+      const task = taskSummaryOf(input)
       const exists = state.tools.some((card) => card.toolUseId === id)
       if (exists)
         return {
           ...state,
           tools: state.tools.map((card) =>
-            card.toolUseId === id ? { ...card, task, ...extras } : card,
+            card.toolUseId === id ? { ...card, ...(task ? { task } : {}), ...extras } : card,
           ),
         }
       return {
@@ -669,7 +673,14 @@ function reduceEnvelope(state: ChatState, envelope: Envelope): ChatState {
         nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
-          { toolUseId: id, tool: 'Task', status: 'running', task, seq: state.nextSeq, ...extras },
+          {
+            toolUseId: id,
+            tool: 'Task',
+            status: 'running',
+            seq: state.nextSeq,
+            ...(task ? { task } : {}),
+            ...extras,
+          },
         ],
       }
     }
@@ -788,12 +799,17 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
       // 合并而非整体替换：hydrate 与 SSE 并发（会话刚创建即发消息）时，
       // 快照后到达的 message.appended/stream.delta 不能被 transcript 冲掉；
       // 本地回声一律丢弃——其真实副本要么已在快照里，要么会经 appended 到达。
-      // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body 从快照
-      // 携带的 input 现算，展开面与 live 卡一致；与 live 卡同 id 时以 live 为准。
-      // seq 按快照顺序单调分配（消息与工具卡保序，混排跟 live 一致）。
-      const messages: ChatMessage[] = []
-      const tools: ToolCard[] = []
-      let seq = state.nextSeq
+      // 快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：target/body/task
+      // 从快照携带的 input 现算；同 id 工具卡内容以 live 卡优先（turnId/实时
+      // 状态不丢，快照重建补位缺的 target/body/task）。
+      // seq 全量重排、快照序为唯一权威——活体条目若保留旧 seq（必然小于本轮
+      // 分配的新 seq），重连水合后全部活体工具卡会浮到所有消息前面，多波工具
+      // 被挤成一个「N 次工具调用」大分组；快照后才到达的增量（live 独有）按
+      // 原到达序接尾。
+      const parsed: (
+        | { kind: 'message'; message: ChatMessage }
+        | { kind: 'tool'; tool: ToolCard }
+      )[] = []
       for (const entry of action.transcript) {
         const item = entry as {
           id?: string
@@ -812,13 +828,17 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             item.status === 'error' ? 'error' : item.status === 'running' ? 'running' : 'done'
           const target = toolTargetLabel(item.tool, item.input)
           const body = toolBodyLabel(item.tool, item.input)
-          tools.push({
-            toolUseId: item.id,
-            tool: item.tool,
-            status,
-            seq: seq++,
-            ...(target === undefined ? {} : { target }),
-            ...(body === undefined ? {} : { body }),
+          const task = item.tool === 'Task' ? taskSummaryOf(item.input) : undefined
+          parsed.push({
+            kind: 'tool',
+            tool: {
+              toolUseId: item.id,
+              tool: item.tool,
+              status,
+              ...(target === undefined ? {} : { target }),
+              ...(body === undefined ? {} : { body }),
+              ...(task === undefined ? {} : { task }),
+            },
           })
           continue
         }
@@ -826,7 +846,9 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
         // 图片附件：handle 在 → 渲染真图并剥掉 text 里的 chip 占位；无 handle
         // （path 引用）字节不可回放，保留 chip 文本兜底。
         const attachments = (item.attachments ?? []).filter(
-          (attachment): attachment is { chip: string; mime?: string; handle: string } =>
+          (
+            attachment,
+          ): attachment is { chip: string; kind?: string; mime?: string; handle: string } =>
             attachment.kind === 'image' &&
             typeof attachment.handle === 'string' &&
             typeof attachment.chip === 'string',
@@ -838,26 +860,60 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
           handle: attachment.handle,
           ...(attachment.mime ? { mime: attachment.mime } : {}),
         }))
-        messages.push({
-          id: item.id,
-          role: item.role as ChatMessage['role'],
-          text: text.replace(/[^\S\n]+/g, ' ').trim(),
-          seq: seq++,
-          ...(images.length ? { images } : {}),
+        parsed.push({
+          kind: 'message',
+          message: {
+            id: item.id,
+            role: item.role as ChatMessage['role'],
+            text: text.replace(/[^\S\n]+/g, ' ').trim(),
+            ...(images.length ? { images } : {}),
+          },
         })
       }
-      const hydratedIds = new Set(messages.map((message) => message.id))
-      const tail = state.messages.filter(
-        (message) => !message.local && !hydratedIds.has(message.id),
+      const liveTools = new Map(state.tools.map((tool) => [tool.toolUseId, tool]))
+      const hydratedMessageIds = new Set(
+        parsed.flatMap((item) => (item.kind === 'message' ? [item.message.id] : [])),
       )
-      const liveToolIds = new Set(state.tools.map((tool) => tool.toolUseId))
-      const hydratedTools = tools.filter((tool) => !liveToolIds.has(tool.toolUseId))
-      return {
-        ...state,
-        messages: [...messages, ...tail],
-        tools: [...hydratedTools, ...state.tools],
-        nextSeq: seq,
+      const hydratedToolIds = new Set(
+        parsed.flatMap((item) => (item.kind === 'tool' ? [item.tool.toolUseId] : [])),
+      )
+      const messages: ChatMessage[] = []
+      const tools: ToolCard[] = []
+      let seq = 0
+      for (const item of parsed) {
+        seq += 1
+        if (item.kind === 'message') {
+          messages.push({ ...item.message, seq })
+          continue
+        }
+        const live = liveTools.get(item.tool.toolUseId)
+        // live 卡字段覆盖快照重建（exactOptionalPropertyTypes：无显式 undefined，
+        // spread 只覆盖存在的键），快照的 target/body/task 补位 live 缺的展开面。
+        tools.push({ ...item.tool, ...live, seq })
       }
+      // 快照后到达的增量（live 独有）：按原到达 seq 排定后接尾（必比快照新）。
+      const extras = [
+        ...state.messages
+          .filter((message) => !message.local && !hydratedMessageIds.has(message.id))
+          .map((message) => ({
+            kind: 'message' as const,
+            order: message.seq ?? Number.MAX_SAFE_INTEGER,
+            message,
+          })),
+        ...state.tools
+          .filter((tool) => !hydratedToolIds.has(tool.toolUseId))
+          .map((tool) => ({
+            kind: 'tool' as const,
+            order: tool.seq ?? Number.MAX_SAFE_INTEGER,
+            tool,
+          })),
+      ].sort((left, right) => left.order - right.order)
+      for (const extra of extras) {
+        seq += 1
+        if (extra.kind === 'message') messages.push({ ...extra.message, seq })
+        else tools.push({ ...extra.tool, seq })
+      }
+      return { ...state, messages, tools, nextSeq: seq + 1 }
     }
     case 'echo':
       return {

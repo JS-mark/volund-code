@@ -356,6 +356,66 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
     expect(state.tools[2]?.target).toBe('live-cmd')
   })
 
+  it('hydrate 重排 seq：活体工具卡按快照序归位，多波工具不再被挤成一个分组', () => {
+    // 活体阶段：m1 → t1/t2 → m2 → t3(Task, live 卡带 turnId + 失败收口)。
+    const live = [
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'm1',
+          role: 'assistant',
+          content: [{ type: 'text', text: '第一段' }],
+        },
+      }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't1', tool: 'Bash' } }),
+      envelope('core', { type: 'tool.started', payload: { toolUseId: 't2', tool: 'Grep' } }),
+      envelope('core', {
+        type: 'message.appended',
+        payload: {
+          messageId: 'm2',
+          role: 'assistant',
+          content: [{ type: 'text', text: '第二段' }],
+        },
+      }),
+      envelope('core', {
+        type: 'tool.started',
+        payload: { toolUseId: 't3', tool: 'Task' },
+        turnId: 'turn-9',
+      }),
+      envelope('core', { type: 'tool.completed', payload: { toolUseId: 't3', isError: true } }),
+    ].reduce(reduceChatState, initialChatState)
+    expect(chatFeedGrouped(live).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+
+    // 重连水合：完整快照按同 id 回来；旧实现活体旧 seq 全部小于水合新 seq，
+    // t1/t2/t3 会浮到 m1/m2 前面挤成一个大分组。
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm1', role: 'assistant', text: '第一段' },
+        { id: 't1', kind: 'tool', tool: 'Bash', input: { command: 'ls' }, status: 'done' },
+        { id: 't2', kind: 'tool', tool: 'Grep', input: { pattern: 'x' }, status: 'done' },
+        { id: 'm2', role: 'assistant', text: '第二段' },
+        {
+          id: 't3',
+          kind: 'tool',
+          tool: 'Task',
+          input: { agentType: 'explore', prompt: '查链路' },
+          status: 'error',
+        },
+      ],
+    })
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2', 't3'])
+    expect(chatFeedGrouped(state).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+    // live 卡内容优先（turnId 保留）；快照的 task 摘要补位（live requested 缺席也有 agentType）。
+    const taskCard = state.tools.find((tool) => tool.toolUseId === 't3')
+    expect(taskCard).toMatchObject({
+      status: 'error',
+      turnId: 'turn-9',
+      task: { agentType: 'explore', prompt: '查链路' },
+    })
+    expect(state.nextSeq).toBe(6)
+  })
+
   it('permission.mode 帧更新档位：非法值忽略，本地动作同写一处', () => {
     // 回归：composer 档位曾只挂载拉取一次，TUI /mode / g 授权后 UI 脱钩。
     const seeded = reduceChatState(initialChatState, { type: 'permission-mode', mode: 'ask' })
@@ -388,7 +448,8 @@ describe('reduceChatState（SSE 与本地动作合流）', () => {
       type: 'hydrate',
       transcript: [{ id: 't1', role: 'user', text: '持久化' }],
     })
-    expect(state.messages).toEqual([{ id: 't1', role: 'user', text: '持久化', seq: 2 }])
+    // seq 全量重排（快照序为唯一权威）：本地回声丢弃，快照条目从 1 起排。
+    expect(state.messages).toEqual([{ id: 't1', role: 'user', text: '持久化', seq: 1 }])
   })
 
   it('hydrate 与 SSE 并发：快照后到达的消息不被冲掉，本地回声被收口', () => {

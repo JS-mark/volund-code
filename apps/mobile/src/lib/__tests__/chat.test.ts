@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { EnvelopeEvent } from '../chat'
 import {
   chatFeed,
+  chatFeedGrouped,
   initialChatState,
   mcpToolParts,
   reduceChatState,
@@ -1121,6 +1122,141 @@ describe('chatFeed 会话流混排（工具卡进消息流）', () => {
       target: 'pnpm test',
       body: 'pnpm test',
     })
+  })
+
+  it('hydrate 重排 seq：活体工具卡按快照序归位，多波工具不再被挤成一个分组', () => {
+    // 活体阶段：m1 → t1/t2 → m2 → t3（Task，live 卡带 turnId）。
+    const live = [
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm1',
+            role: 'assistant',
+            content: [{ type: 'text', text: '第一段' }],
+          },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't1', tool: 'Bash' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't2', tool: 'Grep' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm2',
+            role: 'assistant',
+            content: [{ type: 'text', text: '第二段' }],
+          },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't3', tool: 'Task' },
+          turnId: 'turn-9',
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 't3', isError: true },
+        }),
+      },
+    ].reduce(reduceChatState, initialChatState)
+    // 活体混排本来是对的：消息把工具波切开。
+    expect(chatFeedGrouped(live).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+
+    // 重连水合（手机后台/前台一切换就触发）：完整快照按同 id 回来。
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm1', role: 'assistant', text: '第一段' },
+        { id: 't1', kind: 'tool', tool: 'Bash', input: { command: 'ls' }, status: 'done' },
+        { id: 't2', kind: 'tool', tool: 'Grep', input: { pattern: 'x' }, status: 'done' },
+        { id: 'm2', role: 'assistant', text: '第二段' },
+        {
+          id: 't3',
+          kind: 'tool',
+          tool: 'Task',
+          input: { agentType: 'explore', prompt: '查链路' },
+          status: 'error',
+        },
+      ],
+    })
+    // 快照序为权威：混排保持，工具不浮到消息前面（旧实现这里是 [grp:t1..t3, m1, m2]）。
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2', 't3'])
+    expect(chatFeedGrouped(state).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+    // live 卡内容优先（turnId 保留 → 子代理轨迹归属不丢）；快照的 task 摘要补位。
+    const taskCard = state.tools.find((tool) => tool.toolUseId === 't3')
+    expect(taskCard).toMatchObject({
+      status: 'error',
+      turnId: 'turn-9',
+      task: { agentType: 'explore', prompt: '查链路' },
+    })
+    expect(state.nextSeq).toBe(6)
+  })
+
+  it('hydrate：快照后到达的增量（live 独有）按原到达序接尾', () => {
+    const live = [
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '在快照里' }] },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't1', tool: 'Bash' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 't1', isError: false },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm2',
+            role: 'assistant',
+            content: [{ type: 'text', text: '快照后到达' }],
+          },
+        }),
+      },
+    ].reduce(reduceChatState, initialChatState)
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm1', role: 'user', text: '在快照里' },
+        { id: 't1', kind: 'tool', tool: 'Bash', input: { command: 'ls' }, status: 'done' },
+      ],
+    })
+    // m2 不在快照里（快照后到达）：排尾，不冲掉。
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 'm2'])
+    expect(state.nextSeq).toBe(4)
   })
 })
 
