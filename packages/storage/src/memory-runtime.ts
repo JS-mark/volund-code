@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { open, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { open, mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 
 import { detectSecret, VolundError } from '@volund/shared'
+
+import { acquireMemoryFileLock } from './memory-file-lock'
 
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const
@@ -796,64 +797,13 @@ export class LocalMemoryRepository implements MemoryRepository {
     }
   }
 
-  async #acquireLock(): Promise<() => Promise<void>> {
-    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
-    const token = randomUUID()
-    const timeoutMs = this.options.lockTimeoutMs ?? 10_000
-    const retryMs = this.options.lockRetryMs ?? 10
-    const deadline = Date.now() + timeoutMs
-
-    for (;;) {
-      try {
-        const file = await open(this.#lockPath, 'wx', 0o600)
-        try {
-          await file.writeFile(
-            JSON.stringify({ pid: process.pid, token, at: new Date().toISOString() }),
-          )
-          await file.sync()
-        } catch (error) {
-          await file.close().catch(() => undefined)
-          await rm(this.#lockPath, { force: true }).catch(() => undefined)
-          throw error
-        }
-        await file.close()
-        return async () => {
-          try {
-            const owner = JSON.parse(await readFile(this.#lockPath, 'utf8')) as {
-              token?: unknown
-            }
-            if (owner.token !== token) return
-            await rm(this.#lockPath, { force: true }).catch(
-              (removeError: NodeJS.ErrnoException) => {
-                // A racing Windows unlink can report a transient error for a
-                // lock that is already delete-pending; the file disappears
-                // once the competing handle closes, so treat the lock as
-                // released instead of failing a committed write.
-                if (!isTransientLockErrorCode(removeError.code)) throw removeError
-              },
-            )
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-          }
-        }
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (!isTransientLockErrorCode(code)) throw error
-        if (code === 'EEXIST' && !(await lockOwnerAlive(this.#lockPath))) {
-          await rm(this.#lockPath, { force: true }).catch((removeError: NodeJS.ErrnoException) => {
-            // Another writer can win the stale-lock recovery race; the next
-            // open attempt decides, so only non-transient failures escape.
-            if (!isTransientLockErrorCode(removeError.code)) throw removeError
-          })
-          continue
-        }
-        if (Date.now() >= deadline)
-          throw new MemoryError('memory_io', 'Timed out waiting for the memory transaction lock', {
-            cause: error,
-          })
-        await delay(retryMs)
-      }
-    }
+  #acquireLock(): Promise<() => Promise<void>> {
+    return acquireMemoryFileLock(this.#lockPath, {
+      ...(this.options.lockTimeoutMs === undefined
+        ? {}
+        : { lockTimeoutMs: this.options.lockTimeoutMs }),
+      ...(this.options.lockRetryMs === undefined ? {} : { lockRetryMs: this.options.lockRetryMs }),
+    })
   }
 
   async #read(
@@ -879,35 +829,9 @@ export class LocalMemoryRepository implements MemoryRepository {
  * handles, sharing violations, antivirus scanners). Treating those like EEXIST
  * and retrying inside the lock budget — instead of surfacing them as a fatal
  * `memory_io` — is what keeps concurrent writers from flaking on loaded
- * Windows runners (LL-7).
+ * Windows runners (LL-7). The lock implementation lives in
+ * `memory-file-lock.ts` and is shared with the markdown repository.
  */
-function isTransientLockErrorCode(code: string | undefined): boolean {
-  return code === 'EEXIST' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
-}
-
-async function lockOwnerAlive(path: string): Promise<boolean> {
-  try {
-    const value = JSON.parse(await readFile(path, 'utf8')) as { pid?: unknown }
-    if (!Number.isSafeInteger(value.pid) || Number(value.pid) < 1) {
-      // A competing process can observe the file between exclusive creation and
-      // metadata fsync. Give that live acquisition a short grace period.
-      return Date.now() - (await stat(path)).mtimeMs < 1_000
-    }
-    try {
-      process.kill(Number(value.pid), 0)
-      return true
-    } catch (error) {
-      return (error as NodeJS.ErrnoException).code === 'EPERM'
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    try {
-      return Date.now() - (await stat(path)).mtimeMs < 1_000
-    } catch {
-      return false
-    }
-  }
-}
 
 function nextTimestamp(previous: string, now: Date): string {
   const previousMilliseconds = Date.parse(previous)

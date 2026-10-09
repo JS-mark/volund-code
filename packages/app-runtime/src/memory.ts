@@ -16,14 +16,20 @@ import {
   DefaultMemoryService,
   IndexingMemoryService,
   LocalKeywordMemoryIndex,
-  LocalMemoryRepository,
   MemoryError,
   MemoryPromptProvider,
+  MarkdownMemoryLayout,
+  MarkdownMemoryRepository,
   MemoryTransferService,
 } from '@volund/storage'
 import type { MemoryRecallService, MemoryService } from '@volund/storage'
 
-import { projectMemoryScope, sessionMemoryScope, workspaceMemoryScope } from './memory-scope'
+import {
+  memoryProjectId,
+  projectMemoryScope,
+  sessionMemoryScope,
+  workspaceMemoryScope,
+} from './memory-scope'
 
 /** Memory 服务栈：home 下四件套的单一组合点（repository/index/service/recall/transfer）。 */
 export interface MemoryStack {
@@ -33,16 +39,37 @@ export interface MemoryStack {
   readonly memoryTransfer: MemoryTransferService
 }
 
-export function createMemoryStack(home: string): MemoryStack {
-  const repository = new LocalMemoryRepository(join(home, 'memory', 'records.json'))
-  const index = new LocalKeywordMemoryIndex(join(home, 'memory', 'index.json'))
+export interface MemoryStackOptions {
+  /**
+   * 当前项目根目录：project scope 的记忆按 ADR-0012 落到 `<cwd>/.volund/memory/*.md`
+   * （随仓库走，用户自行决定是否提交）；缺省时全部落在 home 的 fallback 区。
+   */
+  readonly cwd?: string
+}
+
+export function createMemoryStack(home: string, options: MemoryStackOptions = {}): MemoryStack {
+  const memoryRoot = join(home, 'memory')
+  const repository = new MarkdownMemoryRepository({
+    layout: new MarkdownMemoryLayout({
+      root: memoryRoot,
+      ...(options.cwd
+        ? {
+            currentProjectId: memoryProjectId(options.cwd),
+            currentProjectDir: join(options.cwd, '.volund', 'memory'),
+          }
+        : {}),
+    }),
+    lockPath: join(memoryRoot, '.memory.lock'),
+    legacySnapshotPath: join(memoryRoot, 'records.json'),
+  })
+  const index = new LocalKeywordMemoryIndex(join(memoryRoot, 'index.json'))
   const memory = new IndexingMemoryService(new DefaultMemoryService(repository), repository, index)
   return {
     memory,
     memoryRecall: new DefaultMemoryRecallService(memory, index),
     memoryMaintenance: new DefaultMemoryMaintenanceService(repository, index),
     memoryTransfer: new MemoryTransferService(memory, {
-      journalPath: join(home, 'memory', 'import-journal.json'),
+      journalPath: join(memoryRoot, 'import-journal.json'),
     }),
   }
 }

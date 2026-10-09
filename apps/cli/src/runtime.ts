@@ -843,7 +843,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const localPluginHub = pluginDomain.localPluginHub
   const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
   const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
-  const memoryStack = createMemoryStack(home)
+  const memoryStack = createMemoryStack(home, { cwd: process.cwd() })
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
