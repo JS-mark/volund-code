@@ -142,7 +142,7 @@ export const zh = {
 
   // SubagentsRow.tsx
   'subagents.region': 'subagent 运行',
-  'subagents.header': 'Subagents · {running} 运行中 / {total} 总计',
+  'subagents.header': '{running} 个子代理运行中',
   'subagents.completed': '已完成',
   'subagents.partial': '部分结果',
   'subagents.cancelled': '已取消',
@@ -332,7 +332,7 @@ export const en: Record<DictKey, string> = {
   'mine.unpair': 'Unpair',
 
   'subagents.region': 'Subagent runs',
-  'subagents.header': 'Subagents · {running} running / {total} total',
+  'subagents.header': '{running} running',
   'subagents.completed': 'Completed',
   'subagents.partial': 'Partial',
   'subagents.cancelled': 'Cancelled',
