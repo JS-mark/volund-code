@@ -208,14 +208,21 @@ export class PromptLoader {
     )
       return `<!-- include: ${path} — DENIED (outside roots) -->`
     if (seen.has(canonical)) return `<!-- include: ${path} — DENIED (cycle) -->`
-    const decision = await this.options.permissions.request({
-      toolName: 'Read',
-      spec: { fs: { read: [canonical] } },
-      input: { path: canonical },
-      session: { id: 'prompt-loader', cwd: roots[0]! },
-      attempt: 1,
-    })
-    if (decision.kind.startsWith('deny')) return `<!-- include: ${path} — DENIED (permission) -->`
+    // Top-level files (AGENT.md / PROMPT.md) are volund's own configuration —
+    // loading them must not depend on the session's permission state, or a
+    // user-level prompt outside <cwd>/** gets denied (or prompts at startup).
+    // The permission check stays for @include expansion, where the *content*
+    // of an already-loaded file pulls in further files.
+    if (depth > 0) {
+      const decision = await this.options.permissions.request({
+        toolName: 'Read',
+        spec: { fs: { read: [canonical] } },
+        input: { path: canonical },
+        session: { id: 'prompt-loader', cwd: roots[0]! },
+        attempt: 1,
+      })
+      if (decision.kind.startsWith('deny')) return `<!-- include: ${path} — DENIED (permission) -->`
+    }
     const file = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW)
     let text: string
     try {
