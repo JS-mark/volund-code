@@ -167,18 +167,29 @@ export class PromptLoader {
       if (current === home || dirname(current) === current) break
       current = dirname(current)
     }
-    const user = resolve(this.options.volundHome ?? resolve(homedir(), '.volund'), 'PROMPT.md')
-    try {
-      await open(user, 'r').then((f) => f.close())
+    // 全局用户级规则与项目级同族（2026-10-10 拍板废弃 PROMPT.md）：volundHome
+    // 下 AGENT.md → AGENTS.md → CLAUDE.md 取一，对齐 Claude Code（~/.claude/
+    // CLAUDE.md）与 Codex（~/.codex/AGENTS.md）的全局规则位置习惯。
+    const volundHome = this.options.volundHome ?? resolve(homedir(), '.volund')
+    let userPath: string | undefined
+    for (const name of ['AGENT.md', 'AGENTS.md', 'CLAUDE.md']) {
+      const candidate = resolve(volundHome, name)
+      try {
+        await open(candidate, 'r').then((f) => f.close())
+        userPath = candidate
+        break
+      } catch {}
+    }
+    if (userPath) {
       out.push(
         composer.register({
           id: 'user',
           source: 'user',
           priority: 400,
-          text: await this.load(user),
+          text: await this.load(userPath),
         }),
       )
-    } catch {}
+    }
     return out
   }
   private async expand(path: string, depth: number, seen: Set<string>): Promise<string> {
@@ -208,7 +219,8 @@ export class PromptLoader {
     )
       return `<!-- include: ${path} — DENIED (outside roots) -->`
     if (seen.has(canonical)) return `<!-- include: ${path} — DENIED (cycle) -->`
-    // Top-level files (AGENT.md / PROMPT.md) are volund's own configuration —
+    // Top-level files (AGENT.md / AGENTS.md / CLAUDE.md, project and global) are
+    // volund's own configuration —
     // loading them must not depend on the session's permission state, or a
     // user-level prompt outside <cwd>/** gets denied (or prompts at startup).
     // The permission check stays for @include expansion, where the *content*

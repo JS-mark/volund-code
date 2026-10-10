@@ -615,7 +615,7 @@ describe('PromptLoader', () => {
     expect(fallbackPrompt).toContain('open convention')
     expect(fallbackPrompt).not.toContain('claude code')
   })
-  it('registers the user fragment only when PROMPT.md exists', async () => {
+  it('registers the user fragment only when a global rule file exists', async () => {
     const dir = await temp()
     const permissions = new PermissionManager(),
       composer = new DefaultPromptComposer()
@@ -625,11 +625,11 @@ describe('PromptLoader', () => {
       permissions,
     }).registerProject(composer)
     let prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
-    expect(prompt).not.toContain('PROMPT.md')
+    expect(prompt).not.toContain('AGENT.md')
     expect(prompt).not.toContain('ERROR (not found)')
 
     await mkdir(resolve(dir, '.volund'), { recursive: true })
-    await writeFile(resolve(dir, '.volund', 'PROMPT.md'), 'user level rules')
+    await writeFile(resolve(dir, '.volund', 'AGENT.md'), 'global user rules')
     const second = new DefaultPromptComposer()
     await new PromptLoader({
       cwd: dir,
@@ -637,12 +637,13 @@ describe('PromptLoader', () => {
       permissions,
     }).registerProject(second)
     prompt = await second.compose({ cwd: dir, model: 'm', provider: 'p' })
-    expect(prompt).toContain('user level rules')
+    expect(prompt).toContain('global user rules')
   })
-  it('loads PROMPT.md outside the workspace without a permission prompt', async () => {
+  it('prefers the global AGENT family over CLAUDE.md and loads it without a permission prompt', async () => {
     const dir = await temp()
     const home = await temp()
-    await writeFile(resolve(home, 'PROMPT.md'), 'global user rules')
+    await writeFile(resolve(home, 'AGENT.md'), 'native global rules')
+    await writeFile(resolve(home, 'CLAUDE.md'), 'claude global rules')
     const composer = new DefaultPromptComposer()
     // volundHome sits outside cwd; a default-deny permission state must not
     // block loading volund's own configuration file.
@@ -652,7 +653,8 @@ describe('PromptLoader', () => {
       permissions: new PermissionManager(),
     }).registerProject(composer)
     const prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
-    expect(prompt).toContain('global user rules')
+    expect(prompt).toContain('native global rules')
+    expect(prompt).not.toContain('claude global rules')
     expect(prompt).not.toContain('DENIED (permission)')
   })
   it('leaves a denial placeholder for sensitive includes', async () => {
