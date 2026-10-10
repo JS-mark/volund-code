@@ -586,6 +586,35 @@ describe('PromptLoader', () => {
     expect(prompt).toContain('rules')
     expect(prompt).not.toContain('wrong')
   })
+  it('prefers AGENT over AGENTS over CLAUDE, and reads AGENTS.md alone', async () => {
+    const permissions = new PermissionManager()
+    const dir = await temp()
+    await writeFile(resolve(dir, 'AGENT.md'), 'native agent')
+    await writeFile(resolve(dir, 'AGENTS.md'), 'open convention')
+    await writeFile(resolve(dir, 'CLAUDE.md'), 'claude code')
+    const composer = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(composer)
+    expect(await composer.compose({ cwd: dir, model: 'm', provider: 'p' })).toContain(
+      'native agent',
+    )
+
+    const fallbackDir = await temp()
+    await writeFile(resolve(fallbackDir, 'AGENTS.md'), 'open convention')
+    await writeFile(resolve(fallbackDir, 'CLAUDE.md'), 'claude code')
+    const fallback = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: fallbackDir,
+      volundHome: resolve(fallbackDir, '.volund'),
+      permissions,
+    }).registerProject(fallback)
+    const fallbackPrompt = await fallback.compose({ cwd: fallbackDir, model: 'm', provider: 'p' })
+    expect(fallbackPrompt).toContain('open convention')
+    expect(fallbackPrompt).not.toContain('claude code')
+  })
   it('registers the user fragment only when PROMPT.md exists', async () => {
     const dir = await temp()
     const permissions = new PermissionManager(),

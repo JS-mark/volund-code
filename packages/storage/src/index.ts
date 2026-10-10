@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-unsafe-type-assertion
 import { createHash } from 'node:crypto'
 import { randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
@@ -93,6 +94,7 @@ export class SessionStore {
       const rl = createInterface({ input: createReadStream(this.path), crlfDelay: Infinity })
       for await (const line of rl) {
         if (!line) continue
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const event = JSON.parse(line) as StoredEvent
         if (event.v > 1)
           throw new VolundError(
@@ -102,6 +104,7 @@ export class SessionStore {
         out.push(event)
       }
     } catch (error) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
     }
@@ -140,16 +143,15 @@ export class PromptLoader {
     let current = await realpath(this.options.cwd),
       home = await realpath(homedir())
     for (let level = 0; level < 8; level++) {
-      const agent = resolve(current, 'AGENT.md'),
-        claude = resolve(current, 'CLAUDE.md')
+      // Per directory one rule file wins: volund-native AGENT.md, then the
+      // open AGENTS.md convention, then Claude Code's CLAUDE.md.
       let path: string | undefined
-      try {
-        await open(agent, 'r').then((f) => f.close())
-        path = agent
-      } catch {
+      for (const name of ['AGENT.md', 'AGENTS.md', 'CLAUDE.md']) {
+        const candidate = resolve(current, name)
         try {
-          await open(claude, 'r').then((f) => f.close())
-          path = claude
+          await open(candidate, 'r').then((f) => f.close())
+          path = candidate
+          break
         } catch {}
       }
       if (path) {
@@ -217,8 +219,8 @@ export class PromptLoader {
     const file = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW)
     let text: string
     try {
-      const stat = await file.stat()
-      if (!stat.isFile()) throw new VolundError('storage_internal', 'not a file')
+      const statFile = await file.stat()
+      if (!statFile.isFile()) throw new VolundError('storage_internal', 'not a file')
       text = await file.readFile('utf8')
     } finally {
       await file.close()
@@ -293,6 +295,7 @@ export class AttachmentStore {
     try {
       await writeFile(path, bytes, { flag: 'wx', mode: 0o600 })
     } catch (error) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
     return { handle, mime, size: bytes.byteLength, digest }
@@ -507,7 +510,7 @@ export class BackupStore {
       },
       rollback: async () => {
         if (settled) return
-        for (const capture of [...captures].reverse()) {
+        for (const capture of [...captures].toReversed()) {
           if (capture.existed) await copyFile(capture.backupPath, capture.path)
           else await rm(capture.path, { force: true })
         }
