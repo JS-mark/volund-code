@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -93,5 +93,26 @@ describe('memory panel controller create/export/import (WEB-EXT-MANAGE-MARKET-r1
       projectMemoryScope(home),
     )
     await expect(bare.exportAll()).rejects.toMatchObject({ code: 'memory_transfer_unavailable' })
+  })
+})
+
+describe('memory state file relocation', () => {
+  it('moves legacy root machine files into memory/.state once', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'volund-memory-state-'))
+    dirs.push(home)
+    await mkdir(join(home, 'memory'), { recursive: true })
+    await writeFile(join(home, 'memory', 'index.json'), '{"schemaVersion":1,"postings":{}}')
+    await writeFile(join(home, 'memory', '.memory.lock'), '{}')
+
+    createMemoryStack(home)
+
+    await expect(access(join(home, 'memory', '.state', 'index.json'))).resolves.toBeUndefined()
+    await expect(access(join(home, 'memory', '.state', '.memory.lock'))).resolves.toBeUndefined()
+    await expect(access(join(home, 'memory', 'index.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    // Idempotent: a second stack over the same home neither fails nor resurrects.
+    createMemoryStack(home)
+    await expect(access(join(home, 'memory', '.state', 'index.json'))).resolves.toBeUndefined()
   })
 })

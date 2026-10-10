@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 /**
  * MemoryController 域（§22.7.1 / Web 计划 P1-04b）：Memory 四服务的组合与宿主适配。
  *
@@ -47,8 +48,32 @@ export interface MemoryStackOptions {
   readonly cwd?: string
 }
 
+/**
+ * 记忆目录里人可见的只有 md（记录 + MEMORY.md 索引）；召回索引/锁/导入日志/
+ * 审计等机器文件收进 `.state/` 隐藏子目录。旧版本落在根目录的机器文件在此
+ * 一次性搬进去（新路径不存在才搬，幂等）。
+ */
+function relocateStateFiles(memoryRoot: string): string {
+  const stateRoot = join(memoryRoot, '.state')
+  mkdirSync(stateRoot, { recursive: true, mode: 0o700 })
+  for (const name of [
+    'index.json',
+    'index.json.bak',
+    '.memory.lock',
+    'import-journal.json',
+    'audit.jsonl',
+  ]) {
+    const legacyPath = join(memoryRoot, name)
+    const statePath = join(stateRoot, name)
+    if (!existsSync(legacyPath) || existsSync(statePath)) continue
+    renameSync(legacyPath, statePath)
+  }
+  return stateRoot
+}
+
 export function createMemoryStack(home: string, options: MemoryStackOptions = {}): MemoryStack {
   const memoryRoot = join(home, 'memory')
+  const stateRoot = relocateStateFiles(memoryRoot)
   const repository = new MarkdownMemoryRepository({
     layout: new MarkdownMemoryLayout({
       root: memoryRoot,
@@ -59,17 +84,17 @@ export function createMemoryStack(home: string, options: MemoryStackOptions = {}
           }
         : {}),
     }),
-    lockPath: join(memoryRoot, '.memory.lock'),
+    lockPath: join(stateRoot, '.memory.lock'),
     legacySnapshotPath: join(memoryRoot, 'records.json'),
   })
-  const index = new LocalKeywordMemoryIndex(join(memoryRoot, 'index.json'))
+  const index = new LocalKeywordMemoryIndex(join(stateRoot, 'index.json'))
   const memory = new IndexingMemoryService(new DefaultMemoryService(repository), repository, index)
   return {
     memory,
     memoryRecall: new DefaultMemoryRecallService(memory, index),
     memoryMaintenance: new DefaultMemoryMaintenanceService(repository, index),
     memoryTransfer: new MemoryTransferService(memory, {
-      journalPath: join(memoryRoot, 'import-journal.json'),
+      journalPath: join(stateRoot, 'import-journal.json'),
     }),
   }
 }
@@ -129,10 +154,10 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
                   'Session memory requires an active session',
                 )
               })()
-    const auditPath = join(options.home, 'memory', 'audit.jsonl')
+    const auditPath = join(options.home, 'memory', '.state', 'audit.jsonl')
     const writeOperation = ['create', 'update', 'delete'].includes(operation)
     if (writeOperation) {
-      await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
+      await mkdir(join(options.home, 'memory', '.state'), { recursive: true, mode: 0o700 })
       await appendFile(
         auditPath,
         `${JSON.stringify({
@@ -165,7 +190,7 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
       result = await options.memory.update(scope, String(params.id), params.patch ?? {})
     else if (operation === 'delete') result = await options.memory.delete(scope, String(params.id))
     else result = await options.memoryTransfer.export([scope])
-    await mkdir(join(options.home, 'memory'), { recursive: true, mode: 0o700 })
+    await mkdir(join(options.home, 'memory', '.state'), { recursive: true, mode: 0o700 })
     await appendFile(
       auditPath,
       `${JSON.stringify({
