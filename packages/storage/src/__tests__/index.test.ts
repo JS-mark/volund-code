@@ -586,6 +586,30 @@ describe('PromptLoader', () => {
     expect(prompt).toContain('rules')
     expect(prompt).not.toContain('wrong')
   })
+  it('registers the user fragment only when PROMPT.md exists', async () => {
+    const dir = await temp()
+    const permissions = new PermissionManager(),
+      composer = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(composer)
+    let prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).not.toContain('PROMPT.md')
+    expect(prompt).not.toContain('ERROR (not found)')
+
+    await mkdir(resolve(dir, '.volund'), { recursive: true })
+    await writeFile(resolve(dir, '.volund', 'PROMPT.md'), 'user level rules')
+    const second = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(second)
+    prompt = await second.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).toContain('user level rules')
+  })
   it('leaves a denial placeholder for sensitive includes', async () => {
     const dir = await temp()
     await writeFile(resolve(dir, 'AGENT.md'), '@include ./.env.md')

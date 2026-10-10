@@ -167,6 +167,7 @@ export class PromptLoader {
     }
     const user = resolve(this.options.volundHome ?? resolve(homedir(), '.volund'), 'PROMPT.md')
     try {
+      await open(user, 'r').then((f) => f.close())
       out.push(
         composer.register({
           id: 'user',
