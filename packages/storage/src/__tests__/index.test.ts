@@ -639,6 +639,22 @@ describe('PromptLoader', () => {
     prompt = await second.compose({ cwd: dir, model: 'm', provider: 'p' })
     expect(prompt).toContain('user level rules')
   })
+  it('loads PROMPT.md outside the workspace without a permission prompt', async () => {
+    const dir = await temp()
+    const home = await temp()
+    await writeFile(resolve(home, 'PROMPT.md'), 'global user rules')
+    const composer = new DefaultPromptComposer()
+    // volundHome sits outside cwd; a default-deny permission state must not
+    // block loading volund's own configuration file.
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: home,
+      permissions: new PermissionManager(),
+    }).registerProject(composer)
+    const prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).toContain('global user rules')
+    expect(prompt).not.toContain('DENIED (permission)')
+  })
   it('leaves a denial placeholder for sensitive includes', async () => {
     const dir = await temp()
     await writeFile(resolve(dir, 'AGENT.md'), '@include ./.env.md')
