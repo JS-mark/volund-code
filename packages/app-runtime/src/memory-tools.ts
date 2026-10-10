@@ -60,7 +60,8 @@ export function createMemoryTools(
   return [
     tool({
       name: 'Memory.create',
-      description: 'Create a durable memory in the current workspace, project, or session scope',
+      description:
+        'Create a durable memory. Pick the scope by who the knowledge belongs to: workspace = user-level preferences that hold across every project (taste, tone, collaboration habits); project = facts about this repository only (conventions, commands, pitfalls); session = context for this task alone. Reply-format or mandatory-phrasing rules the user wants enforced belong in PROMPT.md / AGENT.md, not in memory.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
