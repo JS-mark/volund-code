@@ -27,6 +27,7 @@ import type { MemoryRecallService, MemoryService } from '@volund/storage'
 
 import {
   memoryProjectId,
+  memoryProjectRoot,
   projectMemoryScope,
   sessionMemoryScope,
   workspaceMemoryScope,
@@ -80,7 +81,7 @@ export function createMemoryStack(home: string, options: MemoryStackOptions = {}
       ...(options.cwd
         ? {
             currentProjectId: memoryProjectId(options.cwd),
-            currentProjectDir: join(options.cwd, '.volund', 'memory'),
+            currentProjectDir: join(memoryProjectRoot(options.cwd), '.volund', 'memory'),
           }
         : {}),
     }),
