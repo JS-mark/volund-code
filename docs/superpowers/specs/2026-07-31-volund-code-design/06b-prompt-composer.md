@@ -41,7 +41,7 @@ export interface PromptComposer {
 | `skill:<active-skill>`   | 800      | 当前会话激活的 Skill                     |
 | `memory:pinned`          | 700      | pinned memory 自动注入（§6.12.8，受 pinned_inject_max_lines 截断，L2 起） |
 | `project`                | 600      | `<cwd>/AGENT.md`（自动发现，向上递减 -10/级，下限 500） |
-| `user`                   | 400      | `~/.volund/PROMPT.md`                    |
+| `user`                   | 400      | `~/.volund/` 下规则文件（AGENT.md → AGENTS.md → CLAUDE.md 取一，2026-10-10 拍板与项目级同族，PROMPT.md 废弃） |
 | `plugin:<name>:memory`   | 60       | 插件对 memory-guide 的追加片段（§6.12.3，低于 project/user） |
 | `plugin:<name>`          | 50       | 插件常规 prompt 贡献                     |
 
@@ -50,7 +50,7 @@ export interface PromptComposer {
 **contributor 注册路径**：
 - 内置：`core` 启动时自注册
 - Skill：`skills-runtime` 激活 skill 时调 `composer.register(...)`
-- AGENT.md / PROMPT.md：`storage` 启动时读文件后注册
+- AGENT.md / AGENTS.md / CLAUDE.md（项目级向上发现 + `~/.volund/` 全局各取一）：`storage` 启动时读文件后注册
 - Plugin：`plugin-runtime` 将 `volund.prompt.contribute` 转发到 composer
 
 **这套设计的价值**：所有 prompt 来源统一，不用为每种来源写一套逻辑；插件贡献 prompt 天然接入。
@@ -257,7 +257,7 @@ Prefer Conventional Commits: `<type>(<scope>): <subject>`
    - `cwd/AGENT.md` → priority = **600**
    - `cwd/../AGENT.md` → priority = **590**（每上一级 `-10`）
    - `cwd/../../AGENT.md` → priority = **580**……
-   - **下限 priority = 500**（8 级封顶后仍高于 user PROMPT.md 的 400）
+   - **下限 priority = 500**（8 级封顶后仍高于 user 级全局规则的 400）
    - 同一目录理论上不会有两个 AGENT.md；若发生（如软链），按绝对路径字典序 tie-break
 5. Volund 也读 `<cwd>/CLAUDE.md`（若存在），作为 fallback 兼容 claude-code 生态：
    - 两个都在时 `AGENT.md` 优先（占用 priority=600 槽位）
@@ -291,7 +291,7 @@ Use React 19 with the new hooks...
 
 ---
 
-<!-- source: user:~/.volund/PROMPT.md, priority: 400 -->
+<!-- source: user:~/.volund/AGENT.md, priority: 400 -->
 I prefer verbose explanations. Always show me the plan first.
 
 ---
@@ -304,7 +304,7 @@ You are in a git repository. Current branch: main.
 
 #### 6.5.6 `@include` 机制
 
-**问题**：多个 md（AGENT.md / PROMPT.md / SKILL.md / memory）经常有共享片段（团队共享的编码规范、领域词表），复制粘贴容易漂移。
+**问题**：多个 md（AGENT.md / SKILL.md / memory）经常有共享片段（团队共享的编码规范、领域词表），复制粘贴容易漂移。
 
 **决策**：volund 内部**提示词加载管线**支持 `@include <path>` 语法。**只在提示词加载管线生效**，`Read` 工具读 md 时**不展开**（保留原文，避免污染搜索 / diff / edit 语义）。
 
@@ -357,7 +357,7 @@ You are in a git repository. Current branch: main.
 
 **实现归属**：`packages/core` 内新增 `PromptLoader`（不新增包）：
 - `loadMarkdown(path, ctx): Promise<{ text, frontmatter, includes }>` — 读文件 + 剥 frontmatter + 递归展开 + 记录展开来源
-- 被 `storage`（读 AGENT.md / PROMPT.md）、`skills-runtime`（读 SKILL.md）、`memory-runtime`（读 memory/*.md，见 §6.12）、`PromptComposer` 主动调用
+- 被 `storage`（读 AGENT.md / AGENTS.md / CLAUDE.md）、`skills-runtime`（读 SKILL.md）、`memory-runtime`（读 memory/*.md，见 §6.12）、`PromptComposer` 主动调用
 - 不感知具体来源；只关心 md 文本处理 + 安全边界
 
 **边界与安全清单**：
