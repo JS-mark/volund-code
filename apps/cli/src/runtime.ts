@@ -1884,8 +1884,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
       contextPolicy,
     )
-    // 记忆自动沉淀的输入源：进程收口（bin.ts）时最后一个活跃会话的记录。
-    lastRunner = runner
+    // 记忆自动沉淀的输入源：进程收口（bin.ts）时最后一个**根会话**的记录——
+    // 子代理会话（SubagentDispatcher 同样经此工厂创建）不覆盖，否则沉淀会
+    // 提炼子代理的任务转录而不是父会话的用户交互。
+    if (!state.lineage?.parentSessionId) lastRunner = runner
     return runner
   }
   // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
