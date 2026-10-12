@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createLocalPluginDispatch } from '@volund/plugin-runtime'
-import type { PluginManifest } from '@volund/plugin-runtime'
+import type { PluginManifest } from '@volund/plugin-sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createMemoryStack, createPluginMemoryHost } from '../memory'
