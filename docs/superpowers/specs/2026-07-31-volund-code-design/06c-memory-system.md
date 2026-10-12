@@ -1,6 +1,6 @@
 > ↩ [返回索引 (README)](./README.md) · ← [上一章: §6b PromptComposer + 生命周期 (6.5–6.11)](./06b-prompt-composer.md) · [下一章: §6d 测试基建 (6.13)](./06d-testkit.md) →
 
-> **★ 现状标注（2026-10-09）**：本卷的**存储设计（§6.12.1 目录布局 / §6.12.2 md+frontmatter 格式）已按 [ADR-0012](../../../rfcs/0012-memory-markdown-persistence.md) 恢复落地**——每条记忆一个 md 文件，workspace → `~/.volund/memory/`、当前项目 → `<cwd>/.volund/memory/`、会话 → `sessions/`；旧 JSON 快照（`records.json`）首次打开时自动迁移并归档为 `.imported`。其余 delta 仍按 ADR-0010/0011 执行：scope 模型为 workspace/project/session（非 global/project/tuning）；记录无 `title` 字段；模型工具为 `Memory.create/get/list/update/delete/pin/unpin`（无 `Memory.recall`）；内容守卫为 64KiB + secret/Unicode/id（非 200 行四层降级）；无 `[memory]` 配置段；export/import 为 JSON 文档（非 tar）。本卷正文其余部分保留作历史设计供考古。
+> **★ 现状标注（2026-10-09）**：本卷的**存储设计（§6.12.1 目录布局 / §6.12.2 md+frontmatter 格式）已按 [ADR-0012](../../../rfcs/0012-memory-markdown-persistence.md) 恢复落地**——每条记忆一个 md 文件，workspace → `~/.volund/memory/`、当前项目 → `<cwd>/.volund/memory/`、会话 → `sessions/`；旧 JSON 快照（`records.json`）首次打开时自动迁移并归档为 `.imported`。其余 delta 仍按 ADR-0010/0011 执行：scope 模型为 workspace/project/session（非 global/project/tuning，project 身份锚 git root，见 [ADR-0014](../../../rfcs/0014-project-scope-git-root.md)）；用户级规则文件为 `~/.volund/` 下 AGENT.md → AGENTS.md → CLAUDE.md 取一（`~/.volund/PROMPT.md` 已废弃，见 [ADR-0013](../../../rfcs/0013-user-rules-agent-family.md)）；记录无 `title` 字段；模型工具为 `Memory.create/get/list/update/delete/pin/unpin`（无 `Memory.recall`）；内容守卫为 64KiB + secret/Unicode/id（非 200 行四层降级）；无 `[memory]` 配置段；export/import 为 JSON 文档（非 tar）。本卷正文其余部分保留作历史设计供考古。
 
 ---
 
