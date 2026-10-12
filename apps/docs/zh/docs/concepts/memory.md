@@ -7,11 +7,11 @@ Volund 的记忆系统让智能体跨会话积累持久知识——用户偏好�
 
 ## 什么东西放在哪
 
-| 层 | 规则文件（信任） | 记忆（参考数据） |
-|---|---|---|
-| 全局 | `~/.volund/AGENT.md`（`AGENTS.md` / `CLAUDE.md` 也可） | `~/.volund/memory/*.md` |
-| 项目 | `<仓库根>/AGENT.md` 逐目录发现 | `<仓库根>/.volund/memory/*.md` |
-| 会话 | — | `~/.volund/memory/sessions/*.md` |
+| 层   | 规则文件（信任）                                       | 记忆（参考数据）                 |
+| ---- | ------------------------------------------------------ | -------------------------------- |
+| 全局 | `~/.volund/AGENT.md`（`AGENTS.md` / `CLAUDE.md` 也可） | `~/.volund/memory/*.md`          |
+| 项目 | `<仓库根>/AGENT.md` 逐目录发现                         | `<仓库根>/.volund/memory/*.md`   |
+| 会话 | —                                                      | `~/.volund/memory/sessions/*.md` |
 
 两级规则文件用同一套候选顺序——`AGENT.md` → `AGENTS.md`（开放约定）→ `CLAUDE.md`，
 每级取第一个命中的，给 Claude Code / Codex 维护的文件直接可用。
@@ -37,6 +37,7 @@ scope: project
 workspaceId: local
 pinned: true
 ---
+
 本仓库一律用 pnpm，不用 npm。
 ```
 
@@ -55,8 +56,16 @@ pinned: true
   智能体被明确指导按「知识属于谁」选 scope（用户级偏好 → workspace，仓库事实 →
   project），且回复格式类契约应建议写规则文件而不是存记忆。
 
-写记忆是副作用操作：交互界面每会话问一次（选「本会话记住」或更持久档位可免重复
-询问）；非交互运行在无持久权限规则时自动拒绝。
+写记忆不弹任何权限——记忆目录是 volund 自己的领地，每次写入都过不可关闭的内容
+守卫；显式 deny 规则仍然优先生效。
+
+## 自动沉淀
+
+会话正常结束时，volund 会用一次后台模型调用把本轮提炼成最多 3 条持久记忆——用户
+偏好进 workspace，仓库事实进 project。短会话（不足两轮交互或转录过短）、SIGINT/
+SIGTERM 硬退、以及设置 `VOLUND_MEMORY_AUTO_CONSOLIDATE=0|false` 时跳过。沉淀记忆的
+provenance 是 `memory-consolidation`，和普通记忆一样出现在
+`volund memory list --source agent` 里。
 
 ## 规则 vs 记忆——什么放哪个文件
 

@@ -319,6 +319,10 @@ export class PermissionManager {
     return operation()
   }
   private autoAllow(request: PermissionRequest): PermissionDecision | undefined {
+    // 记忆是 volund 自己的领地（~/.volund/memory、<root>/.volund/memory），
+    // 内容过不可关闭的 preWrite 守卫；业界（Claude Code auto-memory、Gemini
+    // CLI save_memory）写入均不弹卡。显式 deny 规则已在 request() 短路，仍优先。
+    if (request.toolName.startsWith('Memory.')) return { kind: 'allow-session' }
     const reads = request.spec.fs?.read ?? []
     if (
       ['Read', 'Grep', 'Glob'].includes(request.toolName) &&

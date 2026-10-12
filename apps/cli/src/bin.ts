@@ -43,4 +43,12 @@ if (result.stderr)
   await new Promise<void>((resolve, reject) =>
     process.stderr.write(`${result.stderr}\n`, (error) => (error ? reject(error) : resolve())),
   )
+// 记忆自动沉淀（ADR-0015）：只在正常完成路径跑，25s 预算兜底——提炼失败绝不拖住退出。
+if (ports.consolidateMemory) {
+  const budget = new Promise((resolve) => {
+    const timer = setTimeout(resolve, 25_000)
+    timer.unref()
+  })
+  await Promise.race([ports.consolidateMemory().catch(() => undefined), budget])
+}
 process.exit(result.exitCode)

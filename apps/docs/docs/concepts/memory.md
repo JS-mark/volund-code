@@ -8,11 +8,11 @@ prompt; memories are **advisory data** the agent can recall, never instructions.
 
 ## What lives where
 
-| Layer | Rule file (trusted) | Memory (advisory data) |
-|---|---|---|
-| Global | `~/.volund/AGENT.md` (`AGENTS.md` / `CLAUDE.md` also work) | `~/.volund/memory/*.md` |
-| Project | `<repo-root>/AGENT.md` per directory, discovered upward | `<repo-root>/.volund/memory/*.md` |
-| Session | — | `~/.volund/memory/sessions/*.md` |
+| Layer   | Rule file (trusted)                                        | Memory (advisory data)            |
+| ------- | ---------------------------------------------------------- | --------------------------------- |
+| Global  | `~/.volund/AGENT.md` (`AGENTS.md` / `CLAUDE.md` also work) | `~/.volund/memory/*.md`           |
+| Project | `<repo-root>/AGENT.md` per directory, discovered upward    | `<repo-root>/.volund/memory/*.md` |
+| Session | —                                                          | `~/.volund/memory/sessions/*.md`  |
 
 Both levels of rule files use the same candidate order — `AGENT.md`, then `AGENTS.md`
 (the open convention), then `CLAUDE.md` — first hit per directory wins, so files you
@@ -42,6 +42,7 @@ scope: project
 workspaceId: local
 pinned: true
 ---
+
 This repo always uses pnpm, never npm.
 ```
 
@@ -64,15 +65,25 @@ sessions; a running session keeps its in-memory snapshot.
   preference → workspace, repository fact → project) and to suggest rule files instead
   of storing reply-format contracts as memory.
 
-Writing memories is a side-effecting operation: the interactive UI asks once per
-session (choose "remember for this session" or stronger to stop the prompts), and
-non-interactive runs deny it unless a persisted permission rule allows it.
+Memory writes never ask for permission — the memory directories are volund's own
+territory and every write passes the unconditional content guard. An explicit deny rule
+still wins if you add one.
+
+## Automatic consolidation
+
+When a session ends normally, volund distills it into up to 3 durable memories with one
+background model call — user preferences go to the workspace, repository facts to the
+project. Consolidation is skipped for short sessions (fewer than two exchanges or a
+tiny transcript), after SIGINT/SIGTERM hard exits, and entirely when
+`VOLUND_MEMORY_AUTO_CONSOLIDATE=0|false` is set. Consolidated memories carry provenance
+`memory-consolidation` and appear in `volund memory list --source agent` like any other
+memory.
 
 ## Rules vs. memories — which file for what
 
-- **Rule files** (`AGENT.md` family): things that must be *obeyed* — reply formats,
+- **Rule files** (`AGENT.md` family): things that must be _obeyed_ — reply formats,
   tone contracts, workflow requirements. They are trusted prompt content.
-- **Memory**: facts and preferences that should *influence but not bind* — "this repo
+- **Memory**: facts and preferences that should _influence but not bind_ — "this repo
   uses pnpm", "the user prefers concise answers". Always advisory.
 
 ## CLI
