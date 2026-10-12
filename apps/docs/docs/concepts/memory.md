@@ -97,6 +97,17 @@ health; `export`/`import` move a versioned JSON archive between machines (memory
 themselves can simply be copied or committed). `volund memory add --scope project
 "…" --pinned` is the quickest way to seed a project's memory by hand.
 
+## Plugins
+
+Plugins reach memory through the sandboxed bridge (`volund.memory.create` and friends),
+gated by the plugin manifest (`permissions.memory`: `read` scopes, `write`, `search`,
+`export` — write defaults to off) and funnelled into the same service: scope ACL, the
+unconditional content guard, and an `audit.jsonl` entry per write. Plugin-initiated
+writes carry `provenance.actorId: plugin:<name>`. Note that project memory files live
+inside the workspace, so a plugin with file/bash permissions can bypass the bridge and
+edit them directly — that path is unaudited (treat hand-edited and tool-written files
+alike: they are validated on load and stay advisory data).
+
 ## Storage internals
 
 Every write is atomic per file (temp file → fsync → rename → directory fsync, modes

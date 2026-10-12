@@ -32,6 +32,7 @@ import {
   resolveModelAlias,
   createMemoryStack,
   consolidateSessionMemory,
+  createPluginMemoryHost,
   createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
@@ -805,7 +806,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const webSearchTool = new WebSearchTool()
   // P1-04d：插件域装配迁入 app-runtime（createPluginDomain）；loadedPluginEntries /
   // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
+  // 记忆插件宿主：memoryStack 在下方创建，这里先声明惰性转发（插件调用
+  // 发生在运行期，装配完成后 host 必已就绪）。
+  let pluginMemoryHost: ReturnType<typeof createPluginMemoryHost> | undefined
   const pluginDomain = createPluginDomain({
+    memoryHost: (plugin, operation, params) => {
+      if (!pluginMemoryHost)
+        return Promise.reject(
+          new VolundError('plugin_memory_unavailable', 'memory host is not connected'),
+        )
+      return pluginMemoryHost(plugin, operation, params)
+    },
     home,
     volundVersion: options.identity.version,
     logger,
@@ -860,6 +871,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
   const memoryTransfer = memoryStack.memoryTransfer
+  pluginMemoryHost = createPluginMemoryHost({
+    home,
+    cwd: process.cwd(),
+    sessionId: () => lastRunner?.state.id,
+    memory,
+    memoryRecall,
+    memoryTransfer,
+  })
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
