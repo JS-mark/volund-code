@@ -117,7 +117,8 @@ export function registerRuntimeMemoryPrompts(
 export interface PluginMemoryHostOptions {
   readonly home: string
   readonly cwd: string
-  readonly sessionId?: string
+  /** 静态会话 id 或取当前活跃会话的 getter（插件宿主长驻、会话轮换时用 getter）。 */
+  readonly sessionId?: string | (() => string | undefined)
   readonly memory: MemoryService
   readonly memoryRecall: MemoryRecallService
   readonly memoryTransfer: MemoryTransferService
@@ -142,13 +143,15 @@ export function createPluginMemoryHost(options: PluginMemoryHostOptions): Plugin
       pinned?: boolean
       patch?: { content?: string; tags?: readonly string[]; pinned?: boolean }
     }
+    const sessionId =
+      typeof options.sessionId === 'function' ? options.sessionId() : options.sessionId
     const scope =
       params.scope === 'workspace'
         ? workspaceMemoryScope()
         : params.scope === 'project'
           ? projectMemoryScope(options.cwd)
-          : options.sessionId
-            ? sessionMemoryScope(options.cwd, options.sessionId)
+          : sessionId
+            ? sessionMemoryScope(options.cwd, sessionId)
             : (() => {
                 throw new MemoryError(
                   'memory_scope_denied',

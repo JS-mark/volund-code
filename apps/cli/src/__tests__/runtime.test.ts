@@ -40,7 +40,7 @@ import { MutableSlashCommandRegistry } from '@volund/ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runCli } from '../cli'
-import { projectMemoryScope } from '../memory-scope'
+import { memoryProjectId, projectMemoryScope } from '../memory-scope'
 import { createMemoryTools } from '../memory-tools'
 import { PermissionRuleStore } from '../permissions-store'
 import {
@@ -2820,9 +2820,9 @@ describe('status configuration adapter', () => {
     expect(await memory.get(scope, 'original')).toEqual(original)
     expect(await memory.get(scope, 'plugin-secret')).toBeUndefined()
     for (const path of [
-      join(root, 'memory', 'records.json'),
+      join(root, 'memory', 'records.json.imported'),
       join(root, 'memory', 'index.json'),
-      join(root, 'memory', 'audit.jsonl'),
+      join(root, 'memory', '.state', 'audit.jsonl'),
       join(root, 'telemetry', 'events.jsonl'),
     ]) {
       const contents = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -2832,6 +2832,48 @@ describe('status configuration adapter', () => {
       expect(contents).not.toContain(modelSecret)
       expect(contents).not.toContain(pluginSecret)
     }
+  })
+
+  it('plugin memory host resolves session scope through a sessionId getter', async () => {
+    const root = await mkdtemp(join(process.cwd(), '.memory-getter-'))
+    fixtures.push(root)
+    const ports = createProductionPorts({
+      volundHome: root,
+      identity: { version: '1.2.3-test' },
+    })
+    const memory = ports.memory!
+    const host = createPluginMemoryHost({
+      home: root,
+      cwd: root,
+      // 插件宿主长驻、会话轮换：session scope 必须每次调用解析当前会话。
+      sessionId: () => 'live-session',
+      memory,
+      memoryRecall: ports.memoryRecall!,
+      memoryTransfer: ports.memoryTransfer!,
+    })
+    await host('fixture-plugin', 'create', {
+      scope: 'session',
+      id: 'session-scoped',
+      content: 'session note',
+    })
+    const sessionScope = {
+      kind: 'session' as const,
+      workspaceId: 'local',
+      projectId: memoryProjectId(root),
+      sessionId: 'live-session',
+    }
+    expect((await memory.list(sessionScope)).map((record) => record.id)).toEqual(['session-scoped'])
+    // 无活跃会话时 session scope fail-closed。
+    const detached = createPluginMemoryHost({
+      home: root,
+      cwd: root,
+      memory,
+      memoryRecall: ports.memoryRecall!,
+      memoryTransfer: ports.memoryTransfer!,
+    })
+    await expect(
+      detached('fixture-plugin', 'create', { scope: 'session', content: 'orphan' }),
+    ).rejects.toMatchObject({ code: 'memory_scope_denied' })
   })
 
   it('persists whitelisted preferences atomically and rejects readonly state', async () => {

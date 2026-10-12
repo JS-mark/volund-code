@@ -147,6 +147,13 @@ export interface LocalPluginServices {
    * { status, headers, body }（body 为文本）。
    */
   httpFetch?(url: string, init: unknown): Promise<unknown>
+  /**
+   * 记忆服务宿主（spec §6.12.5）：createPluginMemoryHost 的受控实现——
+   * manifest permissions.memory 门（BRIDGE_PERMISSIONS 映射）+ scope ACL +
+   * preWrite 守卫 + audit.jsonl。未接时 volund.memory.* 报
+   * plugin_memory_unavailable。operation 不含 'memory.' 前缀。
+   */
+  memory?(plugin: string, operation: string, params: unknown): Promise<unknown>
 }
 
 export interface ActivatedLocalPlugin {
@@ -292,6 +299,10 @@ export function createLocalPluginDispatch(options: {
       const index = contributions.prompts.findIndex((prompt) => prompt.id === params)
       if (index >= 0) contributions.prompts.splice(index, 1)
       return null
+    }
+    if (short.startsWith('memory.')) {
+      if (!services.memory) throw new PluginError('plugin_memory_unavailable', short)
+      return services.memory(manifest.name, short.slice('memory.'.length), params)
     }
     if (short === 'session.getUsage') return services.getSessionUsage?.() ?? null
     if (short === 'env.getEffective') return services.getEffectiveEnv?.() ?? []

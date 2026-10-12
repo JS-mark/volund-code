@@ -84,6 +84,15 @@ volund memory list | get | add | update | delete | pin | unpin | search | doctor
 `export`/`import` 在机器间搬运版本化 JSON 归档（记忆文件本身直接拷贝或提交即可）。
 `volund memory add --scope project "…" --pinned` 是手动给项目铺记忆最快的方式。
 
+## 插件
+
+插件经沙箱桥访问记忆（`volund.memory.create` 等），由插件 manifest 把门
+（`permissions.memory`：`read` 作用域、`write`、`search`、`export`——write 默认关闭），
+并汇入同一服务：scope ACL、不可关闭的内容守卫、每次写一条 `audit.jsonl`。插件发起
+的写入带 `provenance.actorId: plugin:<name>`。注意 project 记忆文件位于工作区内，
+拥有文件/命令权限的插件可以绕过桥直接编辑——该通道无审计（手编与工具直写一视
+同仁：装载时校验，始终是参考数据）。
+
 ## 存储内部
 
 每次写按文件原子（临时文件 → fsync → rename → 目录 fsync，权限 0600/0700），跨进程

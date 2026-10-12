@@ -429,6 +429,13 @@ export interface PluginDomainOptions {
   readonly webSearchTool?: import('@volund/tools').WebSearchTool
   /** 沙箱插件的受控网络出口（webSearch http.fetch 桥的宿主侧执行体；带代理栈）。 */
   readonly httpFetch?: (url: string, init: unknown) => Promise<unknown>
+  /**
+   * 记忆服务宿主（createPluginMemoryHost；spec §6.12.5）：manifest
+   * permissions.memory 门在 plugin-runtime 的 dispatch/BRIDGE_PERMISSIONS 层，
+   * scope ACL + preWrite 守卫 + audit 在 host 内。未传时插件
+   * volund.memory.* 报 plugin_memory_unavailable。
+   */
+  readonly memoryHost?: (plugin: string, operation: string, params: unknown) => Promise<unknown>
 }
 
 export interface PluginDomain {
@@ -620,6 +627,12 @@ export function createPluginDomain(options: PluginDomainOptions): PluginDomain {
             )
           return options.httpFetch(url, init)
         },
+        ...(options.memoryHost
+          ? {
+              memory: (plugin: string, operation: string, params: unknown) =>
+                options.memoryHost!(plugin, operation, params),
+            }
+          : {}),
       },
     })
     // 插件贡献的 WebSearch provider 挂进 hub 并热接线（后激活者不覆盖：首个
