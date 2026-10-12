@@ -196,7 +196,7 @@ export class SummaryPolicy implements ContextPolicy {
     this.#hooks = hooks
     this.#sliding = new SlidingWindowPolicy(
       config,
-      options.countTokens ? { countTokens: options.countTokens } : {},
+      options.countTokens ? { countTokens: options.countTokens } : undefined,
     )
   }
   estimateTokens(text: string, model: string): number {

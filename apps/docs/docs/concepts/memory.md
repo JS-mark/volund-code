@@ -89,7 +89,7 @@ memory.
 ## CLI
 
 ```
-volund memory list | get | add | update | delete | pin | unpin | search | doctor | reindex | export | import
+volund memory list | get | add | update | move | delete | gc | pin | unpin | search | doctor | reindex | export | import
 ```
 
 `search` queries the same local index the agent uses; `doctor` checks store and index
