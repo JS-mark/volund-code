@@ -26,6 +26,7 @@ Commands:
   add [content]        Add a memory
   update <id> [content]
                        Update a memory
+  move <id>            Move a memory to another scope (--to workspace|project)
   delete <id>          Delete a memory (requires confirmation)
   pin <id>             Pin a memory for prompt injection
   unpin <id>           Stop injecting a pinned memory
@@ -46,6 +47,7 @@ Options:
   --cursor <cursor>                Continue a stable listing
   --content <text>                 Content for add or update
   --body-stdin                     Read content from stdin
+  --to workspace|project           Target scope for move
   --expected-updated-at <time>     Optimistic concurrency token
   --yes                            Confirm deletion non-interactively
   --batch-size <number>            Records per reindex batch
@@ -141,7 +143,7 @@ async function runIndexCommand(
       exitCode: args.strict && !report.healthy ? 1 : 0,
       stdout: args.json
         ? `${JSON.stringify(report)}\n`
-        : `${report.facts.healthy ? '✓' : '✗'} facts: ${report.facts.detail} (${report.facts.records} records)\n${report.index.healthy ? '✓' : '✗'} index: ${report.index.detail} (${report.index.indexedRecords} records)\n`,
+        : `${report.facts.healthy ? '✓' : '✗'} facts: ${report.facts.detail} (${report.facts.records} records)\n${report.index.healthy ? '✓' : '✗'} index: ${report.index.detail} (${report.index.indexedRecords} records)\n${(report.issues ?? []).map((issue) => `! skipped: ${issue.path} (${issue.reason})`).join('\n')}${report.issues?.length ? '\n' : ''}`,
       stderr: '',
     }
   }
@@ -331,6 +333,24 @@ async function runMemory(
       args,
       { schemaVersion: 1, memory: safeRecord(record) },
       `Updated memory ${id}.\n`,
+    )
+  }
+  if (action === 'move') {
+    const id = requireId(args, action)
+    const to = String(args.to ?? '')
+    if (to !== 'workspace' && to !== 'project')
+      throw new UsageError('memory move requires --to workspace or --to project')
+    const located = await findRecord(memory, scopes, id)
+    if (!located) return failure(args, 3, 'memory_not_found', `Memory ${id} was not found`)
+    const target = to === 'workspace' ? workspaceMemoryScope() : projectMemoryScope(cwd)
+    const options = args.expectedUpdatedAt
+      ? { expectedUpdatedAt: String(args.expectedUpdatedAt) }
+      : undefined
+    const record = await memory.move(located.scope, id, target, options)
+    return success(
+      args,
+      { schemaVersion: 1, memory: safeRecord(record) },
+      `Moved memory ${id} to ${to}.\n`,
     )
   }
   if (action === 'delete') {

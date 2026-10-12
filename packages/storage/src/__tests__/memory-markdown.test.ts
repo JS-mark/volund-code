@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { DefaultMemoryMaintenanceService } from '../memory-index'
 import {
   MarkdownMemoryLayout,
   MarkdownMemoryRepository,
@@ -236,6 +237,61 @@ describe('MarkdownMemoryRepository', () => {
       }),
     ).rejects.toThrow('boom')
     expect((await repo.load()).map((item) => item.id)).toEqual(['keep'])
+  })
+
+  it('relocates the file when a record moves to another scope', async () => {
+    const root = await memoryRoot()
+    const layout = new MarkdownMemoryLayout({
+      root: join(root, 'memory'),
+      currentProjectId: 'volund',
+      currentProjectDir: join(root, 'repo', '.volund', 'memory'),
+    })
+    const repo = new MarkdownMemoryRepository({
+      layout,
+      lockPath: join(root, 'memory', '.state', '.memory.lock'),
+    })
+    const original = record(project, 'mover', 'project note')
+    await repo.save([original])
+    const projectFile = (await readdir(join(root, 'repo', '.volund', 'memory'))).filter(
+      recordFileFilter,
+    )
+    expect(projectFile).toHaveLength(1)
+
+    await repo.save([{ ...original, scope: workspace }])
+
+    expect(
+      (await readdir(join(root, 'repo', '.volund', 'memory'))).filter(recordFileFilter),
+    ).toEqual([])
+    const rootNames = (await readdir(join(root, 'memory'))).filter(recordFileFilter)
+    expect(rootNames).toHaveLength(1)
+    // Filename stayed stable; only the directory (and frontmatter scope) changed.
+    expect(rootNames[0]).toBe(projectFile[0])
+    const [moved] = await repo.load()
+    expect(moved?.scope).toEqual(workspace)
+  })
+
+  it('exposes skipped files through diagnostics and doctor', async () => {
+    const root = await memoryRoot()
+    const repo = repository(root)
+    await mkdir(join(root, 'memory'), { recursive: true, mode: 0o700 })
+    const broken = join(root, 'memory', 'broken.md')
+    await writeFile(broken, '---\nschemaVersion: 9\nid: broken\n---\nbody')
+    await repo.save([record(workspace, 'good', 'good record')])
+    await repo.load()
+
+    const issues = repo.diagnostics()
+    expect(issues).toHaveLength(1)
+    expect(issues[0]?.path).toBe(broken)
+    expect(issues[0]?.reason).toBe('invalid_frontmatter')
+
+    const maintenance = new DefaultMemoryMaintenanceService(repo, {
+      health: async () => ({ healthy: true, detail: 'ok', indexedRecords: 1 }),
+      doctor: async () => ({ healthy: true, detail: 'ok', indexedRecords: 1 }),
+      search: async () => [],
+      reindex: async () => ({ healthy: true, detail: 'ok', indexedRecords: 1, batchCount: 0 }),
+    } as never)
+    const report = await maintenance.doctor()
+    expect(report.issues).toEqual([{ path: broken, reason: 'invalid_frontmatter' }])
   })
 
   it('maintains a human MEMORY.md index per managed directory (never for sessions)', async () => {

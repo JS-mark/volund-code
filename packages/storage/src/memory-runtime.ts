@@ -158,6 +158,12 @@ export interface MemoryRepository {
   save(records: readonly MemoryRecord[]): Promise<void>
   flush(): Promise<void>
   /**
+   * Load-time validation issues the repository skipped (e.g. markdown files
+   * with invalid frontmatter). Present on repositories that can detect them;
+   * empty by default.
+   */
+  diagnostics?(): readonly { path: string; reason: string }[]
+  /**
    * Applies a read-modify-write operation while holding the repository's
    * cross-process transaction lock. Implementations that omit this method are
    * supported for in-memory and test adapters, but cannot coordinate writers
@@ -193,6 +199,13 @@ export interface MemoryService {
     patch: Partial<
       Pick<MemoryRecord, 'content' | 'tags' | 'pinned' | 'provenance' | 'attachments'>
     >,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord>
+  /** Moves a record to another scope, keeping id, content, and history intact. */
+  move(
+    scope: MemoryRecordScope,
+    id: string,
+    to: MemoryRecordScope,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
   delete(
@@ -416,6 +429,33 @@ export class DefaultMemoryService implements MemoryService {
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
+      }
+      this.#records.set(id, record)
+      return record
+    })
+    this.#notifyChange()
+    return result
+  }
+
+  async move(
+    scope: MemoryRecordScope,
+    id: string,
+    to: MemoryRecordScope,
+    options: MemoryMutationOptions = {},
+  ): Promise<MemoryRecord> {
+    const result = await this.#write(async () => {
+      const current = this.#require(scope, id)
+      if (current.deletedAt) throw new MemoryError('memory_not_found', `Memory ${id} is deleted`)
+      this.#checkVersion(current, options)
+      validateScope(to)
+      // Authority model matches delete/pin: write access to the record is
+      // established by reading it from `scope`; the target only needs to be a
+      // well-formed scope. Same-scope moves are idempotent.
+      if (JSON.stringify(to) === JSON.stringify(current.scope)) return current
+      const record: MemoryRecord = {
+        ...current,
+        scope: to,
+        updatedAt: nextTimestamp(current.updatedAt, this.now()),
       }
       this.#records.set(id, record)
       return record

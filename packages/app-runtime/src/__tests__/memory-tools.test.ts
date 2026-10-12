@@ -47,6 +47,7 @@ describe('Memory.* model tools', () => {
       'Memory.get',
       'Memory.list',
       'Memory.recall',
+      'Memory.move',
       'Memory.update',
       'Memory.delete',
       'Memory.pin',
@@ -124,9 +125,50 @@ describe('Memory.* model tools', () => {
     const empty = await tools.get('Memory.recall')!.invoke({ query: 'nonexistent-topic' }, context)
     expect(JSON.parse((empty.content[0] as { text: string }).text)).toEqual({
       query: 'nonexistent-topic',
-      scope: 'project',
+      scope: 'all',
       hits: [],
     })
+  })
+
+  it('recall searches all scopes by default and move relocates records', async () => {
+    const { tools, context } = await fixture()
+    await tools
+      .get('Memory.create')!
+      .invoke(
+        { scope: 'project', id: 'repo-fact', content: 'repo uses pnpm release flow' },
+        context,
+      )
+    await tools
+      .get('Memory.create')!
+      .invoke(
+        { scope: 'workspace', id: 'user-style', content: 'user prefers pnpm everywhere' },
+        context,
+      )
+
+    const all = await tools.get('Memory.recall')!.invoke({ query: 'pnpm', limit: 10 }, context)
+    const output = (all.content[0] as { text: string }).text
+    expect(output).toContain('scope="project"')
+    expect(output).toContain('scope="workspace"')
+
+    const moved = JSON.parse(
+      (
+        (
+          await tools
+            .get('Memory.move')!
+            .invoke({ scope: 'project', id: 'repo-fact', to: 'workspace' }, context)
+        ).content[0] as { text: string }
+      ).text,
+    )
+    expect(moved.scope).toEqual({ kind: 'workspace', workspaceId: 'local' })
+
+    const projectList = JSON.parse(
+      (
+        (await tools.get('Memory.list')!.invoke({ scope: 'project' }, context)).content[0] as {
+          text: string
+        }
+      ).text,
+    )
+    expect(projectList.items.map((item: { id: string }) => item.id)).toEqual([])
   })
 
   it('recall clips long content to a bounded snippet', async () => {
