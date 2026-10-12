@@ -45,7 +45,6 @@ if (result.stderr)
   )
 // 记忆自动沉淀（ADR-0015）：只在正常完成路径跑，15s 预算兜底——提炼失败绝不拖住退出。
 if (ports.consolidateMemory) {
-  process.stderr.write('· consolidating session memory…\n')
   const budget = new Promise((resolve) => {
     const timer = setTimeout(resolve, 15_000)
     timer.unref()

@@ -48,7 +48,7 @@ import {
 import type { MemoryConsolidationModel } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
-import { SlidingWindowPolicy } from '@volund/context'
+import { SummaryPolicy } from '@volund/context'
 import {
   builtinPromptFragment,
   DefaultPromptComposer,
@@ -1288,16 +1288,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         ? anthropicEntry.model
         : undefined
     const configuredModel = preferencesModel ?? providerModel
-    const contextPolicy = new SlidingWindowPolicy(
-      {
-        compactionThreshold: tuned.compaction_threshold,
-        targetRatio: tuned.target_ratio,
-        keepRecent: tuned.keep_recent,
-      },
-      // Real BPE counts (native fs worker, gpt-tokenizer fallback) instead of
-      // the chars/3.5 estimate; the policy caches by content hash.
-      { countTokens: (text, model) => countTokens(text, model) },
-    )
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     // H3：已激活插件的 prompt fragments 注册进本会话 composer（id 加插件命名
@@ -1445,6 +1435,37 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         return text
       },
     }
+    // 上下文压缩：summary 策略（超过阈值摘要替换，ADR-0015 同款 stream 聚合；
+    // AnthropicClient 无 complete）。模型调用失败回退滑动窗口（fallbackToSliding）。
+    const contextPolicy = new SummaryPolicy(
+      {
+        compactionThreshold: tuned.compaction_threshold,
+        targetRatio: tuned.target_ratio,
+        keepRecent: tuned.keep_recent,
+        fallbackToSliding: true,
+      },
+      {
+        provider: {
+          ...client,
+          complete: async (request, signal) => {
+            let text = ''
+            for await (const chunk of anthropic.stream(request, signal)) {
+              if (chunk.kind === 'text.delta') text += chunk.text
+            }
+            return {
+              message: {
+                id: 'summary-response',
+                role: 'assistant' as const,
+                createdAt: Date.now(),
+                content: [{ type: 'text', text }],
+              },
+              usage: { input: 0, output: 0 },
+            }
+          },
+        },
+        countTokens: (text, model) => countTokens(text, model),
+      },
+    )
     // 内核脊柱：每会话一棵 Context 树；模型注册表以 `model` 服务提供——
     // tools/sandbox/session/events/ui 逐个迁为同形态服务，第三方插件的
     // 贡献也注册进同一棵树。
@@ -2100,6 +2121,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         role: message.role,
         text: messageTextParts(message.content),
       }))
+      // Gate 前置：无可沉淀的实质转录（memory list 等非会话命令/短会话）不提示。
+      if (
+        transcript.length < 2 ||
+        transcript.reduce((total, item) => total + item.text.length, 0) < 200
+      )
+        return 0
+      process.stderr.write('· consolidating session memory…\n')
       const env = process.env.VOLUND_MEMORY_AUTO_CONSOLIDATE
       const cwd = runnerNow.state.cwd
       // 现有记忆首行喂给提炼模型防重复（ADR-0015 的查重设计在生产不能空转）。
