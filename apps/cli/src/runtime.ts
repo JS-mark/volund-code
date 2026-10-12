@@ -42,6 +42,7 @@ import {
   ProductionPermissionSessionPolicy,
   SessionController,
   projectMemoryScope,
+  sessionMemoryScope,
   workspaceMemoryScope,
 } from '@volund/app-runtime'
 import type { MemoryConsolidationModel } from '@volund/app-runtime'
@@ -2100,12 +2101,27 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         text: messageTextParts(message.content),
       }))
       const env = process.env.VOLUND_MEMORY_AUTO_CONSOLIDATE
+      const cwd = runnerNow.state.cwd
+      // 现有记忆首行喂给提炼模型防重复（ADR-0015 的查重设计在生产不能空转）。
+      const existingSummaries = (
+        await Promise.all(
+          [
+            workspaceMemoryScope(),
+            projectMemoryScope(cwd),
+            sessionMemoryScope(cwd, runnerNow.state.id),
+          ].map((scope) => memory.list(scope)),
+        )
+      )
+        .flat()
+        .filter((record) => !record.deletedAt)
+        .map((record) => record.content.split('\n', 1)[0]?.trim().slice(0, 120) || record.id)
       const written = await consolidateSessionMemory({
         memory,
         workspaceScope: workspaceMemoryScope(),
-        projectScope: projectMemoryScope(runnerNow.state.cwd),
+        projectScope: projectMemoryScope(cwd),
         model: consolidationModel,
         transcript,
+        existingSummaries,
         ...(env === undefined ? {} : { env }),
       })
       if (written > 0) void telemetry.emit('memory.consolidated', 'memory', { written })
