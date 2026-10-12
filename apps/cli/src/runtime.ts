@@ -31,6 +31,7 @@ import {
   resolveBuiltinPluginRoot,
   resolveModelAlias,
   createMemoryStack,
+  consolidateSessionMemory,
   createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
@@ -40,7 +41,10 @@ import {
   PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
+  projectMemoryScope,
+  workspaceMemoryScope,
 } from '@volund/app-runtime'
+import type { MemoryConsolidationModel } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
 import { SlidingWindowPolicy } from '@volund/context'
@@ -50,7 +54,7 @@ import {
   lineageRootSessionId,
   Runner,
 } from '@volund/core'
-import type { RunnerToolPort } from '@volund/core'
+import type { RunnerToolPort, SessionState } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
 import { countTokens, execSandbox, probeSandbox } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
@@ -764,6 +768,13 @@ export function rebuildDispatcherOnConfigReload(
   return next
 }
 
+function messageTextParts(content: SessionState['messages'][number]['content']): string {
+  return content
+    .filter((part): part is Extract<typeof part, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+}
+
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
@@ -1137,6 +1148,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     parentToolNames: collectParentToolNames,
     onWarning: (message) => logger.warn(message),
   })
+  // 记忆自动沉淀：进程收口时取最后一个活跃会话（end()/信号路径不经过这里）。
+  let lastRunner: Runner | undefined
+  let consolidationModel: MemoryConsolidationModel | undefined
   const createRunner: RunnerFactory = async (state, events, agent, overrides) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -1394,6 +1408,40 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
           yield chunk
         }
         if (streamToStdout) stdout.write('\n')
+      },
+    }
+    // 记忆自动沉淀（ADR-0015）：捕获本会话的 provider 接入与模型名——bin.ts
+    // 进程收口时对最后一个活跃会话使用。per-session client 在这里才可见。
+    consolidationModel = {
+      // AnthropicClient 只有 stream（无 complete——compaction 的同款限制），
+      // 聚合 text.delta 得到整段输出；不走 streamToStdout 的回显包装。
+      complete: async ({ system, prompt, maxTokens, signal }) => {
+        const resolvedModel = state.model ?? configuredModel
+        if (!resolvedModel)
+          throw new VolundError(
+            'provider_model_unresolved',
+            'No model configured for memory consolidation',
+          )
+        let text = ''
+        for await (const chunk of anthropic.stream(
+          {
+            model: resolvedModel,
+            system,
+            maxTokens,
+            messages: [
+              {
+                id: 'memory-consolidation',
+                role: 'user',
+                createdAt: Date.now(),
+                content: [{ type: 'text', text: prompt }],
+              },
+            ],
+          },
+          signal,
+        )) {
+          if (chunk.kind === 'text.delta') text += chunk.text
+        }
+        return text
       },
     }
     // 内核脊柱：每会话一棵 Context 树；模型注册表以 `model` 服务提供——
@@ -1795,6 +1843,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
       contextPolicy,
     )
+    // 记忆自动沉淀的输入源：进程收口（bin.ts）时最后一个活跃会话的记录。
+    lastRunner = runner
     return runner
   }
   // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
@@ -2037,6 +2087,27 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         // REM-r1：远程 uplink 是 ref 住事件循环的长驻 WS，一并收尾。
         Promise.resolve(assembled.remoteControl?.close()),
       ])
+    },
+    /**
+     * 记忆自动沉淀（bin.ts 进程收口调用，ADR-0015）：从最后一个活跃会话提炼
+     * 长期记忆。条件不满足/模型不可用/守卫否决一律静默——失败绝不拖住退出。
+     */
+    async consolidateMemory() {
+      const runnerNow = lastRunner
+      if (!runnerNow || !consolidationModel) return 0
+      const transcript = (runnerNow.state.messages ?? []).map((message) => ({
+        role: message.role,
+        text: messageTextParts(message.content),
+      }))
+      const env = process.env.VOLUND_MEMORY_AUTO_CONSOLIDATE
+      return await consolidateSessionMemory({
+        memory,
+        workspaceScope: workspaceMemoryScope(),
+        projectScope: projectMemoryScope(runnerNow.state.cwd),
+        model: consolidationModel,
+        transcript,
+        ...(env === undefined ? {} : { env }),
+      })
     },
   }
   // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）；
