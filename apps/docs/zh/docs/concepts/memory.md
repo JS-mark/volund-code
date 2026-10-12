@@ -77,7 +77,7 @@ provenance 是 `memory-consolidation`，和普通记忆一样出现在
 ## CLI
 
 ```
-volund memory list | get | add | update | delete | pin | unpin | search | doctor | reindex | export | import
+volund memory list | get | add | update | move | delete | gc | pin | unpin | search | doctor | reindex | export | import
 ```
 
 `search` 与智能体用的是同一个本地索引；`doctor` 检查存储与索引健康；
