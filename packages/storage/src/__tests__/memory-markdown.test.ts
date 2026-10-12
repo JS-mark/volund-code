@@ -394,6 +394,67 @@ function recordInput() {
   }
 }
 
+describe('DefaultMemoryService.gcSessions', () => {
+  it('purges only aged session records, keeps fresh and other-scope records, and honors dryRun', async () => {
+    const root = await memoryRoot()
+    const epoch = new Date('2026-01-01T00:00:00.000Z')
+    let clock = epoch.getTime()
+    const memory = new DefaultMemoryService(
+      new LocalMemoryRepository(join(root, 'records.json')),
+      undefined,
+      () => new Date(clock),
+    )
+    const oldSession = {
+      kind: 'session',
+      workspaceId: 'local',
+      projectId: 'p',
+      sessionId: 'old',
+    } as const
+    const freshSession = {
+      kind: 'session',
+      workspaceId: 'local',
+      projectId: 'p',
+      sessionId: 'fresh',
+    } as const
+    await memory.create({
+      scope: oldSession,
+      id: 'old-memo',
+      content: 'old',
+      provenance: { source: 'user' },
+    })
+    clock += 90 * 86_400_000
+    await memory.create({
+      scope: freshSession,
+      id: 'fresh-memo',
+      content: 'fresh',
+      provenance: { source: 'user' },
+    })
+    await memory.create({
+      scope: workspace,
+      id: 'ws-memo',
+      content: 'ws',
+      provenance: { source: 'user' },
+    })
+    // Soft delete bumps updatedAt to the delete moment — the purge clock runs from there.
+    await memory.delete(oldSession, 'old-memo')
+    clock += 90 * 86_400_000
+    // Touch the fresh record so it survives the cutoff; workspace records are
+    // never candidates regardless of age.
+    await memory.update(freshSession, 'fresh-memo', { pinned: true })
+
+    const cutoff = new Date(clock - 60 * 86_400_000).toISOString()
+    const dry = await memory.gcSessions(cutoff, { dryRun: true })
+    expect(dry.purged.map((item) => item.id)).toEqual(['old-memo'])
+    expect(await memory.list(oldSession, { includeDeleted: true })).toHaveLength(1)
+
+    const report = await memory.gcSessions(cutoff)
+    expect(report.purged.map((item) => item.id)).toEqual(['old-memo'])
+    expect(await memory.list(oldSession, { includeDeleted: true })).toEqual([])
+    expect(await memory.list(freshSession)).toHaveLength(1)
+    expect(await memory.list(workspace)).toHaveLength(1)
+  })
+})
+
 describe('parseMemoryFile', () => {
   it('falls back to mtime for missing timestamps and defaults provenance', () => {
     const record = parseMemoryFile(

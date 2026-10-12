@@ -575,6 +575,15 @@ export class IndexingMemoryService implements MemoryService {
     )
   }
 
+  async gcSessions(
+    cutoff: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }> {
+    // Stale index entries self-heal: recall re-checks each hit against the
+    // fact store, so no forced reindex is needed for the purged ids.
+    return this.facts.gcSessions(cutoff, options)
+  }
+
   async delete(
     scope: MemoryRecordScope,
     id: string,

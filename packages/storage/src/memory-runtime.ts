@@ -208,6 +208,15 @@ export interface MemoryService {
     to: MemoryRecordScope,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
+  /**
+   * Hard-deletes session-scope records whose `updatedAt` is older than the
+   * cutoff (soft-deleted ones included). Session memories are ephemeral by
+   * design; this is the only path that removes files outright.
+   */
+  gcSessions(
+    cutoff: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }>
   delete(
     scope: MemoryRecordScope,
     id: string,
@@ -461,6 +470,29 @@ export class DefaultMemoryService implements MemoryService {
       return record
     })
     this.#notifyChange()
+    return result
+  }
+
+  async gcSessions(
+    cutoff: string,
+    options: { dryRun?: boolean } = {},
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }> {
+    const result = await this.#write(async () => {
+      // Age on updatedAt only: a record created long ago but recently touched is alive.
+      const expired = [...this.#records.values()].filter(
+        (record) => record.scope.kind === 'session' && record.updatedAt < cutoff,
+      )
+      if (options.dryRun) return { purged: expired.map(summaryOf) }
+      for (const record of expired) this.#records.delete(record.id)
+      return { purged: expired.map(summaryOf) }
+      function summaryOf(record: MemoryRecord) {
+        return {
+          id: record.id,
+          sessionId: record.scope.kind === 'session' ? record.scope.sessionId : '',
+        }
+      }
+    })
+    if (!options.dryRun && result.purged.length > 0) this.#notifyChange()
     return result
   }
 
