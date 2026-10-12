@@ -2100,7 +2100,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         text: messageTextParts(message.content),
       }))
       const env = process.env.VOLUND_MEMORY_AUTO_CONSOLIDATE
-      return await consolidateSessionMemory({
+      const written = await consolidateSessionMemory({
         memory,
         workspaceScope: workspaceMemoryScope(),
         projectScope: projectMemoryScope(runnerNow.state.cwd),
@@ -2108,6 +2108,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         transcript,
         ...(env === undefined ? {} : { env }),
       })
+      if (written > 0) void telemetry.emit('memory.consolidated', 'memory', { written })
+      return written
     },
   }
   // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）；

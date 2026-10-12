@@ -94,6 +94,11 @@ export class MarkdownMemoryLayout {
   }
 }
 
+export interface MarkdownLoadIssue {
+  readonly path: string
+  readonly reason: 'invalid_frontmatter'
+}
+
 export interface MarkdownMemoryRepositoryOptions {
   readonly layout: MarkdownMemoryLayout
   readonly lockPath: string
@@ -118,9 +123,19 @@ export class MarkdownMemoryRepository implements MemoryRepository {
   readonly #options: MarkdownMemoryRepositoryOptions
   #managed = new Map<string, ManagedFile>()
   #legacyChecked = false
+  #lastLoadIssues: readonly MarkdownLoadIssue[] = []
 
   constructor(options: MarkdownMemoryRepositoryOptions) {
     this.#options = options
+  }
+
+  /**
+   * Files in the managed directories that failed frontmatter validation during
+   * the last load (they stay on disk untouched). Surfaced so `doctor` can
+   * report what load silently skips.
+   */
+  diagnostics(): readonly MarkdownLoadIssue[] {
+    return this.#lastLoadIssues
   }
 
   async load(): Promise<readonly MemoryRecord[]> {
@@ -197,6 +212,7 @@ export class MarkdownMemoryRepository implements MemoryRepository {
 
   async #loadUnlocked(): Promise<readonly MemoryRecord[]> {
     const byId = new Map<string, { record: MemoryRecord; path: string; mtimeMs: number }>()
+    const issues: MarkdownLoadIssue[] = []
     for (const directory of await this.#options.layout.directories()) {
       let entries: Dirent[]
       try {
@@ -210,7 +226,10 @@ export class MarkdownMemoryRepository implements MemoryRepository {
         if (entry.name === INDEX_FILENAME) continue
         const path = join(directory, entry.name)
         const parsed = await this.#readMemoryFile(path)
-        if (!parsed) continue
+        if (!parsed) {
+          issues.push({ path, reason: 'invalid_frontmatter' })
+          continue
+        }
         const existing = byId.get(parsed.record.id)
         if (
           existing === undefined ||
@@ -223,6 +242,7 @@ export class MarkdownMemoryRepository implements MemoryRepository {
     this.#managed = new Map(
       [...byId].map(([id, parsed]) => [id, { path: parsed.path, record: parsed.record }]),
     )
+    this.#lastLoadIssues = issues
     return [...byId.values()].map((parsed) => parsed.record)
   }
 
@@ -254,10 +274,18 @@ export class MarkdownMemoryRepository implements MemoryRepository {
     for (const record of records) {
       const managed = this.#managed.get(record.id)
       if (managed && sameRecord(managed.record, record)) continue
-      const path =
-        managed?.path ??
-        join(this.#options.layout.directoryFor(record.scope), canonicalFilename(record))
+      // The filename stays stable across updates (cosmetic per ADR-0012), but a
+      // scope change (service move) relocates the file to the new scope's
+      // directory — location must always agree with the frontmatter scope.
+      const directory = this.#options.layout.directoryFor(record.scope)
+      const path = managed
+        ? join(directory, basename(managed.path))
+        : join(directory, canonicalFilename(record))
       await writeFileAtomic(path, serializeRecord(record))
+      if (managed && managed.path !== path) {
+        await rm(managed.path, { force: true })
+        touchedDirectories.add(dirname(managed.path))
+      }
       touchedDirectories.add(dirname(path))
       this.#managed.set(record.id, { path, record })
     }

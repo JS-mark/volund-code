@@ -133,14 +133,18 @@ export function createMemoryTools(
     tool({
       name: 'Memory.recall',
       description:
-        'Search memories in a scope by keywords (local index). Returns short snippets; read the full text of a hit with Memory.get.',
+        'Search memories by keywords (local index). Searches all scopes (session, project, workspace) by default; narrow with scope. Returns short snippets; read the full text of a hit with Memory.get.',
       readonly: true,
       inputSchema: {
         type: 'object',
         additionalProperties: false,
         required: ['query'],
         properties: {
-          ...baseProperties,
+          scope: {
+            type: 'string',
+            enum: ['workspace', 'project', 'session', 'all'],
+            description: 'Defaults to all: session, project, and workspace merged by relevance.',
+          },
           query: { type: 'string', minLength: 1, maxLength: 512 },
           tags: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 64 },
           limit: { type: 'integer', minimum: 1, maximum: 50 },
@@ -148,16 +152,29 @@ export function createMemoryTools(
       },
       async invoke(value: unknown, context) {
         const input = value as {
-          scope?: ScopeKind
+          scope?: ScopeKind | 'all'
           query: string
           tags?: string[]
           limit?: number
         }
-        const scopeKind = input.scope ?? 'project'
-        const hits = await memoryRecall.recall(scopeFor(scopeKind, context), input.query, {
+        const scopeKind = input.scope ?? 'all'
+        const recallOptions = {
           ...(input.limit === undefined ? {} : { limit: input.limit }),
           ...(input.tags === undefined ? {} : { tags: input.tags }),
-        })
+        }
+        const scopes: ScopeKind[] =
+          scopeKind === 'all' ? ['session', 'project', 'workspace'] : [scopeKind]
+        // Scores come from one shared index, so they are comparable across scopes.
+        const hits = (
+          await Promise.all(
+            scopes.map((kind) =>
+              memoryRecall.recall(scopeFor(kind, context), input.query, recallOptions),
+            ),
+          )
+        )
+          .flat()
+          .toSorted((left, right) => right.score - left.score)
+          .slice(0, input.limit ?? 10)
         if (hits.length === 0) return text({ query: input.query, scope: scopeKind, hits: [] })
         const body = hits
           .map((hit) =>
@@ -179,6 +196,41 @@ export function createMemoryTools(
           ],
           meta: { durationMs: 0, costImpact: 'safe' },
         }
+      },
+    }),
+    tool({
+      name: 'Memory.move',
+      description:
+        'Move a memory to another scope (workspace <-> project), keeping id and content. Use this when a memory was filed under the wrong scope; e.g. a user-level preference saved as project, or a repository fact saved as workspace.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['scope', 'id', 'to'],
+        properties: {
+          ...baseProperties,
+          id: { type: 'string' },
+          to: { type: 'string', enum: ['workspace', 'project'] },
+          expectedUpdatedAt: { type: 'string' },
+        },
+      },
+      async invoke(value: unknown, context) {
+        const input = value as {
+          scope: ScopeKind
+          id: string
+          to: 'workspace' | 'project'
+          expectedUpdatedAt?: string
+        }
+        const options = input.expectedUpdatedAt
+          ? { expectedUpdatedAt: input.expectedUpdatedAt }
+          : undefined
+        return text(
+          await memory.move(
+            scopeFor(input.scope, context),
+            input.id,
+            scopeFor(input.to, context),
+            options,
+          ),
+        )
       },
     }),
     ...(['update', 'delete', 'pin', 'unpin'] as const).map(
