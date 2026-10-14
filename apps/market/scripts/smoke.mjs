@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 部署自检：对运行中的 apollo-market 做契约冒烟测试。
+// 部署自检：对运行中的 volund-market 做契约冒烟测试。
 //   node scripts/smoke.mjs [--base http://127.0.0.1:4315] [--token TOKEN]
 // 覆盖：三个兼容层索引形状、插件文件下载 + sha256 逐一核对、
 // 写接口鉴权（无 token / 错 token / 正确 token）、发布 → 索引可见 → 删除。
