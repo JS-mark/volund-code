@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 import type { PromoCopy } from '../copy'
 import { easeOut, sceneOpacity, seg } from '../helpers'
 import { C, FONT_MONO } from '../theme'
 import { SCENES } from '../timing'
+import { PROMO_LAYOUT } from '../variants'
 
 const props = defineProps<{ t: number; copy: PromoCopy }>()
+
+const layout = inject(PROMO_LAYOUT, 'wide')
 
 const [a, b] = SCENES.opening
 const wrapStyle = computed(() => ({ opacity: sceneOpacity(props.t, a, b, 0.3, 0.6) }))
@@ -29,7 +32,11 @@ const bd = computed(() => easeOut(seg(props.t, 3.1, 3.7)))
 </script>
 
 <template>
-  <section class="scene center" :style="wrapStyle">
+  <section
+    class="scene center"
+    :class="layout === 'vertical' ? 'vertical' : undefined"
+    :style="wrapStyle"
+  >
     <div class="logo-wrap">
       <div class="logo-glow" :style="glowStyle" />
       <svg viewBox="0 0 64 64" width="220" height="220" class="logo">
@@ -116,5 +123,27 @@ const bd = computed(() => easeOut(seg(props.t, 3.1, 3.7)))
   border: 1px solid rgba(43, 189, 155, 0.35);
   border-radius: 999px;
   padding: 12px 30px;
+}
+
+/* 9:16 variant: brand block scaled up for the taller, narrower frame. */
+.vertical .logo-wrap {
+  width: 300px;
+  height: 300px;
+}
+.vertical .logo {
+  width: 300px;
+  height: 300px;
+}
+.vertical .wordmark {
+  margin-top: 72px;
+  font-size: 100px;
+}
+.vertical .tagline {
+  margin-top: 32px;
+  font-size: 44px;
+  text-align: center;
+}
+.vertical .oss-badge {
+  font-size: 24px;
 }
 </style>
