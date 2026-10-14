@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 import type { Locale, PromoCopy } from '../copy'
 import { easeOut, sceneOpacity, seg } from '../helpers'
 import { FONT_MONO } from '../theme'
 import { SCENES, TERM } from '../timing'
 import plan from '../typing-plan.json'
+import { PROMO_LAYOUT } from '../variants'
 
 const props = defineProps<{ t: number; locale: Locale; copy: PromoCopy }>()
+
+const layout = inject(PROMO_LAYOUT, 'wide')
 
 const [a, b] = SCENES.terminal
 const typing = plan[props.locale]
@@ -73,7 +76,7 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
 </script>
 
 <template>
-  <section class="scene" :style="wrapStyle">
+  <section class="scene" :class="layout === 'vertical' ? 'vertical' : undefined" :style="wrapStyle">
     <div class="term" :style="{ transform: `scale(${scale})` }">
       <div class="term-bar">
         <div class="dots">
@@ -324,5 +327,40 @@ const approvedIn = computed(() => easeOut(seg(props.t, TERM.permApprove, TERM.pe
   font-size: 34px;
   color: #edf1e9;
   letter-spacing: 0.04em;
+}
+
+/* 9:16 variant: terminal pulled up toward center, type scaled up for phones. */
+.vertical .term {
+  width: 1004px;
+  position: relative;
+  top: -44px;
+}
+.vertical .term-title {
+  font-size: 22px;
+}
+.vertical .term-tier {
+  font-size: 18px;
+}
+.vertical .term-body {
+  height: 730px;
+  padding: 34px 40px 38px;
+  font-size: 26px;
+}
+.vertical .cursor {
+  width: 15px;
+  height: 30px;
+}
+.vertical .hint {
+  font-size: 22px;
+}
+.vertical .foot {
+  font-size: 20px;
+}
+.vertical .caption {
+  right: 60px;
+  bottom: 168px;
+  left: 60px;
+  font-size: 42px;
+  line-height: 1.5;
 }
 </style>

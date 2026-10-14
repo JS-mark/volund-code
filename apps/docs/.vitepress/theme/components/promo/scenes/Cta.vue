@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 import type { PromoCopy } from '../copy'
 import { easeOut, sceneOpacity, seg } from '../helpers'
 import { C, FONT_MONO } from '../theme'
 import { INSTALL, SCENES } from '../timing'
+import { PROMO_LAYOUT } from '../variants'
 
 const props = defineProps<{ t: number; copy: PromoCopy }>()
+
+const layout = inject(PROMO_LAYOUT, 'wide')
 
 const [a, b] = SCENES.cta
 const local = computed(() => props.t - a)
@@ -27,7 +30,7 @@ const cursorOn = computed(
 </script>
 
 <template>
-  <section class="scene" :style="wrapStyle">
+  <section class="scene" :class="layout === 'vertical' ? 'vertical' : undefined" :style="wrapStyle">
     <div class="logo-row" :style="{ opacity: lr, transform: `translateY(${(1 - lr) * 24}px)` }">
       <svg viewBox="0 0 64 64" width="96" height="96">
         <rect width="64" height="64" rx="8" fill="#0d1512" />
@@ -123,5 +126,31 @@ const cursorOn = computed(
   font-size: 24px;
   color: v-bind('C.accentStrong');
   letter-spacing: 0.08em;
+}
+
+/* 9:16 variant: larger closing type, badges allowed to wrap. */
+.vertical .wm {
+  font-size: 62px;
+}
+.vertical .claim {
+  margin-top: 64px;
+  font-size: 74px;
+  text-align: center;
+}
+.vertical .install {
+  margin-top: 66px;
+  font-size: 36px;
+  padding: 28px 42px;
+}
+.vertical .badges {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 52px;
+}
+.vertical .badges span {
+  font-size: 22px;
+}
+.vertical .gh {
+  font-size: 27px;
 }
 </style>

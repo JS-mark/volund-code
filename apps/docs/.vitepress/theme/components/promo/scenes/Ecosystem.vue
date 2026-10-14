@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 import type { PromoCopy } from '../copy'
 import { easeOut, sceneOpacity, seg } from '../helpers'
 import { C, FONT_MONO, bigTitleStyle, eyebrowStyle } from '../theme'
 import { SCENES } from '../timing'
+import { PROMO_LAYOUT } from '../variants'
 
 const props = defineProps<{ t: number; copy: PromoCopy }>()
+
+const layout = inject(PROMO_LAYOUT, 'wide')
 
 const [a, b] = SCENES.ecosystem
 const local = computed(() => props.t - a)
@@ -19,7 +22,7 @@ const stripStyle = (i: number) => {
 </script>
 
 <template>
-  <section class="scene" :style="wrapStyle">
+  <section class="scene" :class="layout === 'vertical' ? 'vertical' : undefined" :style="wrapStyle">
     <span class="eyebrow" :style="{ ...eyebrowStyle, opacity: easeOut(seg(local, 0.1, 0.7)) }">
       {{ copy.ecoEyebrow }}
     </span>
@@ -117,5 +120,41 @@ const stripStyle = (i: number) => {
   height: 44px;
   color: v-bind('C.accentStrong');
   flex-shrink: 0;
+}
+
+/* 9:16 variant: strips restack — number+title row, description below. */
+.vertical.scene {
+  padding: 0 70px;
+}
+.vertical .strips {
+  gap: 20px;
+  margin-top: 56px;
+}
+.vertical .strip {
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 30px 34px;
+  row-gap: 6px;
+}
+.vertical .num {
+  width: auto;
+  order: 0;
+}
+.vertical .strip strong {
+  flex: 1;
+  width: auto;
+  order: 1;
+  font-size: 38px;
+}
+.vertical .icon {
+  order: 2;
+  width: 40px;
+  height: 40px;
+}
+.vertical .desc {
+  order: 3;
+  flex-basis: 100%;
+  font-size: 27px;
+  line-height: 1.6;
 }
 </style>

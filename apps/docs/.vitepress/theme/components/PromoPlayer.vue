@@ -3,7 +3,8 @@
    element. The composition renders at a logical 1920x1080 and is scaled to fit
    the container. With ?promo-capture in the URL the player instead pins itself
    fullscreen and exposes window.volundPromoRender(t) so the offline capture
-   script can drive frames deterministically. */
+   script can drive frames deterministically; adding &promo-variant=<id>
+   captures a social cut (see promo/variants.json) instead. */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import audioEn from '../assets/promo/audio-en.m4a'
@@ -13,14 +14,22 @@ import audioZh from '../assets/promo/audio-zh.m4a'
 import posterEn from '../assets/promo/volund-promo-en-poster.jpg'
 import posterZh from '../assets/promo/volund-promo-zh-poster.jpg'
 import Promo from './promo/Promo.vue'
+import PromoVariant from './promo/PromoVariant.vue'
 import { DURATION_S } from './promo/timing'
+import { VARIANTS, type VariantId } from './promo/variants'
 
 const props = defineProps<{ locale: 'zh' | 'en' }>()
 
 const LOGICAL_W = 1920
 const LOGICAL_H = 1080
 
-const capture = new URLSearchParams(location.search).has('promo-capture')
+const captureParams = new URLSearchParams(location.search)
+const capture = captureParams.has('promo-capture')
+/* Social-cut capture mode: ?promo-capture&promo-variant=<id> swaps the fixed
+   16:9 canvas for the variant's canvas (variants.json), still driven through
+   window.volundPromoRender(t). */
+const variantId = captureParams.get('promo-variant') as VariantId | null
+const variant = variantId && variantId in VARIANTS ? VARIANTS[variantId] : null
 
 const wrap = ref<HTMLDivElement | null>(null)
 const audioEl = ref<HTMLAudioElement | null>(null)
@@ -107,10 +116,24 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- capture mode: pinned 1920x1080 canvas, clock driven externally -->
-  <div v-if="capture" class="promo-capture">
-    <Promo :t="time" :locale="locale" />
-  </div>
+  <!-- capture mode: the canvas teleports to <body> — inside the page it would
+       be trapped under .volund-home > * stacking contexts (navbar/sections
+       bleed into the frames) -->
+  <Teleport v-if="capture" to="body">
+    <!-- variant capture: pinned variant canvas, clock driven externally -->
+    <div
+      v-if="variant"
+      class="promo-capture"
+      :style="{ width: `${variant.w}px`, height: `${variant.h}px` }"
+    >
+      <PromoVariant :t="time" :locale="locale" :variant="variantId!" />
+    </div>
+
+    <!-- site capture: pinned 1920x1080 canvas -->
+    <div v-else class="promo-capture">
+      <Promo :t="time" :locale="locale" />
+    </div>
+  </Teleport>
 
   <div v-else ref="wrap" class="promo-player">
     <div class="promo-canvas" :style="{ transform: `scale(${scale})` }">

@@ -6,6 +6,7 @@
 - **网页播放**：[`../PromoPlayer.vue`](../PromoPlayer.vue)（首页 promo 区块使用）——rAF 时钟跟随 `audio.currentTime`（天然音画同步），自绘控制条，海报遮罩点击开播，按首页语言自动切换中/英版本。音轨/海报放在 [`../assets/promo/`](../assets/promo/) 并以 vite 哈希 URL 导入（内容变则 URL 变，浏览器不会拿到旧缓存）。
 - **终端场景镜像真实 TUI**：`>`绿=用户 / `⏺`青=assistant / `·`灰=system / `◆`灰=活动行；权限卡四选项文案源自 `packages/ui` 的 `PermissionPromptStack`——TUI 文案变更须同步本目录 `copy.ts`。
 - **离线出片**（可选，用于社交分发）：`apps/docs` 下跑 `pnpm promo:render`。脚本会构建站点、起静态服务、以 `?promo-capture` 打开首页（播放器切换为全屏固定画布并暴露 `window.volundPromoRender(t)`），playwright 逐帧截图后 ffmpeg 合成 mp4 到 `.promo-work/`。
+- **出片画幅变体**（竖屏 9:16 / 横屏重排版）：[`variants.json`](./variants.json) 以「剪切表」描述三档变体——每条 cut 取站点时间轴上的一段原速播放（`PromoVariant.vue` 据此重映射时钟，场景内容零复制）；竖屏变体由场景内 `inject(PROMO_LAYOUT)` 的 `.vertical` 样式重排（终端上移居中、字号加大）。与站点内嵌版并存，内嵌版视觉与时长不受影响。
 
 ## 场景
 
@@ -25,6 +26,24 @@ pnpm promo:audio    # 程序化生成 .promo-work/audio-{zh,en}.wav（含打字�
 pnpm promo:assets   # 网站资产：theme/assets/promo/audio-*.m4a + 海报图
 pnpm promo:render   # 出片 mp4 → .promo-work/（需要 ffmpeg；浏览器用 playwright 缓存的 Chromium）
 ```
+
+## 出片画幅变体
+
+| 变体         | 画幅      | 时长  | 结构                                                  |
+| ------------ | --------- | ----- | ----------------------------------------------------- |
+| `vertical15` | 1080×1920 | 15s   | 权限卡钩子 → 命令+diff 摘要 → logo+安装命令尾帧       |
+| `vertical30` | 1080×1920 | 30s   | 15s 结构 + 品牌开场 + 完整终端弧线 + 生态（手机远程） |
+| `wide`       | 1920×1080 | 66.6s | 权限卡冷开场 + 品牌定场 + 现有全序列重排              |
+
+```bash
+pnpm promo:render -- --variant=vertical15          # 出片 → .promo-work/volund-promo-vertical15-{zh,en}.mp4
+pnpm promo:render -- --variant=vertical30
+pnpm promo:render -- --variant=wide
+pnpm promo:render -- --variant=vertical15 --stills # 只出首/尾+每段关键帧 → .promo-work/stills/
+pnpm promo:render -- --variant=wide --locale=en    # 只出单一语言（默认 zh+en）
+```
+
+变体音频由 `audio-{zh,en}.wav` 按剪切表 `atrim` 拼接（先跑 `pnpm promo:audio`）；缺 wav 时变体出无声片（站点版仍硬性要求 wav）。
 
 ## 改动指引
 
