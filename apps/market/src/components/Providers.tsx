@@ -11,8 +11,8 @@ import { dictionaries, type Dict, type Locale } from '@/lib/i18n'
 export type ThemeMode = 'auto' | 'dark' | 'light'
 export type ResolvedTheme = 'dark' | 'light'
 
-const THEME_STORAGE_KEY = 'apollo-market-theme'
-const LOCALE_STORAGE_KEY = 'apollo-market-locale'
+const THEME_STORAGE_KEY = 'volund-market-theme'
+const LOCALE_STORAGE_KEY = 'volund-market-locale'
 
 const ThemeCtx = createContext<{
   mode: ThemeMode
