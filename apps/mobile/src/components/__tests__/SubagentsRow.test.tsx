@@ -28,6 +28,20 @@ describe('SubagentsRow（移动端只读运行行）', () => {
     expect(html).toBe('')
   })
 
+  it('全部结算（0 运行中）：整条隐藏——注册表历史不占会话页', () => {
+    const html = render(
+      <SubagentsRow
+        gateway={undefined}
+        tick={0}
+        initialRuns={[
+          run({ status: 'completed', endedAt: Date.now() - 10_000 }),
+          run({ sessionId: 'sub-2', status: 'failed', endedAt: Date.now() - 5_000 }),
+        ]}
+      />,
+    )
+    expect(html).toBe('')
+  })
+
   it('有运行：窄条头 + 展开列表（状态/agent/预览/时长/取消）', () => {
     const html = render(
       <SubagentsRow
@@ -45,7 +59,7 @@ describe('SubagentsRow（移动端只读运行行）', () => {
       />,
     )
     expect(html).toContain('subagents-row')
-    expect(html).toContain('Subagents · 1 运行中 / 2 总计')
+    expect(html).toContain('1 个子代理运行中')
     expect(html).toContain('explore')
     expect(html).toContain('task-agent')
     expect(html).toContain('scan the repo')
@@ -54,16 +68,19 @@ describe('SubagentsRow（移动端只读运行行）', () => {
     expect(html).toContain('取消')
   })
 
-  it('非运行行不出现取消按钮', () => {
+  it('展开列表里非运行行不出现取消按钮（取消按钮数 = 运行行数）', () => {
     const html = render(
       <SubagentsRow
         gateway={undefined}
         tick={0}
         initialOpen
-        initialRuns={[run({ status: 'failed', endedAt: Date.now() })]}
+        initialRuns={[
+          run({ agentType: 'explore' }),
+          run({ sessionId: 'sub-2', status: 'failed', endedAt: Date.now() }),
+        ]}
       />,
     )
     expect(html).toContain('失败')
-    expect(html).not.toContain('>取消<')
+    expect(html.match(/subagents-row-cancel/g)).toHaveLength(1)
   })
 })

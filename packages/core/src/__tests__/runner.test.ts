@@ -60,6 +60,19 @@ function router(
 }
 
 describe('Runner', () => {
+  it('anchors each turn at its user message (startMessageId) for transcript attribution', async () => {
+    const client = provider([
+      [
+        { kind: 'text.delta', text: 'hello' },
+        { kind: 'message.stop', stopReason: 'end_turn' },
+      ],
+    ])
+    const state = await new Runner(context(), router(client), composer, tools).run('hi')
+    const turn = state.turns.at(-1)!
+    const anchor = state.messages.find((message) => message.id === turn.startMessageId)
+    expect(anchor?.role).toBe('user')
+    expect(anchor?.content).toEqual([{ type: 'text', text: 'hi' }])
+  })
   it('accepts referenced images and degrades them for providers without vision', () => {
     const messages = [
       {

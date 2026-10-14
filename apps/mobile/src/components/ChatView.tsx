@@ -255,7 +255,9 @@ function ToolCopyButton({ text }: { text: string }) {
 /**
  * 会话流里的工具卡：默认折叠成一行（图标 + 中文标签 + 单行目标），点击展开成
  * 详情卡（小写工具名头 + 复制按钮 + 完整入参正文）。Task 卡沿用 toolChipLabel 的
- * 折叠语义（子代理活动聚合成一行），可展开看派发 prompt。无 body 不可展开。
+ * 折叠语义（子代理活动聚合成一行，附 prompt 首行预览），展开看派发 prompt 与
+ * 子代理工具轨迹（runs 时间线：图标 + 工具名 + 单行目标 + 状态）。无 body 且无
+ * 轨迹不可展开。
  */
 const ToolRow = memo(function ToolRowInner({
   tool,
@@ -267,11 +269,15 @@ const ToolRow = memo(function ToolRowInner({
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const isTask = tool.tool === 'Task'
-  const expandable = tool.body !== undefined
+  const trail = isTask && tool.turnId ? (subagents[tool.turnId]?.runs ?? []) : []
+  const expandable = tool.body !== undefined || trail.length > 0
   const head = (
     <>
       {isTask ? (
-        <span className="tool-name">{toolChipLabel(tool, subagents)}</span>
+        <>
+          <span className="tool-name">{toolChipLabel(tool, subagents)}</span>
+          {tool.task?.prompt ? <span className="tool-target">{tool.task.prompt}</span> : null}
+        </>
       ) : (
         <>
           <span className="tool-glyph">
@@ -305,20 +311,46 @@ const ToolRow = memo(function ToolRowInner({
       ) : (
         <div className="tool-row">{head}</div>
       )}
-      {expandable && tool.body !== undefined && (
+      {expandable && (
         <div className={`tool-card-wrap${open ? ' open' : ''}`} aria-hidden={!open}>
-          <div className="tool-card">
-            <div className="tool-card-head">
-              <span className="tool-card-title">{tool.tool.toLowerCase()}</span>
-              {tool.status === 'running' ? (
-                <span className="tool-card-status">{t('common.running')}</span>
-              ) : null}
-              {tool.status === 'error' ? (
-                <span className="tool-card-status error">{t('common.failed')}</span>
-              ) : null}
-              <ToolCopyButton text={tool.body} />
-            </div>
-            <pre className="tool-card-body">{tool.body}</pre>
+          {/* wrap 是 grid 0fr→1fr 单子元素动画，prompt 卡与轨迹须共居一个容器。 */}
+          <div className="tool-card-stack">
+            {tool.body !== undefined && (
+              <div className="tool-card">
+                <div className="tool-card-head">
+                  <span className="tool-card-title">{tool.tool.toLowerCase()}</span>
+                  {tool.status === 'running' ? (
+                    <span className="tool-card-status">{t('common.running')}</span>
+                  ) : null}
+                  {tool.status === 'error' ? (
+                    <span className="tool-card-status error">{t('common.failed')}</span>
+                  ) : null}
+                  <ToolCopyButton text={tool.body} />
+                </div>
+                <pre className="tool-card-body">{tool.body}</pre>
+              </div>
+            )}
+            {trail.length > 0 && (
+              <div className="task-trail">
+                <div className="task-trail-head">
+                  {t('chat.taskTrail')} · {trail.length}
+                </div>
+                {trail.map((run) => (
+                  <div key={run.toolUseId} className={`task-trail-row is-${run.status}`}>
+                    <span className="tool-glyph">
+                      <ToolGlyph tool={run.tool} />
+                    </span>
+                    <span className="tool-name">{toolLabel(run.tool)}</span>
+                    {run.target ? <span className="tool-target">{run.target}</span> : null}
+                    {run.status === 'running' ? (
+                      <LoadingOutlined style={{ fontSize: 10, flexShrink: 0 }} />
+                    ) : run.status === 'error' ? (
+                      <span className="tool-status error">{t('common.failed')}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -360,9 +392,15 @@ const ToolGroupRow = memo(function ToolGroupRowInner({
         onClick={() => setOpen((value) => !value)}
       >
         {running > 0 ? <LoadingOutlined style={{ fontSize: 10, flexShrink: 0 }} /> : null}
-        <span className="tool-name">{tools.length} 次工具调用</span>
+        <span className="tool-name">
+          {translate(currentLocale(), 'chat.groupTitle', { n: tools.length })}
+        </span>
         {progress.length > 0 ? <span className="tool-target">{progress.join(' · ')}</span> : null}
-        {failed > 0 ? <span className="tool-status error">{failed} 个失败</span> : null}
+        {failed > 0 ? (
+          <span className="tool-status error">
+            {translate(currentLocale(), 'chat.groupFailed', { n: failed })}
+          </span>
+        ) : null}
         <RightOutlined className={`tool-chevron${open ? ' open' : ''}`} />
       </button>
       <div className={`tool-group-wrap${open ? ' open' : ''}`} aria-hidden={!open}>

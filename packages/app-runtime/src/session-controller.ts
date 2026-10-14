@@ -20,6 +20,7 @@ import type { Context } from '@cordisjs/core'
 import {
   createSession,
   EventBus,
+  isBubbledEvent,
   MachineEventFormatter,
   replaySessionState,
   updateSession,
@@ -239,13 +240,30 @@ export class SessionController<TStatusView = unknown> extends Service {
     const readTranscript = (): TranscriptItem[] => {
       const messages = this.runner?.state.messages ?? []
       // tool_use 的终态由后续 user 消息里配对的 tool_result 定（isError → error）；
-      // 没有配对（中断/崩溃残留）保持 running——UI 呈现「未完成」是对的。
+      // 没有配对（中断/崩溃残留）的归属看回合：只有活跃回合起点之后的才算在途
+      // （running）。回合已终结（含 resume 换 runner 后 activeTurn=null 的孤儿回合）
+      // 的未配对 tool_use 是死调用，按 error 收口——否则 transcript 会把它们永远
+      // 显示成「运行中」（刷新/resume 多少年都在转）。
       const toolStatus = new Map<string, 'done' | 'error'>()
       for (const message of messages)
         for (const part of message.content)
           if (part.type === 'tool_result')
             toolStatus.set(part.toolUseId, part.isError ? 'error' : 'done')
-      return messages.flatMap((message) => {
+      const activeTurn = this.runner?.state.turns.find(
+        (turn) => turn.id === this.runner?.state.activeTurn,
+      )
+      // 活跃回合的起点锚（run() 创建回合时落的 startMessageId）。锚缺失或起点消息
+      // 已不在（上下文裁剪等异常面）按「无在途」收口——投影宁可误报终态，不报
+      // 永恒 running。
+      const anchorId = activeTurn?.startMessageId
+      const liveBoundary =
+        anchorId === undefined || anchorId === ''
+          ? Number.MAX_SAFE_INTEGER
+          : (() => {
+              const index = messages.findIndex((message) => message.id === anchorId)
+              return index < 0 ? Number.MAX_SAFE_INTEGER : index
+            })()
+      return messages.flatMap((message, messageIndex) => {
         if (message.role !== 'assistant' && message.role !== 'system' && message.role !== 'user')
           return []
         const text = messageFullText(message.content)
@@ -277,7 +295,9 @@ export class SessionController<TStatusView = unknown> extends Service {
                     ...(part.input !== undefined && part.input !== null
                       ? { input: part.input }
                       : {}),
-                    status: toolStatus.get(part.id) ?? 'running',
+                    status:
+                      toolStatus.get(part.id) ??
+                      (messageIndex >= liveBoundary ? 'running' : 'error'),
                   }),
                 )
             : []
@@ -355,7 +375,12 @@ export class SessionController<TStatusView = unknown> extends Service {
     // §8.2 D1-1（REM-74）：resume 一律走事件 replay（附录 D 形状；legacy session.snapshot
     // 行作为旧数据的基线兜底），禁止再写全量快照。
     const all = await store.load()
-    const turnStarts = all.map((entry, index) => (entry.type === 'turn.started' ? index : -1))
+    // 尾窗按「父会话真实 turn」计：子代理冒泡的 turn.started 在父 JSONL 里有副本
+    // （附录 D.3 tag），不计入窗口——否则一段长子代理工作就能把父会话历史挤出
+    // 尾窗（窗口之前的父消息被整体丢弃，resume 后模型失去自己的近期上下文）。
+    const turnStarts: number[] = []
+    for (const [index, entry] of all.entries())
+      if (entry.type === 'turn.started' && !isBubbledEvent(entry)) turnStarts.push(index)
     const tailTurns = 20
     const from = turnStarts.filter((index) => index >= 0).at(-tailTurns) ?? 0
     // 会话级模型事件（/model 钉住）不受尾部窗口限制：窗口前的 session.model_changed
@@ -364,7 +389,9 @@ export class SessionController<TStatusView = unknown> extends Service {
       ...all.slice(0, from).filter((entry) => entry.type === 'session.model_changed'),
       ...all.slice(from),
     ]
-    const replayedTurns = entries.filter((entry) => entry.type === 'turn.started').length
+    const replayedTurns = entries.filter(
+      (entry) => entry.type === 'turn.started' && !isBubbledEvent(entry),
+    ).length
     const skippedTurns = Math.max(
       0,
       turnStarts.filter((index) => index >= 0).length - replayedTurns,
@@ -640,6 +667,18 @@ export class SessionController<TStatusView = unknown> extends Service {
     state: SessionState,
     resumed?: { tailTurns: number; skippedTurns: number },
   ): Promise<void> {
+    // 换 runner 前收口在途前任：turn 中途 resume/冷启动会整体替换 runner，旧 run()
+    // 若不打断将永远 await 在工具执行上——turn.aborted 与在途 tool.completed 从此
+    // 不发（transcript 把那些工具永远显示成运行中）。interrupt 让旧栈在 abort 边界
+    // 解开（审批队列对 abort 立即 settle deny），终态事件经旧总线照常落盘；收口是
+    // 异步的，不阻塞换绑。旧航班引用一并作废：它可能永不 settle，留着会把新会话的
+    // submit 用 session_turn_in_progress 永久锁死。
+    if (this.runner && this.turnFlight) {
+      this.runner.interrupt()
+      const stale = this.turnFlight
+      void stale.catch(() => {})
+      this.turnFlight = undefined
+    }
     const events = new EventBus()
     // r13-G2：后台 shell 事件按附录 D 形状上本 session 总线（每 session 重挂）
     if (this.backgroundShells) {

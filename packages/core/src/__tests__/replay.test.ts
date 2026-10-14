@@ -79,6 +79,69 @@ describe('replaySessionState', () => {
     expect(state.turns[1]).toMatchObject({ parentTurnId: 'p1', parentDepth: 1, agentType: 'coder' })
   })
 
+  it('skips bubbled subagent messages and usage——子代理不混进父会话状态（附录 D.3）', () => {
+    // 子代理事件经 forward 连 tag 落进父会话 JSONL（store 挂在父总线上照单全收）；
+    // replay 若照搬，子代理 prompt 会变成父会话 user 消息（resume 喂进模型上下文
+    // + transcript 快照混流），usage 会双算进父会话累计。
+    const events: ReplayableEvent[] = [
+      ...newShapeTurn(),
+      line({
+        id: '6',
+        type: 'turn.started',
+        turnId: 'sub-t',
+        parentTurnId: 't1',
+        parentDepth: 1,
+        payload: { turnId: 'sub-t', agentType: 'explore' },
+      }),
+      line({
+        id: '7',
+        type: 'message.appended',
+        turnId: 'sub-t',
+        parentTurnId: 't1',
+        parentDepth: 1,
+        payload: {
+          messageId: 'sub-m1',
+          role: 'user',
+          content: [{ type: 'text', text: 'subagent prompt' }],
+        },
+      }),
+      line({
+        id: '8',
+        type: 'message.appended',
+        turnId: 'sub-t',
+        parentTurnId: 't1',
+        parentDepth: 1,
+        payload: {
+          messageId: 'sub-m2',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'subagent reply' }],
+        },
+      }),
+      line({
+        id: '9',
+        type: 'turn.completed',
+        turnId: 'sub-t',
+        parentTurnId: 't1',
+        parentDepth: 1,
+        payload: {
+          turnId: 'sub-t',
+          usage: { input: 100, output: 200, costUSD: 1 },
+          stopReason: 'end_turn',
+        },
+      }),
+    ]
+    const { state } = replaySessionState('s', events)
+    // 子代理消息不进父会话 messages（模型上下文/transcript 污染源）。
+    expect(state.messages.map((message) => message.id)).toEqual(['m1', 'm2'])
+    // 子代理 usage 不双算进父会话累计。
+    expect(state.cumulativeUsage).toMatchObject({ input: 2, output: 3, costUSD: 0.01 })
+    // lineage turn 记录保留（既有语义），并随子代理终态收口。
+    expect(state.turns.map((turn) => [turn.id, turn.status])).toEqual([
+      ['t1', 'done'],
+      ['sub-t', 'done'],
+    ])
+  })
+
   it('restores the session-pinned model from session.model_changed (last one wins)', () => {
     const events = [
       line({ id: '1', type: 'session.started', payload: { cwd: '/repo' } }),
