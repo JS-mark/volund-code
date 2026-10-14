@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 // 主题防闪烁：渲染任何内容前先按 localStorage / 系统偏好把 data-theme 落到 <html>
-const THEME_INIT_SCRIPT = `(function(){try{var m=localStorage.getItem('apollo-market-theme');var d=m==='light'?false:m==='dark'?true:window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=d?'dark':'light'}catch(e){document.documentElement.dataset.theme='dark'}})()`
+const THEME_INIT_SCRIPT = `(function(){try{var m=localStorage.getItem('volund-market-theme');var d=m==='light'?false:m==='dark'?true:window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=d?'dark':'light'}catch(e){document.documentElement.dataset.theme='dark'}})()`
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

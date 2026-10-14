@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 把本地插件目录发布到 apollo-market：
+// 把本地插件目录发布到 volund-market：
 //   node scripts/publish.mjs <插件目录> [--base http://127.0.0.1:4315] [--token TOKEN]
 // token 也可用 MARKET_ADMIN_TOKEN 环境变量。目录里必须有 manifest.json，
 // 校验规则与 volund 宿主 validateManifest 一致（服务端会提前拦截不合规 bundle）。

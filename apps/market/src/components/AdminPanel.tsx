@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useI18n } from './Providers'
 
-const TOKEN_STORAGE_KEY = 'apollo-market-admin-token'
+const TOKEN_STORAGE_KEY = 'volund-market-admin-token'
 
 function useToken() {
   const [token, setToken] = useState('')
