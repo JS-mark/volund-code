@@ -289,8 +289,11 @@ export class MarkdownMemoryRepository implements MemoryRepository {
       touchedDirectories.add(dirname(path))
       this.#managed.set(record.id, { path, record })
     }
-    for (const [id, managed] of [...this.#managed]) {
+    // Map 迭代中删除是规范安全的（未访问到的删除项直接跳过）
+    for (const id of this.#managed.keys()) {
       if (nextIds.has(id)) continue
+      const managed = this.#managed.get(id)
+      if (!managed) continue
       await rm(managed.path, { force: true })
       touchedDirectories.add(dirname(managed.path))
       this.#managed.delete(id)
