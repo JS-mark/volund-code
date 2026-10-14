@@ -87,13 +87,18 @@ volund memory get <id> [--scope workspace|project|both]
 volund memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
 volund memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
 volund memory delete <id> [--yes]
+volund memory move <id> --to workspace|project
+volund memory gc [--max-age <days>=30] [--dry-run] [--yes]
 volund memory pin <id>
 volund memory unpin <id>
+volund memory search <query> [--scope workspace|project|both|session] [--session-id <id>]
+volund memory doctor [--strict]
+volund memory reindex [--check] [--force] [--batch-size <n>]
 volund memory export [--scope workspace|project|both] > memory.json
 volund memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
-`global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `pinned desc, updatedAt desc, id asc` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial.
+`global` is accepted as an alias for `workspace`. Use `--body-stdin` instead of an inline body when piping content. Repeated tags can be comma-separated. Listings use stable `pinned desc, updatedAt desc, id asc` cursor pagination and `--json` returns one schema-versioned document without ANSI. Memory exit codes are `0` success, `2` validation or required confirmation, `3` not found, and `13` scope/authorization denial. `move` relocates a record to another scope (id and content unchanged; the file follows its directory), and `gc` hard-deletes session memories past their retention window (30 days by default, `--max-age` to adjust; workspace/project records are never cleaned; `--yes` required outside an interactive terminal).
 
 Deletion requires an interactive confirmation. Non-TTY, `--json`, and `--no-tui` calls must pass `--yes`, so automation cannot delete by accident. Output is sanitized before rendering.
 

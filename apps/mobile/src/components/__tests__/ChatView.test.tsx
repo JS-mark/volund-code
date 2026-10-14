@@ -1,7 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { initialChatState, type ChatState, type ToolCard } from '../../lib/chat'
+import {
+  initialChatState,
+  type ChatState,
+  type SubagentActivity,
+  type ToolCard,
+} from '../../lib/chat'
 import type { StagedAttachment } from '../../lib/gateway'
 import { I18nProvider } from '../../lib/i18n'
 import { ChatView, ToolGroupRow, ToolRow } from '../ChatView'
@@ -89,6 +94,52 @@ describe('ChatView 会话流空态（有会话无消息）', () => {
     expect(html).toContain('tool-chevron')
     expect(html).not.toContain('tool-card-wrap open')
     expect(html).toContain('aria-hidden="true"')
+  })
+})
+
+describe('ToolRow Task 卡（子代理折叠行 + 工具轨迹）', () => {
+  const taskTool: ToolCard = {
+    toolUseId: 'task-1',
+    tool: 'Task',
+    status: 'running',
+    turnId: 't1',
+    task: { agentType: 'explore', prompt: '检查各包健康状况' },
+    body: '请检查 packages/ 目录下各包的健康状况',
+  }
+  const activity: SubagentActivity = {
+    toolCalls: 2,
+    running: 1,
+    lastTool: 'Grep',
+    runs: [
+      { toolUseId: 'r1', tool: 'Read', status: 'done', target: '/repo/a.ts' },
+      { toolUseId: 'r2', tool: 'Grep', status: 'running', target: 'TODO' },
+    ],
+  }
+
+  it('折叠行：🤖 agentType · 当前工具 + prompt 首行预览，轨迹收起', () => {
+    const html = render(<ToolRow tool={taskTool} subagents={{ t1: activity }} />)
+    expect(html).toContain('🤖 explore')
+    expect(html).toContain('Grep')
+    expect(html).toContain('检查各包健康状况')
+    expect(html).not.toContain('tool-card-wrap open')
+  })
+
+  it('展开面常驻 DOM：prompt 详情卡 + 工具轨迹逐行（名称/目标/状态）', () => {
+    const html = render(<ToolRow tool={taskTool} subagents={{ t1: activity }} />)
+    expect(html).toContain('tool-card-stack')
+    expect(html).toContain('task-trail')
+    expect(html).toContain('工具轨迹 · 2')
+    expect(html).toContain('/repo/a.ts')
+    expect(html).toContain('task-trail-row is-running')
+  })
+
+  it('无 body 有轨迹仍可展开；无 body 无轨迹不可展开', () => {
+    // exactOptionalPropertyTypes：剥掉 body 键而非显式 undefined。
+    const { body: _body, ...promptLess } = taskTool
+    const noBody = render(<ToolRow tool={promptLess} subagents={{ t1: activity }} />)
+    expect(noBody).toContain('tool-chevron')
+    const bare = render(<ToolRow tool={promptLess} subagents={{}} />)
+    expect(bare).not.toContain('tool-chevron')
   })
 })
 

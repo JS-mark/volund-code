@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { EnvelopeEvent } from '../chat'
 import {
   chatFeed,
+  chatFeedGrouped,
   initialChatState,
   mcpToolParts,
   reduceChatState,
@@ -99,6 +100,38 @@ describe('mobile chat reducer', () => {
     })
     expect(state.messages).toHaveLength(1)
     expect(state.messages[0]).toMatchObject({ id: 'm1', text: '你好，世界', streaming: false })
+  })
+
+  it('回合终态清扫仍 running 的工具卡为 error（中断/异常残留不再永恒运行中）', () => {
+    const drive = (state: ReturnType<typeof reduceChatState>, event: EnvelopeEvent) =>
+      reduceChatState(state, { type: 'envelope', envelope: envelope('core', event) })
+    let state = initialChatState
+    state = drive(state, {
+      type: 'tool.requested',
+      payload: { toolUseId: 't1', tool: 'Task', input: { prompt: 'scan' } },
+    } as EnvelopeEvent)
+    state = drive(state, {
+      type: 'tool.started',
+      payload: { toolUseId: 't1', tool: 'Task' },
+    } as EnvelopeEvent)
+    state = drive(state, {
+      type: 'tool.requested',
+      payload: { toolUseId: 't2', tool: 'Grep', input: { pattern: 'x' } },
+    } as EnvelopeEvent)
+    expect(state.tools.map((tool) => tool.status)).toEqual(['running', 'running'])
+    const aborted = drive(state, { type: 'turn.aborted', payload: { reason: 'user_interrupt' } })
+    expect(aborted.tools.map((tool) => tool.status)).toEqual(['error', 'error'])
+    expect(aborted.interrupted).toBe(true)
+    // 正常完成：已收口的卡保持原状态，残留 running 才清扫。
+    const mixed = drive(state, {
+      type: 'tool.completed',
+      payload: { toolUseId: 't2', isError: false },
+    })
+    const completed = drive(mixed, {
+      type: 'turn.completed',
+      payload: { usage: { input: 1, output: 1, costUSD: 0 } },
+    })
+    expect(completed.tools.map((tool) => tool.status)).toEqual(['error', 'done'])
   })
 
   it('replaces the local echo when the real user message arrives', () => {
@@ -788,8 +821,16 @@ describe('mobile chat reducer', () => {
         turnId: 't1',
         task: { agentType: 'explore', prompt: '查一下事件链路' },
       })
-      // 折叠行聚合：2 次调用、1 个仍在跑、当前工具 = 最近启动的 grep。
-      expect(state.subagents['t1']).toEqual({ toolCalls: 2, running: 1, lastTool: 'grep' })
+      // 折叠行聚合：2 次调用、1 个仍在跑、当前工具 = 最近启动的 grep；轨迹按序收口。
+      expect(state.subagents['t1']).toEqual({
+        toolCalls: 2,
+        running: 1,
+        lastTool: 'grep',
+        runs: [
+          { toolUseId: 'sub-tu1', tool: 'bash', status: 'done' },
+          { toolUseId: 'sub-tu2', tool: 'grep', status: 'running' },
+        ],
+      })
       // Task 自己 completed → 卡收口，聚合保留（折叠行展示「完成 · N 次调用」）。
       state = reduceChatState(state, {
         type: 'envelope',
@@ -800,6 +841,90 @@ describe('mobile chat reducer', () => {
       })
       expect(state.tools[0]?.status).toBe('done')
       expect(state.subagents['t1']?.toolCalls).toBe(2)
+    })
+
+    it('builds the Task trail from bubbled requested→started→completed（target 提取/失败收口）', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'task-1', tool: 'Task' },
+          turnId: 't1',
+        }),
+      })
+      // requested 先到（带 input → 单行目标进轨迹）；started 同 id 不重复计数。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.requested',
+          payload: {
+            toolUseId: 'sub-r1',
+            tool: 'Read',
+            input: { path: '/repo/packages/core/src/index.ts' },
+          },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'sub-r1', tool: 'Read' },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      expect(state.subagents['t1']).toMatchObject({ toolCalls: 1, running: 1 })
+      expect(state.subagents['t1']?.runs).toEqual([
+        {
+          toolUseId: 'sub-r1',
+          tool: 'Read',
+          status: 'running',
+          target: '/repo/packages/core/src/index.ts',
+        },
+      ])
+      // 失败收口 → error 状态、running 归零；轨迹行原位更新。
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 'sub-r1', isError: true },
+          parentTurnId: 't1',
+          parentDepth: 1,
+        }),
+      })
+      expect(state.subagents['t1']).toMatchObject({ running: 0 })
+      expect(state.subagents['t1']?.runs[0]?.status).toBe('error')
+    })
+
+    it('轨迹上限 50 条：最旧被丢，计数保留总数', () => {
+      let state = initialChatState
+      state = reduceChatState(state, {
+        type: 'envelope',
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 'task-1', tool: 'Task' },
+          turnId: 't1',
+        }),
+      })
+      for (let index = 0; index < 60; index += 1) {
+        state = reduceChatState(state, {
+          type: 'envelope',
+          envelope: envelope('core', {
+            type: 'tool.started',
+            payload: { toolUseId: `sub-${index}`, tool: 'Grep' },
+            parentTurnId: 't1',
+            parentDepth: 1,
+          }),
+        })
+      }
+      const activity = state.subagents['t1']
+      expect(activity?.toolCalls).toBe(60)
+      expect(activity?.runs).toHaveLength(50)
+      expect(activity?.runs[0]?.toolUseId).toBe('sub-10')
+      expect(activity?.runs.at(-1)?.toolUseId).toBe('sub-59')
     })
 
     it('keeps main-session events (no parent tags) unaffected', () => {
@@ -997,6 +1122,141 @@ describe('chatFeed 会话流混排（工具卡进消息流）', () => {
       target: 'pnpm test',
       body: 'pnpm test',
     })
+  })
+
+  it('hydrate 重排 seq：活体工具卡按快照序归位，多波工具不再被挤成一个分组', () => {
+    // 活体阶段：m1 → t1/t2 → m2 → t3（Task，live 卡带 turnId）。
+    const live = [
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm1',
+            role: 'assistant',
+            content: [{ type: 'text', text: '第一段' }],
+          },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't1', tool: 'Bash' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't2', tool: 'Grep' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm2',
+            role: 'assistant',
+            content: [{ type: 'text', text: '第二段' }],
+          },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't3', tool: 'Task' },
+          turnId: 'turn-9',
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 't3', isError: true },
+        }),
+      },
+    ].reduce(reduceChatState, initialChatState)
+    // 活体混排本来是对的：消息把工具波切开。
+    expect(chatFeedGrouped(live).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+
+    // 重连水合（手机后台/前台一切换就触发）：完整快照按同 id 回来。
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm1', role: 'assistant', text: '第一段' },
+        { id: 't1', kind: 'tool', tool: 'Bash', input: { command: 'ls' }, status: 'done' },
+        { id: 't2', kind: 'tool', tool: 'Grep', input: { pattern: 'x' }, status: 'done' },
+        { id: 'm2', role: 'assistant', text: '第二段' },
+        {
+          id: 't3',
+          kind: 'tool',
+          tool: 'Task',
+          input: { agentType: 'explore', prompt: '查链路' },
+          status: 'error',
+        },
+      ],
+    })
+    // 快照序为权威：混排保持，工具不浮到消息前面（旧实现这里是 [grp:t1..t3, m1, m2]）。
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 't2', 'm2', 't3'])
+    expect(chatFeedGrouped(state).map((entry) => entry.key)).toEqual(['m1', 'grp:t1', 'm2', 't3'])
+    // live 卡内容优先（turnId 保留 → 子代理轨迹归属不丢）；快照的 task 摘要补位。
+    const taskCard = state.tools.find((tool) => tool.toolUseId === 't3')
+    expect(taskCard).toMatchObject({
+      status: 'error',
+      turnId: 'turn-9',
+      task: { agentType: 'explore', prompt: '查链路' },
+    })
+    expect(state.nextSeq).toBe(6)
+  })
+
+  it('hydrate：快照后到达的增量（live 独有）按原到达序接尾', () => {
+    const live = [
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: { messageId: 'm1', role: 'user', content: [{ type: 'text', text: '在快照里' }] },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.started',
+          payload: { toolUseId: 't1', tool: 'Bash' },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'tool.completed',
+          payload: { toolUseId: 't1', isError: false },
+        }),
+      },
+      {
+        type: 'envelope' as const,
+        envelope: envelope('core', {
+          type: 'message.appended',
+          payload: {
+            messageId: 'm2',
+            role: 'assistant',
+            content: [{ type: 'text', text: '快照后到达' }],
+          },
+        }),
+      },
+    ].reduce(reduceChatState, initialChatState)
+    const state = reduceChatState(live, {
+      type: 'hydrate',
+      transcript: [
+        { id: 'm1', role: 'user', text: '在快照里' },
+        { id: 't1', kind: 'tool', tool: 'Bash', input: { command: 'ls' }, status: 'done' },
+      ],
+    })
+    // m2 不在快照里（快照后到达）：排尾，不冲掉。
+    expect(chatFeed(state).map((entry) => entry.key)).toEqual(['m1', 't1', 'm2'])
+    expect(state.nextSeq).toBe(4)
   })
 })
 

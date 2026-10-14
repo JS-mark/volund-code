@@ -1204,6 +1204,53 @@ div.tool-row:active {
   visibility: visible;
 }
 
+/* wrap 内的多段容器（Task 卡 = prompt 详情卡 + 子代理工具轨迹）：单子元素动画要求
+   共居一层，min-height:0 + overflow:hidden 让 0fr 态真正塌缩。 */
+.tool-card-stack {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Task 卡展开面的子代理工具轨迹：与工具组同款左缩进线，逐行 = 图标+名称+目标+状态 */
+.task-trail {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme='dark'] .task-trail {
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+
+.task-trail-head {
+  flex-shrink: 0;
+  padding: 2px 0;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .task-trail-head {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.task-trail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+[data-theme='dark'] .task-trail-row {
+  color: rgba(255, 255, 255, 0.62);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tool-chevron,
   .tool-card-wrap,
@@ -1962,12 +2009,12 @@ div.tool-row:active {
   color: rgba(255, 255, 255, 0.45);
 }
 
-/* Subagent 只读运行行（SAG-13）：composer 上方常驻窄条，展开列运行。 */
+/* Subagent 运行条（SAG-13）：仅运行中出现的活动窄条，展开列本会话全部运行。 */
 .subagents-row {
-  margin: 0 12px 6px;
-  border: 1px solid var(--ant-color-info-border, #91caff);
+  margin: 8px 12px 2px;
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
   border-radius: 12px;
-  background: var(--ant-color-info-bg, #e6f4ff);
+  background: var(--ant-color-fill-tertiary, #f5f5f5);
   font-size: 12px;
   overflow: hidden;
 }
@@ -1975,9 +2022,9 @@ div.tool-row:active {
 .subagents-row-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   color: inherit;
@@ -1985,37 +2032,100 @@ div.tool-row:active {
 }
 
 .subagents-row-pulse {
+  position: relative;
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ant-color-info, #1677ff);
+  background: var(--ant-color-primary, #1677ff);
   animation: perm-breathe 1.6s ease-in-out infinite;
 }
 
+[data-theme='dark'] .subagents-row-pulse {
+  box-shadow: 0 0 6px var(--ant-color-primary, #1677ff);
+}
+
+.subagents-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
 .subagents-row-chevron {
-  margin-left: auto;
-  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+  flex: none;
+  color: var(--ant-color-text-quaternary, rgba(0, 0, 0, 0.25));
+  transition: transform 0.2s ease;
+}
+
+.subagents-row-head[aria-expanded='true'] .subagents-row-chevron {
+  transform: rotate(180deg);
 }
 
 .subagents-row-list {
-  border-top: 1px solid var(--ant-color-info-border, #91caff);
+  border-top: 1px solid var(--ant-color-border-secondary, #f0f0f0);
 }
 
 .subagents-row-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 10px;
+  padding: 9px 12px;
   min-width: 0;
 }
 
 .subagents-row-item + .subagents-row-item {
-  border-top: 1px dashed var(--ant-color-border-secondary, #e5e5e5);
+  border-top: 1px solid var(--ant-color-border-secondary, #f0f0f0);
 }
 
-.subagents-row-status {
+.subagents-row-item.is-completed,
+.subagents-row-item.is-partial,
+.subagents-row-item.is-failed,
+.subagents-row-item.is-cancelled,
+.subagents-row-item.is-interrupted {
+  opacity: 0.62;
+}
+
+.subagents-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.subagents-row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subagents-row-dot {
   flex: none;
-  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ant-color-text-quaternary, rgba(0, 0, 0, 0.25));
+}
+
+.subagents-row-dot.is-running {
+  background: var(--ant-color-primary, #1677ff);
+  animation: perm-breathe 1.6s ease-in-out infinite;
+}
+
+.subagents-row-dot.is-completed {
+  background: var(--ant-color-success, #52c41a);
+}
+
+.subagents-row-dot.is-partial {
+  background: var(--ant-color-warning, #faad14);
+}
+
+.subagents-row-dot.is-failed {
+  background: var(--ant-color-error, #ff4d4f);
 }
 
 .subagents-row-name {
@@ -2023,26 +2133,46 @@ div.tool-row:active {
   font-weight: 600;
 }
 
+.subagents-row-status {
+  flex: none;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.subagents-row-status.is-running {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.subagents-row-status.is-completed {
+  color: var(--ant-color-success, #52c41a);
+}
+
+.subagents-row-status.is-partial {
+  color: var(--ant-color-warning, #faad14);
+}
+
+.subagents-row-status.is-failed {
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+.subagents-row-duration {
+  flex: none;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
 .subagents-row-preview {
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
 }
 
-.subagents-row-duration {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
-}
-
 .subagents-row-cancel {
   flex: none;
-  padding: 3px 10px;
+  padding: 4px 11px;
   border: 1px solid var(--ant-color-error-border, #ffa39e);
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
   color: var(--ant-color-error, #ff4d4f);
   font-size: 12px;

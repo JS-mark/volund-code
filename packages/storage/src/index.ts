@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-unsafe-type-assertion
 import { createHash } from 'node:crypto'
 import { randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
@@ -34,6 +35,8 @@ export * from './evolution-store'
 export * from './memory-store'
 export * from './memory-index'
 export * from './memory-runtime'
+export * from './memory-file-lock'
+export * from './memory-markdown-repository'
 export * from './memory-transfer'
 export * from './task-store'
 export * from './memory-prompt-provider'
@@ -91,6 +94,7 @@ export class SessionStore {
       const rl = createInterface({ input: createReadStream(this.path), crlfDelay: Infinity })
       for await (const line of rl) {
         if (!line) continue
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const event = JSON.parse(line) as StoredEvent
         if (event.v > 1)
           throw new VolundError(
@@ -100,6 +104,7 @@ export class SessionStore {
         out.push(event)
       }
     } catch (error) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
     }
@@ -138,16 +143,15 @@ export class PromptLoader {
     let current = await realpath(this.options.cwd),
       home = await realpath(homedir())
     for (let level = 0; level < 8; level++) {
-      const agent = resolve(current, 'AGENT.md'),
-        claude = resolve(current, 'CLAUDE.md')
+      // Per directory one rule file wins: volund-native AGENT.md, then the
+      // open AGENTS.md convention, then Claude Code's CLAUDE.md.
       let path: string | undefined
-      try {
-        await open(agent, 'r').then((f) => f.close())
-        path = agent
-      } catch {
+      for (const name of ['AGENT.md', 'AGENTS.md', 'CLAUDE.md']) {
+        const candidate = resolve(current, name)
         try {
-          await open(claude, 'r').then((f) => f.close())
-          path = claude
+          await open(candidate, 'r').then((f) => f.close())
+          path = candidate
+          break
         } catch {}
       }
       if (path) {
@@ -163,17 +167,29 @@ export class PromptLoader {
       if (current === home || dirname(current) === current) break
       current = dirname(current)
     }
-    const user = resolve(this.options.volundHome ?? resolve(homedir(), '.volund'), 'PROMPT.md')
-    try {
+    // 全局用户级规则与项目级同族（2026-10-10 拍板废弃 PROMPT.md）：volundHome
+    // 下 AGENT.md → AGENTS.md → CLAUDE.md 取一，对齐 Claude Code（~/.claude/
+    // CLAUDE.md）与 Codex（~/.codex/AGENTS.md）的全局规则位置习惯。
+    const volundHome = this.options.volundHome ?? resolve(homedir(), '.volund')
+    let userPath: string | undefined
+    for (const name of ['AGENT.md', 'AGENTS.md', 'CLAUDE.md']) {
+      const candidate = resolve(volundHome, name)
+      try {
+        await open(candidate, 'r').then((f) => f.close())
+        userPath = candidate
+        break
+      } catch {}
+    }
+    if (userPath) {
       out.push(
         composer.register({
           id: 'user',
           source: 'user',
           priority: 400,
-          text: await this.load(user),
+          text: await this.load(userPath),
         }),
       )
-    } catch {}
+    }
     return out
   }
   private async expand(path: string, depth: number, seen: Set<string>): Promise<string> {
@@ -203,19 +219,27 @@ export class PromptLoader {
     )
       return `<!-- include: ${path} — DENIED (outside roots) -->`
     if (seen.has(canonical)) return `<!-- include: ${path} — DENIED (cycle) -->`
-    const decision = await this.options.permissions.request({
-      toolName: 'Read',
-      spec: { fs: { read: [canonical] } },
-      input: { path: canonical },
-      session: { id: 'prompt-loader', cwd: roots[0]! },
-      attempt: 1,
-    })
-    if (decision.kind.startsWith('deny')) return `<!-- include: ${path} — DENIED (permission) -->`
+    // Top-level files (AGENT.md / AGENTS.md / CLAUDE.md, project and global) are
+    // volund's own configuration —
+    // loading them must not depend on the session's permission state, or a
+    // user-level prompt outside <cwd>/** gets denied (or prompts at startup).
+    // The permission check stays for @include expansion, where the *content*
+    // of an already-loaded file pulls in further files.
+    if (depth > 0) {
+      const decision = await this.options.permissions.request({
+        toolName: 'Read',
+        spec: { fs: { read: [canonical] } },
+        input: { path: canonical },
+        session: { id: 'prompt-loader', cwd: roots[0]! },
+        attempt: 1,
+      })
+      if (decision.kind.startsWith('deny')) return `<!-- include: ${path} — DENIED (permission) -->`
+    }
     const file = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW)
     let text: string
     try {
-      const stat = await file.stat()
-      if (!stat.isFile()) throw new VolundError('storage_internal', 'not a file')
+      const statFile = await file.stat()
+      if (!statFile.isFile()) throw new VolundError('storage_internal', 'not a file')
       text = await file.readFile('utf8')
     } finally {
       await file.close()
@@ -290,6 +314,7 @@ export class AttachmentStore {
     try {
       await writeFile(path, bytes, { flag: 'wx', mode: 0o600 })
     } catch (error) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
     return { handle, mime, size: bytes.byteLength, digest }
@@ -504,7 +529,7 @@ export class BackupStore {
       },
       rollback: async () => {
         if (settled) return
-        for (const capture of [...captures].reverse()) {
+        for (const capture of [...captures].toReversed()) {
           if (capture.existed) await copyFile(capture.backupPath, capture.path)
           else await rm(capture.path, { force: true })
         }

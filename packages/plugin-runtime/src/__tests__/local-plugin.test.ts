@@ -24,7 +24,11 @@ function manifest(permissions: string[]): PluginManifest {
   }
 }
 
-function dispatchFixture(permissions: string[], net?: PluginManifest['permissions']['net']) {
+function dispatchFixture(
+  permissions: string[],
+  net?: PluginManifest['permissions']['net'],
+  memory?: (plugin: string, operation: string, params: unknown) => Promise<unknown>,
+) {
   const contributions = {
     statusTabs: [] as StatusTabContribution[],
     statusSections: [] as { id: string; title: string; render(): Promise<unknown> }[],
@@ -96,6 +100,7 @@ function dispatchFixture(permissions: string[], net?: PluginManifest['permission
         managed.push({ method: 'httpFetch', value: { url, init } })
         return { status: 200, headers: {}, body: 'ok' }
       },
+      ...(memory ? { memory } : {}),
     },
     contributions,
   })
@@ -370,5 +375,42 @@ describe('HOOK_EVENTS', () => {
       expect(HOOK_EVENTS.has(event)).toBe(true)
     // 历史笔误（'deleted'）已对齐 SDK 的 'memory.deleted'，不得回潮。
     expect(HOOK_EVENTS.has('deleted')).toBe(false)
+  })
+})
+
+describe('local plugin memory service', () => {
+  it('forwards volund.memory.* to the host with the plugin name and stripped operation', async () => {
+    const calls: { plugin: string; operation: string; params: unknown }[] = []
+    const { dispatch } = dispatchFixture(
+      ['memory.write', 'memory.read'],
+      undefined,
+      async (plugin, operation, params) => {
+        calls.push({ plugin, operation, params })
+        return { ok: true, operation }
+      },
+    )
+    await expect(
+      dispatch('volund.memory.create', { scope: 'workspace', content: 'note' }),
+    ).resolves.toEqual({ ok: true, operation: 'create' })
+    await expect(dispatch('volund.memory.get', { scope: 'project', id: 'x' })).resolves.toEqual({
+      ok: true,
+      operation: 'get',
+    })
+    expect(calls.map((call) => call.operation)).toEqual(['create', 'get'])
+    expect(calls.every((call) => call.plugin === 'volund-plugin-test')).toBe(true)
+  })
+
+  it('denies operations the manifest did not declare', async () => {
+    const { dispatch } = dispatchFixture(['memory.read'], undefined, async () => ({ ok: true }))
+    expect(() =>
+      dispatch('volund.memory.create', { scope: 'workspace', content: 'note' }),
+    ).toThrowError(/plugin_rpc_method_denied/)
+  })
+
+  it('reports plugin_memory_unavailable when the host has no memory service', async () => {
+    const { dispatch } = dispatchFixture(['memory.write'])
+    expect(() =>
+      dispatch('volund.memory.create', { scope: 'workspace', content: 'note' }),
+    ).toThrowError(/plugin_memory_unavailable/)
   })
 })

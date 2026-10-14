@@ -109,6 +109,7 @@ const argsDefinition = {
   bodyStdin: { type: 'boolean' as const },
   expectedUpdatedAt: { type: 'string' as const },
   strategy: { type: 'string' as const },
+  maxAge: { type: 'string' as const },
   yes: { type: 'boolean' as const },
   gateway: { type: 'string' as const },
   code: { type: 'string' as const },
@@ -271,6 +272,27 @@ export async function runCli(
     return jsonMode
       ? jsonFailure(message, 2, 'unsupported_flag', 'usage')
       : { exitCode: 2, stdout, stderr: message }
+  }
+  // 子命令自己的旗标区（上面的全局区检查不覆盖）：未知旗标 fail-fast——citty
+  // 会把未声明 --flag 的值拆成游离位置参数（`memory add --title x` 的值静默
+  // 拼进正文）。chatGlobalFlags 成员归上面的 chat 越权检查管，这里跳过。
+  if (subcommand !== undefined && firstPositionalIndex !== -1) {
+    for (const token of rawArgs.slice(firstPositionalIndex)) {
+      if (token === '--' || chatGlobalFlags.has(token)) break
+      const flag = normalizeFlagToken(token)
+      if (flag === undefined || chatGlobalFlags.has(`--${token.slice(2)}`)) continue
+      if (
+        !declaredFlags.has(flag) &&
+        !declaredFlags.has(`no${flag[0]?.toUpperCase()}${flag.slice(1)}`)
+      )
+        return jsonMode
+          ? jsonFailure(`unknown option: ${token.split('=', 1)[0]}`, 2, 'unknown_flag', 'usage')
+          : {
+              exitCode: 2,
+              stdout: '',
+              stderr: `unknown option: ${token.split('=', 1)[0]}\n(run 'volund help ${subcommand}' for usage)\n`,
+            }
+    }
   }
   let cwd: string
   try {
@@ -1846,6 +1868,22 @@ const declaredValueFlags = new Set(
     .filter(([, def]) => def.type === 'string')
     .map(([name]) => `--${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`),
 )
+
+/**
+ * 归一 token 里的双横线旗标名为声明形态（kebab → camel、--no-x → x），供未知
+ * 旗标校验比对。单横线短旗标不校验（现有短路旗标 -v/-h 已另行处理）。
+ */
+function normalizeFlagToken(token: string): string | undefined {
+  if (!token.startsWith('--')) return undefined
+  const camel = token
+    .slice(2)
+    .split('=', 1)[0]!
+    .replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())
+  return camel.length > 0 ? camel : undefined
+}
+
+/** 全部声明旗标（camelCase）——未知旗标校验的白名单。 */
+const declaredFlags = new Set(Object.keys(argsDefinition))
 
 /**
  * 第 n 个（从 1 起）位置参数在 tokens 里的下标；与 citty 的 value-flag 值消费

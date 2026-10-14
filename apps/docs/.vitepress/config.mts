@@ -114,6 +114,7 @@ export default withMermaid(
                   { text: 'Security model', link: '/docs/concepts/security-model' },
                   { text: 'Skills and vision', link: '/docs/concepts/skills-and-vision' },
                   { text: 'Web search', link: '/docs/concepts/web-search' },
+                  { text: 'Memory', link: '/docs/concepts/memory' },
                 ],
               },
               {
@@ -214,6 +215,7 @@ export default withMermaid(
                   { text: '安全模型', link: '/zh/docs/concepts/security-model' },
                   { text: 'Skill 与图像附件', link: '/zh/docs/concepts/skills-and-vision' },
                   { text: 'Web 搜索', link: '/zh/docs/concepts/web-search' },
+                  { text: '记忆系统', link: '/zh/docs/concepts/memory' },
                 ],
               },
               {

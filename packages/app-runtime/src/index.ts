@@ -80,6 +80,11 @@ export {
 export { createNativeDomain } from './native-domain'
 export type { NativeDomainOptions } from './native-domain'
 export * from './memory-scope'
+export {
+  consolidateSessionMemory,
+  MEMORY_CONSOLIDATION_SYSTEM_PROMPT,
+} from './memory-consolidation'
+export type { ConsolidationTranscriptItem, MemoryConsolidationModel } from './memory-consolidation'
 export { createMemoryPanelController } from './memory-controller'
 export { createMemoryTools } from './memory-tools'
 export { createAskUserInteraction, type AskUserInteractionOptions } from './ask-interaction'

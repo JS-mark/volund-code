@@ -1,8 +1,9 @@
 'use client'
 
 /**
- * Subagent 只读运行行（SAG-13）：会话页 composer 上方的常驻窄条——有运行时显示
- * 「● N 运行中」，展开列出全部运行（状态/时长/预览），运行中的行可取消。
+ * Subagent 运行条（SAG-13）：会话页顶部的活动窄条——仅在有运行时出现，显示
+ * 「● N 运行中」，展开列出本会话全部运行（状态/时长/预览），运行中的行可取消；
+ * 全部结算后整条隐藏（注册表保留历史，但历史不属于活动条）。
  * 数据面 = GET /v1/sessions/active/subagents（relay 经隧道取自本机注册表）；
  * 刷新时机 = 挂载 + tick 信号（page 层在 subagent.* 事件帧到达时递增）+ 30s 兜底。
  */
@@ -77,7 +78,8 @@ export function SubagentsRow({
     return () => clearInterval(timer)
   }, [refresh])
 
-  if (runs.length === 0) return null
+  // 全部结算即整条隐藏：注册表的已结束行是历史，不再占据会话页。
+  if (runningCount === 0) return null
 
   const cancel = async (sessionId: string) => {
     if (!gateway || cancelling !== undefined) return
@@ -102,19 +104,28 @@ export function SubagentsRow({
         onClick={() => setOpen((value) => !value)}
       >
         <span className="subagents-row-pulse" aria-hidden />
-        {t('subagents.header', { running: runningCount, total: runs.length })}
+        <span className="subagents-row-title">
+          {t('subagents.header', { running: runningCount })}
+        </span>
         <span className="subagents-row-chevron" aria-hidden>
-          {open ? '▾' : '▸'}
+          ▾
         </span>
       </button>
       {open && (
         <div className="subagents-row-list">
           {runs.map((row) => (
-            <div key={row.sessionId} className="subagents-row-item">
-              <span className="subagents-row-status">{t(STATUS_KEY[row.status])}</span>
-              <span className="subagents-row-name">{row.agentType ?? 'task-agent'}</span>
-              <span className="subagents-row-preview">{row.promptPreview}</span>
-              <span className="subagents-row-duration">{duration(row, now)}</span>
+            <div key={row.sessionId} className={`subagents-row-item is-${row.status}`}>
+              <div className="subagents-row-info">
+                <div className="subagents-row-line">
+                  <span className={`subagents-row-dot is-${row.status}`} aria-hidden />
+                  <span className="subagents-row-name">{row.agentType ?? 'task-agent'}</span>
+                  <span className={`subagents-row-status is-${row.status}`}>
+                    {t(STATUS_KEY[row.status])}
+                  </span>
+                  <span className="subagents-row-duration">{duration(row, now)}</span>
+                </div>
+                <div className="subagents-row-preview">{row.promptPreview}</div>
+              </div>
               {row.status === 'running' && (
                 <button
                   type="button"

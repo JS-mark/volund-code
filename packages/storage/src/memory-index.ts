@@ -84,6 +84,11 @@ export interface MemoryRecallService {
   ): Promise<readonly MemoryRecallHit[]>
 }
 
+export interface MemoryDoctorIssue {
+  readonly path: string
+  readonly reason: string
+}
+
 export interface MemoryDoctorReport {
   readonly healthy: boolean
   readonly facts: {
@@ -92,6 +97,8 @@ export interface MemoryDoctorReport {
     readonly detail: string
   }
   readonly index: MemoryIndexHealth
+  /** Files the repository skipped at load time (invalid frontmatter, …). */
+  readonly issues?: readonly MemoryDoctorIssue[]
 }
 
 export interface MemoryMaintenanceService {
@@ -554,6 +561,29 @@ export class IndexingMemoryService implements MemoryService {
     )
   }
 
+  async move(
+    scope: MemoryRecordScope,
+    id: string,
+    to: MemoryRecordScope,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord> {
+    const current = await this.#current(scope, id)
+    if (this.facts.validateWrite)
+      await this.facts.validateWrite({ ...current, scope: to }, 'update')
+    return this.#commit({ schemaVersion: 1, operation: 'update', phase: 'commit', scope, id }, () =>
+      this.facts.move(scope, id, to, options),
+    )
+  }
+
+  async gcSessions(
+    cutoff: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }> {
+    // Stale index entries self-heal: recall re-checks each hit against the
+    // fact store, so no forced reindex is needed for the purged ids.
+    return this.facts.gcSessions(cutoff, options)
+  }
+
   async delete(
     scope: MemoryRecordScope,
     id: string,
@@ -749,10 +779,12 @@ export class DefaultMemoryMaintenanceService implements MemoryMaintenanceService
     try {
       const records = await this.source.load()
       const index = await this.index.health(records)
+      const issues = this.source.diagnostics?.()
       return {
         healthy: index.healthy,
         facts: { healthy: true, records: records.length, detail: 'fact snapshot is readable' },
         index,
+        ...(issues && issues.length > 0 ? { issues: [...issues] } : {}),
       }
     } catch (error) {
       return {

@@ -31,6 +31,8 @@ import {
   resolveBuiltinPluginRoot,
   resolveModelAlias,
   createMemoryStack,
+  consolidateSessionMemory,
+  createPluginMemoryHost,
   createSkillDomain,
   registerRuntimeMemoryPrompts,
   createStatusSnapshotAdapter,
@@ -40,17 +42,21 @@ import {
   PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
+  projectMemoryScope,
+  sessionMemoryScope,
+  workspaceMemoryScope,
 } from '@volund/app-runtime'
+import type { MemoryConsolidationModel } from '@volund/app-runtime'
 import type { RunnerFactory } from '@volund/app-runtime'
 import { AuthManager, EncryptedCredentialStore } from '@volund/auth'
-import { SlidingWindowPolicy } from '@volund/context'
+import { SummaryPolicy } from '@volund/context'
 import {
   builtinPromptFragment,
   DefaultPromptComposer,
   lineageRootSessionId,
   Runner,
 } from '@volund/core'
-import type { RunnerToolPort } from '@volund/core'
+import type { RunnerToolPort, SessionState } from '@volund/core'
 import { SandboxService, ToolsService } from '@volund/kernel'
 import { countTokens, execSandbox, probeSandbox } from '@volund/native-bridge'
 import type { SandboxTier } from '@volund/native-bridge'
@@ -764,6 +770,13 @@ export function rebuildDispatcherOnConfigReload(
   return next
 }
 
+function messageTextParts(content: SessionState['messages'][number]['content']): string {
+  return content
+    .filter((part): part is Extract<typeof part, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+}
+
 export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const home = options.volundHome ?? process.env.VOLUND_HOME ?? join(homedir(), '.volund')
   // 应用级内核：面板收集器等跨会话服务挂这里；每会话 kernel（createRunner）是
@@ -793,7 +806,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const webSearchTool = new WebSearchTool()
   // P1-04d：插件域装配迁入 app-runtime（createPluginDomain）；loadedPluginEntries /
   // localPluginState / localPluginHub 等共享句柄经解构取用，F1 工具域名单同源。
+  // 记忆插件宿主：memoryStack 在下方创建，这里先声明惰性转发（插件调用
+  // 发生在运行期，装配完成后 host 必已就绪）。
+  let pluginMemoryHost: ReturnType<typeof createPluginMemoryHost> | undefined
   const pluginDomain = createPluginDomain({
+    memoryHost: (plugin, operation, params) => {
+      if (!pluginMemoryHost)
+        return Promise.reject(
+          new VolundError('plugin_memory_unavailable', 'memory host is not connected'),
+        )
+      return pluginMemoryHost(plugin, operation, params)
+    },
     home,
     volundVersion: options.identity.version,
     logger,
@@ -843,11 +866,19 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const localPluginHub = pluginDomain.localPluginHub
   const builtinToolsDisabled = pluginDomain.builtinToolsDisabled
   const ensureBuiltinToolsConfig = pluginDomain.ensureBuiltinToolsConfig
-  const memoryStack = createMemoryStack(home)
+  const memoryStack = createMemoryStack(home, { cwd: process.cwd() })
   const memory = memoryStack.memory
   const memoryRecall = memoryStack.memoryRecall
   const memoryMaintenance = memoryStack.memoryMaintenance
   const memoryTransfer = memoryStack.memoryTransfer
+  pluginMemoryHost = createPluginMemoryHost({
+    home,
+    cwd: process.cwd(),
+    sessionId: () => lastRunner?.state.id,
+    memory,
+    memoryRecall,
+    memoryTransfer,
+  })
   let cachedPassphrase: string | undefined
   const passphrase = async () => {
     if (cachedPassphrase) return cachedPassphrase
@@ -1119,7 +1150,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) names.add(tool.name)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
-      for (const tool of createMemoryTools(memory)) names.add(tool.name)
+      for (const tool of createMemoryTools(memory, memoryRecall)) names.add(tool.name)
       names.add(SKILL_TOOL_NAME)
       names.add(ASK_USER_QUESTION_TOOL_NAME)
     }
@@ -1137,6 +1168,9 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     parentToolNames: collectParentToolNames,
     onWarning: (message) => logger.warn(message),
   })
+  // 记忆自动沉淀：进程收口时取最后一个活跃会话（end()/信号路径不经过这里）。
+  let lastRunner: Runner | undefined
+  let consolidationModel: MemoryConsolidationModel | undefined
   const createRunner: RunnerFactory = async (state, events, agent, overrides) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -1273,16 +1307,6 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         ? anthropicEntry.model
         : undefined
     const configuredModel = preferencesModel ?? providerModel
-    const contextPolicy = new SlidingWindowPolicy(
-      {
-        compactionThreshold: tuned.compaction_threshold,
-        targetRatio: tuned.target_ratio,
-        keepRecent: tuned.keep_recent,
-      },
-      // Real BPE counts (native fs worker, gpt-tokenizer fallback) instead of
-      // the chars/3.5 estimate; the policy caches by content hash.
-      { countTokens: (text, model) => countTokens(text, model) },
-    )
     const composer = new DefaultPromptComposer()
     composer.register(builtinPromptFragment)
     // H3：已激活插件的 prompt fragments 注册进本会话 composer（id 加插件命名
@@ -1396,6 +1420,71 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         if (streamToStdout) stdout.write('\n')
       },
     }
+    // 记忆自动沉淀（ADR-0015）：捕获本会话的 provider 接入与模型名——bin.ts
+    // 进程收口时对最后一个活跃会话使用。per-session client 在这里才可见。
+    consolidationModel = {
+      // AnthropicClient 只有 stream（无 complete——compaction 的同款限制），
+      // 聚合 text.delta 得到整段输出；不走 streamToStdout 的回显包装。
+      complete: async ({ system, prompt, maxTokens, signal }) => {
+        const resolvedModel = state.model ?? configuredModel
+        if (!resolvedModel)
+          throw new VolundError(
+            'provider_model_unresolved',
+            'No model configured for memory consolidation',
+          )
+        let text = ''
+        for await (const chunk of anthropic.stream(
+          {
+            model: resolvedModel,
+            system,
+            maxTokens,
+            messages: [
+              {
+                id: 'memory-consolidation',
+                role: 'user',
+                createdAt: Date.now(),
+                content: [{ type: 'text', text: prompt }],
+              },
+            ],
+          },
+          signal,
+        )) {
+          if (chunk.kind === 'text.delta') text += chunk.text
+        }
+        return text
+      },
+    }
+    // 上下文压缩：summary 策略（超过阈值摘要替换，ADR-0015 同款 stream 聚合；
+    // AnthropicClient 无 complete）。模型调用失败回退滑动窗口（fallbackToSliding）。
+    const contextPolicy = new SummaryPolicy(
+      {
+        compactionThreshold: tuned.compaction_threshold,
+        targetRatio: tuned.target_ratio,
+        keepRecent: tuned.keep_recent,
+        fallbackToSliding: true,
+      },
+      {
+        provider: {
+          ...client,
+          complete: async (request, signal) => {
+            let text = ''
+            for await (const chunk of anthropic.stream(request, signal)) {
+              if (chunk.kind === 'text.delta') text += chunk.text
+            }
+            return {
+              message: {
+                id: 'summary-response',
+                role: 'assistant' as const,
+                createdAt: Date.now(),
+                content: [{ type: 'text', text }],
+              },
+              usage: { input: 0, output: 0 },
+            }
+          },
+        },
+        countTokens: (text, model) => countTokens(text, model),
+      },
+    )
     // 内核脊柱：每会话一棵 Context 树；模型注册表以 `model` 服务提供——
     // tools/sandbox/session/events/ui 逐个迁为同形态服务，第三方插件的
     // 贡献也注册进同一棵树。
@@ -1627,7 +1716,7 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       for (const tool of domain.tools) registry.register(tool)
     }
     if (!builtinToolsDisabled.has('volund.orchestration')) {
-      for (const tool of createMemoryTools(memory)) registry.register(tool)
+      for (const tool of createMemoryTools(memory, memoryRecall)) registry.register(tool)
       registry.register(
         createSkillTool({
           skills,
@@ -1795,6 +1884,10 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
       },
       contextPolicy,
     )
+    // 记忆自动沉淀的输入源：进程收口（bin.ts）时最后一个**根会话**的记录——
+    // 子代理会话（SubagentDispatcher 同样经此工厂创建）不覆盖，否则沉淀会
+    // 提炼子代理的任务转录而不是父会话的用户交互。
+    if (!state.lineage?.parentSessionId) lastRunner = runner
     return runner
   }
   // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
@@ -2037,6 +2130,51 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         // REM-r1：远程 uplink 是 ref 住事件循环的长驻 WS，一并收尾。
         Promise.resolve(assembled.remoteControl?.close()),
       ])
+    },
+    /**
+     * 记忆自动沉淀（bin.ts 进程收口调用，ADR-0015）：从最后一个活跃会话提炼
+     * 长期记忆。条件不满足/模型不可用/守卫否决一律静默——失败绝不拖住退出。
+     */
+    async consolidateMemory() {
+      const runnerNow = lastRunner
+      if (!runnerNow || !consolidationModel) return 0
+      const transcript = (runnerNow.state.messages ?? []).map((message) => ({
+        role: message.role,
+        text: messageTextParts(message.content),
+      }))
+      // Gate 前置：无可沉淀的实质转录（memory list 等非会话命令/短会话）不提示。
+      if (
+        transcript.length < 2 ||
+        transcript.reduce((total, item) => total + item.text.length, 0) < 200
+      )
+        return 0
+      process.stderr.write('· consolidating session memory…\n')
+      const env = process.env.VOLUND_MEMORY_AUTO_CONSOLIDATE
+      const cwd = runnerNow.state.cwd
+      // 现有记忆首行喂给提炼模型防重复（ADR-0015 的查重设计在生产不能空转）。
+      const existingSummaries = (
+        await Promise.all(
+          [
+            workspaceMemoryScope(),
+            projectMemoryScope(cwd),
+            sessionMemoryScope(cwd, runnerNow.state.id),
+          ].map((scope) => memory.list(scope)),
+        )
+      )
+        .flat()
+        .filter((record) => !record.deletedAt)
+        .map((record) => record.content.split('\n', 1)[0]?.trim().slice(0, 120) || record.id)
+      const written = await consolidateSessionMemory({
+        memory,
+        workspaceScope: workspaceMemoryScope(),
+        projectScope: projectMemoryScope(cwd),
+        model: consolidationModel,
+        transcript,
+        existingSummaries,
+        ...(env === undefined ? {} : { env }),
+      })
+      if (written > 0) void telemetry.emit('memory.consolidated', 'memory', { written })
+      return written
     },
   }
   // §22 W-01：`volund web` 本地控制台端口（server 生命周期随进程信号收尾）；

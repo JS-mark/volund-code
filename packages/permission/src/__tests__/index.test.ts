@@ -73,6 +73,34 @@ const BASH_CONTROL_CORPUS = [
 const RAW_BASH_CORPUS = [...FORMERLY_SILENT_BASH_COMMANDS, ...BASH_CONTROL_CORPUS]
 
 describe('PermissionManager', () => {
+  it('auto-allows Memory tools without a prompt but keeps explicit deny rules above them', async () => {
+    let projectDeny = false
+    const memoryReq = (): PermissionRequest => ({
+      toolName: 'Memory.create',
+      spec: {},
+      input: {},
+      session: { id: 's', cwd: process.cwd() },
+      attempt: 1,
+    })
+    // No prompt handler wired: a Memory write must still succeed (industry
+    // semantics — memory is volund's own territory behind the preWrite guard).
+    const headless = new PermissionManager({}, { dangerouslySkip: false })
+    expect(await headless.request(memoryReq())).toEqual({ kind: 'allow-session' })
+    // Sub-prefixed lookalikes (mcp/plugin tools) never match the namespace.
+    expect(await headless.request({ ...memoryReq(), toolName: 'mcp__x__Memory.create' })).toEqual({
+      kind: 'deny',
+    })
+
+    const gated = new PermissionManager(
+      { projectDeny: () => projectDeny },
+      { dangerouslySkip: false },
+    )
+    gated.setPromptHandler(async () => ({ kind: 'allow-session' as const }))
+    expect(await gated.request(memoryReq())).toEqual({ kind: 'allow-session' })
+    projectDeny = true
+    expect(await gated.request(memoryReq())).toEqual({ kind: 'deny' })
+  })
+
   it('puts project and global deny rules above session cache and explicit allows', async () => {
     let projectDeny = false
     let projectAllow = false

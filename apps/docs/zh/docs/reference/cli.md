@@ -79,15 +79,20 @@ volund memory get <id> [--scope workspace|project|both]
 volund memory add [content] [--id <id>] [--scope workspace|project] [--tag <tag>] [--source user|import] [--pinned]
 volund memory update <id> [content] [--tag <tag>] [--pinned] [--expected-updated-at <time>]
 volund memory delete <id> [--yes]
+volund memory move <id> --to workspace|project
+volund memory gc [--max-age <days>=30] [--dry-run] [--yes]
 volund memory pin <id>
 volund memory unpin <id>
+volund memory search <query> [--scope workspace|project|both|session] [--session-id <id>]
+volund memory doctor [--strict]
+volund memory reindex [--check] [--force] [--batch-size <n>]
 volund memory export [--scope workspace|project|both] > memory.json
 volund memory import memory.json [--scope workspace|project] [--strategy skip|overwrite|rename] [--dry-run]
 ```
 
 `global` 是 `workspace` 的别名；管道输入使用 `--body-stdin`，多个 tag 可用逗号分隔。列表按稳定的 `pinned 降序、updatedAt 降序、id 升序` cursor 分页；`--json` 始终输出单个带 schema 版本且无 ANSI 的 JSON 文档。Memory 返回码固定为：`0` 成功、`2` 校验失败或缺少确认、`3` 未找到、`13` scope/授权拒绝。
 
-删除在交互终端中必须确认；非 TTY、`--json` 或 `--no-tui` 场景必须显式传入 `--yes`。所有输出都会先脱敏。
+删除在交互终端中必须确认；非 TTY、`--json` 或 `--no-tui` 场景必须显式传入 `--yes`。`move` 把记录迁到另一 scope（id 与内容不变，文件随目录移动）；`gc` 硬删超过保留期（默认 30 天，`--max-age` 可调）的 session 记忆——workspace/project 永不清理，非交互需 `--yes`。所有输出都会先脱敏。
 
 Pinned memory 以固定行数/token 预算进入每次 provider 请求。优先级为 session > project > workspace；重复正文只保留更窄 scope 的版本，再做确定性排序。正文转义后放进 `<untrusted source="memory:pinned">`，只作为建议数据，不能覆盖当前用户或 system 指令。pin 会立即刷新 prompt cache，unpin 或 delete 后下一次组合不再包含该正文。
 

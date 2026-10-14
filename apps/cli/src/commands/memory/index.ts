@@ -26,6 +26,8 @@ Commands:
   add [content]        Add a memory
   update <id> [content]
                        Update a memory
+  move <id>            Move a memory to another scope (--to workspace|project)
+  gc                   Hard-delete session memories older than --max-age days
   delete <id>          Delete a memory (requires confirmation)
   pin <id>             Pin a memory for prompt injection
   unpin <id>           Stop injecting a pinned memory
@@ -46,6 +48,9 @@ Options:
   --cursor <cursor>                Continue a stable listing
   --content <text>                 Content for add or update
   --body-stdin                     Read content from stdin
+  --to workspace|project           Target scope for move
+  --max-age <days>                 GC: session memory retention (default 30)
+  --dry-run                        GC: list what would be deleted
   --expected-updated-at <time>     Optimistic concurrency token
   --yes                            Confirm deletion non-interactively
   --batch-size <number>            Records per reindex batch
@@ -141,7 +146,7 @@ async function runIndexCommand(
       exitCode: args.strict && !report.healthy ? 1 : 0,
       stdout: args.json
         ? `${JSON.stringify(report)}\n`
-        : `${report.facts.healthy ? '✓' : '✗'} facts: ${report.facts.detail} (${report.facts.records} records)\n${report.index.healthy ? '✓' : '✗'} index: ${report.index.detail} (${report.index.indexedRecords} records)\n`,
+        : `${report.facts.healthy ? '✓' : '✗'} facts: ${report.facts.detail} (${report.facts.records} records)\n${report.index.healthy ? '✓' : '✗'} index: ${report.index.detail} (${report.index.indexedRecords} records)\n${(report.issues ?? []).map((issue) => `! skipped: ${issue.path} (${issue.reason})`).join('\n')}${report.issues?.length ? '\n' : ''}`,
       stderr: '',
     }
   }
@@ -331,6 +336,55 @@ async function runMemory(
       args,
       { schemaVersion: 1, memory: safeRecord(record) },
       `Updated memory ${id}.\n`,
+    )
+  }
+  if (action === 'move') {
+    const id = requireId(args, action)
+    const to = String(args.to ?? '')
+    if (to !== 'workspace' && to !== 'project')
+      throw new UsageError('memory move requires --to workspace or --to project')
+    const located = await findRecord(memory, scopes, id)
+    if (!located) return failure(args, 3, 'memory_not_found', `Memory ${id} was not found`)
+    const target = to === 'workspace' ? workspaceMemoryScope() : projectMemoryScope(cwd)
+    const options = args.expectedUpdatedAt
+      ? { expectedUpdatedAt: String(args.expectedUpdatedAt) }
+      : undefined
+    const record = await memory.move(located.scope, id, target, options)
+    return success(
+      args,
+      { schemaVersion: 1, memory: safeRecord(record) },
+      `Moved memory ${id} to ${to}.\n`,
+    )
+  }
+  if (action === 'gc') {
+    const maxAgeDays = args.maxAge === undefined ? 30 : integerOption(args.maxAge, 30, 'max-age')
+    if (maxAgeDays < 1) throw new UsageError('memory gc --max-age must be at least 1 day')
+    const cutoff = new Date(Date.now() - maxAgeDays * 86_400_000).toISOString()
+    if (args.dryRun) {
+      const report = await memory.gcSessions(cutoff, { dryRun: true })
+      return success(
+        args,
+        { schemaVersion: 1, dryRun: true, purged: report.purged },
+        `Dry run: ${report.purged.length} session record(s) would be purged.\n`,
+      )
+    }
+    if (!parseBoolean(args.yes ?? false)) {
+      const interactive = !args.json && !args.noTui && Boolean(io.isInteractiveTerminal?.())
+      if (!interactive)
+        return failure(
+          args,
+          2,
+          'confirmation_required',
+          'memory gc requires --yes outside an interactive terminal (or use --dry-run)',
+        )
+      if (!(await io.confirm?.(`Purge session memories older than ${maxAgeDays} days?`)))
+        return failure(args, 2, 'confirmation_declined', 'Nothing was purged')
+    }
+    const report = await memory.gcSessions(cutoff)
+    return success(
+      args,
+      { schemaVersion: 1, purged: report.purged },
+      `Purged ${report.purged.length} session record(s).\n`,
     )
   }
   if (action === 'delete') {

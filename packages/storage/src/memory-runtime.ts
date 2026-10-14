@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { open, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { open, mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 
 import { detectSecret, VolundError } from '@volund/shared'
+
+import { acquireMemoryFileLock } from './memory-file-lock'
 
 export const MEMORY_RECORD_SCHEMA_VERSION = 1 as const
 const SNAPSHOT_SCHEMA_VERSION = 1 as const
@@ -157,6 +158,12 @@ export interface MemoryRepository {
   save(records: readonly MemoryRecord[]): Promise<void>
   flush(): Promise<void>
   /**
+   * Load-time validation issues the repository skipped (e.g. markdown files
+   * with invalid frontmatter). Present on repositories that can detect them;
+   * empty by default.
+   */
+  diagnostics?(): readonly { path: string; reason: string }[]
+  /**
    * Applies a read-modify-write operation while holding the repository's
    * cross-process transaction lock. Implementations that omit this method are
    * supported for in-memory and test adapters, but cannot coordinate writers
@@ -194,6 +201,22 @@ export interface MemoryService {
     >,
     options?: MemoryMutationOptions,
   ): Promise<MemoryRecord>
+  /** Moves a record to another scope, keeping id, content, and history intact. */
+  move(
+    scope: MemoryRecordScope,
+    id: string,
+    to: MemoryRecordScope,
+    options?: MemoryMutationOptions,
+  ): Promise<MemoryRecord>
+  /**
+   * Hard-deletes session-scope records whose `updatedAt` is older than the
+   * cutoff (soft-deleted ones included). Session memories are ephemeral by
+   * design; this is the only path that removes files outright.
+   */
+  gcSessions(
+    cutoff: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }>
   delete(
     scope: MemoryRecordScope,
     id: string,
@@ -420,6 +443,56 @@ export class DefaultMemoryService implements MemoryService {
       return record
     })
     this.#notifyChange()
+    return result
+  }
+
+  async move(
+    scope: MemoryRecordScope,
+    id: string,
+    to: MemoryRecordScope,
+    options: MemoryMutationOptions = {},
+  ): Promise<MemoryRecord> {
+    const result = await this.#write(async () => {
+      const current = this.#require(scope, id)
+      if (current.deletedAt) throw new MemoryError('memory_not_found', `Memory ${id} is deleted`)
+      this.#checkVersion(current, options)
+      validateScope(to)
+      // Authority model matches delete/pin: write access to the record is
+      // established by reading it from `scope`; the target only needs to be a
+      // well-formed scope. Same-scope moves are idempotent.
+      if (JSON.stringify(to) === JSON.stringify(current.scope)) return current
+      const record: MemoryRecord = {
+        ...current,
+        scope: to,
+        updatedAt: nextTimestamp(current.updatedAt, this.now()),
+      }
+      this.#records.set(id, record)
+      return record
+    })
+    this.#notifyChange()
+    return result
+  }
+
+  async gcSessions(
+    cutoff: string,
+    options: { dryRun?: boolean } = {},
+  ): Promise<{ purged: readonly { id: string; sessionId: string }[] }> {
+    const result = await this.#write(async () => {
+      // Age on updatedAt only: a record created long ago but recently touched is alive.
+      const expired = [...this.#records.values()].filter(
+        (record) => record.scope.kind === 'session' && record.updatedAt < cutoff,
+      )
+      if (options.dryRun) return { purged: expired.map(summaryOf) }
+      for (const record of expired) this.#records.delete(record.id)
+      return { purged: expired.map(summaryOf) }
+      function summaryOf(record: MemoryRecord) {
+        return {
+          id: record.id,
+          sessionId: record.scope.kind === 'session' ? record.scope.sessionId : '',
+        }
+      }
+    })
+    if (!options.dryRun && result.purged.length > 0) this.#notifyChange()
     return result
   }
 
@@ -796,64 +869,13 @@ export class LocalMemoryRepository implements MemoryRepository {
     }
   }
 
-  async #acquireLock(): Promise<() => Promise<void>> {
-    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
-    const token = randomUUID()
-    const timeoutMs = this.options.lockTimeoutMs ?? 10_000
-    const retryMs = this.options.lockRetryMs ?? 10
-    const deadline = Date.now() + timeoutMs
-
-    for (;;) {
-      try {
-        const file = await open(this.#lockPath, 'wx', 0o600)
-        try {
-          await file.writeFile(
-            JSON.stringify({ pid: process.pid, token, at: new Date().toISOString() }),
-          )
-          await file.sync()
-        } catch (error) {
-          await file.close().catch(() => undefined)
-          await rm(this.#lockPath, { force: true }).catch(() => undefined)
-          throw error
-        }
-        await file.close()
-        return async () => {
-          try {
-            const owner = JSON.parse(await readFile(this.#lockPath, 'utf8')) as {
-              token?: unknown
-            }
-            if (owner.token !== token) return
-            await rm(this.#lockPath, { force: true }).catch(
-              (removeError: NodeJS.ErrnoException) => {
-                // A racing Windows unlink can report a transient error for a
-                // lock that is already delete-pending; the file disappears
-                // once the competing handle closes, so treat the lock as
-                // released instead of failing a committed write.
-                if (!isTransientLockErrorCode(removeError.code)) throw removeError
-              },
-            )
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-          }
-        }
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (!isTransientLockErrorCode(code)) throw error
-        if (code === 'EEXIST' && !(await lockOwnerAlive(this.#lockPath))) {
-          await rm(this.#lockPath, { force: true }).catch((removeError: NodeJS.ErrnoException) => {
-            // Another writer can win the stale-lock recovery race; the next
-            // open attempt decides, so only non-transient failures escape.
-            if (!isTransientLockErrorCode(removeError.code)) throw removeError
-          })
-          continue
-        }
-        if (Date.now() >= deadline)
-          throw new MemoryError('memory_io', 'Timed out waiting for the memory transaction lock', {
-            cause: error,
-          })
-        await delay(retryMs)
-      }
-    }
+  #acquireLock(): Promise<() => Promise<void>> {
+    return acquireMemoryFileLock(this.#lockPath, {
+      ...(this.options.lockTimeoutMs === undefined
+        ? {}
+        : { lockTimeoutMs: this.options.lockTimeoutMs }),
+      ...(this.options.lockRetryMs === undefined ? {} : { lockRetryMs: this.options.lockRetryMs }),
+    })
   }
 
   async #read(
@@ -879,35 +901,9 @@ export class LocalMemoryRepository implements MemoryRepository {
  * handles, sharing violations, antivirus scanners). Treating those like EEXIST
  * and retrying inside the lock budget — instead of surfacing them as a fatal
  * `memory_io` — is what keeps concurrent writers from flaking on loaded
- * Windows runners (LL-7).
+ * Windows runners (LL-7). The lock implementation lives in
+ * `memory-file-lock.ts` and is shared with the markdown repository.
  */
-function isTransientLockErrorCode(code: string | undefined): boolean {
-  return code === 'EEXIST' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
-}
-
-async function lockOwnerAlive(path: string): Promise<boolean> {
-  try {
-    const value = JSON.parse(await readFile(path, 'utf8')) as { pid?: unknown }
-    if (!Number.isSafeInteger(value.pid) || Number(value.pid) < 1) {
-      // A competing process can observe the file between exclusive creation and
-      // metadata fsync. Give that live acquisition a short grace period.
-      return Date.now() - (await stat(path)).mtimeMs < 1_000
-    }
-    try {
-      process.kill(Number(value.pid), 0)
-      return true
-    } catch (error) {
-      return (error as NodeJS.ErrnoException).code === 'EPERM'
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    try {
-      return Date.now() - (await stat(path)).mtimeMs < 1_000
-    } catch {
-      return false
-    }
-  }
-}
 
 function nextTimestamp(previous: string, now: Date): string {
   const previousMilliseconds = Date.parse(previous)

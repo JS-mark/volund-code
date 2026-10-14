@@ -55,17 +55,46 @@ export interface ToolCard {
   body?: string
 }
 
+/** 一条子代理工具调用（冒泡 tool.requested/started/completed 的展示投影，旧→新）。 */
+export interface SubagentToolRun {
+  toolUseId: string
+  tool: string
+  status: 'running' | 'done' | 'error'
+  /** 单行目标（requested 帧带 input 时提取；started 兜底建条目时缺席）。 */
+  target?: string
+}
+
 /**
  * 一个 Task 派发下的子代理活动聚合（key = 父 turnId，即冒泡事件的 parentTurnId）。
  * 只从冒泡 tool.* 事件累积——子代理的消息/流式/turn 事件不进主聊天流。
  */
 export interface SubagentActivity {
-  /** 子代理已启动的工具调用数（冒泡 tool.started 计数）。 */
+  /** 子代理已启动的工具调用数（冒泡 tool.requested/started 去重计数）。 */
   toolCalls: number
   /** 仍在运行的子代理工具数（started − completed，下界 0）。 */
   running: number
   /** 最近启动的子代理工具名（折叠行的「当前工具」）。 */
   lastTool?: string
+  /** 工具调用轨迹（Task 卡展开面的时间线；上限之外丢最旧，计数不随之丢失）。 */
+  runs: SubagentToolRun[]
+}
+
+/** 轨迹保留上限：手机展开面刷 50 行足够定位上下文，再早的看计数即可。 */
+const SUBAGENT_RUNS_MAX = 50
+
+/** 追加/更新一条轨迹；超上限丢最旧（更新不改变位置）。 */
+function upsertRun(
+  runs: readonly SubagentToolRun[],
+  id: string,
+  tool: string,
+  target: string | undefined,
+): SubagentToolRun[] {
+  const known = runs.some((run) => run.toolUseId === id)
+  const patch = { tool, status: 'running' as const, ...(target ? { target } : {}) }
+  const next = known
+    ? runs.map((run) => (run.toolUseId === id ? { ...run, ...patch } : run))
+    : [...runs, { toolUseId: id, ...patch }]
+  return next.length > SUBAGENT_RUNS_MAX ? next.slice(next.length - SUBAGENT_RUNS_MAX) : next
 }
 
 /**
@@ -374,8 +403,23 @@ export function toolBodyLabel(tool: string, input: unknown): string | undefined 
     : body
 }
 
-/** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */
-export interface EnvelopeEvent {
+/** Task 入参 → 卡面摘要（agentType / prompt 首行截 80）：requested 帧与 hydrate 共用。 */
+function taskSummaryOf(input: unknown): ToolCard['task'] | undefined {
+  const record = input !== null && typeof input === 'object' ? input : undefined
+  const agentType =
+    record && 'agentType' in record && typeof record.agentType === 'string'
+      ? record.agentType
+      : undefined
+  const prompt =
+    record && 'prompt' in record && typeof record.prompt === 'string' ? record.prompt : undefined
+  if (!agentType && !prompt) return undefined
+  return {
+    ...(agentType ? { agentType } : {}),
+    ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
+  }
+}
+
+/** 信封事件面：CoreEvent 透传（附录 D.3 冒泡 tag 在事件顶层，§2.7bis.5 U3）。 */ export interface EnvelopeEvent {
   type: string
   payload?: Record<string, unknown>
   /**
@@ -471,34 +515,72 @@ function finalizeStreaming(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((message) => (message.streaming ? { ...message, streaming: false } : message))
 }
 
+/** 回合终态清扫：仍 running 的工具卡按失败收口（正常路径 tool.completed 已先行；
+ * 回合死了卡还挂着 = 执行栈异常/中断残留，不能让「运行中」永恒悬挂）。 */
+function settleRunningTools(tools: ToolCard[]): ToolCard[] {
+  if (!tools.some((tool) => tool.status === 'running')) return tools
+  return tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'error' } : tool))
+}
+
 /**
  * §2.7bis.5 U3 / 附录 D.3：子代理冒泡事件的归约——不碰消息流/工具列表/turn 状态
- * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行的数据源）。
+ * （对齐 TUI 的过滤），只把 tool.* 聚合进 subagents（Task 折叠行与展开轨迹的数据源）。
  * 归属键 = parentTurnId（父 turnId，与 Task 卡 tool.started 的 event.turnId 相同）。
  */
 function reduceBubbledEvent(state: ChatState, event: Event): ChatState {
   const parentTurnId = typeof event.parentTurnId === 'string' ? event.parentTurnId : undefined
   if (!parentTurnId) return state
   const payload = event.payload ?? {}
+  const id = typeof payload.toolUseId === 'string' ? payload.toolUseId : undefined
   switch (event.type) {
+    // requested（带 input，先到）与 started（兜底 stub）同 toolUseId 只计一次；
+    // requested 的 input 提取单行目标（MCP 工具无 target 语义，同主流工具卡）。
+    case 'tool.requested':
     case 'tool.started': {
-      const current = state.subagents[parentTurnId] ?? { toolCalls: 0, running: 0 }
-      const activity: SubagentActivity = {
-        ...current,
-        toolCalls: current.toolCalls + 1,
-        running: current.running + 1,
-        lastTool: typeof payload.tool === 'string' ? payload.tool : '',
-      }
-      return { ...state, subagents: { ...state.subagents, [parentTurnId]: activity } }
-    }
-    case 'tool.completed': {
-      const current = state.subagents[parentTurnId]
-      if (!current) return state
+      const tool = typeof payload.tool === 'string' ? payload.tool : ''
+      if (!id || !tool) return state
+      const current = state.subagents[parentTurnId] ?? { toolCalls: 0, running: 0, runs: [] }
+      const known = current.runs.some((run) => run.toolUseId === id)
+      const target =
+        event.type === 'tool.requested' && !mcpToolParts(tool)
+          ? toolTargetLabel(tool, payload.input)
+          : undefined
       return {
         ...state,
         subagents: {
           ...state.subagents,
-          [parentTurnId]: { ...current, running: Math.max(0, current.running - 1) },
+          [parentTurnId]: {
+            ...current,
+            toolCalls: known ? current.toolCalls : current.toolCalls + 1,
+            running: known ? current.running : current.running + 1,
+            lastTool: tool,
+            runs: upsertRun(current.runs, id, tool, target),
+          },
+        },
+      }
+    }
+    case 'tool.completed': {
+      const current = state.subagents[parentTurnId]
+      if (!current) return state
+      const failed = payload.isError === true
+      const run = id ? current.runs.find((item) => item.toolUseId === id) : undefined
+      const runs =
+        run && id
+          ? current.runs.map((item) =>
+              item.toolUseId === id
+                ? { ...item, status: failed ? ('error' as const) : ('done' as const) }
+                : item,
+            )
+          : current.runs
+      // running 只对「确曾 running」的收口递减（重复 completed 幂等）；轨迹缺席的
+      // id（requested/started 双双迟到丢失）按旧语义兜底递减。
+      const running =
+        !run || run.status === 'running' ? Math.max(0, current.running - 1) : current.running
+      return {
+        ...state,
+        subagents: {
+          ...state.subagents,
+          [parentTurnId]: { ...current, running, runs },
         },
       }
     }
@@ -612,9 +694,15 @@ function reduceEnvelope(
     case 'turn.started':
       return { ...state, turn: 'running', streamedChars: 0, interrupted: false }
     case 'turn.completed':
-      return { ...state, turn: 'idle', messages: finalizeStreaming(state.messages) }
+      return {
+        ...state,
+        turn: 'idle',
+        messages: finalizeStreaming(state.messages),
+        tools: settleRunningTools(state.tools),
+      }
     case 'turn.aborted': {
       const messages = finalizeStreaming(state.messages)
+      const tools = settleRunningTools(state.tools)
       // reason=error 时 error.raised 通常已给出具体原因，不覆盖；user_interrupt
       // 才是「用户中断」语义——走 interrupted 友好提示（可重试），不与报错
       // notice 同槽（报错文案一律英文+code，中断提示是 UI chrome 中文）。
@@ -624,11 +712,18 @@ function reduceEnvelope(
           ...state,
           turn: 'idle',
           messages,
+          tools,
           notice: state.notice ?? 'turn aborted due to an error',
         }
       if (reason === 'stream_interrupted')
-        return { ...state, turn: 'idle', messages, notice: state.notice ?? 'stream interrupted' }
-      return { ...state, turn: 'idle', messages, interrupted: true }
+        return {
+          ...state,
+          turn: 'idle',
+          messages,
+          tools,
+          notice: state.notice ?? 'stream interrupted',
+        }
+      return { ...state, turn: 'idle', messages, tools, interrupted: true }
     }
     case 'tool.requested': {
       // requested 帧带 input：非 Task 工具在此建卡并提取单行目标 + 展开正文（折叠行/
@@ -662,25 +757,13 @@ function reduceEnvelope(
         }
       }
       const input: unknown = payload.input
-      const record = input !== null && typeof input === 'object' ? input : undefined
-      const agentType =
-        record && 'agentType' in record && typeof record.agentType === 'string'
-          ? record.agentType
-          : undefined
-      const prompt =
-        record && 'prompt' in record && typeof record.prompt === 'string'
-          ? record.prompt
-          : undefined
-      const task: ToolCard['task'] = {
-        ...(agentType ? { agentType } : {}),
-        ...(prompt ? { prompt: prompt.split('\n', 1)[0]!.slice(0, 80) } : {}),
-      }
+      const task = taskSummaryOf(input)
       const exists = state.tools.some((item) => item.toolUseId === id)
       if (exists)
         return {
           ...state,
           tools: state.tools.map((item) =>
-            item.toolUseId === id ? { ...item, task, ...extras } : item,
+            item.toolUseId === id ? { ...item, ...(task ? { task } : {}), ...extras } : item,
           ),
         }
       return {
@@ -688,7 +771,14 @@ function reduceEnvelope(
         nextSeq: state.nextSeq + 1,
         tools: [
           ...state.tools,
-          { toolUseId: id, tool: 'Task', status: 'running', task, seq: state.nextSeq, ...extras },
+          {
+            toolUseId: id,
+            tool: 'Task',
+            status: 'running',
+            seq: state.nextSeq,
+            ...(task ? { task } : {}),
+            ...extras,
+          },
         ],
       }
     }
@@ -787,6 +877,7 @@ function reduceEnvelope(
         ...state,
         turn: 'idle',
         messages: finalizeStreaming(state.messages),
+        tools: settleRunningTools(state.tools),
         notice: view.message ?? 'turn failed',
       }
     // session.attached 不在这里清屏：多设备共用单活动会话时它是对全员广播的
@@ -826,11 +917,16 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
     case 'hydrate': {
       // 合并而非整体替换：hydrate 与 WS 并发时，快照后到达的增量不能被冲掉；
       // 本地回声一律丢弃。快照里的 tool 条目（TranscriptToolEntry）重建折叠卡：
-      // target/body 从快照携带的 input 现算；seq 按快照顺序单调分配（消息与
-      // 工具卡保序）；与 live 卡同 id 时以 live 为准。
-      const messages: ChatMessage[] = []
-      const tools: ToolCard[] = []
-      let seq = state.nextSeq
+      // target/body/task 从快照携带的 input 现算；同 id 工具卡内容以 live 卡
+      // 优先（turnId/实时状态不丢，快照重建补位缺的 target/body/task）。
+      // seq 全量重排、快照序为唯一权威——活体条目若保留旧 seq（必然小于本轮
+      // 分配的新 seq），重连水合后全部活体工具卡会浮到所有消息前面，多波工具
+      // 被挤成一个「N 次工具调用」大分组；快照后才到达的增量（live 独有）按
+      // 原到达序接尾。
+      const parsed: (
+        | { kind: 'message'; message: ChatMessage }
+        | { kind: 'tool'; tool: ToolCard }
+      )[] = []
       for (const entry of action.transcript) {
         const item = entry as {
           id?: string
@@ -854,13 +950,17 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
             item.status === 'error' ? 'error' : item.status === 'running' ? 'running' : 'done'
           const target = toolTargetLabel(item.tool, item.input)
           const body = toolBodyLabel(item.tool, item.input)
-          tools.push({
-            toolUseId: item.id,
-            tool: item.tool,
-            status,
-            seq: seq++,
-            ...(target === undefined ? {} : { target }),
-            ...(body === undefined ? {} : { body }),
+          const task = item.tool === 'Task' ? taskSummaryOf(item.input) : undefined
+          parsed.push({
+            kind: 'tool',
+            tool: {
+              toolUseId: item.id,
+              tool: item.tool,
+              status,
+              ...(target === undefined ? {} : { target }),
+              ...(body === undefined ? {} : { body }),
+              ...(task === undefined ? {} : { task }),
+            },
           })
           continue
         }
@@ -880,26 +980,60 @@ export function reduceChatState(state: ChatState, action: StreamAction): ChatSta
           handle: attachment.handle,
           ...(attachment.mime ? { mime: attachment.mime } : {}),
         }))
-        messages.push({
-          id: item.id,
-          role: item.role as ChatMessage['role'],
-          text: text.replace(/[^\S\n]+/g, ' ').trim(),
-          seq: seq++,
-          ...(images.length ? { images } : {}),
+        parsed.push({
+          kind: 'message',
+          message: {
+            id: item.id,
+            role: item.role as ChatMessage['role'],
+            text: text.replace(/[^\S\n]+/g, ' ').trim(),
+            ...(images.length ? { images } : {}),
+          },
         })
       }
-      const hydratedIds = new Set(messages.map((message) => message.id))
-      const tail = state.messages.filter(
-        (message) => !message.local && !hydratedIds.has(message.id),
+      const liveTools = new Map(state.tools.map((tool) => [tool.toolUseId, tool]))
+      const hydratedMessageIds = new Set(
+        parsed.flatMap((item) => (item.kind === 'message' ? [item.message.id] : [])),
       )
-      const liveToolIds = new Set(state.tools.map((tool) => tool.toolUseId))
-      const hydratedTools = tools.filter((tool) => !liveToolIds.has(tool.toolUseId))
-      return {
-        ...state,
-        messages: [...messages, ...tail],
-        tools: [...hydratedTools, ...state.tools],
-        nextSeq: seq,
+      const hydratedToolIds = new Set(
+        parsed.flatMap((item) => (item.kind === 'tool' ? [item.tool.toolUseId] : [])),
+      )
+      const messages: ChatMessage[] = []
+      const tools: ToolCard[] = []
+      let seq = 0
+      for (const item of parsed) {
+        seq += 1
+        if (item.kind === 'message') {
+          messages.push({ ...item.message, seq })
+          continue
+        }
+        const live = liveTools.get(item.tool.toolUseId)
+        // live 卡字段覆盖快照重建（exactOptionalPropertyTypes：无显式 undefined，
+        // spread 只覆盖存在的键），快照的 target/body/task 补位 live 缺的展开面。
+        tools.push({ ...item.tool, ...live, seq })
       }
+      // 快照后到达的增量（live 独有）：按原到达 seq 排定后接尾（必比快照新）。
+      const extras = [
+        ...state.messages
+          .filter((message) => !message.local && !hydratedMessageIds.has(message.id))
+          .map((message) => ({
+            kind: 'message' as const,
+            order: message.seq ?? Number.MAX_SAFE_INTEGER,
+            message,
+          })),
+        ...state.tools
+          .filter((tool) => !hydratedToolIds.has(tool.toolUseId))
+          .map((tool) => ({
+            kind: 'tool' as const,
+            order: tool.seq ?? Number.MAX_SAFE_INTEGER,
+            tool,
+          })),
+      ].sort((left, right) => left.order - right.order)
+      for (const extra of extras) {
+        seq += 1
+        if (extra.kind === 'message') messages.push({ ...extra.message, seq })
+        else tools.push({ ...extra.tool, seq })
+      }
+      return { ...state, messages, tools, nextSeq: seq + 1 }
     }
     case 'echo':
       return {

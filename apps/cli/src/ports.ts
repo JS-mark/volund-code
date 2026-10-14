@@ -107,6 +107,12 @@ export interface UiPort {
 }
 export interface VolundPorts {
   identity: Readonly<AppIdentity>
+  /**
+   * 记忆自动沉淀（ADR-0015）：进程正常收口（bin.ts，stdout flush 之后）调用，
+   * 从最后一个活跃会话提炼长期记忆写入 memory。有界超时由调用方兜底；实现
+   * 内部对一切失败静默。SIGINT/SIGTERM 硬退路径不调用。
+   */
+  consolidateMemory?: () => Promise<number>
   native: {
     probe(): Promise<SandboxDisclosure>
     health(): Promise<NativeHealth>

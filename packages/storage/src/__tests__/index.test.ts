@@ -586,6 +586,77 @@ describe('PromptLoader', () => {
     expect(prompt).toContain('rules')
     expect(prompt).not.toContain('wrong')
   })
+  it('prefers AGENT over AGENTS over CLAUDE, and reads AGENTS.md alone', async () => {
+    const permissions = new PermissionManager()
+    const dir = await temp()
+    await writeFile(resolve(dir, 'AGENT.md'), 'native agent')
+    await writeFile(resolve(dir, 'AGENTS.md'), 'open convention')
+    await writeFile(resolve(dir, 'CLAUDE.md'), 'claude code')
+    const composer = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(composer)
+    expect(await composer.compose({ cwd: dir, model: 'm', provider: 'p' })).toContain(
+      'native agent',
+    )
+
+    const fallbackDir = await temp()
+    await writeFile(resolve(fallbackDir, 'AGENTS.md'), 'open convention')
+    await writeFile(resolve(fallbackDir, 'CLAUDE.md'), 'claude code')
+    const fallback = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: fallbackDir,
+      volundHome: resolve(fallbackDir, '.volund'),
+      permissions,
+    }).registerProject(fallback)
+    const fallbackPrompt = await fallback.compose({ cwd: fallbackDir, model: 'm', provider: 'p' })
+    expect(fallbackPrompt).toContain('open convention')
+    expect(fallbackPrompt).not.toContain('claude code')
+  })
+  it('registers the user fragment only when a global rule file exists', async () => {
+    const dir = await temp()
+    const permissions = new PermissionManager(),
+      composer = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(composer)
+    let prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).not.toContain('AGENT.md')
+    expect(prompt).not.toContain('ERROR (not found)')
+
+    await mkdir(resolve(dir, '.volund'), { recursive: true })
+    await writeFile(resolve(dir, '.volund', 'AGENT.md'), 'global user rules')
+    const second = new DefaultPromptComposer()
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: resolve(dir, '.volund'),
+      permissions,
+    }).registerProject(second)
+    prompt = await second.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).toContain('global user rules')
+  })
+  it('prefers the global AGENT family over CLAUDE.md and loads it without a permission prompt', async () => {
+    const dir = await temp()
+    const home = await temp()
+    await writeFile(resolve(home, 'AGENT.md'), 'native global rules')
+    await writeFile(resolve(home, 'CLAUDE.md'), 'claude global rules')
+    const composer = new DefaultPromptComposer()
+    // volundHome sits outside cwd; a default-deny permission state must not
+    // block loading volund's own configuration file.
+    await new PromptLoader({
+      cwd: dir,
+      volundHome: home,
+      permissions: new PermissionManager(),
+    }).registerProject(composer)
+    const prompt = await composer.compose({ cwd: dir, model: 'm', provider: 'p' })
+    expect(prompt).toContain('native global rules')
+    expect(prompt).not.toContain('claude global rules')
+    expect(prompt).not.toContain('DENIED (permission)')
+  })
   it('leaves a denial placeholder for sensitive includes', async () => {
     const dir = await temp()
     await writeFile(resolve(dir, 'AGENT.md'), '@include ./.env.md')
