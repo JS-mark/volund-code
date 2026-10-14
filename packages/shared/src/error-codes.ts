@@ -338,6 +338,7 @@ export const ErrorCodes = {
   credentialPassphraseRequired: 'credential_passphrase_required', // cli/runtime 凭据库 passphrase 为空必填
   mcpOAuthFailed: 'mcp_oauth_failed', // auth/mcp-oauth McpOAuthError（MCP OAuth 2.1 客户端流失败）
   providerCredentialUnavailable: 'provider_credential_unavailable', // cli/runtime provider 凭据解析为空
+  providerModelUnresolved: 'provider_model_unresolved', // cli/runtime 记忆自动沉淀（ADR-0015）解析不到会话模型
 
   /* ── VolundError 迁移批次：core / context 域 ─────────────────────────── */
   contextSummaryProviderCompleteUnsupported: 'context_summary_provider_complete_unsupported', // context/index SummaryPolicy provider 无 complete
