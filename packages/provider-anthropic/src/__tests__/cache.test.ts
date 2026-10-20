@@ -1,7 +1,12 @@
+import type { ProviderRequest } from '@volund/provider-kit'
 import { describe, expect, it, vi } from 'vitest'
 
-import { anthropicCapabilities, anthropicCachePlan, AnthropicClient, parseAnthropicSse } from '../index'
-import type { ProviderRequest } from '@volund/provider-kit'
+import {
+  anthropicCapabilities,
+  anthropicCachePlan,
+  AnthropicClient,
+  parseAnthropicSse,
+} from '../index'
 
 async function* chunks(parts: Uint8Array[]): AsyncIterable<Uint8Array> {
   yield* parts
