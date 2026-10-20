@@ -4,9 +4,11 @@
 
 ## §21 动态反思（Dynamic Reflection，K1 builtin 插件）
 
-> **状态：PROPOSED / NOT SHIPPED。**
+> **状态：PARTIAL —— v1 core 实现已落地（2026-10-20），K1 插件化迁移仍排 L4。**
 >
-> **日期：2026-08-23。**
+> **日期：2026-08-23 设计；2026-10-20 v1 core 实现。**
+>
+> **v1 实现范围**：触发评估 / reflector 单轮纯推理（`RouterPolicy` pick，`role='reflection'` 未配链回落默认模型）/ lesson 输出契约（zod，evidence 必须来自 digest）/ session ring buffer / `reflection-notes` prompt fragment（priority=700，untrusted 包裹，composer invalidate 后下回合生效）/ 预算与 cooldown 硬顶 / `reflection.*` 六事件 / `/reflect` slash 族 / `/status` Reflection 区。实现体在 `packages/app-runtime/src/reflection.ts`（ReflectionController），**不是** §21.2 规定的 K1 bundle——`volund.agents.run` / `volund.jobs.schedule` 两个先决 bridge 仍未交付，按 §21.11 约束本章节其余各节维持未实现标注，插件化迁移（含受控 dispatch 与 idle 调度）仍是 L4 工作。
 >
 > 本章定义动态反思能力：agent 在会话过程中对自身表现做结构化复盘（哪些工具调用失败、哪里绕路、下次该怎么改），并把结论沉淀为可注入后续 prompt 的 lesson。**强制架构约束：整个能力以插件机制实现**——不是 `packages/core` 的内建分支，而是一个 K1 builtin capability bundle（`volund.core.reflection`），只通过 §19.1.1 的公开 surface 与 §6.4.1/§6.4.1a 的 bridge API 工作。现有插件机制不满足的部分（受控 agent dispatch、idle job 调度、/status section 贡献），按 §21.11 先扩展插件机制再实现本能力，**禁止**为反思在 core 里开私有后门。
 
@@ -213,3 +215,4 @@ inject_max_bytes = 2048
 | 日期 | 变更 |
 |---|---|
 | 2026-08-23 | 新增本章：动态反思作为 K1 builtin 插件的完整设计；登记 §6.4.1a 三个 bridge 扩展与 `hint.role='reflection'` 为先决条件；默认仅异常触发 + 手动，persist=manual |
+| 2026-10-20 | v1 core 实现落地（ReflectionController，app-runtime）：四类触发/预算冷却去重/lesson 契约/注入//reflect 族//status 区/六事件；`hint.role='reflection'` 枚举已扩展；K1 插件化迁移仍排 L4（见头部状态块） |

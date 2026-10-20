@@ -350,6 +350,8 @@ volund status [--json]                    # 查询类命令（§11.1：--json �
 | Memory | pinned 条数 / 本 session recall 次数（§6.12.11 事件计数） |
 | Reflection | **条件渲染**：仅 §21 插件 enabled 时由 ui-surface 贡献（enabled 状态 / 各 trigger / session 预算 consumed·remaining / 最近一次 run / pending job）；插件 disabled 时整区不渲染 |
 
+**实现状态（2026-10-20）**：Usage & Cost 行的 token 展示、Prompt Cache 区的能力位/策略/累计缓存 token/命中率、Reflection 区（enabled/triggers/预算/最近 run，条件渲染）已在 TUI `/status` 与 `volund status` 数据面落地（`packages/app-runtime/src/status.ts` + `packages/ui/src/components/UsageView.tsx`/`ReflectionView.tsx`）；last-turn 分行、per-provider 分行、reflection 归因独立行、估算节省（依赖 pricing 表）尚未实现，标注见各行。
+
 **诚实显示（强制）**：
 
 - provider 不支持 cache（`capabilities.cache === 'none'`）→ Prompt Cache 区首行 `unavailable (provider)`，其余行 `n/a`，**禁止**用 0 冒充。
