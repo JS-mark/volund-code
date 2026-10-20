@@ -168,7 +168,7 @@ export async function scanSessionsDir(sessionsDir: string): Promise<SessionScan[
   return scans.filter((scan): scan is SessionScan => !!scan && scan.events > 0)
 }
 
-/** /status → Usage：当前会话的实时用量（wall 时长算到 now）。cachePromptCache = §11.3.14 探针。 */
+/** /status → Usage：当前会话的实时用量（wall 时长算到 now）。promptCache = §11.3.14 探针。 */
 export function buildUsageData(
   scan: SessionScan | undefined,
   now: number,
@@ -195,9 +195,12 @@ export function buildUsageData(
           cache: {
             ...(promptCache.capability ? { capability: promptCache.capability } : {}),
             strategy: promptCache.strategy,
-            // 命中率（§11.3.14 口径）：cacheRead ÷ (cacheRead + input)；无缓存读时不
-            // 造 0——渲染层显示 n/a。
-            ...(scan.tokens.cacheRead + scan.tokens.input > 0
+            // 命中率（§11.3.14 口径）只在 provider「input 不含缓存命中」的语义
+            // （Anthropic 族 ephemeral）下计算；OpenAI/Gemini 的 cached tokens 是
+            // prompt 总数的子集，该公式会低估——语义未知/不符时缺省渲染 n/a，
+            // 无缓存读也不造 0。
+            ...(promptCache.capability === 'ephemeral' &&
+            scan.tokens.cacheRead + scan.tokens.input > 0
               ? {
                   hitRate: scan.tokens.cacheRead / (scan.tokens.cacheRead + scan.tokens.input),
                 }

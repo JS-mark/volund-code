@@ -214,6 +214,40 @@ describe('buildUsageData', () => {
   })
 })
 
+describe('buildUsageData prompt cache hit rate gating', () => {
+  const scanWithCache = {
+    id: '01900000-0000-7000-8000-0000000000c1',
+    events: 10,
+    firstAt: '2026-10-20T00:00:00.000Z',
+    apiDurationMs: 0,
+    linesAdded: 0,
+    linesRemoved: 0,
+    tokens: { input: 300, output: 50, cacheRead: 100, cacheWrite: 10, costUSD: 0.01 },
+  } as never
+
+  it('computes hit rate only for providers whose input excludes cached tokens (ephemeral)', () => {
+    const usage = buildUsageData(scanWithCache, 1, {
+      capability: 'ephemeral',
+      strategy: 'auto',
+    })
+    // cacheRead ÷ (cacheRead + input) = 100/400
+    expect(usage?.cache?.hitRate).toBe(0.25)
+  })
+
+  it('omits hit rate for inclusive-input semantics (persistent) and unknown capability', () => {
+    // OpenAI/Gemini：cached tokens 是 prompt 总数的子集，公式会低估——不显示。
+    const persistent = buildUsageData(scanWithCache, 1, {
+      capability: 'persistent',
+      strategy: 'auto',
+    })
+    expect(persistent?.cache?.hitRate).toBeUndefined()
+    const unknown = buildUsageData(scanWithCache, 1, { strategy: 'auto' })
+    expect(unknown?.cache?.hitRate).toBeUndefined()
+    expect(unknown?.cache?.capability).toBeUndefined()
+    expect(unknown?.cache?.strategy).toBe('auto')
+  })
+})
+
 describe('buildStatsData', () => {
   it('builds a 53-week heatmap ending today with per-day event counts', async () => {
     const dir = await fixtureDir()

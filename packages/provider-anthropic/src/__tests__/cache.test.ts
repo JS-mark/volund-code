@@ -96,6 +96,33 @@ describe('anthropicCachePlan', () => {
     expect(plan?.system).toBeUndefined()
   })
 
+  it('skips thinking-only tail messages and marks an earlier stable prefix instead', () => {
+    const messages = [
+      {
+        id: 'u0',
+        role: 'user' as const,
+        createdAt: 0,
+        content: [{ type: 'text' as const, text: 'question' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant' as const,
+        createdAt: 0,
+        // thinking-only 尾消息：Anthropic 禁止对 thinking block 设 cache_control。
+        content: [{ type: 'thinking' as const, text: 'pondering' }],
+      },
+    ]
+    const plan = anthropicCachePlan(
+      request({ messages, cache: { strategy: 'ephemeral' } }),
+      anthropicCapabilities,
+    )
+    expect(plan?.tools).toEqual({ type: 'ephemeral' })
+    expect(plan?.system).toEqual({ type: 'ephemeral' })
+    // 尾断点没有落在 thinking 消息上，落到更早的 user 消息（稳定前缀）。
+    expect(plan?.messages[1]).toBeUndefined()
+    expect(plan?.messages[0]).toEqual({ type: 'ephemeral' })
+  })
+
   it('maps ttlSeconds=3600 to the 1h TTL', () => {
     const plan = anthropicCachePlan(
       request({ cache: { strategy: 'ephemeral', ttlSeconds: 3600 } }),

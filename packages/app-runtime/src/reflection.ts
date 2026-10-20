@@ -307,9 +307,9 @@ export class ReflectionController {
   readonly #lessons: ReflectionLesson[] = []
   readonly #triggeredKeys = new Set<string>()
   readonly #errorTurnIds = new Set<string>()
-  #completedTurns = 0
+  #turnsSincePeriodic = 0
   #budgetUsed = 0
-  #lastCompletedAt = 0
+  #lastCompletedAt: number | undefined
   #lastReflectedMessageCount = -1
   #lastRun: { trigger: ReflectionTrigger; lessonCount: number; durationMs: number } | undefined
   #promptNote: string | undefined
@@ -449,7 +449,7 @@ export class ReflectionController {
       return
     }
     if (event.type === 'turn.completed') {
-      this.#completedTurns += 1
+      this.#turnsSincePeriodic += 1
       if (turnId && this.#errorTurnIds.has(turnId)) {
         this.#errorTurnIds.delete(turnId)
         // 一次 turn 内多个错误只触发一次（按 turnId 去重）。
@@ -458,8 +458,13 @@ export class ReflectionController {
         return
       }
       const every = this.#config.triggers.everyNTurns
-      if (this.enabled && every > 0 && this.#completedTurns % every === 0 && turnId)
-        void this.#schedule('every_n_turns', turnId, false)
+      if (this.enabled && every > 0 && this.#turnsSincePeriodic >= every && turnId) {
+        // 被冷却/预算挡下不丢节拍：计数保留，下一 turn 到期即重试（否则定期
+        // 反思会静默延迟一整个周期）。成功入队执行才重置计数。
+        void this.#schedule('every_n_turns', turnId, false).then((outcome) => {
+          if (isRunSummary(outcome)) this.#turnsSincePeriodic = 0
+        })
+      }
       return
     }
     if (event.type === 'turn.aborted') {
@@ -492,7 +497,9 @@ export class ReflectionController {
     const key = `${turnId}:${trigger}`
     if (this.#triggeredKeys.has(key))
       return this.#emitSkipped('duplicate').then(() => ({ skipped: 'duplicate' as const }))
-    if (!bypassCooldown && this.#lastCompletedAt > 0) {
+    // undefined = 本会话尚未反思过——首次不设冷却；显式 undefined 而非 0 哨兵，
+    // 避免时钟从 0 起算（测试/假时钟）时第二次反思被误判为首访。
+    if (!bypassCooldown && this.#lastCompletedAt !== undefined) {
       const elapsed = (this.#options.now?.() ?? Date.now()) - this.#lastCompletedAt
       if (elapsed < this.#config.cooldownSeconds * 1000)
         return this.#emitSkipped('cooldown').then(() => ({ skipped: 'cooldown' as const }))
@@ -525,16 +532,16 @@ export class ReflectionController {
     const state = this.#options.state()
     await this.#options.events.emit({
       type: 'reflection.scheduled',
-      version: state.version,
+      version: this.#options.state().version,
       sessionId: state.id,
       payload: { trigger, turnId: turnId || 'manual' },
     })
     const digest = buildTranscriptDigest(state)
-    if (!digest.text) return this.#skip(runId, 'no_new_content')
+    if (!digest.text) return this.#skip('no_new_content')
     const runAbort = new AbortController()
     this.#runAbort = runAbort
     const signal = runAbort.signal
-    if (signal.aborted) return this.#skip(runId, 'preempted')
+    if (signal.aborted) return this.#skip('preempted')
     let decision
     try {
       decision = await this.#options.router.pick(
@@ -571,7 +578,7 @@ export class ReflectionController {
         : setTimeout(() => runAbort.abort(), this.#config.runBudget.timeMsMax)
     try {
       const result = await this.#streamOnce(decision.provider, decision.model, digest.text, signal)
-      if (signal.aborted) return this.#skip(runId, 'preempted')
+      if (signal.aborted) return this.#skip('preempted')
       if (result.error) {
         await this.#options.events.emit({
           type: 'reflection.failed',
@@ -653,11 +660,7 @@ export class ReflectionController {
     }
   }
 
-  async #skip(
-    runId: string,
-    reason: ReflectionSkipReason,
-  ): Promise<{ skipped: ReflectionSkipReason }> {
-    void runId
+  async #skip(reason: ReflectionSkipReason): Promise<{ skipped: ReflectionSkipReason }> {
     await this.#emitSkipped(reason)
     return { skipped: reason }
   }
@@ -719,18 +722,21 @@ export class ReflectionController {
     if (this.#lessons.length === 0) return ''
     const blocks: string[] = []
     let bytes = byteLength(REFLECTION_NOTES_GUIDE)
-    // 从新到旧取，超预算整条丢弃（§21.6）。
+    // 从新到旧取，超预算整条丢弃（§21.6）。标题/正文/tags/promptNote 一律转义——
+    // lesson 源自读过 untrusted digest 的 reflector，裸 `</untrusted>` 会提前闭合
+    // 包裹把内容逃逸成包裹外系统提示（与 digest 侧转义同语义）。
     for (const lesson of [...this.#lessons].reverse()) {
       if (blocks.length >= this.#config.injectMaxLessons) break
-      const tags = lesson.tags.length > 0 ? ` #${lesson.tags.join(' #')}` : ''
-      const block = `- [${lesson.id}] ${lesson.title} (confidence: ${lesson.confidence})${tags}\n  ${collapse(lesson.body, 1024)}`
+      const tags =
+        lesson.tags.length > 0 ? ` #${lesson.tags.map((tag) => escapeXml(tag)).join(' #')}` : ''
+      const block = `- [${lesson.id}] ${escapeXml(lesson.title)} (confidence: ${lesson.confidence})${tags}\n  ${escapeXml(collapse(lesson.body, 1024))}`
       const cost = byteLength(block)
       if (blocks.length > 0 && bytes + cost > this.#config.injectMaxBytes) break
       blocks.unshift(block)
       bytes += cost
     }
     if (blocks.length === 0) return ''
-    const note = this.#promptNote ? `\nNOTE: ${this.#promptNote}\n` : '\n'
+    const note = this.#promptNote ? `\nNOTE: ${escapeXml(this.#promptNote)}\n` : '\n'
     return `<untrusted source="reflection-notes">\n${REFLECTION_NOTES_GUIDE}\n${note}${blocks.join('\n')}\n</untrusted>`
   }
 }

@@ -99,6 +99,7 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
     .filter((setting) => !statusSecretKeyPattern.test(setting.key))
     .map((setting) => sanitize(setting))
   const sandbox = input.sandbox
+  const cacheRead = input.state.cumulativeUsage.cacheRead
   return {
     identity: {
       version: sanitize(input.version),
@@ -216,28 +217,24 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
       context: { ...input.state.contextBudget },
       costUSD: input.state.cumulativeUsage.costUSD,
     },
-    // 命中率按 spec §11.3.14 口径：cacheRead ÷ (cacheRead + input)（Anthropic 的
-    // input_tokens 不含缓存命中部分）；无缓存读时缺省，渲染层显示 n/a 不冒 0。
+    // 命中率（§11.3.14 口径）只在 provider「input 不含缓存命中」的语义（Anthropic
+    // 族 ephemeral）下计算；OpenAI/Gemini 的 cached tokens 是 prompt 总数的子集，
+    // 该公式会低估——缺省渲染 n/a 不冒 0。
     cache: {
       capability: input.cache
         ? { status: 'available', value: input.cache.capability }
         : statusUnavailable('cache_capability_unavailable'),
       strategy: input.cache?.strategy ?? 'auto',
       tokens: {
-        ...(input.state.cumulativeUsage.cacheRead === undefined
-          ? {}
-          : { cacheRead: input.state.cumulativeUsage.cacheRead }),
+        ...(cacheRead === undefined ? {} : { cacheRead }),
         ...(input.state.cumulativeUsage.cacheWrite === undefined
           ? {}
           : { cacheWrite: input.state.cumulativeUsage.cacheWrite }),
       },
-      ...(input.state.cumulativeUsage.cacheRead !== undefined &&
-      input.state.cumulativeUsage.cacheRead + input.state.cumulativeUsage.input > 0
-        ? {
-            hitRate:
-              input.state.cumulativeUsage.cacheRead! /
-              (input.state.cumulativeUsage.cacheRead! + input.state.cumulativeUsage.input),
-          }
+      ...(cacheRead !== undefined &&
+      input.cache?.capability === 'ephemeral' &&
+      cacheRead + input.state.cumulativeUsage.input > 0
+        ? { hitRate: cacheRead / (cacheRead + input.state.cumulativeUsage.input) }
         : {}),
     },
     ...(input.reflection

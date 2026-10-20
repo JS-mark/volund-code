@@ -162,12 +162,15 @@ export function anthropicCachePlan(
     budget -= 1
   }
   if (budget > 0) {
-    // 最后一条未带 rawMeta 标记的消息拿对话尾断点（增量前缀随回合稳定增长）。
+    // 最后一条「末块非 thinking 且未带 rawMeta 标记」的消息拿对话尾断点（增量
+    // 前缀随回合稳定增长）。Anthropic 禁止对 thinking block 设 cache_control
+    // （会 400），thinking-only 尾消息跳过、向前找更早的稳定前缀。
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index] === undefined) {
-        messages[index] = control
-        break
-      }
+      if (messages[index] !== undefined) continue
+      const lastPart = request.messages[index]?.content.at(-1)
+      if (lastPart?.type === 'thinking') continue
+      messages[index] = control
+      break
     }
   }
   return plan
