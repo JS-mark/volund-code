@@ -12,6 +12,7 @@ import type { PermissionSessionMode } from '@volund/permission'
 import { sanitize } from '@volund/shared'
 import type { JsonValue } from '@volund/shared'
 
+import type { ReflectionStatusSnapshot } from './reflection'
 import { SESSION_ID_PATTERN } from './session-controller'
 import { buildStatsData, buildUsageData, scanSessionFile, scanSessionsDir } from './session-stats'
 import type {
@@ -40,12 +41,16 @@ export interface StatusRuntimeOptions {
   readonly webConsoleUrl?: (() => string | undefined) | undefined
   /** §11.3.14 Prompt Cache 区探针：活跃会话主 provider 的缓存能力 + [cache] 策略。 */
   readonly cachePolicy?:
-    | (() => {
-        provider: string
-        capability: 'ephemeral' | 'persistent' | 'none'
-        strategy: 'auto' | 'off'
-      } | undefined)
+    | (() =>
+        | {
+            provider: string
+            capability: 'ephemeral' | 'persistent' | 'none'
+            strategy: 'auto' | 'off'
+          }
+        | undefined)
     | undefined
+  /** §21 Reflection 页签探针；缺省整页签不渲染。 */
+  readonly reflection?: (() => ReflectionStatusSnapshot | undefined) | undefined
 }
 
 const statusSecretKeyPattern =
@@ -80,6 +85,8 @@ export interface StatusViewModelInput {
     capability: 'ephemeral' | 'persistent' | 'none'
     strategy: 'auto' | 'off'
   }
+  /** §21 Reflection 区数据源；缺省整区不渲染。 */
+  reflection?: ReflectionStatusSnapshot
   settings?: readonly StatusSetting[]
   configSources?: readonly StatusSource[]
   mcpServers?: readonly string[]
@@ -233,6 +240,27 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
           }
         : {}),
     },
+    ...(input.reflection
+      ? {
+          reflection: {
+            enabled: input.reflection.enabled,
+            triggers: { ...input.reflection.triggers },
+            cooldownSeconds: input.reflection.cooldownSeconds,
+            budget: { ...input.reflection.budget },
+            lessonCount: input.reflection.lessonCount,
+            ...(input.reflection.lastRun
+              ? {
+                  lastRun: {
+                    trigger: input.reflection.lastRun.trigger,
+                    lessonCount: input.reflection.lastRun.lessonCount,
+                    durationMs: input.reflection.lastRun.durationMs,
+                  },
+                }
+              : {}),
+            running: input.reflection.running,
+          },
+        }
+      : {}),
   }
 }
 
@@ -245,12 +273,16 @@ export interface StatusSnapshotAdapterOptions {
   permissionMode(state: SessionState): PermissionSessionMode
   /** §11.3.14 Prompt Cache 区探针（宿主按活跃会话注入；缺省显示 unavailable）。 */
   cachePolicy?:
-    | (() => {
-        provider: string
-        capability: 'ephemeral' | 'persistent' | 'none'
-        strategy: 'auto' | 'off'
-      } | undefined)
+    | (() =>
+        | {
+            provider: string
+            capability: 'ephemeral' | 'persistent' | 'none'
+            strategy: 'auto' | 'off'
+          }
+        | undefined)
     | undefined
+  /** §21 Reflection 区探针（宿主按活跃会话注入；缺省整区不渲染）。 */
+  reflection?: (() => ReflectionStatusSnapshot | undefined) | undefined
 }
 
 export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
@@ -260,6 +292,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       options.configAvailable(),
     ])
     const cacheProbe = options.cachePolicy?.()
+    const reflectionProbe = options.reflection?.()
     return buildStatusViewModel({
       state,
       version: options.version,
@@ -268,6 +301,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       permissionMode: options.permissionMode(state),
       configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
       ...(cacheProbe ? { cache: cacheProbe } : {}),
+      ...(reflectionProbe ? { reflection: reflectionProbe } : {}),
     })
   }
 }
@@ -364,12 +398,12 @@ export async function runtimeStatusData(
         join(sessionsDir, `${input.sessionId}.jsonl`),
         input.sessionId,
       )
-      const cacheProbe = options.cachePolicy?.()
+      const cachePolicy = options.cachePolicy?.()
       usage = buildUsageData(
         sessionScan,
         Date.now(),
-        cacheProbe
-          ? { capability: cacheProbe.capability, strategy: cacheProbe.strategy }
+        cachePolicy
+          ? { capability: cachePolicy.capability, strategy: cachePolicy.strategy }
           : { strategy: 'auto' },
       )
     } catch {
@@ -407,6 +441,7 @@ export async function runtimeStatusData(
     )
     pluginTabs = rendered.filter((tab): tab is NonNullable<typeof tab> => tab !== null)
   }
+  const reflectionData = options.reflection?.()
   return {
     settings: [
       { label: 'Language', value: String(preferences.language ?? 'system') },
@@ -448,6 +483,8 @@ export async function runtimeStatusData(
     ...(usage ? { usage } : {}),
     ...(stats ? { stats } : {}),
     ...(pluginTabs ? { pluginTabs } : {}),
+    // §21 Reflection 页签：探针缺省/未装配时整页签不渲染。
+    ...(reflectionData ? { reflection: reflectionData } : {}),
   }
 }
 

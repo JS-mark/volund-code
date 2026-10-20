@@ -18,7 +18,8 @@ export interface RouterContext {
 }
 export interface RouterHint {
   explicitModel?: string
-  role?: 'planner' | 'coder' | 'reviewer' | 'chat'
+  /** §3.9 role 枚举：'reflection'（§21 反思执行体）未配置候选链时回落 default。 */
+  role?: 'planner' | 'coder' | 'reviewer' | 'chat' | 'reflection'
   costPreference?: 'cheap' | 'balanced' | 'quality'
   /** B7 截断续写（r13-G5）：上一 turn 的 provider 名，续写优先沿用（防风格断裂） */
   preferredProvider?: string
@@ -464,7 +465,7 @@ export interface RoleRouterConfig {
   default?: RoleRouteConfig | readonly RoleRouteConfig[]
 }
 
-const ROUTER_ROLES: readonly RouterRole[] = ['planner', 'coder', 'reviewer', 'chat']
+const ROUTER_ROLES: readonly RouterRole[] = ['planner', 'coder', 'reviewer', 'chat', 'reflection']
 
 /** Role selection layered over FallbackRouter's retry, cooldown, budget, and sticky policy. */
 export class RoleRouter implements RouterPolicy {

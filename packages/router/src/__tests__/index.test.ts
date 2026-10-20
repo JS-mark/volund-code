@@ -326,6 +326,36 @@ describe('RoleRouter', () => {
     })
   })
 
+  it('treats the reflection role like any configured role and falls back when unconfigured', async () => {
+    const reflector = { ...client, name: 'reflector-provider' } as ProviderClient
+    const registry = registryWith(client, reflector)
+    const configured = new RoleRouter(registry, {
+      roles: { reflection: { provider: 'reflector-provider', model: 'reflect-model' } },
+      default: { provider: 'fake', model: 'chat-model' },
+    })
+    await expect(
+      configured.pick({ ...ctx, turnId: 'reflect' }, { role: 'reflection' }),
+    ).resolves.toMatchObject({
+      provider: reflector,
+      model: 'reflect-model',
+      reason: 'role:reflection',
+    })
+    // 未配置 reflection 候选链 → 回落 default（合法降级，非错误，§21.4）。
+    const fallback = new RoleRouter(registry, {
+      default: { provider: 'fake', model: 'chat-model' },
+    })
+    await expect(
+      fallback.pick({ ...ctx, turnId: 'reflect-fallback' }, { role: 'reflection' }),
+    ).resolves.toMatchObject({ provider: client, model: 'chat-model', reason: 'role:default' })
+    // parseRoleRouterConfig 接受 [router.roles] reflection = ...（§21.11-4 枚举扩展）。
+    expect(() =>
+      parseRoleRouterConfig({
+        default: { provider: 'fake', model: 'chat' },
+        roles: { reflection: { provider: 'reflector-provider', model: 'reflect-model' } },
+      }),
+    ).not.toThrow()
+  })
+
   it('gives explicit provider/model and model-only hints precedence', async () => {
     const registry = registryWith(client, otherClient)
     const router = new RoleRouter(registry, {

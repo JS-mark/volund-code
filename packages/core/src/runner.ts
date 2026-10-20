@@ -183,7 +183,10 @@ export class Runner {
     const turnStartedAt = Date.now()
     const agentType = this.#state.lineage?.agentType
     const lineageRole: RouterHint['role'] =
-      agentType === 'planner' || agentType === 'coder' || agentType === 'reviewer'
+      agentType === 'planner' ||
+      agentType === 'coder' ||
+      agentType === 'reviewer' ||
+      agentType === 'reflection'
         ? agentType
         : undefined
     // B7：上一 turn 以 max_tokens 截断 → 本条消息优先沿用其 provider/model

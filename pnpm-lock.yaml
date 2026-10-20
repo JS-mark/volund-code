@@ -771,6 +771,9 @@ importers:
       '@volund/provider-kit':
         specifier: workspace:*
         version: link:../provider-kit
+      '@volund/router':
+        specifier: workspace:*
+        version: link:../router
       '@volund/shared':
         specifier: workspace:*
         version: link:../shared
@@ -795,6 +798,9 @@ importers:
       uuid:
         specifier: 'catalog:'
         version: 14.0.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

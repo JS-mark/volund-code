@@ -8,6 +8,7 @@ import {
   type TranscriptItem,
 } from '@volund/app-runtime'
 import type { AskPromptController, InteractiveAskRequest } from '@volund/app-runtime'
+import type { SessionReflectionPort } from '@volund/app-runtime'
 import type { CoreEvent, EventBus } from '@volund/core'
 import {
   contentPartChipLabel,
@@ -212,6 +213,8 @@ export interface InteractiveAppOptions {
   subagents?: SubagentsPanelController
   /** W-08 对齐：/changes 会话变更面板控制器（BackupStore 背书）。 */
   changes?: ChangesPanelController
+  /** §21 动态反思门面（/reflect 命令族后端）；缺省时命令显示为不可用。 */
+  reflection?: SessionReflectionPort
   modelPicker?: ModelPickerState
   noColor?: boolean
   /**
@@ -1067,6 +1070,74 @@ export function InteractiveApp(options: InteractiveAppOptions) {
             },
           }
         : unavailableSlashCommand('sessions', 'Delete a saved session', 160),
+      // §21 动态反思：/reflect 命令族（manual 触发绕过 cooldown；on/off 是会话级开关）。
+      options.reflection
+        ? {
+            name: 'reflect',
+            order: 165,
+            description: 'Dynamic reflection: run now, toggle, or browse session lessons',
+            run: async ({ args }) => {
+              const [verb, id, scope] = args
+              const reflection = options.reflection!
+              if (!verb || verb === 'help')
+                return 'usage: /reflect now|on|off|list|show <id>|save <id> [global|project]|rm <id>|clear'
+              if (verb === 'now') {
+                const result = await reflection.runNow()
+                return result.ok
+                  ? `reflection complete: ${result.lessonCount} lesson(s) captured — injected into the next turn`
+                  : `reflection skipped: ${result.reason} (/reflect on to enable, /reflect now retries)`
+              }
+              if (verb === 'on') {
+                reflection.setEnabled(true)
+                return 'reflection enabled for this session'
+              }
+              if (verb === 'off') {
+                reflection.setEnabled(false)
+                return 'reflection disabled for this session'
+              }
+              if (verb === 'list') {
+                const lessons = reflection.list()
+                if (lessons.length === 0) return 'no reflection lessons in this session yet'
+                return lessons
+                  .map(
+                    (lesson) =>
+                      `- [${lesson.id}] ${lesson.title} (${lesson.confidence}${lesson.promoted ? ', saved' : ''})`,
+                  )
+                  .join('\n')
+              }
+              if (verb === 'show') {
+                if (!id) return 'usage: /reflect show <id>'
+                const lesson = reflection.show(id)
+                if (!lesson) return `lesson not found: ${id}`
+                return [
+                  `[${id}] ${lesson.title} (confidence: ${lesson.confidence})`,
+                  lesson.body,
+                  `evidence: ${lesson.evidenceTurnIds.join(', ') || 'none'}`,
+                ].join('\n')
+              }
+              if (verb === 'save') {
+                if (!id) return 'usage: /reflect save <id> [global|project]'
+                const result = await reflection.save(id, scope === 'global' ? 'global' : 'project')
+                return result.ok
+                  ? `lesson ${id} saved to ${scope === 'global' ? 'workspace' : 'project'} memory (${result.memoryId})`
+                  : `save failed: ${result.reason}`
+              }
+              if (verb === 'rm') {
+                if (!id) return 'usage: /reflect rm <id>'
+                return reflection.remove(id) ? `lesson ${id} removed` : `lesson not found: ${id}`
+              }
+              if (verb === 'clear') {
+                reflection.clear()
+                return 'reflection lessons cleared'
+              }
+              return 'usage: /reflect now|on|off|list|show <id>|save <id> [global|project]|rm <id>|clear'
+            },
+          }
+        : unavailableSlashCommand(
+            'reflect',
+            'Dynamic reflection: run now, toggle, or browse session lessons',
+            165,
+          ),
     ]
     return sortSlashCommands([...commands, ...(options.slashCommands ?? []), ...registryCommands])
   }, [
@@ -1079,6 +1150,7 @@ export function InteractiveApp(options: InteractiveAppOptions) {
     options.skills,
     options.mcp,
     options.changes,
+    options.reflection,
     activeOnExit,
     options.resume,
     options.slashCommands,

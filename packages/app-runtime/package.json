@@ -47,6 +47,7 @@
     "@volund/plugin-runtime": "workspace:*",
     "@volund/plugin-sdk": "workspace:*",
     "@volund/provider-kit": "workspace:*",
+    "@volund/router": "workspace:*",
     "@volund/shared": "workspace:*",
     "@volund/skills-runtime": "workspace:*",
     "@volund/storage": "workspace:*",
@@ -54,7 +55,8 @@
     "@volund/telemetry": "workspace:*",
     "@volund/tool-kit": "workspace:*",
     "@volund/tools": "workspace:*",
-    "uuid": "catalog:"
+    "uuid": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

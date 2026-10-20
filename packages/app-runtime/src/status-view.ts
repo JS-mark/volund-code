@@ -11,7 +11,7 @@ export interface SandboxDisclosure {
 
 import type { WelcomePanelData } from './welcome'
 
-export type StatusTabId = 'settings' | 'status' | 'config' | 'usage' | 'stats'
+export type StatusTabId = 'settings' | 'status' | 'config' | 'usage' | 'stats' | 'reflection'
 export type StatusValue = boolean | number | string
 export type StatusConfigKind = 'boolean' | 'enum' | 'number' | 'string'
 
@@ -41,6 +41,17 @@ export interface StatusUsageData {
     strategy: 'auto' | 'off'
     hitRate?: number
   }
+}
+
+/** §21 Reflection 页签数据（宿主未装配反思控制器时缺省，整页签不渲染）。 */
+export interface StatusReflectionData {
+  enabled: boolean
+  triggers: { onError: boolean; onCompact: boolean; everyNTurns: number }
+  cooldownSeconds: number
+  budget: { usedTokens: number; totalTokens: number }
+  lessonCount: number
+  lastRun?: { trigger: string; lessonCount: number; durationMs: number }
+  running: boolean
 }
 
 export type StatsRangeId = 'all' | '7d' | '30d'
@@ -127,6 +138,8 @@ export interface StatusPanelData {
   config: readonly StatusConfigItem[]
   /** 缺省 = 当前会话用量不可用（如 welcome fallback 路径）。 */
   usage?: StatusUsageData
+  /** §21：缺省 = 未装配反思（整页签不渲染，不是显示空值）。 */
+  reflection?: StatusReflectionData
   /** 缺省 = 历史统计未加载（无 sessions 目录或端口未接）。 */
   stats?: StatusStatsData
   /**
@@ -217,6 +230,8 @@ export interface StatusViewModel {
     /** cacheRead ÷ (cacheRead + input)；无缓存读时缺省（渲染 n/a，不用 0 冒充）。 */
     hitRate?: number
   }
+  /** §21 Reflection 区：宿主未装配反思控制器时缺省（整区不渲染，不是显示空值）。 */
+  reflection?: StatusReflectionData
 }
 
 export interface StatusSetting {

@@ -101,6 +101,7 @@ export type {
 } from './memory-panel'
 export * from './status-view'
 export * from './welcome'
+export * from './reflection'
 export { buildStatusViewModel, createStatusSnapshotAdapter, runtimeStatusData } from './status'
 export type {
   StatusPluginTabLike,

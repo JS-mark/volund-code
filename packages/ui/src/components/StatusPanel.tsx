@@ -5,6 +5,7 @@ import type { StatusPanelController, StatusPanelData, StatusTabId, StatusValue }
 import { sanitizePluginTabs, validateStatusConfigValue } from '../status'
 import { PanelFrame } from './PanelFrame'
 import { PluginTabView } from './PluginTabView'
+import { ReflectionView } from './ReflectionView'
 import { StatsView } from './StatsView'
 import { TabBar } from './TabBar'
 import { UsageView } from './UsageView'
@@ -29,6 +30,7 @@ const TAB_HINTS: Record<StatusTabId, string> = {
   config: 'Tab/←/→ switch  ↑/↓ move  Enter edit  Esc close',
   usage: 'Tab/←/→ switch  Esc close',
   stats: 'Tab/←/→ switch  ↑/↓ switch view  r cycle range  Esc close',
+  reflection: 'Tab/←/→ switch  Esc close',
 }
 
 const PLUGIN_TAB_HINT = 'Tab/←/→ switch  Esc close'
@@ -46,8 +48,13 @@ export function StatusPanel({ controller, data: initialData, onClose }: StatusPa
   // 被拒绝的描述符降级为一行 section error，不影响内核页签。
   const pluginTabs = useMemo(() => sanitizePluginTabs(data.pluginTabs ?? []), [data.pluginTabs])
   const tabs = useMemo(
-    () => [...CORE_TABS, ...pluginTabs.map((tab) => ({ id: tab.id, label: tab.label }))],
-    [pluginTabs],
+    () => [
+      ...CORE_TABS,
+      // §21：反思未装配时整页签不渲染（不是显示空值）。
+      ...(data.reflection ? [{ id: 'reflection' as const, label: 'Reflection' }] : []),
+      ...pluginTabs.map((tab) => ({ id: tab.id, label: tab.label })),
+    ],
+    [pluginTabs, data.reflection],
   )
   const activePluginTab = pluginTabs.find((tab) => tab.id === active)
   const isRowTab = active === 'settings' || active === 'status' || active === 'config'
@@ -151,6 +158,8 @@ export function StatusPanel({ controller, data: initialData, onClose }: StatusPa
         <UsageView {...(data.usage ? { usage: data.usage } : {})} />
       ) : active === 'stats' ? (
         <StatsView columns={stdout.columns ?? 80} {...(data.stats ? { stats: data.stats } : {})} />
+      ) : active === 'reflection' ? (
+        <ReflectionView {...(data.reflection ? { reflection: data.reflection } : {})} />
       ) : activePluginTab ? (
         <PluginTabView columns={stdout.columns ?? 80} tab={activePluginTab} />
       ) : (

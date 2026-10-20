@@ -335,6 +335,40 @@ export function isTranscriptToolEntry(item: TranscriptItem): item is TranscriptT
 }
 
 /**
+ * §21 动态反思的会话门面（v1 core 实现）：TUI `/reflect` 命令族经它操作控制器，
+ * 远端（web/gateway）后续同接口接入。宿主装配注入；headless 会话可省略。
+ */
+export interface ReflectionLessonView {
+  id: string
+  title: string
+  confidence: 'low' | 'medium' | 'high'
+  createdAt: number
+  promoted?: { memoryId: string; scope: 'global' | 'project' }
+}
+
+export interface SessionReflectionPort {
+  runNow(): Promise<{ ok: boolean; lessonCount?: number; reason?: string }>
+  setEnabled(enabled: boolean): void
+  list(): readonly ReflectionLessonView[]
+  show(id: string):
+    | {
+        title: string
+        body: string
+        tags: readonly string[]
+        confidence: 'low' | 'medium' | 'high'
+        evidenceTurnIds: readonly string[]
+        createdAt: number
+      }
+    | undefined
+  save(
+    id: string,
+    scope: 'global' | 'project',
+  ): Promise<{ ok: boolean; memoryId?: string; reason?: string }>
+  remove(id: string): boolean
+  clear(): void
+}
+
+/**
  * 一个进行中的会话句柄（SessionController 的返回值）。
  * `TStatusView` 由宿主装配决定：CLI 传 StatusViewModel；Web 在 P1-06 状态视图
  * 模型迁入前使用各自视图类型。
@@ -388,6 +422,8 @@ export interface InteractiveSession<TStatusView = unknown> {
    * 会话不在场/handle 不存在时回 undefined（调用方按 404 处理）。
    */
   readAttachment?(handle: string): Promise<{ mime: string; bytes: Uint8Array } | undefined>
+  /** §21 /reflect 命令族的操作面（宿主未装配反思时缺省，UI 隐藏命令）。 */
+  reflection?: SessionReflectionPort
   submit(input: string, options?: SubmitOptions): Promise<void>
   /**
    * 等待在途 turn 落锁（turn 终态事件先于互斥释放出站——客户端收到终态立即

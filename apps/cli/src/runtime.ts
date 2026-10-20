@@ -43,7 +43,10 @@ import {
   ProductionPermissionSessionPolicy,
   SessionController,
   projectMemoryScope,
+  reflectionPortOf,
   sessionMemoryScope,
+  ReflectionController,
+  resolveReflectionConfig,
   workspaceMemoryScope,
 } from '@volund/app-runtime'
 import type { MemoryConsolidationModel } from '@volund/app-runtime'
@@ -1171,6 +1174,16 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // 记忆自动沉淀：进程收口时取最后一个活跃会话（end()/信号路径不经过这里）。
   let lastRunner: Runner | undefined
   let consolidationModel: MemoryConsolidationModel | undefined
+  // §21 反思（v1）：单活动根会话的反思控制器（status 探针 + onEnd 清理共用）；
+  // §3.2 Prompt Cache 探针：当前会话主 provider 的缓存能力 + [cache] 生效策略。
+  let activeReflection: ReflectionController | undefined
+  let activeCacheInfo:
+    | {
+        provider: string
+        capability: 'ephemeral' | 'persistent' | 'none'
+        strategy: 'auto' | 'off'
+      }
+    | undefined
   const createRunner: RunnerFactory = async (state, events, agent, overrides) => {
     const permissionSnapshot = permissionPolicy.snapshotFor(state)
     // A manager per Runner is intentional: child sessions cannot inherit parent permission cache.
@@ -1572,6 +1585,20 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         )
       }
     }
+    // [cache]（§3.2）：prompt cache 策略——auto（默认）按 provider 能力注入断点，
+    // off 关闭；ttl_seconds 只对支持 TTL 档的 provider 生效（Anthropic 5m/1h）。
+    const cacheSection = userConfig.cache
+    const cacheConfig =
+      cacheSection && typeof cacheSection === 'object' && !Array.isArray(cacheSection)
+        ? (cacheSection as Record<string, JsonValue>)
+        : {}
+    const cacheStrategy = cacheConfig.strategy === 'off' ? 'off' : 'auto'
+    const cacheTtlSeconds = cacheConfig.ttl_seconds === 3600 ? 3600 : undefined
+    activeCacheInfo = {
+      provider: client.name,
+      capability: client.capabilities.cache,
+      strategy: cacheStrategy,
+    }
     let router: RouterPolicy = new SingleProviderRouter(
       client,
       options.model ?? configuredModel ?? 'claude-sonnet-4-20250514',
@@ -1881,6 +1908,11 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         ...(agent?.definition.maxTurns ? { maxToolLoopsPerTurn: agent.definition.maxTurns } : {}),
         ...(overrides?.budget ? { budget: overrides.budget } : {}),
         ...(overrides?.taskRun ? { taskRun: overrides.taskRun } : {}),
+        // §3.2 prompt cache：策略进 Runner，按目标 provider 能力门控注入 request.cache。
+        cache: {
+          strategy: cacheStrategy,
+          ...(cacheTtlSeconds ? { ttlSeconds: cacheTtlSeconds } : {}),
+        },
       },
       contextPolicy,
     )
@@ -1888,6 +1920,39 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     // 子代理会话（SubagentDispatcher 同样经此工厂创建）不覆盖，否则沉淀会
     // 提炼子代理的任务转录而不是父会话的用户交互。
     if (!state.lineage?.parentSessionId) lastRunner = runner
+    // §21 动态反思 v1：只挂根会话（子代理不反思、不触发、不注入）。fragment
+    // priority=700（低于 builtin 1000/skill 800，§21.6）；composer 缓存经
+    // onNotesChanged invalidate，下一次 compose 重新组装进 system prompt。
+    if (state.lineage.depth === 0) {
+      activeReflection?.dispose()
+      const reflectionConfig = resolveReflectionConfig(userConfig.reflection)
+      const reflection = new ReflectionController({
+        state: () => runner.state,
+        events,
+        router,
+        config: reflectionConfig,
+        onNotesChanged: () => composer.invalidate(),
+        saveLesson: async (lesson, scope) => {
+          const record = await memory.create({
+            scope: scope === 'global' ? workspaceMemoryScope() : projectMemoryScope(state.cwd),
+            content: `${lesson.title}\n\n${lesson.body}`,
+            tags: [...lesson.tags, 'reflection'],
+            provenance: { source: 'agent', sourceId: `reflection:${lesson.id}` },
+          })
+          return record.id
+        },
+        logger,
+      })
+      reflection.attach()
+      composer.register({
+        id: 'reflection-notes',
+        source: 'reflection',
+        priority: 700,
+        when: () => reflection.notes() !== '',
+        text: () => reflection.notes(),
+      })
+      activeReflection = reflection
+    }
     return runner
   }
   // [subagent] 限制（§2.7.2）：默认 3 / 4 / 固定预算，用户级 config 的
@@ -1922,7 +1987,14 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     onEnd: async (sessionId) => {
       permissionPolicy.releaseLineage(sessionId)
       await memory.flush()
+      // §21：会话收口即反思控制器收口（在途 reflector abort、事件退订）。
+      if (activeReflection) {
+        activeReflection.dispose()
+        activeReflection = undefined
+      }
     },
+    // §21 /reflect 命令族的操作面（单活动会话模型：port 跟随 activeReflection）。
+    reflectionPort: () => (activeReflection ? reflectionPortOf(activeReflection) : undefined),
     // 删除会话档案后的备份清理（/undo、restore 的数据源一并回收）。
     onDelete: async (sessionId) => {
       await backups.purgeSession(sessionId)
@@ -1945,6 +2017,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
     },
     statusSnapshot: createStatusSnapshotAdapter({
       version: options.identity.version,
+      cachePolicy: () => activeCacheInfo,
+      reflection: () => activeReflection?.snapshot(),
       dangerousPermissions: (state) =>
         permissionPolicy.snapshotForSession(state.id)?.dangerouslySkip ?? false,
       permissionMode: (state) =>
@@ -2000,7 +2074,13 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const configDomain = createConfigDomain({
     home,
     logger,
-    statusRuntime: { ...options, webConsoleUrl: () => webConsoleUrl },
+    statusRuntime: {
+      ...options,
+      webConsoleUrl: () => webConsoleUrl,
+      // §11.3.14 Prompt Cache 区 + §21 Reflection 页签探针（活跃会话实时值）。
+      cachePolicy: () => activeCacheInfo,
+      reflection: () => activeReflection?.snapshot(),
+    },
     localPluginHub,
   })
   const nativeDomain = createNativeDomain({

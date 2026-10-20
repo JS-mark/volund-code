@@ -1369,6 +1369,8 @@ export async function runCli(
           : {}),
         // §7.5.3：@ picker 的文件候选源。
         ...(interactive.listFiles ? { listFiles: () => interactive.listFiles!() } : {}),
+        // §21 /reflect 命令族后端（headless / 未装配反思的会话缺省隐藏）。
+        ...(interactive.reflection ? { reflection: interactive.reflection } : {}),
         onSubmit: interactive.submit,
         // 队列补发等锁：turn 终态事件先于互斥释放出站，补发先 whenTurnSettled 再
         // submit（缺省 = 旧宿主 facade，TUI 按直接提交回退）。
@@ -1418,6 +1420,7 @@ export async function runCli(
                   ? { onAttachFilePath: (path: string) => resumed.attachFilePath!(path) }
                   : {}),
                 ...(resumed.listFiles ? { listFiles: () => resumed.listFiles!() } : {}),
+                ...(resumed.reflection ? { reflection: resumed.reflection } : {}),
                 onSubmit: resumed.submit,
                 ...(resumed.whenTurnSettled
                   ? { whenTurnSettled: () => resumed.whenTurnSettled!() }

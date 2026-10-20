@@ -125,7 +125,7 @@ export const configKeyRegistry = {
   // ttl_seconds 只在 provider 支持 TTL 档时生效（Anthropic 5m/1h）。
   'cache.strategy': 'allowed',
   'cache.ttl_seconds': 'allowed',
-  // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
+  // [reflection] §21 动态反思（v1：core 侧行为已接线；K1 插件化迁移排 L4）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
   'reflection.triggers.on_compact': 'allowed',
@@ -382,7 +382,7 @@ export const ConfigSchema = z.strictObject({
       ttl_seconds: z.union([z.literal(300), z.literal(3600)]).optional(),
     })
     .optional(),
-  // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地
+  // §21 动态反思（v1：core/app-runtime 侧行为已接线，K1 插件化迁移排 L4）
   reflection: z
     .strictObject({
       enabled: z.boolean().optional(),
