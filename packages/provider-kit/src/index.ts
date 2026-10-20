@@ -112,7 +112,8 @@ export function assertStreamResumeSupported(
 }
 export interface RawMeta {
   anthropic?: {
-    cacheControl?: { type: 'ephemeral' }[]
+    /** 逐消息显式 cache 断点（按 messages 下标对齐）；带该标记的消息不再吃自动断点。 */
+    cacheControl?: { type: 'ephemeral'; ttl?: '5m' | '1h' }[]
     metadata?: { user_id?: string }
     computerUse?: { displayWidth: number; displayHeight: number }
   }

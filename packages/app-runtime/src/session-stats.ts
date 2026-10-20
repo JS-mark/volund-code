@@ -168,10 +168,11 @@ export async function scanSessionsDir(sessionsDir: string): Promise<SessionScan[
   return scans.filter((scan): scan is SessionScan => !!scan && scan.events > 0)
 }
 
-/** /status → Usage：当前会话的实时用量（wall 时长算到 now）。 */
+/** /status → Usage：当前会话的实时用量（wall 时长算到 now）。cachePromptCache = §11.3.14 探针。 */
 export function buildUsageData(
   scan: SessionScan | undefined,
   now: number,
+  promptCache?: { capability?: 'ephemeral' | 'persistent' | 'none'; strategy: 'auto' | 'off' },
 ): StatusUsageData | undefined {
   if (!scan || !scan.firstAt) return undefined
   const openApiMs = scan.openStreamStartedAt
@@ -189,6 +190,21 @@ export function buildUsageData(
       cacheRead: scan.tokens.cacheRead,
       cacheWrite: scan.tokens.cacheWrite,
     },
+    ...(promptCache
+      ? {
+          cache: {
+            ...(promptCache.capability ? { capability: promptCache.capability } : {}),
+            strategy: promptCache.strategy,
+            // 命中率（§11.3.14 口径）：cacheRead ÷ (cacheRead + input)；无缓存读时不
+            // 造 0——渲染层显示 n/a。
+            ...(scan.tokens.cacheRead + scan.tokens.input > 0
+              ? {
+                  hitRate: scan.tokens.cacheRead / (scan.tokens.cacheRead + scan.tokens.input),
+                }
+              : {}),
+          },
+        }
+      : {}),
   }
 }
 

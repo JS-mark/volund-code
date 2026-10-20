@@ -38,6 +38,14 @@ export interface StatusRuntimeOptions {
   readonly model?: string | undefined
   /** §22 W-01：嵌入式/显式 Web 控制台的运行中 URL（未启动时 undefined）。 */
   readonly webConsoleUrl?: (() => string | undefined) | undefined
+  /** §11.3.14 Prompt Cache 区探针：活跃会话主 provider 的缓存能力 + [cache] 策略。 */
+  readonly cachePolicy?:
+    | (() => {
+        provider: string
+        capability: 'ephemeral' | 'persistent' | 'none'
+        strategy: 'auto' | 'off'
+      } | undefined)
+    | undefined
 }
 
 const statusSecretKeyPattern =
@@ -66,6 +74,12 @@ export interface StatusViewModelInput {
   authConfigured?: boolean
   authMethod?: 'keychain' | 'encrypted_file' | 'env'
   memoryMode?: string
+  /** §11.3.14 Prompt Cache 区数据源：当前生效 provider 的缓存能力 + [cache] 策略。 */
+  cache?: {
+    provider: string
+    capability: 'ephemeral' | 'persistent' | 'none'
+    strategy: 'auto' | 'off'
+  }
   settings?: readonly StatusSetting[]
   configSources?: readonly StatusSource[]
   mcpServers?: readonly string[]
@@ -195,6 +209,30 @@ export function buildStatusViewModel(input: StatusViewModelInput): StatusViewMod
       context: { ...input.state.contextBudget },
       costUSD: input.state.cumulativeUsage.costUSD,
     },
+    // 命中率按 spec §11.3.14 口径：cacheRead ÷ (cacheRead + input)（Anthropic 的
+    // input_tokens 不含缓存命中部分）；无缓存读时缺省，渲染层显示 n/a 不冒 0。
+    cache: {
+      capability: input.cache
+        ? { status: 'available', value: input.cache.capability }
+        : statusUnavailable('cache_capability_unavailable'),
+      strategy: input.cache?.strategy ?? 'auto',
+      tokens: {
+        ...(input.state.cumulativeUsage.cacheRead === undefined
+          ? {}
+          : { cacheRead: input.state.cumulativeUsage.cacheRead }),
+        ...(input.state.cumulativeUsage.cacheWrite === undefined
+          ? {}
+          : { cacheWrite: input.state.cumulativeUsage.cacheWrite }),
+      },
+      ...(input.state.cumulativeUsage.cacheRead !== undefined &&
+      input.state.cumulativeUsage.cacheRead + input.state.cumulativeUsage.input > 0
+        ? {
+            hitRate:
+              input.state.cumulativeUsage.cacheRead! /
+              (input.state.cumulativeUsage.cacheRead! + input.state.cumulativeUsage.input),
+          }
+        : {}),
+    },
   }
 }
 
@@ -205,6 +243,14 @@ export interface StatusSnapshotAdapterOptions {
   dangerousPermissions(state: SessionState): boolean
   /** §4.4 当前生效的三档模式（活动会话优先，否则该会话冻结快照/默认 ask）。 */
   permissionMode(state: SessionState): PermissionSessionMode
+  /** §11.3.14 Prompt Cache 区探针（宿主按活跃会话注入；缺省显示 unavailable）。 */
+  cachePolicy?:
+    | (() => {
+        provider: string
+        capability: 'ephemeral' | 'persistent' | 'none'
+        strategy: 'auto' | 'off'
+      } | undefined)
+    | undefined
 }
 
 export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOptions) {
@@ -213,6 +259,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       options.sandbox(),
       options.configAvailable(),
     ])
+    const cacheProbe = options.cachePolicy?.()
     return buildStatusViewModel({
       state,
       version: options.version,
@@ -220,6 +267,7 @@ export function createStatusSnapshotAdapter(options: StatusSnapshotAdapterOption
       dangerousPermissions: options.dangerousPermissions(state),
       permissionMode: options.permissionMode(state),
       configSources: userConfigAvailable ? ['default', 'user'] : ['default'],
+      ...(cacheProbe ? { cache: cacheProbe } : {}),
     })
   }
 }
@@ -316,7 +364,14 @@ export async function runtimeStatusData(
         join(sessionsDir, `${input.sessionId}.jsonl`),
         input.sessionId,
       )
-      usage = buildUsageData(sessionScan, Date.now())
+      const cacheProbe = options.cachePolicy?.()
+      usage = buildUsageData(
+        sessionScan,
+        Date.now(),
+        cacheProbe
+          ? { capability: cacheProbe.capability, strategy: cacheProbe.strategy }
+          : { strategy: 'auto' },
+      )
     } catch {
       usage = undefined
     }

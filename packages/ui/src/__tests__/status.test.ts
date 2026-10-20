@@ -105,6 +105,12 @@ describe('status view model formatter', () => {
         context: { currentTokens: 10, maxTokens: 100 },
         costUSD: 0.01,
       },
+      cache: {
+        capability: { status: 'available', value: 'ephemeral' },
+        strategy: 'auto',
+        tokens: { cacheRead: 3, cacheWrite: 1 },
+        hitRate: 0.75,
+      },
     }
 
     const sections = buildStatusSections(view)
@@ -208,6 +214,11 @@ function minimalView(overrides: Partial<StatusViewModel> = {}): StatusViewModel 
       tokens: { input: 0, output: 0 },
       context: { currentTokens: 0, maxTokens: 0 },
       costUSD: 0,
+    },
+    cache: {
+      capability: { status: 'not_available', reason: { code: 'cache_capability_unavailable' } },
+      strategy: 'auto',
+      tokens: {},
     },
     ...overrides,
   }

@@ -35,6 +35,12 @@ export interface StatusUsageData {
   linesAdded: number
   linesRemoved: number
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
+  /** §11.3.14 Prompt Cache：能力位/策略/命中率（capability 缺省 = 探针不可用，渲染 n/a）。 */
+  cache?: {
+    capability?: 'ephemeral' | 'persistent' | 'none'
+    strategy: 'auto' | 'off'
+    hitRate?: number
+  }
 }
 
 export type StatsRangeId = 'all' | '7d' | '30d'
@@ -202,6 +208,14 @@ export interface StatusViewModel {
     tokens: { input: number; output: number; cacheRead?: number; cacheWrite?: number }
     context: { currentTokens: number; maxTokens: number; lastCompactedAt?: string }
     costUSD: number
+  }
+  /** §3.2/§11.3.14 Prompt Cache 区：能力位 + 生效策略 + 累计缓存 token + 命中率。 */
+  cache: {
+    capability: StatusAvailability<'ephemeral' | 'persistent' | 'none'>
+    strategy: 'auto' | 'off'
+    tokens: { cacheRead?: number; cacheWrite?: number }
+    /** cacheRead ÷ (cacheRead + input)；无缓存读时缺省（渲染 n/a，不用 0 冒充）。 */
+    hitRate?: number
   }
 }
 

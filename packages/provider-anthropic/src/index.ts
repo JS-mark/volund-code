@@ -118,6 +118,61 @@ export const anthropicCapabilities: ProviderCapabilities = {
   interleavedThinking: true,
 }
 
+export type AnthropicCacheControl = { type: 'ephemeral'; ttl?: '5m' | '1h' }
+
+/** Anthropic 每 请求 允许的 cache_control 断点上限（§3.4：超出即被 API 拒绝）。 */
+const MAX_CACHE_BREAKPOINTS = 4
+
+export interface AnthropicCachePlan {
+  system?: AnthropicCacheControl
+  tools?: AnthropicCacheControl
+  /** 与请求 messages 下标对齐的逐消息断点（undefined = 该消息不打标）。 */
+  messages: readonly (AnthropicCacheControl | undefined)[]
+}
+
+function cacheControlOf(ttlSeconds?: number): AnthropicCacheControl {
+  return ttlSeconds === 3600 ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
+}
+
+/**
+ * §3.2/§3.4：把通用 request.cache 翻译成 Anthropic cache_control 断点计划。
+ * 稳定前缀优先打标（tools → system → 最后一条消息），rawMeta 逐消息显式标记
+ * 优先（带标记的消息跳过自动断点）；总断点数（含 rawMeta）不超过 4。
+ * capabilities.cache === 'none' 或 strategy off/缺省 → undefined（不注入）。
+ */
+export function anthropicCachePlan(
+  request: ProviderRequest,
+  capabilities: ProviderCapabilities,
+): AnthropicCachePlan | undefined {
+  if (capabilities.cache === 'none') return undefined
+  if (!request.cache || request.cache.strategy === 'off') return undefined
+  const control = cacheControlOf(request.cache.ttlSeconds)
+  const raw = request.rawMeta?.anthropic?.cacheControl
+  const messages: (AnthropicCacheControl | undefined)[] = request.messages.map((_message, index) =>
+    raw?.[index] ? { ...raw[index] } : undefined,
+  )
+  let budget = MAX_CACHE_BREAKPOINTS - messages.filter((mark) => mark !== undefined).length
+  const plan: AnthropicCachePlan = { messages }
+  if (budget > 0 && request.tools && request.tools.length > 0) {
+    plan.tools = control
+    budget -= 1
+  }
+  if (budget > 0 && request.system) {
+    plan.system = control
+    budget -= 1
+  }
+  if (budget > 0) {
+    // 最后一条未带 rawMeta 标记的消息拿对话尾断点（增量前缀随回合稳定增长）。
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index] === undefined) {
+        messages[index] = control
+        break
+      }
+    }
+  }
+  return plan
+}
+
 async function attachmentData(
   source: AttachmentRef,
   mime: string,
@@ -165,14 +220,23 @@ async function content(
 export async function toAnthropicMessages(
   messages: readonly Message[],
   attachments?: AttachmentPort,
+  cacheControl?: readonly (AnthropicCacheControl | undefined)[],
 ): Promise<Array<Record<string, unknown>>> {
   return Promise.all(
     messages
       .filter((message) => message.role !== 'system')
-      .map(async (message) => ({
-        role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: await Promise.all(message.content.map((part) => content(part, attachments))),
-      })),
+      .map(async (message, index) => {
+        const blocks = await Promise.all(message.content.map((part) => content(part, attachments)))
+        const mark = cacheControl?.[index]
+        // 断点打在消息最后一个 content block 上（Anthropic 语义：标记 block 及其
+        // 之前的整个前缀可被缓存命中）。
+        const last = blocks.at(-1)
+        if (mark && last) (last as Record<string, unknown>).cache_control = mark
+        return {
+          role: message.role === 'assistant' ? 'assistant' : 'user',
+          content: blocks,
+        }
+      }),
   )
 }
 export function mapAnthropicError(
@@ -206,7 +270,14 @@ export function mapAnthropicError(
   })
 }
 
-function normalize(event: string, value: any): ProviderChunk[] {
+/** message_start.usage 的输入侧字段：官方 API 在此上报缓存读/写字段，delta 只带 output。 */
+interface StartUsage {
+  input?: number
+  cacheRead?: number
+  cacheWrite?: number
+}
+
+function normalize(event: string, value: any, startUsage?: StartUsage): ProviderChunk[] {
   if (event === 'message_start')
     return [{ kind: 'message.start', messageId: value.message?.id ?? '' }]
   if (event === 'content_block_start' && value.content_block?.type === 'tool_use')
@@ -230,22 +301,30 @@ function normalize(event: string, value: any): ProviderChunk[] {
       },
     ]
   if (event === 'content_block_stop') return [{ kind: 'tool_use.end', id: String(value.index) }]
-  if (event === 'message_delta' && value.usage)
+  if (event === 'message_delta' && value.usage) {
+    // 输入侧字段官方在 message_start.usage 上报、delta 常缺失——用 startUsage 补位；
+    // delta 自带值（部分网关把缓存字段放 delta）优先。Runner 侧 usage 语义是
+    // 「最后一个 usage chunk 为准」，因此合并在这里完成而不是发两个 chunk。
     return [
       {
         kind: 'usage',
         usage: {
-          input: value.usage.input_tokens ?? 0,
+          input: value.usage.input_tokens ?? startUsage?.input ?? 0,
           output: value.usage.output_tokens ?? 0,
           ...(value.usage.cache_read_input_tokens === undefined
-            ? {}
+            ? startUsage?.cacheRead === undefined
+              ? {}
+              : { cacheRead: startUsage.cacheRead }
             : { cacheRead: value.usage.cache_read_input_tokens }),
           ...(value.usage.cache_creation_input_tokens === undefined
-            ? {}
+            ? startUsage?.cacheWrite === undefined
+              ? {}
+              : { cacheWrite: startUsage.cacheWrite }
             : { cacheWrite: value.usage.cache_creation_input_tokens }),
         },
       },
     ]
+  }
   if (event === 'message_stop')
     return [
       {
@@ -273,6 +352,7 @@ export async function* parseAnthropicSse(
   let stopped = false
   const toolIds = new Map<number, string>()
   let partialText = ''
+  let startUsage: StartUsage | undefined
   try {
     for await (const chunk of bytes) {
       if (signal?.aborted) {
@@ -298,7 +378,22 @@ export async function* parseAnthropicSse(
         const value = JSON.parse(data.join('\n'))
         if (event === 'content_block_start' && value.content_block?.type === 'tool_use')
           toolIds.set(value.index, value.content_block.id)
-        for (const item of normalize(event, value)) {
+        // message_start.usage 是官方缓存字段的权威上报位（delta 常缺失）——先记下，
+        // 供 message_delta 合并（见 normalize）。
+        if (event === 'message_start') {
+          const usage = value.message?.usage
+          if (usage)
+            startUsage = {
+              ...(usage.input_tokens === undefined ? {} : { input: usage.input_tokens }),
+              ...(usage.cache_read_input_tokens === undefined
+                ? {}
+                : { cacheRead: usage.cache_read_input_tokens }),
+              ...(usage.cache_creation_input_tokens === undefined
+                ? {}
+                : { cacheWrite: usage.cache_creation_input_tokens }),
+            }
+        }
+        for (const item of normalize(event, value, startUsage)) {
           let mapped = item
           if (
             (item.kind === 'tool_use.delta' || item.kind === 'tool_use.end') &&
@@ -334,6 +429,19 @@ export class AnthropicClient implements ProviderClient {
   constructor(private readonly options: AnthropicClientOptions) {}
   async *stream(request: ProviderRequest, signal: AbortSignal): AsyncIterable<ProviderChunk> {
     const credential = await this.options.credentials.getCredential('anthropic')
+    const cache = anthropicCachePlan(request, this.capabilities)
+    const tools = request.tools?.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema,
+    }))
+    if (tools && tools.length > 0 && cache?.tools) {
+      ;(tools.at(-1) as Record<string, unknown>).cache_control = cache.tools
+    }
+    const system =
+      request.system && cache?.system
+        ? [{ type: 'text', text: request.system, cache_control: cache.system }]
+        : request.system
     const response = await this.options.http.request({
       url: `${this.options.baseUrl ?? 'https://api.anthropic.com'}/v1/messages`,
       method: 'POST',
@@ -344,13 +452,13 @@ export class AnthropicClient implements ProviderClient {
       },
       body: {
         model: request.model,
-        messages: await toAnthropicMessages(request.messages, this.options.attachments),
-        system: request.system,
-        tools: request.tools?.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.inputSchema,
-        })),
+        messages: await toAnthropicMessages(
+          request.messages,
+          this.options.attachments,
+          cache?.messages,
+        ),
+        system,
+        ...(tools ? { tools } : {}),
         max_tokens: request.maxTokens ?? this.capabilities.maxOutputTokens,
         stream: true,
       },

@@ -32,6 +32,25 @@ export function UsageView({ usage }: UsageViewProps) {
         `${formatCompactCount(usage.tokens.cacheRead)} cache read, ` +
         `${formatCompactCount(usage.tokens.cacheWrite)} cache write`,
     },
+    // §11.3.14 Prompt Cache 区：诚实显示——能力未知 n/a、provider 无缓存能力明说，
+    // 不用 0 冒充；命中率 = cacheRead ÷ (cacheRead + input)。
+    ...(usage.cache
+      ? [
+          {
+            label: 'Prompt cache:',
+            value:
+              (usage.cache.capability === undefined
+                ? 'n/a'
+                : usage.cache.capability === 'none'
+                  ? 'unavailable (provider)'
+                  : usage.cache.capability) +
+              ` · strategy ${usage.cache.strategy}` +
+              (usage.cache.hitRate === undefined
+                ? ' · hit rate n/a'
+                : ` · hit rate ${(usage.cache.hitRate * 100).toFixed(1)}%`),
+          },
+        ]
+      : []),
   ]
   return (
     <Box flexDirection="column" minHeight={7}>

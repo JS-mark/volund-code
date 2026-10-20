@@ -120,6 +120,11 @@ export const configKeyRegistry = {
   'tasks.max_concurrent': 'forbidden',
   'tasks.journal_retention': 'forbidden',
   'tasks.webhook_url': 'forbidden',
+  // [cache] §3.2 provider prompt cache：strategy=off 关闭断点注入（auto=按 provider
+  // 能力自动注入 ephemeral 断点；OpenAI/DeepSeek 类自动缓存 provider 不受此控）。
+  // ttl_seconds 只在 provider 支持 TTL 档时生效（Anthropic 5m/1h）。
+  'cache.strategy': 'allowed',
+  'cache.ttl_seconds': 'allowed',
   // [reflection] §21 动态反思（proposed / 行为未接线，先登记解析契约）
   'reflection.enabled': 'allowed',
   'reflection.triggers.on_error': 'allowed',
@@ -365,6 +370,16 @@ export const ConfigSchema = z.strictObject({
       journal_retention: z.number().int().min(10).max(10_000).optional(),
       // 运行终态（completed/failed）的 webhook 通知地址；daemon 投递，空缺 = 不通知。
       webhook_url: z.url().optional(),
+    })
+    .optional(),
+  // [cache]（§3.2 provider prompt cache）：strategy=off 关闭请求级断点注入；
+  // auto（默认）按 provider 能力注入（Anthropic 显式 cache_control，OpenAI/
+  // DeepSeek 自动缓存型 provider 能力为 none 不注入）。ttl_seconds 仅对支持
+  // TTL 档的 provider 生效（Anthropic：300→5m、3600→1h，缺省 5m）。
+  cache: z
+    .strictObject({
+      strategy: z.enum(['auto', 'off']).optional(),
+      ttl_seconds: z.union([z.literal(300), z.literal(3600)]).optional(),
     })
     .optional(),
   // §21 动态反思（proposed / not wired）：严格解析契约先行，行为随 §6.4.1a 落地

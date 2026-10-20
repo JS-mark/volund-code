@@ -38,6 +38,13 @@ export interface RunnerOptions {
   maxToolLoopsPerTurn?: number
   budget?: { tokenMax?: number; costUSDMax?: number; timeMsMax?: number; toolCallMax?: number }
   /**
+   * §3.2 provider prompt cache 策略（[cache] 段）。'auto'：按目标 provider 的
+   * capabilities.cache 门控注入 request.cache（none 的 provider——OpenAI/DeepSeek
+   * 自动缓存型——不发任何缓存指令）；'off'：不注入。适配器负责翻译成
+   * provider-specific 指令（Anthropic cache_control 断点）。
+   */
+  cache?: { strategy: 'auto' | 'off'; ttlSeconds?: number }
+  /**
    * W-17：daemon 触发的任务运行元数据。在场时 run() 在自己的会话流发射
    * task.started / task.completed / task.failed（附录 D.2）；缺省不发。
    * 超时击杀（daemon SIGKILL）进程即死，task.failed 不发——由 TaskStore
@@ -299,12 +306,28 @@ export class Runner {
           invalidTools: new Set(),
         }
         let interrupted = false
+        // §3.2：缓存指令只在 provider 声明缓存能力时下发；'off' 或能力 none 都不发
+        // （OpenAI/DeepSeek 的自动缓存不需要也不接受显式指令）。
+        const cacheStrategy = this.options.cache?.strategy ?? 'auto'
+        const cache =
+          cacheStrategy !== 'off' && decision.provider.capabilities.cache !== 'none'
+            ? {
+                strategy:
+                  decision.provider.capabilities.cache === 'persistent'
+                    ? ('persistent' as const)
+                    : ('ephemeral' as const),
+                ...(this.options.cache?.ttlSeconds === undefined
+                  ? {}
+                  : { ttlSeconds: this.options.cache.ttlSeconds }),
+              }
+            : undefined
         for await (const chunk of decision.provider.stream(
           {
             model: decision.model,
             messages: requestMessages,
             system,
             tools: this.tools.schemas(decision.provider),
+            ...(cache ? { cache } : {}),
           },
           signal,
         )) {
