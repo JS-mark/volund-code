@@ -28,7 +28,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 | 扩展/安全内核 | [§19](./19-plugin-kernel.md) + [§19a](./19a-capability-contract.md)：目标原则 **Everything extensible is a plugin; the security kernel is not**；single-registry raw-byte contract、signed output endorsement→CEB→CAB→独立 adoption/enable、InvocationDecisionProof → Grant → exact Broker token、Rust-owned OS brokers；**2026-09-05 起运行时内核部分已落地**：Cordis Context 树（@volund/kernel）+ 六服务（model/tools/bus/session/sandbox/ui）+ 桥上 tools/hooks/prompt/session.on 贡献面 + 内置工具按域拆分（/plugins 可见可禁用）；capability bundle 签名/catalog 与 Rust-enforced broker 仍为未交付 target claim（P0-00 deny-only fence 保持关闭） |
 | 受控自我开发  | [§18](./18-self-development.md) + §19/§19a：K3 CEB → signed human approval → PREPARED lock + independent AnchorStore ANCHORED → idempotent FINALIZED，再加 fenced Catalog/Git effects → `RELEASED_COMPLETED` history的只读 `STAGED_DISABLED` 投影；**proposed / not shipped** |
 | 自有 Harness    | [§20](./20-harness.md)：harness 作为一等架构层——四层边界、H-1…H-14 核心不变量（验收宪法，符合性另证）、一个核心 × N driver 契约（D1–D6）、HarnessSpec 行为版本快照、self-hosting 路线（H0–H2、H3a/H3b、H4）；**proposed / not shipped**，机制细则权威仍在 §2–§19 各章 |
-| 本地 Web 控制台 | [§22](./22-web-console.md)：`volund web` 本地 loopback 控制台，复用同一 app-runtime/Runner/EventBus/PermissionManager，覆盖会话、权限、扩展管理和可观测性；远程、手机、微信/企微、团队协作进入长期独立路线；**proposed / not shipped** |
+| 本地 Web 控制台 | [§22](./22-web-console.md)：本地 loopback 控制台（随 TUI 自启，`[web].enabled` 默认开），复用同一 app-runtime/Runner/EventBus/PermissionManager，覆盖会话、权限、扩展管理和可观测性；核心已落地（verified-local，W-01…W-14）；远程、手机、微信/企微、团队协作进入长期独立路线 |
 
 ---
 
@@ -64,7 +64,7 @@ Volund CLI 是 claude-code 的开源平行实现：**多模型后端的终端 AI
 | 19  | Plugin Kernel / Capability ABI v2（phase re-plan）      | [`19-plugin-kernel.md`](./19-plugin-kernel.md)                     | 动态 |
 | 20  | 自有 Harness（Self-owned Agent Harness）                | [`20-harness.md`](./20-harness.md)                                 | 动态 |
 | 21  | 动态反思（Dynamic Reflection，v1 core 已实现；K1 插件化排 L4） | [`21-dynamic-reflection.md`](./21-dynamic-reflection.md)           | 动态 |
-| 22  | Volund Web Console（本地 Web 控制台，proposed）         | [`22-web-console.md`](./22-web-console.md)                         | 动态 |
+| 22  | Volund Web Console（本地 Web 控制台，核心已落地）        | [`22-web-console.md`](./22-web-console.md)                         | 动态 |
 
 ### 附属专题文档
 

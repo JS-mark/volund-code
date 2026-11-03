@@ -1,10 +1,10 @@
 # §22 Volund Web Console（本地 Web 控制台）
 
-> **状态**：PROPOSED / NOT SHIPPED
+> **状态**：核心已落地（`verified-local`，2026-09-05…09-30 批次回写）——矩阵 W-01…W-14 全线 + P5/P6-01/02/P7-01 + tokenless entry，见 [16-capability-traceability.md](./16-capability-traceability.md) Web 行；未落残余：W-05 @-picker/slash/历史、W-16 ⌘K/axe、P6-03 幂等键、P6-05 secret audit。
 >
 > **日期**：2026-08-28
 >
-> **产品名**：`Volund Web`；命令入口为 `volund web`
+> **产品名**：`Volund Web`；入口为随 TUI 自启（`[web].enabled` 默认开，`VOLUND_WEB=0` 关闭；独立 `volund web` 子命令条款已退役）
 >
 > **参考对象**：CodeBuddy 内置 Web 服务的交互与信息架构。本文只借鉴产品能力，不复制其实现、协议或品牌。
 >
