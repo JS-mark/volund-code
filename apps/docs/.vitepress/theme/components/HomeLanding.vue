@@ -22,7 +22,7 @@ const copy = {
     lede: 'Volund is a model-agnostic AI coding CLI for your terminal. Bring the provider. Keep the context. Approve every side effect.',
     docs: 'Read the docs',
     source: 'View source',
-    preRelease: 'pre-release',
+    preRelease: 'npm release pending · build from source',
     videoLabel: 'PROMO REEL',
     videoTitle: 'Volund in 66 seconds.',
     videoNote: 'From task to permission approval, patch, and green tests — one take, sound on.',
@@ -63,7 +63,11 @@ const copy = {
     startBody:
       'Three steps to your first supervised change — every write, command, and network call asks before it happens.',
     startSteps: [
-      ['Install the CLI', 'npm install --global @volund/cli', '/docs/getting-started/install'],
+      [
+        'Build from source',
+        'pnpm install --frozen-lockfile && pnpm build',
+        '/docs/getting-started/install',
+      ],
       ['Open your repo', 'cd your-repo && volund', '/docs/getting-started/first-run'],
       [
         'Run the first task',
@@ -116,7 +120,7 @@ const copy = {
     lede: 'Volund 是运行在终端中的模型无关 AI 编程 CLI。自选模型，保留上下文，每一个副作用都由你确认。',
     docs: '阅读文档',
     source: '查看源码',
-    preRelease: '预发布',
+    preRelease: 'npm 包尚未发布 · 从源码构建',
     videoLabel: '宣传视频',
     videoTitle: '一分钟，看懂 Volund。',
     videoNote: '从下达任务到权限审批、补丁落地、测试通过 —— 66 秒一镜到底，建议开启声音。',
@@ -144,7 +148,11 @@ const copy = {
     startTitle: '你的仓库。\n你的规则。',
     startBody: '三步完成第一个受监督的改动——每次写文件、跑命令、访问网络，都会先经过你的确认。',
     startSteps: [
-      ['安装 CLI', 'npm install --global @volund/cli', '/docs/getting-started/install'],
+      [
+        '从源码构建',
+        'pnpm install --frozen-lockfile && pnpm build',
+        '/docs/getting-started/install',
+      ],
       ['进入你的仓库', 'cd your-repo && volund', '/docs/getting-started/first-run'],
       ['跑通第一个任务', 'volund "修复那个失败的测试"', '/docs/getting-started/5min-tutorial'],
     ],
@@ -216,7 +224,7 @@ const footerHref = (href) => (href.startsWith('/docs') ? localizedPath(href) : h
         </div>
         <div class="install-command" aria-label="Installation command">
           <span class="prompt-mark">$</span>
-          <code>npm install --global @volund/cli</code>
+          <code>pnpm install --frozen-lockfile && pnpm build</code>
           <span class="command-note">{{ t.preRelease }}</span>
         </div>
       </div>
