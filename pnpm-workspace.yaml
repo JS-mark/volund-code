@@ -7,11 +7,33 @@ allowBuilds:
 
 # dependabot 安全补丁：vitepress 1.x 硬绑 vite ^5（stable 线无 vite 6+），
 # 用选择性 override 只提升带漏洞的版本段，不动 catalog 的 vite ^7 与 vitest 内嵌的 vite 8。
+# 2026-11-03 批次：收 56 个 dependabot open alerts（deepmerge 无补丁除外）；
+# next 保持 16.3.8——16.4.1 的 Turbopack 仍炸 monaco CSS（229 non-ecmascript placeable asset，PR #157 证实）。
 overrides:
-  'vite@^5.4.14': 6.4.3
+  'vite@^5.4.14': 6.4.4
+  'vite@>=8.2.0 <8.2.4': 8.2.4
   'js-yaml@>=3.0.0 <3.15.2': 3.15.2
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
+  'js-yaml@>=5.0.0 <=5.4.0': 5.4.1
   '@braintree/sanitize-url@<6.0.1': 6.0.1
+  'fast-uri@>=3.0.0 <3.1.9': 3.1.9
+  'ip-address@<=10.7.3': 10.7.4
+  'handlebars@<=4.7.9': 4.7.10
+  'dompurify@<=3.4.16': 3.4.17
+  'tinypool@<2.1.2': 2.1.2
+  'source-map-js@<1.2.2': 1.2.2
+  'shell-quote@>=1.8.4 <1.11.0': 1.11.0
+  'qs@>=6.7.0 <=6.16.0': 6.16.1
+  'proxy-addr@<2.0.8': 2.0.8
+  # minimatch<11.0.1 告警不收：11 移除 matchOne 会炸 typedoc 0.28（dev 链，中危，等 typedoc 升级再收）
+  'markdown-it@>=14.0.0 <14.3.3': 14.3.3
+  'katex@>=0.11.0 <0.18.2': 0.18.2
+  'hono@>=4.12.4 <4.13.11': 4.13.11
+  '@hono/node-server@>=2.0.0 <2.1.3': 2.1.3
+  'body-parser@>=2.0.0 <2.4.0': 2.4.0
+  'compression@<1.8.2': 1.8.2
+  'brace-expansion@>=4.0.0 <5.0.12': 5.0.12
+  'sharp@<0.35.5': 0.35.5
 
 catalog:
   '@xterm/xterm': ^6.0.0
@@ -43,10 +65,10 @@ catalog:
   typescript: ^7.0.2
   uuid: ^14.0.1
   yaml: ^2.8.1
-  vitest: ^4.1.11
+  vitest: ^4.1.12
   vitepress: ^1.6.4
-  vue: ^3.5.40
-  zod: ^4.4.3
+  vue: ^3.5.42
+  zod: ^4.6.6
 
   # vscode-web 内嵌 workbench(monaco-vscode-api,同版本号绑定发布)
   '@codingame/monaco-vscode-accessibility-service-override': 36.2.7
