@@ -10,7 +10,7 @@ allowBuilds:
 # 2026-11-03 批次：收 56 个 dependabot open alerts（deepmerge 无补丁除外）；
 # next 保持 16.3.8——16.4.1 的 Turbopack 仍炸 monaco CSS（229 non-ecmascript placeable asset，PR #157 证实）。
 overrides:
-  'vite@^5.4.14': 6.4.4
+  'vite@^5.4.14': 6.4.5
   'vite@>=8.2.0 <8.2.4': 8.2.4
   'js-yaml@>=3.0.0 <3.15.2': 3.15.2
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
@@ -34,6 +34,7 @@ overrides:
   'compression@<1.8.2': 1.8.2
   'brace-expansion@>=4.0.0 <5.0.12': 5.0.12
   'sharp@<0.35.5': 0.35.5
+  'nanoid@>=3.0.0 <3.3.18': 3.3.18
 
 catalog:
   '@xterm/xterm': ^6.0.0
