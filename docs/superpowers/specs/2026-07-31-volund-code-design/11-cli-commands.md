@@ -78,17 +78,17 @@ volund chat [prompt...]
 
 **TTY / TUI 分流（强制）**：
 
-| 输入形态 | TTY | 行为 |
-|---|---:|---|
-| `volund` | 是 | 进入 Ink REPL |
-| `volund chat` | 是 | 进入 Ink REPL |
-| `volund <prompt...>` | 任意 | 单轮执行 |
-| `volund chat <prompt...>` | 任意 | 单轮执行 |
-| chat/session 流式路径 + `--json` | 任意 | NDJSON，禁止 Ink/ANSI |
-| 查询类子命令 + `--json` | 任意 | 单个 JSON payload，禁止 Ink/ANSI |
-| 有 prompt + `--no-tui` | 任意 | 单轮行输出，禁止 Ink |
-| 无 prompt + `--no-tui` | 是 | readline fallback，禁止 Ink |
-| `volund` / `volund chat` 无 prompt | 否 | 报错，不等待 stdin |
+| 输入形态                           |  TTY | 行为                             |
+| ---------------------------------- | ---: | -------------------------------- |
+| `volund`                           |   是 | 进入 Ink REPL                    |
+| `volund chat`                      |   是 | 进入 Ink REPL                    |
+| `volund <prompt...>`               | 任意 | 单轮执行                         |
+| `volund chat <prompt...>`          | 任意 | 单轮执行                         |
+| chat/session 流式路径 + `--json`   | 任意 | NDJSON，禁止 Ink/ANSI            |
+| 查询类子命令 + `--json`            | 任意 | 单个 JSON payload，禁止 Ink/ANSI |
+| 有 prompt + `--no-tui`             | 任意 | 单轮行输出，禁止 Ink             |
+| 无 prompt + `--no-tui`             |   是 | readline fallback，禁止 Ink      |
+| `volund` / `volund chat` 无 prompt |   否 | 报错，不等待 stdin               |
 
 分流优先级固定为：
 
@@ -222,6 +222,7 @@ volund mcp inspect <name>                       # 打印其暴露的 tools/resou
 - 老配置里已有明文凭据的：启动阶段扫描 → 一次性迁移到 auth 并改写 config，提示用户
 
 **★ MCP fatigue 防护（REVIEW-r6 P1-2）**：恶意/失控 MCP server 可批量暴露 tool → 每个 tool 调用都触发权限弹窗 → 疲劳轰炸用户"点 allow"。三层防护：
+
 1. **弹窗 batch 合并**：1 秒内同一 MCP server 来源的多个权限请求**合并**成一个弹窗，选项为"允许此 MCP server 全部 tool（allow-mcp-server）/ 仅本次批量（allow-batch-once）/ 逐个询问 / 拒绝此 server"。`allow-mcp-server` 写入 `permissions.mcp.<name>` 域（等价对该 server 的 tool 全 allow-session）。
 2. **per-MCP 限速**：`mcp.toml` 可配 `max_prompts_per_minute`（默认 10）；某 server 触发权限弹窗超此速率 → 后续请求自动 `deny` + telemetry `mcp.fatigue_rate_limited`，提示用户该 server 行为异常。
 3. **MCP tool 上线信任门**：`volund mcp add` 后首次连接，列出该 server 暴露的**全部 tool 清单**（名字 + 描述 + permissionSpec 摘要），用户一次性批准"信任此 server 的 tool 集"；之后新增 tool 再弹一次（防 server 偷偷加危险 tool）。
@@ -339,16 +340,16 @@ volund status [--json]                    # 查询类命令（§11.1：--json �
 
 **section 清单与字段**（面板与 `--json` 共用同一数据组装层，字段名一致）：
 
-| Section | 行 |
-|---|---|
-| Session | session id / cwd / 模型（`provider:model`，含 alias 来源）/ 运行时长 / turn 数 |
-| Context | 当前 token 估算占用 / `max_tokens` / 距压缩阈值 / 策略（同 `volund context show` 摘要） |
-| Usage & Cost | 累计 input / output token；累计 costUSD（pricing 已知时）；last-turn input / output；per-provider 分行；**reflection 归因用量单独一行**（主会话消耗与反思消耗分离，§21.4） |
-| Prompt Cache | provider cache 能力（`none` / `ephemeral` / `persistent`）；当前生效策略 + TTL（来源标注：`request.cache` 通用抽象 / `rawMeta` 覆盖 / provider 自动，§3.4）；累计 cacheRead / cacheWrite token；last-turn cacheRead / cacheWrite；命中率 = `cacheRead ÷ (cacheRead + input)`（分母为 0 时显示 `—`）；估算节省 = `cacheRead × (inputPerM − cacheReadPerM)`（pricing 缺任一值时显示 `n/a`） |
-| Tools & Permissions | 已注册 tool 数 / 本会话白名单命中数 / pending 权限请求数 |
-| Plugins & Skills | enabled 插件数 / active skill 列表 |
-| Memory | pinned 条数 / 本 session recall 次数（§6.12.11 事件计数） |
-| Reflection | **条件渲染**：仅 §21 插件 enabled 时由 ui-surface 贡献（enabled 状态 / 各 trigger / session 预算 consumed·remaining / 最近一次 run / pending job）；插件 disabled 时整区不渲染 |
+| Section             | 行                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session             | session id / cwd / 模型（`provider:model`，含 alias 来源）/ 运行时长 / turn 数                                                                                                                                                                                                                                                                                                            |
+| Context             | 当前 token 估算占用 / `max_tokens` / 距压缩阈值 / 策略（同 `volund context show` 摘要）                                                                                                                                                                                                                                                                                                   |
+| Usage & Cost        | 累计 input / output token；累计 costUSD（pricing 已知时）；last-turn input / output；per-provider 分行；**reflection 归因用量单独一行**（主会话消耗与反思消耗分离，§21.4）                                                                                                                                                                                                                |
+| Prompt Cache        | provider cache 能力（`none` / `ephemeral` / `persistent`）；当前生效策略 + TTL（来源标注：`request.cache` 通用抽象 / `rawMeta` 覆盖 / provider 自动，§3.4）；累计 cacheRead / cacheWrite token；last-turn cacheRead / cacheWrite；命中率 = `cacheRead ÷ (cacheRead + input)`（分母为 0 时显示 `—`）；估算节省 = `cacheRead × (inputPerM − cacheReadPerM)`（pricing 缺任一值时显示 `n/a`） |
+| Tools & Permissions | 已注册 tool 数 / 本会话白名单命中数 / pending 权限请求数                                                                                                                                                                                                                                                                                                                                  |
+| Plugins & Skills    | enabled 插件数 / active skill 列表                                                                                                                                                                                                                                                                                                                                                        |
+| Memory              | pinned 条数 / 本 session recall 次数（§6.12.11 事件计数）                                                                                                                                                                                                                                                                                                                                 |
+| Reflection          | **条件渲染**：仅 §21 插件 enabled 时由 ui-surface 贡献（enabled 状态 / 各 trigger / session 预算 consumed·remaining / 最近一次 run / pending job）；插件 disabled 时整区不渲染                                                                                                                                                                                                            |
 
 **实现状态（2026-10-20）**：Usage & Cost 行的 token 展示、Prompt Cache 区的能力位/策略/累计缓存 token/命中率、Reflection 区（enabled/triggers/预算/最近 run，条件渲染）已在 TUI `/status` 与 `volund status` 数据面落地（`packages/app-runtime/src/status.ts` + `packages/ui/src/components/UsageView.tsx`/`ReflectionView.tsx`）；last-turn 分行、per-provider 分行、reflection 归因独立行、估算节省（依赖 pricing 表）尚未实现，标注见各行。
 
@@ -390,61 +391,64 @@ volund web
 
 进入交互模式后，用户可用 `/` 前缀触发命令，等价于 CLI 部分子命令但**作用于当前 session**：
 
-| Slash 命令 | 等价 CLI | 说明 |
-|---|---|---|
-| `/help` | `volund help` | |
-| `/exit` / `/quit` | Ctrl+D | 退出会话 |
-| `/clear` | — | 清屏（不清 session） |
-| `/reset` | — | 清 session（保留配置） |
-| `/compact` | `volund context compact` | 手动触发上下文压缩（r10：补 CLI 交叉引用） |
-| `/context` | `volund context show` | **r10 新增**：打开 TUI `/context` 面板（实时 token 占用 + 占比 + 最近压缩 + K/C 快捷键，见 §8b.13） |
-| `/model <alias>` | `volund model use` | 切当前 session 模型 |
-| `/skill activate <name>` | `volund skill activate` | 会话内激活 skill（r1.2 补实现，另有 `deactivate` / `show` 动词） |
-| `/<skill-name> [args]` | — | **SKILLS-MCPS-r1 §S3.3a 新增**：每个 user-invocable skill 自动注册为同名命令；执行 = 一次性调用（invocation）——skill 内容 + args 任务作为用户消息进当轮对话，不持久改 prompt（Claude Code / Codex / Cursor 惯例） |
-| `/skills` | `volund skill list` | **SKILLS-MCP-r1 新增**：打开 skill 管理面板（多作用域列表 / 启停 / 激活 / 重扫描，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.3）；另有 `/skills list` 纯文本形式 |
-| `/mcp` | `volund mcp list` | **SKILLS-MCP-r1 新增**：打开 MCP server 管理面板（状态 / view tools / 启停 / 重连 / reload，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.6）；子命令 `list` / `reload` / `auth [<name>]` |
-| `/plugin list` | `volund plugin list` | |
-| `/debug prompt` | — | dump 当前 system prompt（见 §6.5.5） |
-| `/debug state` | — | dump SessionState 摘要 |
-| `/save <name>` | `volund history export` | 命名当前 session |
-| `/undo` | — | 撤销最后一次 tool 执行（若有 backup；选点规则见 §8.6.2） |
-| `/shells` | — | **r13 新增**：列出后台 shell（shellId / 命令 / 运行时长 / 输出预览），可选中 kill |
-| `/review [flags 子集]` | `volund review` | **r13 新增**：对当前 working tree 跑 code review（详见 §17） |
-| `/status` | `volund status` | **2026-08-23 新增**：打开状态面板（token 计量 + prompt 缓存状态等，§11.3.14 / §7.10） |
-| `/reflect …` | — | **2026-08-23 新增**：动态反思（`now`/`on`/`off`/`list`/`show`/`save`/`rm`/`clear`，§21.8）；仅 `volund.core.reflection` enabled 时可用，否则提示 not available（§7.9 边界语义） |
-| 用户自定义 | 插件 `volund.commands.register` | |
+| Slash 命令               | 等价 CLI                        | 说明                                                                                                                                                                                                              |
+| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/help`                  | `volund help`                   |                                                                                                                                                                                                                   |
+| `/exit` / `/quit`        | Ctrl+D                          | 退出会话                                                                                                                                                                                                          |
+| `/clear`                 | —                               | 清屏（不清 session）                                                                                                                                                                                              |
+| `/reset`                 | —                               | 清 session（保留配置）                                                                                                                                                                                            |
+| `/compact`               | `volund context compact`        | 手动触发上下文压缩（r10：补 CLI 交叉引用）                                                                                                                                                                        |
+| `/context`               | `volund context show`           | **r10 新增**：打开 TUI `/context` 面板（实时 token 占用 + 占比 + 最近压缩 + K/C 快捷键，见 §8b.13）                                                                                                               |
+| `/model <alias>`         | `volund model use`              | 切当前 session 模型                                                                                                                                                                                               |
+| `/skill activate <name>` | `volund skill activate`         | 会话内激活 skill（r1.2 补实现，另有 `deactivate` / `show` 动词）                                                                                                                                                  |
+| `/<skill-name> [args]`   | —                               | **SKILLS-MCPS-r1 §S3.3a 新增**：每个 user-invocable skill 自动注册为同名命令；执行 = 一次性调用（invocation）——skill 内容 + args 任务作为用户消息进当轮对话，不持久改 prompt（Claude Code / Codex / Cursor 惯例） |
+| `/skills`                | `volund skill list`             | **SKILLS-MCP-r1 新增**：打开 skill 管理面板（多作用域列表 / 启停 / 激活 / 重扫描，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.3）；另有 `/skills list` 纯文本形式                                            |
+| `/mcp`                   | `volund mcp list`               | **SKILLS-MCP-r1 新增**：打开 MCP server 管理面板（状态 / view tools / 启停 / 重连 / reload，见 [SKILLS-MCP-UI-r1](./SKILLS-MCP-UI-r1.md) §S3.6）；子命令 `list` / `reload` / `auth [<name>]`                      |
+| `/plugin list`           | `volund plugin list`            |                                                                                                                                                                                                                   |
+| `/debug prompt`          | —                               | dump 当前 system prompt（见 §6.5.5）                                                                                                                                                                              |
+| `/debug state`           | —                               | dump SessionState 摘要                                                                                                                                                                                            |
+| `/save <name>`           | `volund history export`         | 命名当前 session                                                                                                                                                                                                  |
+| `/undo`                  | —                               | 撤销最后一次 tool 执行（若有 backup；选点规则见 §8.6.2）                                                                                                                                                          |
+| `/rewind`                | —                               | **CHECKPOINTS-r1 新增（proposed）**：打开回卷面板（checkpoint 列表→选点→选域 both/files/conversation→确认），对话+文件双域恢复（见 [CHECKPOINTS-r1](./CHECKPOINTS-r1.md)）                                        |
+| `/checkpoint`            | —                               | **CHECKPOINTS-r1 新增（proposed）**：手动打一个会话检查点                                                                                                                                                         |
+| `/shells`                | —                               | **r13 新增**：列出后台 shell（shellId / 命令 / 运行时长 / 输出预览），可选中 kill                                                                                                                                 |
+| `/review [flags 子集]`   | `volund review`                 | **r13 新增**：对当前 working tree 跑 code review（详见 §17）                                                                                                                                                      |
+| `/status`                | `volund status`                 | **2026-08-23 新增**：打开状态面板（token 计量 + prompt 缓存状态等，§11.3.14 / §7.10）                                                                                                                             |
+| `/reflect …`             | —                               | **2026-08-23 新增**：动态反思（`now`/`on`/`off`/`list`/`show`/`save`/`rm`/`clear`，§21.8）；仅 `volund.core.reflection` enabled 时可用，否则提示 not available（§7.9 边界语义）                                   |
+| 用户自定义               | 插件 `volund.commands.register` |                                                                                                                                                                                                                   |
 
 ### 11.5 输入前缀（非 slash）
 
-| 前缀              | 语义                                                        | 详见       |
-|-------------------|-------------------------------------------------------------|------------|
-| `@`               | **统一 picker**（r9：alias 置顶 ⭐ + 文件候选 📄 跟后，前缀过滤；选中 alias→model / 选中文件→file） | §7.5.3     |
-| `@@<path>`        | 显式 **file 模式**（picker 只显示文件候选）—— 引用文件为 attachment | §7.5.3     |
-| `@!<alias>`       | 显式 **model 模式**（picker 只显示 alias 候选）—— 单次覆盖本 turn 模型 | §3.9       |
-| `#sess_<id>`      | 跨会话上下文引用（默认 `relevant` 策略，Tab 切 `handoff`）     | §7.5.4 / §8.5 |
-| `#<tag> ...`      | 标记 message（用于历史搜索）—— **必须**非 `sess_` 开头            | —          |
-| `!<cmd>`          | 直接跑 shell 命令（走 Bash tool 但跳过模型）                     | —          |
-| 拖拽 / 粘贴文件路径 | 自动附加为 attachment                                          | §7.5.2     |
-| 粘贴剪贴板图片    | 落盘到 attachments，行内插入 chip                              | §7.5.2     |
+| 前缀                | 语义                                                                                                | 详见          |
+| ------------------- | --------------------------------------------------------------------------------------------------- | ------------- |
+| `@`                 | **统一 picker**（r9：alias 置顶 ⭐ + 文件候选 📄 跟后，前缀过滤；选中 alias→model / 选中文件→file） | §7.5.3        |
+| `@@<path>`          | 显式 **file 模式**（picker 只显示文件候选）—— 引用文件为 attachment                                 | §7.5.3        |
+| `@!<alias>`         | 显式 **model 模式**（picker 只显示 alias 候选）—— 单次覆盖本 turn 模型                              | §3.9          |
+| `#sess_<id>`        | 跨会话上下文引用（默认 `relevant` 策略，Tab 切 `handoff`）                                          | §7.5.4 / §8.5 |
+| `#<tag> ...`        | 标记 message（用于历史搜索）—— **必须**非 `sess_` 开头                                              | —             |
+| `!<cmd>`            | 直接跑 shell 命令（走 Bash tool 但跳过模型）                                                        | —             |
+| 拖拽 / 粘贴文件路径 | 自动附加为 attachment                                                                               | §7.5.2        |
+| 粘贴剪贴板图片      | 落盘到 attachments，行内插入 chip                                                                   | §7.5.2        |
 
 **歧义规则**：
+
 - `#sess_` 前缀**保留给会话引用**，其它 `#` 前缀（不以 `sess_` 开头）继续作为 message tag
 - `@` 无后续字符时开**完整统一 picker**（alias 全列 + 文件候选按 gitignore 过滤）；已有 `@<非空>` 时按前缀过滤两类候选，Esc 可退出并清空；alias 与文件同名时 alias 置顶 + Tab 切 file
 - `@` 单键无后续字符时打开选择器；已有 `@<非空>` 时按当前模式（首次进入时的选择）继续补全，Esc 可退出并清空
 
 ### 11.6 边界与安全清单
 
-| 规则 | 强制点 |
-|---|---|
-| `volund login` **禁止** flag 明文传 key 到 shell history（推荐 `--api-key-stdin`） | CLI 输出警告 |
-| `--dangerously-*` / `--yolo` **必须** telemetry 记录一次 event | apps/cli 强制 |
-| **项目级 config / mcp.toml 非交互模式默认不加载**，需 `--trust-project-config`；交互模式走 §8.3.1 信任门 | apps/cli 启动流程 + 单元测试 |
-| **非交互模式**（`--no-tui` / stdin 非 TTY）**必须**拒绝加载未信任的项目级 config，避免 CI 跑恶意仓库被注入 | apps/cli + TTY 检测 |
-| CLI 命令返回码：0 成功 / 1 用户错误 / 2 系统错误 / 130 Ctrl+C | 统一约定 |
-| `volund history export` **必须**脱敏 credentials | export 函数白名单过滤 |
-| `volund plugin dev` 必须在 shell 顶栏红条提示"开发模式" | Ink 强制 |
-| 交互 slash 命令与 CLI 子命令**名字与语义保持一致** | 单元测试 |
-| citty 的自动 help **必须**支持中文（i18n 后续再做） | 先英文，i18n 归 Future |
+| 规则                                                                                                                                                                                                                                                                     | 强制点                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `volund login` **禁止** flag 明文传 key 到 shell history（推荐 `--api-key-stdin`）                                                                                                                                                                                       | CLI 输出警告                                        |
+| `--dangerously-*` / `--yolo` **必须** telemetry 记录一次 event                                                                                                                                                                                                           | apps/cli 强制                                       |
+| **项目级 config / mcp.toml 非交互模式默认不加载**，需 `--trust-project-config`；交互模式走 §8.3.1 信任门                                                                                                                                                                 | apps/cli 启动流程 + 单元测试                        |
+| **非交互模式**（`--no-tui` / stdin 非 TTY）**必须**拒绝加载未信任的项目级 config，避免 CI 跑恶意仓库被注入                                                                                                                                                               | apps/cli + TTY 检测                                 |
+| CLI 命令返回码：0 成功 / 1 用户错误 / 2 系统错误 / 130 Ctrl+C                                                                                                                                                                                                            | 统一约定                                            |
+| `volund history export` **必须**脱敏 credentials                                                                                                                                                                                                                         | export 函数白名单过滤                               |
+| `volund plugin dev` 必须在 shell 顶栏红条提示"开发模式"                                                                                                                                                                                                                  | Ink 强制                                            |
+| 交互 slash 命令与 CLI 子命令**名字与语义保持一致**                                                                                                                                                                                                                       | 单元测试                                            |
+| citty 的自动 help **必须**支持中文（i18n 后续再做）                                                                                                                                                                                                                      | 先英文，i18n 归 Future                              |
 | `--cwd <path>` **必须** `fs.realpath` 归一化，且拒绝以下路径（W6）：（a）解析到 `/` / `C:\` 等根；（b）解析到 `~` / `$HOME`；（c）解析后 symlink 逃出原参数所在文件系统或指向 `~/.volund/` / `~/.ssh/` / `/etc/` / `/private/` 等敏感前缀；违规 → exit code 1 + 错误消息 | apps/cli 启动阶段 + `packages/shared/path-guard.ts` |
 
 ### 11.7 里程碑
