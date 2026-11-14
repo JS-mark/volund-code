@@ -135,6 +135,7 @@ Turn = {
 | `context.compacted`     | 上下文压缩发生                            | ui / telemetry                                |
 | `router.switched`       | Router 切换 provider                      | ui / telemetry                                |
 | `error.raised`          | 任何异常                                  | ui / telemetry / hooks                        |
+| `checkpoint.created`    | 会话检查点打点（CHECKPOINTS-r1：turn-boundary/pre-mutation/manual；batchHead/batchCount 为 BackupStore batch 链引用） | ui / storage / telemetry |
 | `session.resumed`       | storage.loadSession 恢复（§8.2 W10，冷启动不发，恢复时替代 session.started） | ui / telemetry / hooks   |
 | `session.model_changed` | /model 钉住会话级模型（provider/model 显式 id；resume 时 replay 还原，未显式指定模型的 turn 以其为 explicitModel） | ui / storage / telemetry |
 | `reflection.scheduled`  | 反思 trigger 命中并入队（§21.3/§21.5）       | ui / storage / telemetry                |

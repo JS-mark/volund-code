@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { checkpointCreatedPayloadSchema } from './checkpoint-created'
 import { contextCompactedPayloadSchema } from './context-compacted'
 import type { EventName } from './envelope'
 import { eventEnvelopeSchema } from './envelope'
@@ -61,6 +62,7 @@ export const EVENT_SCHEMAS = {
   'context.compacted': contextCompactedPayloadSchema,
   'router.switched': routerSwitchedPayloadSchema,
   'error.raised': errorRaisedPayloadSchema,
+  'checkpoint.created': checkpointCreatedPayloadSchema,
   'reflection.scheduled': reflectionScheduledPayloadSchema,
   'reflection.started': reflectionStartedPayloadSchema,
   'reflection.completed': reflectionCompletedPayloadSchema,
@@ -110,6 +112,7 @@ export {
   type EventEnvelope,
   type EventName,
 } from './envelope'
+export { checkpointCreatedPayloadSchema, type CheckpointCreatedPayload } from './checkpoint-created'
 export { contextCompactedPayloadSchema, type ContextCompactedPayload } from './context-compacted'
 export { errorRaisedPayloadSchema, type ErrorRaisedPayload } from './error-raised'
 export { messageAppendedPayloadSchema, type MessageAppendedPayload } from './message-appended'

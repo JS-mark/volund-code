@@ -40,6 +40,7 @@ import type {
   InteractiveSession,
   PermissionInteractionMode,
   SessionCandidate,
+  SessionCheckpointsPort,
   SessionReflectionPort,
   SubmitOptions,
   TranscriptAttachment,
@@ -107,6 +108,10 @@ export interface SessionControllerOptions<TStatusView = unknown> {
   readonly statusSnapshot?: ((state: SessionState) => Promise<TStatusView>) | undefined
   /** §21 反思门面装配（宿主按会话状态取 ReflectionController 的 port；缺省无反思）。 */
   readonly reflectionPort?: ((state: SessionState) => SessionReflectionPort | undefined) | undefined
+  /** CHECKPOINTS-r1 检查点门面装配（缺省会话无 checkpoints 面，UI 隐藏入口）。 */
+  readonly checkpointsPort?:
+    | ((state: SessionState) => SessionCheckpointsPort | undefined)
+    | undefined
   /** r13-G2：后台 shell 注册表；end() 时统一 killAll。 */
   readonly background?: BackgroundShells | undefined
   readonly terminal?: SessionTerminalHost | undefined
@@ -240,6 +245,9 @@ export class SessionController<TStatusView = unknown> extends Service {
   private interactiveSession(): InteractiveSession<TStatusView> {
     // §21 反思门面：单次取 port（ReflectionController 每会话一个，实例稳定）。
     const reflection = this.options.reflectionPort?.(this.runner!.state)
+    // CHECKPOINTS-r1 CP-01：检查点门面（CheckpointController 随根会话换绑，
+    // port 闭包读活实例）。
+    const checkpoints = this.options.checkpointsPort?.(this.runner!.state)
     // transcript 必须是 getter：runner 消息随 turn 增长，对象创建期的快照会让
     // Web 端 hydrate 拿到过期（通常为空）的历史。
     const readTranscript = (): TranscriptItem[] => {
@@ -360,6 +368,7 @@ export class SessionController<TStatusView = unknown> extends Service {
         }
       },
       ...(reflection ? { reflection } : {}),
+      ...(checkpoints ? { checkpoints } : {}),
       submit: (prompt: string, submitOptions?: SubmitOptions) =>
         this.runTurnExclusive(prompt, submitOptions),
       whenTurnSettled: () => this.whenTurnSettled(),

@@ -137,6 +137,13 @@ export const configKeyRegistry = {
   'reflection.persist': 'allowed',
   'reflection.inject_max_lessons': 'allowed',
   'reflection.inject_max_bytes': 'allowed',
+  // [checkpoints] CHECKPOINTS-r1：会话检查点打点面。enabled 关 turn-boundary 自动
+  // 打点（manual/pre-mutation 不受控）；max_per_session=本进程打点上限（到顶停发
+  // turn-boundary）；retention_days 批 1 仅登记，消费方=CP-03 列出层 + BackupStore
+  // retention 联动。
+  'checkpoints.enabled': 'allowed',
+  'checkpoints.max_per_session': 'allowed',
+  'checkpoints.retention_days': 'allowed',
   // [auth] 段（§8.3.1）：skipAuth / <provider>_api_key 为显式登记的已知 key（类型错 → fail），
   // 其余 key 走开放段通配；整段一律禁止项目级覆盖（凭据只能来自用户级 config）
   'auth.skipAuth': 'forbidden',
@@ -406,6 +413,17 @@ export const ConfigSchema = z.strictObject({
       persist: z.enum(['manual', 'auto', 'off']).optional(),
       inject_max_lessons: z.number().int().optional(),
       inject_max_bytes: z.number().int().optional(),
+    })
+    .optional(),
+  // [checkpoints]（CHECKPOINTS-r1 CP-01/02）：会话检查点打点面。enabled 关掉
+  // turn-boundary 自动打点（manual/pre-mutation 不受控）；max_per_session=本进程
+  // 打点上限（默认 50，到顶停发 turn-boundary）；retention_days=保留期（默认 7，
+  // 消费方 CP-03 列出层 + BackupStore retention 联动）。
+  checkpoints: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      max_per_session: z.number().int().optional(),
+      retention_days: z.number().int().optional(),
     })
     .optional(),
   // [auth] 开放段，但 skipAuth / <provider>_api_key 是显式已知 key（§8.4）：

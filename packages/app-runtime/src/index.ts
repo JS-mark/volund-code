@@ -102,6 +102,8 @@ export type {
 export * from './status-view'
 export * from './welcome'
 export * from './reflection'
+export { CHECKPOINTS_DEFAULTS, CheckpointController, resolveCheckpointsConfig } from './checkpoints'
+export type { CheckpointChainState, CheckpointTrigger, CheckpointsConfig } from './checkpoints'
 export { buildStatusViewModel, createStatusSnapshotAdapter, runtimeStatusData } from './status'
 export type {
   StatusPluginTabLike,

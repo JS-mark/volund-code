@@ -467,12 +467,22 @@ export interface BackupStoreOptions {
   retentionMs?: number
   maxBytes?: number
   now?: () => number
+  /**
+   * CHECKPOINTS-r1 CP-01：mutation batch 提交前钩（宿主据此打 pre-mutation
+   * checkpoint）。sessionId = mutateFiles 传入的 lineage root id。钩子异常
+   * 吞掉不阻塞 mutation（best-effort，对齐 telemetry emit 语义）。
+   */
+  onPrepare?: (input: { sessionId: string }) => void | Promise<void>
+  /** mutation batch 提交后转发（batchId = stepId，checkpoint 链推进用）。 */
+  onCommit?: (input: { sessionId: string; batchId: string }) => void | Promise<void>
 }
 
 export class BackupStore {
   readonly retentionMs: number
   readonly maxBytes: number
   readonly now: () => number
+  readonly #onPrepare: BackupStoreOptions['onPrepare']
+  readonly #onCommit: BackupStoreOptions['onCommit']
   constructor(
     readonly root: string,
     options: BackupStoreOptions = {},
@@ -480,9 +490,16 @@ export class BackupStore {
     this.retentionMs = options.retentionMs ?? 7 * 24 * 60 * 60 * 1000
     this.maxBytes = options.maxBytes ?? 500 * 1024 * 1024
     this.now = options.now ?? Date.now
+    this.#onPrepare = options.onPrepare
+    this.#onCommit = options.onCommit
   }
   async prepare(sessionId: string, inputPaths: string[]) {
     validateSessionId(sessionId)
+    // CHECKPOINTS-r1：pre-mutation 打点钩在锁定后、captures 前触发；异常吞掉
+    // （best-effort——检查点失败不得阻塞用户的文件写入；同步 throw 也要吃掉）。
+    try {
+      await this.#onPrepare?.({ sessionId })
+    } catch {}
     const paths = [...new Set(inputPaths)]
     const captures = await Promise.all(
       paths.map(async (path) => {
@@ -525,6 +542,10 @@ export class BackupStore {
         )
         await this.appendRecords(sessionId, records)
         settled = true
+        // CHECKPOINTS-r1：batch 提交后转发链引用（best-effort，同步 throw 一并吃掉）。
+        try {
+          await this.#onCommit?.({ sessionId, batchId: stepId })
+        } catch {}
         await this.gc()
       },
       rollback: async () => {

@@ -128,6 +128,46 @@ describe('BackupStore', () => {
     expect(await readFile(target, 'utf8')).toBe('original')
   })
 
+  it('fires onPrepare before writes and onCommit with the batch id (CHECKPOINTS-r1 CP-01)', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      seen: string[] = []
+    await writeFile(target, 'original')
+    const store = new BackupStore(resolve(dir, 'backups'), {
+      onPrepare: ({ sessionId }) => {
+        seen.push(`prepare:${sessionId}`)
+      },
+      onCommit: ({ sessionId, batchId }) => {
+        seen.push(`commit:${sessionId}:${batchId ? 'id' : 'missing'}`)
+      },
+    })
+    const transaction = await store.prepare('session-cp', [target])
+    expect(seen).toEqual(['prepare:session-cp'])
+    await writeFile(target, 'mutated')
+    await transaction.commit()
+    expect(seen).toEqual(['prepare:session-cp', 'commit:session-cp:id'])
+  })
+
+  it('swallows checkpoint hook failures without blocking the mutation (best-effort)', async () => {
+    const dir = await temp(),
+      target = resolve(dir, 'project.txt'),
+      store = new BackupStore(resolve(dir, 'backups'), {
+        onPrepare: () => {
+          throw new Error('checkpoint hook exploded')
+        },
+        onCommit: async () => {
+          throw new Error('commit hook exploded')
+        },
+      })
+    await writeFile(target, 'original')
+    const transaction = await store.prepare('session-boom', [target])
+    await writeFile(target, 'mutated')
+    await transaction.commit()
+    expect(await readFile(target, 'utf8')).toBe('mutated')
+    await store.restore('session-boom')
+    expect(await readFile(target, 'utf8')).toBe('original')
+  })
+
   it('refuses conflicts and reports missing or corrupt manifests', async () => {
     const dir = await temp(),
       target = resolve(dir, 'project.txt'),

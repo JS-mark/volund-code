@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { jsonValueSchema } from './common'
 
 /**
- * §2.3 事件表全集（31 种；与附录 D.2 字段表一一对应）。
+ * §2.3 事件表全集（32 种；与附录 D.2 字段表一一对应）。
  * CI 强制：§2.3 表新增行而无对应 schema 文件 → fail（scripts/verify-event-schemas.mjs）。
  */
 export const EVENT_NAMES = [
@@ -29,6 +29,7 @@ export const EVENT_NAMES = [
   'context.compacted',
   'router.switched',
   'error.raised',
+  'checkpoint.created',
   'reflection.scheduled',
   'reflection.started',
   'reflection.completed',

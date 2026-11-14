@@ -28,7 +28,7 @@ import { turnStartedPayloadSchema } from '../turn-started'
 describe('EVENT_SCHEMAS registry (附录 D.2)', () => {
   it('registers exactly the 28 §2.3 event names', () => {
     expect(Object.keys(EVENT_SCHEMAS).sort()).toEqual([...EVENT_NAMES].sort())
-    expect(EVENT_NAMES).toHaveLength(31)
+    expect(EVENT_NAMES).toHaveLength(32)
   })
 
   it('pairs every envelope type with its payload contract via eventEnvelopeFor', () => {
@@ -511,6 +511,7 @@ function payloadFixture(name: (typeof EVENT_NAMES)[number]): unknown {
     'context.compacted': { before: 10, after: 5 },
     'router.switched': { from: 'openai', reason: 'error' },
     'error.raised': { code: 'unknown' },
+    'checkpoint.created': { checkpointId: 'cp_1', trigger: 'turn-boundary', batchCount: 0 },
     'reflection.scheduled': { trigger: 'on_error', turnId: 't1' },
     'reflection.started': { runId: 'r1', trigger: 'on_error' },
     'reflection.completed': {

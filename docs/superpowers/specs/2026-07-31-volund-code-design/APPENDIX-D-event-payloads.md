@@ -39,6 +39,7 @@
 | `context.compacted` | ★`before` ★`after`（token 数） ?`strategy` ?`removedMessageIds` | |
 | `router.switched` | ★`from` ?`to` ★`reason` | |
 | `error.raised` | ★`code`（附录 B） ?`category` ?`context`（Record） | code 必须来自错误码 registry |
+| `checkpoint.created` | ★`checkpointId` ★`trigger`（`turn-boundary` \| `pre-mutation` \| `manual`） ★`batchCount` ?`batchHead` | CHECKPOINTS-r1；锚点=envelope turnId；checkpoint 是纯引用不拷贝内容（batch 链沿 /undo 血统推导） |
 | `reflection.scheduled` | ★`trigger`（`on_error` \| `on_compact` \| `every_n_turns` \| `manual`） ★`turnId` | §21.3/§21.5 |
 | `reflection.started` | ★`runId` ★`trigger` ?`model` | §21.4 |
 | `reflection.completed` | ★`runId` ★`usage`（Usage） ★`lessonCount` ★`durationMs` | lesson 正文不进事件（§21.7-2） |

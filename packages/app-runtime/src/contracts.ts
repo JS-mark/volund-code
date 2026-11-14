@@ -368,6 +368,12 @@ export interface SessionReflectionPort {
   clear(): void
 }
 
+/** CHECKPOINTS-r1 CP-01：手动打点面（CP-05 接 /checkpoint 命令）。 */
+export interface SessionCheckpointsPort {
+  /** 手动打一个 checkpoint；上限/装配缺失返回 undefined。 */
+  create(): Promise<{ checkpointId: string } | undefined>
+}
+
 /**
  * 一个进行中的会话句柄（SessionController 的返回值）。
  * `TStatusView` 由宿主装配决定：CLI 传 StatusViewModel；Web 在 P1-06 状态视图
@@ -424,6 +430,11 @@ export interface InteractiveSession<TStatusView = unknown> {
   readAttachment?(handle: string): Promise<{ mime: string; bytes: Uint8Array } | undefined>
   /** §21 /reflect 命令族的操作面（宿主未装配反思时缺省，UI 隐藏命令）。 */
   reflection?: SessionReflectionPort
+  /**
+   * CHECKPOINTS-r1 会话检查点操作面（CP-05 接 /checkpoint、CP-06 接 rewind；
+   * 宿主未装配时缺省，UI 隐藏入口）。
+   */
+  checkpoints?: SessionCheckpointsPort
   submit(input: string, options?: SubmitOptions): Promise<void>
   /**
    * 等待在途 turn 落锁（turn 终态事件先于互斥释放出站——客户端收到终态立即

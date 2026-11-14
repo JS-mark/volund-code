@@ -42,8 +42,10 @@ import {
   PermissionPromptController,
   ProductionPermissionSessionPolicy,
   SessionController,
+  CheckpointController,
   projectMemoryScope,
   reflectionPortOf,
+  resolveCheckpointsConfig,
   sessionMemoryScope,
   ReflectionController,
   resolveReflectionConfig,
@@ -787,7 +789,17 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   const appKernel = createAppKernel()
   // H2：活会话内核的 tools 服务集合——插件卸载/禁用时对每个活内核广播摘除。
   const liveToolServices = new Set<ToolsService>()
-  const backups = new BackupStore(join(home, 'backups'))
+  // CHECKPOINTS-r1 CP-01：mutation batch 链钩子——prepare 前打 pre-mutation
+  // checkpoint，commit 后推进链引用（sessionId=lineage root，与 /undo U1 同源）。
+  // 钩子异常已在 BackupStore 侧吞掉（best-effort）。
+  const backups = new BackupStore(join(home, 'backups'), {
+    onPrepare: ({ sessionId }) => {
+      activeCheckpoints?.onBeforeMutation(sessionId)
+    },
+    onCommit: ({ sessionId, batchId }) => {
+      activeCheckpoints?.noteMutationBatch(sessionId, batchId)
+    },
+  })
   const evolution = new EvolutionStore(join(home, 'tuning'))
   const history = new FileInputHistoryStore(join(home, 'history', 'input.jsonl'))
   const trust = new DirectoryTrustStore(home)
@@ -1177,6 +1189,8 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
   // §21 反思（v1）：单活动根会话的反思控制器（status 探针 + onEnd 清理共用）；
   // §3.2 Prompt Cache 探针：当前会话主 provider 的缓存能力 + [cache] 生效策略。
   let activeReflection: ReflectionController | undefined
+  // CHECKPOINTS-r1 CP-01：检查点控制器（随根会话换绑；BackupStore 钩子委托进来）。
+  let activeCheckpoints: CheckpointController | undefined
   let activeCacheInfo:
     | {
         provider: string
@@ -1952,6 +1966,15 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         text: () => reflection.notes(),
       })
       activeReflection = reflection
+      // CHECKPOINTS-r1 CP-01：检查点控制器（根会话换绑；旧实例 dispose 退订总线）。
+      activeCheckpoints?.dispose()
+      const checkpoints = new CheckpointController({
+        state: () => runner.state,
+        events,
+        config: resolveCheckpointsConfig(userConfig.checkpoints),
+      })
+      checkpoints.attach()
+      activeCheckpoints = checkpoints
     }
     return runner
   }
@@ -1992,9 +2015,25 @@ export function createProductionPorts(options: ProductionOptions): VolundPorts {
         activeReflection.dispose()
         activeReflection = undefined
       }
+      // CHECKPOINTS-r1：检查点控制器同步收口（总线退订）。
+      if (activeCheckpoints) {
+        activeCheckpoints.dispose()
+        activeCheckpoints = undefined
+      }
     },
     // §21 /reflect 命令族的操作面（单活动会话模型：port 跟随 activeReflection）。
     reflectionPort: () => (activeReflection ? reflectionPortOf(activeReflection) : undefined),
+    // CHECKPOINTS-r1 CP-01：手动打点面（CP-05 接 /checkpoint 命令）。
+    checkpointsPort: () => {
+      const controller = activeCheckpoints
+      if (!controller) return undefined
+      return {
+        create: async () => {
+          const checkpointId = await controller.createManual()
+          return checkpointId ? { checkpointId } : undefined
+        },
+      }
+    },
     // 删除会话档案后的备份清理（/undo、restore 的数据源一并回收）。
     onDelete: async (sessionId) => {
       await backups.purgeSession(sessionId)

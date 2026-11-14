@@ -1,6 +1,7 @@
 # 会话检查点与回卷白皮书 (CHECKPOINTS r1)
 
-> **状态**：📋 PROPOSED — NOT SHIPPED。本文是目标契约，不描述当前产品能力。**2026-11-15 设计拍板（Mark：按本文推荐）**，拍板记录见 §7。
+> **状态**：🚧 PARTIAL — 批 1（CP-01/CP-02）已落地：checkpoint.created 事件全清单、CheckpointController（app-runtime）、BackupStore onPrepare/onCommit 钩、[checkpoints] 配置段；rewind 引擎/面板/网关（CP-03..07）未实现，不能回卷。**2026-11-15 设计拍板（Mark：按本文推荐）**，拍板记录见 §7。
+> **实现注记（批 1 偏差）**：事件 payload 锚点 = envelope `turnId`（spec 原写 message-seq；JSONL entry index 在 CP-04 截断语义里推导，payload 不冗余存 seq）；环形上限按「本进程已打点数」执行（turn-boundary 到顶停发，manual/pre-mutation 不受限），跨进程环形淘汰在列出层（CP-03+）。
 > **日期**：2026-11-15
 > **对标**：Claude Code 2.0 Checkpoints——会话全程自动打点，`/rewind` 把**对话与文件**恢复到任一历史时点（可选只回对话/只回文件/两者）。
 > **相关**：[§2.7bis.3 文件共享治理与 /undo](./02-agent-loop.md) · [§8 会话与配置存储](./08-session-config.md) · [§8b ContextPolicy](./08b-context-policy.md) · [§4 工具与权限](./04-tools-permissions.md) · [§22 Web Console](./22-web-console.md)
@@ -107,8 +108,8 @@ interface Checkpoint {
 
 | ID    | 内容                                                                                            | 批           |
 | ----- | ----------------------------------------------------------------------------------------------- | ------------ |
-| CP-01 | Checkpoint 模型 + `checkpoint.created` 事件全清单接线 + 打点三钩点（回合边界/mutation 前/手动） | 批 1         |
-| CP-02 | `[checkpoints]` 配置段（环形上限/TTL）+ APPENDIX-C 登记                                         | 批 1         |
+| CP-01 | Checkpoint 模型 + `checkpoint.created` 事件全清单接线 + 打点三钩点（回合边界/mutation 前/手动） | 批 1 ✅      |
+| CP-02 | `[checkpoints]` 配置段（环形上限/TTL）+ APPENDIX-C 登记                                         | 批 1 ✅      |
 | CP-03 | 文件域回卷引擎（batch 链逆序 + 冲突停点 + 强制跳过）+ 完整性守卫（partial/lost）                | 批 2         |
 | CP-04 | 对话域 tombstone 截断（segment 关闭/新开 + replay/resume/usage 只读 active）+ 跨压缩点拒绝      | 批 2         |
 | CP-05 | TUI `/rewind`+`/checkpoint` + commandUsage 同步 + pty 实测                                      | 批 2         |
