@@ -59,6 +59,9 @@ tool_loop_exhausted: Reached the per-turn limit of 25 consecutive tool-call roun
 | `provider_name_conflict`                        | provider 名字冲突                                 |
 | `provider_not_in_fallback_chain`                | 指定 provider 不在 fallback 链中                  |
 | `provider_not_registered`                       | provider 未注册                                   |
+| `reflection_model_unavailable`                  | 反思模型路由无可用模型（§21）                     |
+| `reflection_model_error`                        | 反思模型调用中途失败（§21）                       |
+| `reflection_output_invalid`                     | 反思输出契约不过（零注入零存储，§21）             |
 | `role_router_candidates_empty`                  | 角色路由的候选为空                                |
 | `role_router_config_invalid`                    | 角色路由配置非法                                  |
 | `role_router_default_missing`                   | 角色路由缺少默认项                                |

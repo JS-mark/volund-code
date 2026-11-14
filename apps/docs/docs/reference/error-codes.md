@@ -64,6 +64,9 @@ the domain tables below.
 | `provider_name_conflict`                        | Provider name collision                                                                 |
 | `provider_not_in_fallback_chain`                | The requested provider is not in the fallback chain                                     |
 | `provider_not_registered`                       | The provider is not registered                                                          |
+| `reflection_model_unavailable`                  | The reflection model router had no available model (§21)                                |
+| `reflection_model_error`                        | The reflection model call failed mid-stream (§21)                                       |
+| `reflection_output_invalid`                     | The reflection output failed contract validation (nothing injected or stored, §21)      |
 | `role_router_candidates_empty`                  | The role router has no candidates                                                       |
 | `role_router_config_invalid`                    | Invalid role router config                                                              |
 | `role_router_default_missing`                   | The role router has no default entry                                                    |

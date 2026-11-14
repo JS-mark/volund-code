@@ -56,6 +56,9 @@ export const ErrorCodes = {
   providerNameConflict: 'provider_name_conflict', // B.2 PLUGIN-PROVIDER-r1 §P5（provider-kit）
   providerNotInFallbackChain: 'provider_not_in_fallback_chain',
   providerNotRegistered: 'provider_not_registered',
+  reflectionModelUnavailable: 'reflection_model_unavailable', // app-runtime/reflection §21 反思模型路由失败
+  reflectionModelError: 'reflection_model_error', // app-runtime/reflection §21 反思模型流式调用失败
+  reflectionOutputInvalid: 'reflection_output_invalid', // app-runtime/reflection §21 反思输出契约不过（零注入零存储）
   roleRouterCandidatesEmpty: 'role_router_candidates_empty',
   roleRouterConfigInvalid: 'role_router_config_invalid',
   roleRouterDefaultMissing: 'role_router_default_missing',
