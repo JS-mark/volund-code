@@ -1,6 +1,6 @@
 # 自扩展与内核行为替换白皮书 (SELF-EXT r1)
 
-> **状态**：📋 PROPOSED — NOT SHIPPED。本文是目标契约，不描述当前产品能力。
+> **状态**：📋 PROPOSED — NOT SHIPPED。本文是目标契约，不描述当前产品能力。**2026-11-15 设计拍板（Mark：按本文推荐）**，拍板记录见 §6。
 > **日期**：2026-11-15
 > **对标**：pi（badlogic/pi-mono）的两个招牌能力——①agent 在会话中给自己写扩展；②扩展可替换 harness 默认行为（如 compaction、状态条 widget）。
 > **相关**：[§19 Plugin Kernel](./19-plugin-kernel.md) · [§19a Capability Contract](./19a-capability-contract.md) · [§18 Self-Development](./18-self-development.md) · [§8b.8 插件扩展点](./08b-context-policy.md) · [PLUGIN-STATUS-UI-r1](./PLUGIN-STATUS-UI-r1.md) · [PLUGIN-MANAGER-r1](./PLUGIN-MANAGER-r1.md)
@@ -25,7 +25,8 @@
 
 - 不做扩展市场分发（agent 写的扩展不进 market 索引；分享=用户手动拷目录）。
 - 不做跨扩展依赖解析（每个 agent 扩展自包含，manifest 声明 capabilities，不声明 plugin 依赖）。
-- 不做扩展的签名/catalog 信任根（§19a Catalog v2 交付前，agent 扩展一律走「未签名本地扩展」通道 + 首装人工审批）。
+- 不做扩展的签名/catalog 信任根（§19a Catalog v2 交付前，agent 扩展一律走「未签名本地扩展」通道 + 首装人工审批；project 域叠加内容信任门，见 §6.2 拍板）。
+- 扩展目录不进会话恢复面（checkpoint 与 memory 落盘恢复均不覆盖扩展目录）。
 - 不允许 agent 扩展替换受保护面（§18.5.1 清单 + §19 四边界：沙箱桥/权限/事件契约/UI 渲染权中不开放的渲染权部分）。
 
 ## 2. 地基盘点（已有 vs 要建）
@@ -90,7 +91,7 @@ interface KernelExtensionPoint {
 
 **③ 审批**：首装与每次 capabilities 扩容都弹审批卡（复用 permission 卡 UI 三端已有着陆）；「项目内记住」语义可泛化到「此扩展此项目内记住」。**禁止静默自启**：agent 不得跳过审批（宿主装载器硬校验 `origin:'agent-authored'` 的 approved 标记）。
 
-**④ 激活**：走现有插件宿主装载（沙箱内）；`replace` 型点注册时如已被占用即拒绝（§3.1 冲突规则）。v1 激活语义=下次会话生效 + 当前会话可选热加载（宿主重启该 service；失败回滚到默认实现并报类型化错误）。
+**④ 激活**：走现有插件宿主装载（沙箱内）；`replace` 型点注册时如已被占用即拒绝（§3.1 冲突规则）。激活语义（2026-11-15 拍板）：`replace` 型下次会话生效；`augment` 型当前会话立即热加载（宿主重启该 service；失败回滚到默认实现并报类型化错误）。
 
 **⑤ 管理面**：/plugins（TUI）与 web/mobile 插件面板加 `agent` 域标签；行操作=启停/删除/查看 manifest；删除即移目录（带确认卡）。
 
@@ -130,9 +131,9 @@ interface KernelExtensionPoint {
 - 守卫用例：agent 试图写扩展目录外 / 跨扩展名 / capabilities 未声明而调桥——三路全拒。
 - pty 实测 TUI /plugins agent 域（bundle 改动纪律：非渲染路径全绿不算数）。
 
-## 6. 待拍板
+## 6. 拍板记录（2026-11-15，Mark：按本文推荐）
 
-1. **首批扩展点范围**：本文钉 3 个（context.policy / status.section / session.titleGenerator）；`commit message 生成`、`reflection 触发策略` 候补，Mark 圈。
-2. **project 域信任门**：`.volund/extensions/**` 是项目内可提交内容，撞 REM-29（项目级 config/mcp.toml 内容信任门）射程——project 域扩展首装是否叠加「内容信任门」（hash 变更即重审）。
-3. **热加载深度**：当前会话立即生效 vs 一律下次会话（保守）。本文倾向：replace 型下次会话，augment 型立即。
-4. 扩展目录是否随 `/memory` 落盘恢复一起进会话恢复面（大概率不进，先不收）。
+1. **首批扩展点 = 3 个**（context.policy / status.section / session.titleGenerator）；`commit message 生成`、`reflection 触发策略` 留候补池，收编须过 REVIEW + 注册表快照测试变更。
+2. **project 域叠加内容信任门**：`.volund/extensions/**` 可提交可分享，manifest+源文件 hash 绑定首装审批，hash 变更即失效重审（对齐 REM-29 方向与 MCP 工具集 hash 信任门先例）；user 域走审批卡「项目内记住」既有语义。
+3. **热加载深度**：replace 型下次会话生效；augment 型当前会话立即（§3.2 ④ 已同步）。
+4. **扩展目录不进会话恢复面**（checkpoint 与 memory 落盘恢复均不覆盖；§1 非目标已同步）。

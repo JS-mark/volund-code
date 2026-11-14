@@ -1,6 +1,6 @@
 # 会话检查点与回卷白皮书 (CHECKPOINTS r1)
 
-> **状态**：📋 PROPOSED — NOT SHIPPED。本文是目标契约，不描述当前产品能力。
+> **状态**：📋 PROPOSED — NOT SHIPPED。本文是目标契约，不描述当前产品能力。**2026-11-15 设计拍板（Mark：按本文推荐）**，拍板记录见 §7。
 > **日期**：2026-11-15
 > **对标**：Claude Code 2.0 Checkpoints——会话全程自动打点，`/rewind` 把**对话与文件**恢复到任一历史时点（可选只回对话/只回文件/两者）。
 > **相关**：[§2.7bis.3 文件共享治理与 /undo](./02-agent-loop.md) · [§8 会话与配置存储](./08-session-config.md) · [§8b ContextPolicy](./08b-context-policy.md) · [§4 工具与权限](./04-tools-permissions.md) · [§22 Web Console](./22-web-console.md)
@@ -90,6 +90,7 @@ interface Checkpoint {
 1. **rewind 自身免审**：恢复的是用户已批准过的变更，且域限定 `<cwd>/**`；不弹 permission 卡，但必须弹 §3.1 确认卡（语义确认 ≠ 权限审批）。
 2. **回合进行中禁止 rewind**：turnInFlight 时类型化拒绝（web/mobile 按钮置灰 + TUI 报错）；与发送队列/中断语义互斥（先收尾或中断再回卷）。
 3. **网关并发**：TUI/web/mobile 同时连一会话时，rewind 走 session 级互斥锁（gateway 侧已有 turnFlight 概念可复用）；失败端收 `session.rewound` 视图帧强制重同步。
+4. **memory 沉淀/反思窗口不随回卷**（2026-11-15 拍板）：沉淀物是会话外资产，rewind 后锚点窗口按新 active 指针取，历史沉淀不撤销。
 
 ## 4. 三端与网关面
 
@@ -122,10 +123,10 @@ interface Checkpoint {
 - 冲突用例：rewind 目标与当前文件间用户手改 → 停点列出冲突 → 强制跳过路径。
 - pty 实测 TUI 面板（bundle 纪律）；web 走裸 harness 冒烟（web-ui-browser-smoke-method 配方）。
 
-## 7. 待拍板
+## 7. 拍板记录（2026-11-15，Mark：按本文推荐）
 
-1. **打点密度默认值**：`turn-boundary` 每回合打点是否默认开（50 上限下，长会话会挤掉 pre-mutation 点）。本文倾向默认开 + 上限 50。
-2. **conversation-only 域是否进 v1**：Claude 三域齐供；若 v1 只做 both（简单一致），web/mobile 入口少一个选择器。本文倾向三域齐做（引擎是同一个，域=开关组合）。
-3. **esc-esc 快捷回卷到上一 turn-boundary**（Claude 惯例）：web 有全局 esc 中断绑定（antd 弹层冲突前科），TUI esc 是中断——建议 v1 不做快捷键，仅面板入口。
-4. rewind 后 memory 沉淀/反思的输入窗口是否回卷：本文倾向**不回卷**（沉淀物是会话外资产，锚点窗口按新 active 指针取）——Mark 若要求一致性回卷需加 CP 任务。
-5. BackupStore TTL 联动的具体倍数（batch 保留 ≥ checkpoint 保留 × 2 起）。
+1. **打点密度**：`turn-boundary` 默认开，环形上限默认 50（`[checkpoints]` 可调）。
+2. **三域齐做**：both（默认）/ files-only / conversation-only 全进 v1——引擎同一套，域=开关组合；web/mobile 域选择器保留。
+3. **esc-esc 快捷键不做**（web 全局 esc 中断绑定 + TUI esc 中断，冲突前科）；回卷仅走面板/回合卡入口。
+4. **memory 沉淀/反思窗口不随回卷**：沉淀物是会话外资产，锚点窗口按 rewind 后的新 active 指针取；一致性回卷若未来要做另立 CP 任务。
+5. **BackupStore TTL 联动**：batch 保留时长/容量 ≥ checkpoint 保留 × 2 起步，随实测调。
